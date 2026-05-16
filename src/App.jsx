@@ -1,11 +1,10 @@
-
 import { useState, useRef, useCallback, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const C = {
   gold: "#193C53", goldLight: "#E5D5CC", goldDark: "#102938",
-  black: "#0A0A0A", dark: "#0D1117", surface: "#161B22",
+  dark: "#0D1117", surface: "#161B22",
   surfaceAlt: "#1C2430", surfaceHover: "#21262D", border: "#2D3748",
   borderGold: "rgba(229,213,204,0.18)", text: "#E6EDF3",
   textMuted: "#8B949E", textSub: "#C9D1D9",
@@ -24,6 +23,17 @@ const todayStr = fmt(today);
 
 const EVENT_LABELS = { entrada:"Entrada", inicio_almuerzo:"Inicio Almuerzo", fin_almuerzo:"Fin Almuerzo", salida:"Salida" };
 const EVENT_COLORS = { entrada:C.green, inicio_almuerzo:C.amber, fin_almuerzo:C.blue, salida:C.red };
+
+// ── Hook responsive ───────────────────────────────────────────────────────────
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+  return isMobile;
+}
 
 // ── UI Primitives ─────────────────────────────────────────────────────────────
 const Badge = ({ color, children, sm }) => (
@@ -89,10 +99,10 @@ const Field = ({ label, value, onChange, type="text", placeholder, options, disa
 
 const StatCard = ({ label, value, icon, color }) => (
   <Card style={{ display:"flex", alignItems:"center", gap:16 }}>
-    <div style={{ width:48, height:48, borderRadius:10, background:`${color}18`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{icon}</div>
+    <div style={{ width:44, height:44, borderRadius:10, background:`${color}18`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>{icon}</div>
     <div>
-      <div style={{ fontFamily:font.mono, fontSize:28, fontWeight:700, color, lineHeight:1 }}>{value}</div>
-      <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{label}</div>
+      <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color, lineHeight:1 }}>{value}</div>
+      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>{label}</div>
     </div>
   </Card>
 );
@@ -100,10 +110,10 @@ const StatCard = ({ label, value, icon, color }) => (
 const Divider = () => <div style={{ height:1, background:C.border, margin:"12px 0" }} />;
 
 const PageHeader = ({ title, subtitle, action }) => (
-  <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:24 }}>
+  <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:20, gap:10 }}>
     <div>
-      <h1 style={{ margin:0, fontFamily:font.body, fontSize:22, fontWeight:700, color:C.text }}>{title}</h1>
-      {subtitle && <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:3 }}>{subtitle}</div>}
+      <h1 style={{ margin:0, fontFamily:font.body, fontSize:20, fontWeight:700, color:C.text }}>{title}</h1>
+      {subtitle && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{subtitle}</div>}
     </div>
     {action}
   </div>
@@ -114,9 +124,9 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
   const videoRef   = useRef(null);
   const canvasRef  = useRef(null);
   const streamRef  = useRef(null);
-  const [ready, setReady]       = useState(false);
-  const [captured, setCaptured] = useState(null);
-  const [error, setError]       = useState(null);
+  const [ready, setReady]         = useState(false);
+  const [captured, setCaptured]   = useState(null);
+  const [error, setError]         = useState(null);
   const [countdown, setCountdown] = useState(null);
 
   const startCamera = useCallback(async () => {
@@ -127,27 +137,21 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => { videoRef.current.play(); setReady(true); };
       }
-    } catch {
-      setError("No se pudo acceder a la cámara. Verifica los permisos del navegador.");
-    }
+    } catch { setError("No se pudo acceder a la cámara. Verifica los permisos del navegador."); }
   }, []);
 
-  const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks().forEach(t => t.stop());
-  }, []);
+  const stopCamera = useCallback(() => { streamRef.current?.getTracks().forEach(t => t.stop()); }, []);
 
   useEffect(() => { startCamera(); return () => stopCamera(); }, []);
 
   const takePhoto = () => {
-    let c = 3;
-    setCountdown(c);
+    let c = 3; setCountdown(c);
     const iv = setInterval(() => {
       c--;
-      if (c > 0) { setCountdown(c); }
+      if (c > 0) setCountdown(c);
       else {
         clearInterval(iv); setCountdown(null);
-        const canvas = canvasRef.current;
-        const video  = videoRef.current;
+        const canvas = canvasRef.current, video = videoRef.current;
         canvas.width = video.videoWidth; canvas.height = video.videoHeight;
         canvas.getContext("2d").drawImage(video, 0, 0);
         setCaptured(canvas.toDataURL("image/jpeg", 0.85));
@@ -156,23 +160,20 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
     }, 1000);
   };
 
-  const retake  = () => { setCaptured(null); startCamera(); };
-  const confirm = () => onCapture(captured);
-
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }}>
-      <div style={{ background:C.surface, borderRadius:14, border:`1px solid ${C.border}`, width:560, overflow:"hidden" }}>
-        <div style={{ padding:"16px 20px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.9)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300, padding:16 }}>
+      <div style={{ background:C.surface, borderRadius:14, border:`1px solid ${C.border}`, width:"100%", maxWidth:520, overflow:"hidden" }}>
+        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
           <div>
-            <div style={{ fontFamily:font.body, fontWeight:600, fontSize:15, color:C.text }}>📸 Foto de verificación</div>
-            <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:2 }}>Registro: <span style={{ color:C.amber, fontWeight:600 }}>{eventLabel}</span></div>
+            <div style={{ fontFamily:font.body, fontWeight:600, fontSize:14, color:C.text }}>📸 Foto de verificación</div>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>Registro: <span style={{ color:C.amber, fontWeight:600 }}>{eventLabel}</span></div>
           </div>
-          <Btn onClick={()=>{ stopCamera(); onCancel(); }} variant="ghost" sm>✕ Cancelar</Btn>
+          <Btn onClick={()=>{ stopCamera(); onCancel(); }} variant="ghost" sm>✕</Btn>
         </div>
-        <div style={{ padding:20 }}>
+        <div style={{ padding:16 }}>
           {error ? (
             <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:8, padding:"16px", textAlign:"center" }}>
-              <div style={{ fontSize:32, marginBottom:8 }}>📵</div>
+              <div style={{ fontSize:28, marginBottom:8 }}>📵</div>
               <div style={{ fontFamily:font.body, fontSize:13, color:C.red, fontWeight:600 }}>Sin acceso a la cámara</div>
               <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:4 }}>{error}</div>
             </div>
@@ -182,34 +183,34 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
               {!ready && !captured && <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Iniciando cámara...</div>}
               {countdown !== null && (
                 <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", background:"rgba(0,0,0,0.45)" }}>
-                  <div style={{ fontFamily:font.mono, fontSize:96, fontWeight:700, color:"#fff" }}>{countdown}</div>
+                  <div style={{ fontFamily:font.mono, fontSize:80, fontWeight:700, color:"#fff" }}>{countdown}</div>
                 </div>
               )}
               {captured && <img src={captured} alt="Captura" style={{ width:"100%", height:"100%", objectFit:"cover", transform:"scaleX(-1)" }} />}
               <canvas ref={canvasRef} style={{ display:"none" }} />
               {!captured && ready && countdown === null && (
                 <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", pointerEvents:"none" }}>
-                  <div style={{ width:180, height:220, border:"2px dashed rgba(255,255,255,0.4)", borderRadius:"50%" }} />
+                  <div style={{ width:140, height:180, border:"2px dashed rgba(255,255,255,0.4)", borderRadius:"50%" }} />
                 </div>
               )}
             </div>
           )}
           {!error && (
-            <div style={{ marginTop:16, display:"flex", gap:10, justifyContent:"flex-end" }}>
+            <div style={{ marginTop:12, display:"flex", gap:8, justifyContent:"flex-end", flexWrap:"wrap" }}>
               {!captured ? (
-                <Btn onClick={takePhoto} disabled={!ready || countdown !== null}>
+                <Btn onClick={takePhoto} disabled={!ready || countdown !== null} full>
                   📷 {countdown !== null ? `Fotografiando en ${countdown}...` : "Tomar foto (3s)"}
                 </Btn>
               ) : (
                 <>
-                  <Btn onClick={retake} variant="ghost">↩ Repetir</Btn>
-                  <Btn onClick={confirm} variant="success">✓ Confirmar y registrar</Btn>
+                  <Btn onClick={()=>{ setCaptured(null); startCamera(); }} variant="ghost">↩ Repetir</Btn>
+                  <Btn onClick={()=>onCapture(captured)} variant="success">✓ Confirmar</Btn>
                 </>
               )}
             </div>
           )}
-          <div style={{ marginTop:12, fontFamily:font.body, fontSize:11, color:C.textMuted, textAlign:"center" }}>
-            Ubica tu rostro dentro del óvalo antes de tomar la foto.
+          <div style={{ marginTop:10, fontFamily:font.body, fontSize:11, color:C.textMuted, textAlign:"center" }}>
+            Ubica tu rostro dentro del óvalo.
           </div>
         </div>
       </div>
@@ -217,7 +218,42 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
   );
 }
 
-// ── Sidebar ───────────────────────────────────────────────────────────────────
+// ── Bottom Nav (móvil) ────────────────────────────────────────────────────────
+function BottomNav({ tab, setTab, isAdmin }) {
+  const adminTabs   = [
+    { id:"dashboard", icon:"📊", label:"Panel" },
+    { id:"records",   icon:"📋", label:"Registros" },
+    { id:"users",     icon:"👥", label:"Asesores" },
+    { id:"stores",    icon:"🏬", label:"Tiendas" },
+  ];
+  const advisorTabs = [
+    { id:"checkin",  icon:"📍", label:"Asistencia" },
+    { id:"history",  icon:"📋", label:"Historial" },
+    { id:"schedule", icon:"📅", label:"Turnos" },
+  ];
+  const tabs = isAdmin ? adminTabs : advisorTabs;
+
+  return (
+    <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:C.sidebar, paddingBottom:"env(safe-area-inset-bottom, 8px)", flexShrink:0 }}>
+      {tabs.map(t => {
+        const active = tab === t.id;
+        return (
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{
+            flex:1, padding:"10px 4px 8px", background:"none", border:"none",
+            display:"flex", flexDirection:"column", alignItems:"center", gap:3,
+            cursor:"pointer",
+          }}>
+            <div style={{ fontSize:20 }}>{t.icon}</div>
+            <div style={{ fontSize:10, fontFamily:font.body, fontWeight:600, color: active ? C.goldLight : C.textMuted }}>{t.label}</div>
+            {active && <div style={{ width:4, height:4, borderRadius:99, background:C.goldLight }} />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Sidebar (escritorio) ──────────────────────────────────────────────────────
 function Sidebar({ tab, setTab, user, onLogout }) {
   const adminTabs   = [
     { id:"dashboard", icon:"📊", label:"Panel" },
@@ -234,9 +270,9 @@ function Sidebar({ tab, setTab, user, onLogout }) {
 
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
-      <div style={{ padding:"24px 20px 16px", borderBottom:`1px solid ${C.border}` }}>
+      <div style={{ padding:"20px 16px", borderBottom:`1px solid ${C.border}` }}>
         <img src="/logo.png" alt="OZEN" style={{ width:100, height:"auto", marginBottom:4 }} />
-<div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, letterSpacing:"0.15em", marginTop:2 }}>CONTROL DE PERSONAL</div>
+        <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, letterSpacing:"0.15em", marginTop:2 }}>CONTROL DE PERSONAL</div>
       </div>
       <nav style={{ flex:1, padding:"12px 10px", display:"flex", flexDirection:"column", gap:2 }}>
         {tabs.map(t => {
@@ -257,7 +293,7 @@ function Sidebar({ tab, setTab, user, onLogout }) {
       </nav>
       <div style={{ padding:"14px 16px", borderTop:`1px solid ${C.border}` }}>
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-          <div style={{ width:34, height:34, borderRadius:8, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:14, fontWeight:700, color:"#fff", flexShrink:0 }}>{user.name[0]}</div>
+          <div style={{ width:32, height:32, borderRadius:8, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:13, fontWeight:700, color:"#fff", flexShrink:0 }}>{user.name[0]}</div>
           <div>
             <div style={{ fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{user.name.split(" ")[0]}</div>
             <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>{user.role==="admin" ? "Administrador" : "Asesor"}</div>
@@ -269,58 +305,66 @@ function Sidebar({ tab, setTab, user, onLogout }) {
   );
 }
 
-// ── SCREEN: Dashboard ─────────────────────────────────────────────────────────
-function DashboardScreen({ records, stores }) {
-  const todayRecs     = records.filter(r => r.date === todayStr);
-  const activeAdvisors = new Set(todayRecs.map(r => r.user_id)).size;
-  const byStore       = Object.values(stores).map(s => ({ ...s, count: todayRecs.filter(r => r.store === s.id).length }));
-  const recent        = [...records].sort((a,b) => b.time.localeCompare(a.time)).slice(0, 8);
-
+// ── Mobile Header ─────────────────────────────────────────────────────────────
+function MobileHeader({ user, onLogout }) {
   return (
-    <div>
-      <PageHeader title="Panel General" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} />
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:24 }}>
-        <StatCard label="Registros hoy"    value={todayRecs.length}                        icon="📋" color={C.blue}  />
-        <StatCard label="Asesores activos" value={activeAdvisors}                          icon="👥" color={C.green} />
-        <StatCard label="Tiendas"          value={Object.keys(stores).length}              icon="🏬" color={C.gold}  />
-        <StatCard label="Con foto"         value={todayRecs.filter(r=>r.photo_url).length} icon="📸" color={C.amber} />
-      </div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-        <Card>
-          <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:14 }}>Actividad por tienda</div>
-          <table style={{ width:"100%", borderCollapse:"collapse" }}>
-            <thead><tr>{["Tienda","Eventos"].map(h=><th key={h} style={{ textAlign:"left", fontFamily:font.body, fontSize:11, color:C.textMuted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.07em", paddingBottom:10, borderBottom:`1px solid ${C.border}` }}>{h}</th>)}</tr></thead>
-            <tbody>
-              {byStore.map((s,i)=>(
-                <tr key={s.id}>
-                  <td style={{ padding:"10px 0", fontFamily:font.body, fontSize:13, color:C.text, borderBottom: i<byStore.length-1?`1px solid ${C.border}`:"none" }}>{s.name}</td>
-                  <td style={{ padding:"10px 0", borderBottom: i<byStore.length-1?`1px solid ${C.border}`:"none" }}><Badge color={s.count>0?C.green:C.textMuted} sm>{s.count} eventos</Badge></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-        <Card>
-          <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:14 }}>Últimos eventos</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-            {recent.map(r=>(
-              <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10 }}>
-                <div style={{ width:8, height:8, borderRadius:99, background:EVENT_COLORS[r.event], flexShrink:0 }} />
-                <div style={{ flex:1, fontFamily:font.body, fontSize:13, color:C.text }}>{r.user_name}</div>
-                {r.photo_url && <span title="Con foto" style={{ fontSize:12 }}>📸</span>}
-                <Badge color={EVENT_COLORS[r.event]} sm>{EVENT_LABELS[r.event]}</Badge>
-                <div style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted, minWidth:40, textAlign:"right" }}>{r.time}</div>
-              </div>
-            ))}
-          </div>
-        </Card>
+    <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
+      <img src="/logo.png" alt="OZEN" style={{ width:70, height:"auto" }} />
+      <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+        <div style={{ fontFamily:font.body, fontSize:12, color:C.text }}>{user.name.split(" ")[0]}</div>
+        <button onClick={onLogout} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 10px", color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:font.body }}>Salir</button>
       </div>
     </div>
   );
 }
 
+// ── SCREEN: Dashboard ─────────────────────────────────────────────────────────
+function DashboardScreen({ records, stores, isMobile }) {
+  const todayRecs      = records.filter(r => r.date === todayStr);
+  const activeAdvisors = new Set(todayRecs.map(r => r.user_id)).size;
+  const byStore        = Object.values(stores).map(s => ({ ...s, count: todayRecs.filter(r => r.store === s.id).length }));
+  const recent         = [...records].sort((a,b) => b.time.localeCompare(a.time)).slice(0, 8);
+
+  return (
+    <div>
+      <PageHeader title="Panel General" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} />
+      <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,1fr)", gap:10, marginBottom:16 }}>
+        <StatCard label="Registros hoy"    value={todayRecs.length}                        icon="📋" color={C.blue}  />
+        <StatCard label="Asesores activos" value={activeAdvisors}                          icon="👥" color={C.green} />
+        <StatCard label="Tiendas"          value={Object.keys(stores).length}              icon="🏬" color={C.gold}  />
+        <StatCard label="Con foto"         value={todayRecs.filter(r=>r.photo_url).length} icon="📸" color={C.amber} />
+      </div>
+
+      <Card style={{ marginBottom:16 }}>
+        <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:12 }}>Actividad por tienda</div>
+        {byStore.map((s,i)=>(
+          <div key={s.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 0", borderBottom: i<byStore.length-1?`1px solid ${C.border}`:"none" }}>
+            <div style={{ fontFamily:font.body, fontSize:13, color:C.text }}>{s.name}</div>
+            <Badge color={s.count>0?C.green:C.textMuted} sm>{s.count} eventos</Badge>
+          </div>
+        ))}
+      </Card>
+
+      <Card>
+        <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:12 }}>Últimos eventos</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {recent.map(r=>(
+            <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <div style={{ width:8, height:8, borderRadius:99, background:EVENT_COLORS[r.event], flexShrink:0 }} />
+              <div style={{ flex:1, fontFamily:font.body, fontSize:13, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.user_name}</div>
+              {r.photo_url && <span style={{ fontSize:12 }}>📸</span>}
+              <Badge color={EVENT_COLORS[r.event]} sm>{isMobile ? r.event.split("_")[0] : EVENT_LABELS[r.event]}</Badge>
+              <div style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted, flexShrink:0 }}>{r.time}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // ── SCREEN: Records ───────────────────────────────────────────────────────────
-function RecordsScreen({ records, stores }) {
+function RecordsScreen({ records, stores, isMobile }) {
   const [storeFilter, setStoreFilter] = useState("all");
   const [eventFilter, setEventFilter] = useState("all");
   const [search, setSearch]           = useState("");
@@ -335,65 +379,90 @@ function RecordsScreen({ records, stores }) {
   return (
     <div>
       {viewPhoto && (
-        <div onClick={()=>setViewPhoto(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.9)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:400, cursor:"pointer" }}>
-          <div>
-            <img src={viewPhoto} alt="Foto" style={{ maxWidth:"80vw", maxHeight:"80vh", borderRadius:10 }} />
-            <div style={{ textAlign:"center", marginTop:12, fontFamily:font.body, fontSize:12, color:C.textMuted }}>Clic para cerrar</div>
-          </div>
+        <div onClick={()=>setViewPhoto(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.9)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:400, cursor:"pointer", padding:16 }}>
+          <img src={viewPhoto} alt="Foto" style={{ maxWidth:"100%", maxHeight:"90vh", borderRadius:10 }} />
         </div>
       )}
-      <PageHeader title="Registros de Asistencia" subtitle={`${filtered.length} eventos encontrados`} />
-      <Card style={{ marginBottom:16 }} p="14px 16px">
-        <div style={{ display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por nombre..."
-            style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", minWidth:200 }} />
+      <PageHeader title="Registros" subtitle={`${filtered.length} eventos`} />
+
+      {/* Filtros */}
+      <Card style={{ marginBottom:12 }} p="12px">
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por nombre..."
+          style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box", marginBottom:8 }} />
+        <div style={{ display:"flex", gap:8 }}>
           <select value={storeFilter} onChange={e=>setStoreFilter(e.target.value)}
-            style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none" }}>
+            style={{ flex:1, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}>
             <option value="all">Todas las tiendas</option>
             {Object.values(stores).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <select value={eventFilter} onChange={e=>setEventFilter(e.target.value)}
-            style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none" }}>
-            <option value="all">Todos los eventos</option>
+            style={{ flex:1, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}>
+            <option value="all">Todos</option>
             {Object.entries(EVENT_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
           </select>
         </div>
       </Card>
-      <Card p="0">
-        <table style={{ width:"100%", borderCollapse:"collapse" }}>
-          <thead>
-            <tr style={{ borderBottom:`1px solid ${C.border}` }}>
-              {["Asesor","Tienda","Turno","Evento","Fecha","Hora","Foto"].map(h=>(
-                <th key={h} style={{ padding:"12px 16px", textAlign:"left", fontFamily:font.body, fontSize:11, color:C.textMuted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.07em" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((r,i)=>(
-              <tr key={r.id} style={{ borderBottom: i<filtered.length-1?`1px solid ${C.border}`:"none", background: i%2===0?"transparent":`${C.surfaceAlt}44` }}>
-                <td style={{ padding:"12px 16px", fontFamily:font.body, fontSize:13, color:C.text, fontWeight:500 }}>{r.user_name}</td>
-                <td style={{ padding:"12px 16px", fontFamily:font.body, fontSize:13, color:C.textMuted }}>{stores[r.store]?.name}</td>
-                <td style={{ padding:"12px 16px", fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{r.shift}</td>
-                <td style={{ padding:"12px 16px" }}><Badge color={EVENT_COLORS[r.event]} sm>{EVENT_LABELS[r.event]}</Badge></td>
-                <td style={{ padding:"12px 16px", fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{r.date}</td>
-                <td style={{ padding:"12px 16px", fontFamily:font.mono, fontSize:13, color:EVENT_COLORS[r.event], fontWeight:600 }}>{r.time}</td>
-                <td style={{ padding:"12px 16px" }}>
-                  {r.photo_url
-                    ? <button onClick={()=>setViewPhoto(r.photo_url)} style={{ background:"none", border:"none", cursor:"pointer", fontSize:18 }}>📸</button>
-                    : <span style={{ color:C.border, fontSize:12 }}>—</span>}
-                </td>
+
+      {/* En móvil: tarjetas. En escritorio: tabla */}
+      {isMobile ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {filtered.map(r=>(
+            <Card key={r.id} p="12px">
+              <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:6 }}>
+                <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{r.user_name}</div>
+                <Badge color={EVENT_COLORS[r.event]} sm>{EVENT_LABELS[r.event]}</Badge>
+              </div>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <div>
+                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{stores[r.store]?.name} · {r.shift}</div>
+                  <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, marginTop:2 }}>{r.date}</div>
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  {r.photo_url && <button onClick={()=>setViewPhoto(r.photo_url)} style={{ background:"none", border:"none", cursor:"pointer", fontSize:18 }}>📸</button>}
+                  <div style={{ fontFamily:font.mono, fontSize:16, color:EVENT_COLORS[r.event], fontWeight:700 }}>{r.time}</div>
+                </div>
+              </div>
+            </Card>
+          ))}
+          {filtered.length===0 && <div style={{ textAlign:"center", padding:"40px", color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin registros.</div>}
+        </div>
+      ) : (
+        <Card p="0">
+          <table style={{ width:"100%", borderCollapse:"collapse" }}>
+            <thead>
+              <tr style={{ borderBottom:`1px solid ${C.border}` }}>
+                {["Asesor","Tienda","Turno","Evento","Fecha","Hora","Foto"].map(h=>(
+                  <th key={h} style={{ padding:"12px 16px", textAlign:"left", fontFamily:font.body, fontSize:11, color:C.textMuted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.07em" }}>{h}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length===0 && <div style={{ textAlign:"center", padding:"40px", color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin registros.</div>}
-      </Card>
+            </thead>
+            <tbody>
+              {filtered.map((r,i)=>(
+                <tr key={r.id} style={{ borderBottom: i<filtered.length-1?`1px solid ${C.border}`:"none", background: i%2===0?"transparent":`${C.surfaceAlt}44` }}>
+                  <td style={{ padding:"12px 16px", fontFamily:font.body, fontSize:13, color:C.text, fontWeight:500 }}>{r.user_name}</td>
+                  <td style={{ padding:"12px 16px", fontFamily:font.body, fontSize:13, color:C.textMuted }}>{stores[r.store]?.name}</td>
+                  <td style={{ padding:"12px 16px", fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{r.shift}</td>
+                  <td style={{ padding:"12px 16px" }}><Badge color={EVENT_COLORS[r.event]} sm>{EVENT_LABELS[r.event]}</Badge></td>
+                  <td style={{ padding:"12px 16px", fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{r.date}</td>
+                  <td style={{ padding:"12px 16px", fontFamily:font.mono, fontSize:13, color:EVENT_COLORS[r.event], fontWeight:600 }}>{r.time}</td>
+                  <td style={{ padding:"12px 16px" }}>
+                    {r.photo_url
+                      ? <button onClick={()=>setViewPhoto(r.photo_url)} style={{ background:"none", border:"none", cursor:"pointer", fontSize:18 }}>📸</button>
+                      : <span style={{ color:C.border, fontSize:12 }}>—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filtered.length===0 && <div style={{ textAlign:"center", padding:"40px", color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin registros.</div>}
+        </Card>
+      )}
     </div>
   );
 }
 
 // ── SCREEN: Users ─────────────────────────────────────────────────────────────
-function UsersScreen({ users, setUsers }) {
+function UsersScreen({ users, setUsers, isMobile }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm]         = useState({ name:"", documento:"" });
   const [editing, setEditing]   = useState(null);
@@ -406,8 +475,7 @@ function UsersScreen({ users, setUsers }) {
     setLoading(true);
     const { data, error } = await supabase.from("usuarios").insert({
       name: form.name.trim(), documento: form.documento.trim(),
-      password: form.documento.trim(), // contraseña inicial = documento
-      role: "advisor", active: true
+      password: form.documento.trim(), role: "advisor", active: true
     }).select().single();
     if (!error) { setUsers(prev => [...prev, data]); setForm({ name:"", documento:"" }); setShowForm(false); }
     setLoading(false);
@@ -417,8 +485,6 @@ function UsersScreen({ users, setUsers }) {
     const { data } = await supabase.from("usuarios").update({ active: !u.active }).eq("id", u.id).select().single();
     if (data) setUsers(prev => prev.map(x => x.id===u.id ? data : x));
   };
-
-  const startEdit = (u) => { setEditing(u.id); setEditVal({ name:u.name, documento:u.documento }); };
 
   const saveEdit = async (id) => {
     if (!editVal.name.trim() || !editVal.documento.trim()) return;
@@ -433,73 +499,49 @@ function UsersScreen({ users, setUsers }) {
 
   return (
     <div>
-      <PageHeader title="Asesores" subtitle={`${advisors.length} asesores registrados`}
-        action={<Btn onClick={()=>{ setShowForm(!showForm); setEditing(null); }}>{showForm?"Cancelar":"+ Nuevo asesor"}</Btn>}
+      <PageHeader title="Asesores" subtitle={`${advisors.length} asesores`}
+        action={<Btn onClick={()=>{ setShowForm(!showForm); setEditing(null); }} sm>{showForm?"Cancelar":"+ Nuevo"}</Btn>}
       />
       {showForm && (
-        <Card glow style={{ marginBottom:20, maxWidth:520 }}>
-          <div style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.goldLight, marginBottom:16 }}>Nuevo asesor</div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-            <Field label="Nombre completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nombre Apellido" />
-            <Field label="N.º de documento" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Número de documento" />
-          </div>
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:12 }}>
-            💡 La contraseña inicial será el mismo número de documento.
-          </div>
-          <Btn onClick={add} disabled={loading}>{loading ? "Guardando..." : "Crear asesor"}</Btn>
+        <Card glow style={{ marginBottom:16 }}>
+          <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.goldLight, marginBottom:14 }}>Nuevo asesor</div>
+          <Field label="Nombre completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nombre Apellido" />
+          <Field label="N.º de documento" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Número de documento" />
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:12 }}>💡 La contraseña inicial será el número de documento.</div>
+          <Btn onClick={add} disabled={loading} full>{loading ? "Guardando..." : "Crear asesor"}</Btn>
         </Card>
       )}
-      <Card p="0">
-        <table style={{ width:"100%", borderCollapse:"collapse" }}>
-          <thead>
-            <tr style={{ borderBottom:`1px solid ${C.border}` }}>
-              {["Asesor","Documento","Estado","Acciones"].map(h=>(
-                <th key={h} style={{ padding:"12px 16px", textAlign:"left", fontFamily:font.body, fontSize:11, color:C.textMuted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.07em" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {advisors.map((u,i)=>(
-              <tr key={u.id} style={{ borderBottom: i<advisors.length-1?`1px solid ${C.border}`:"none", opacity: u.active?1:0.55 }}>
-                <td style={{ padding:"14px 16px" }}>
-                  {editing===u.id
-                    ? <input value={editVal.name} onChange={e=>setEditVal(p=>({...p,name:e.target.value}))}
-                        style={{ background:C.surfaceAlt, border:`1px solid ${C.gold}`, borderRadius:6, padding:"6px 10px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", width:180 }} />
-                    : <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                        <div style={{ width:34, height:34, borderRadius:8, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontWeight:700, color:"#fff", flexShrink:0 }}>{u.name[0]}</div>
-                        <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:500 }}>{u.name}</div>
-                      </div>
-                  }
-                </td>
-                <td style={{ padding:"14px 16px" }}>
-                  {editing===u.id
-                    ? <input value={editVal.documento} onChange={e=>setEditVal(p=>({...p,documento:e.target.value}))}
-                        style={{ background:C.surfaceAlt, border:`1px solid ${C.gold}`, borderRadius:6, padding:"6px 10px", color:C.text, fontSize:13, fontFamily:font.mono, outline:"none", width:140 }} />
-                    : <span style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{u.documento}</span>
-                  }
-                </td>
-                <td style={{ padding:"14px 16px" }}><Badge color={u.active?C.green:C.red} sm>{u.active?"Activo":"Inactivo"}</Badge></td>
-                <td style={{ padding:"14px 16px" }}>
-                  <div style={{ display:"flex", gap:6 }}>
-                    {editing===u.id ? (
-                      <>
-                        <Btn onClick={()=>saveEdit(u.id)} variant="success" sm>Guardar</Btn>
-                        <Btn onClick={()=>setEditing(null)} variant="ghost" sm>Cancelar</Btn>
-                      </>
-                    ) : (
-                      <>
-                        <Btn onClick={()=>startEdit(u)} variant="ghost" sm>✏ Editar</Btn>
-                        <Btn onClick={()=>toggle(u)} variant={u.active?"danger":"success"} sm>{u.active?"Desactivar":"Activar"}</Btn>
-                        <Btn onClick={()=>deleteUser(u.id)} variant="danger" sm>🗑</Btn>
-                      </>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
+
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {advisors.map(u=>(
+          <Card key={u.id} p="14px" style={{ opacity: u.active?1:0.6 }}>
+            {editing===u.id ? (
+              <div>
+                <Field label="Nombre" value={editVal.name} onChange={v=>setEditVal(p=>({...p,name:v}))} />
+                <Field label="Documento" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} />
+                <div style={{ display:"flex", gap:8 }}>
+                  <Btn onClick={()=>saveEdit(u.id)} variant="success" sm full>Guardar</Btn>
+                  <Btn onClick={()=>setEditing(null)} variant="ghost" sm full>Cancelar</Btn>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <div style={{ width:36, height:36, borderRadius:8, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontWeight:700, color:"#fff", flexShrink:0 }}>{u.name[0]}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.name}</div>
+                  <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted }}>{u.documento}</div>
+                </div>
+                <Badge color={u.active?C.green:C.red} sm>{u.active?"Activo":"Inactivo"}</Badge>
+                <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+                  <Btn onClick={()=>{ setEditing(u.id); setEditVal({ name:u.name, documento:u.documento }); }} variant="ghost" sm>✏</Btn>
+                  <Btn onClick={()=>toggle(u)} variant={u.active?"danger":"success"} sm>{u.active?"✕":"✓"}</Btn>
+                  <Btn onClick={()=>deleteUser(u.id)} variant="danger" sm>🗑</Btn>
+                </div>
+              </div>
+            )}
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }
@@ -525,8 +567,6 @@ function StoresScreen({ stores, setStores }) {
     setStores(prev=>{ const c={...prev}; delete c[id]; return c; });
   };
 
-  const startEdit = (s) => { setEditing(s.id); setEditVal({ name:s.name }); };
-
   const saveEdit = async (id) => {
     if (!editVal.name.trim()) return;
     const { data } = await supabase.from("tiendas").update({ name:editVal.name.trim() }).eq("id", id).select().single();
@@ -549,36 +589,33 @@ function StoresScreen({ stores, setStores }) {
 
   return (
     <div>
-      <PageHeader title="Tiendas" subtitle="Administra los puntos de venta y sus turnos"
-        action={<Btn onClick={()=>setShowForm(!showForm)}>{showForm?"Cancelar":"+ Nueva tienda"}</Btn>}
+      <PageHeader title="Tiendas" subtitle="Puntos de venta y turnos"
+        action={<Btn onClick={()=>setShowForm(!showForm)} sm>{showForm?"Cancelar":"+ Nueva"}</Btn>}
       />
       {showForm && (
-        <Card glow style={{ marginBottom:20, maxWidth:400 }}>
-          <div style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.goldLight, marginBottom:14 }}>Nueva tienda</div>
+        <Card glow style={{ marginBottom:16 }}>
           <Field label="Nombre de la tienda" value={newName} onChange={setNewName} placeholder="Ej: Centenario" />
-          <Btn onClick={addStore}>Crear tienda</Btn>
+          <Btn onClick={addStore} full>Crear tienda</Btn>
         </Card>
       )}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
         {Object.values(stores).map(s=>(
           <Card key={s.id} glow={editing===s.id}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14 }}>
-              <div style={{ flex:1 }}>
-                {editing===s.id
-                  ? <input value={editVal.name} onChange={e=>setEditVal(p=>({...p,name:e.target.value}))}
-                      style={{ background:C.surfaceAlt, border:`1px solid ${C.gold}`, borderRadius:7, padding:"7px 11px", color:C.text, fontSize:16, fontFamily:font.body, outline:"none", width:"100%", fontWeight:700 }} />
-                  : <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.goldLight }}>{s.name}</div>
-                }
-              </div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+              {editing===s.id
+                ? <input value={editVal.name} onChange={e=>setEditVal(p=>({...p,name:e.target.value}))}
+                    style={{ flex:1, background:C.surfaceAlt, border:`1px solid ${C.gold}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:15, fontFamily:font.body, outline:"none", fontWeight:700 }} />
+                : <div style={{ fontFamily:font.body, fontSize:15, fontWeight:700, color:C.goldLight }}>{s.name}</div>
+              }
               <div style={{ display:"flex", gap:6, marginLeft:10, flexShrink:0 }}>
                 {editing===s.id ? (
                   <>
                     <Btn onClick={()=>saveEdit(s.id)} sm>Guardar</Btn>
-                    <Btn onClick={()=>setEditing(null)} variant="ghost" sm>Cancelar</Btn>
+                    <Btn onClick={()=>setEditing(null)} variant="ghost" sm>✕</Btn>
                   </>
                 ) : (
                   <>
-                    <Btn onClick={()=>startEdit(s)} variant="ghost" sm>✏ Editar</Btn>
+                    <Btn onClick={()=>{ setEditing(s.id); setEditVal({ name:s.name }); }} variant="ghost" sm>✏</Btn>
                     <Btn onClick={()=>deleteStore(s.id)} variant="danger" sm>🗑</Btn>
                   </>
                 )}
@@ -586,19 +623,19 @@ function StoresScreen({ stores, setStores }) {
             </div>
             <Divider />
             <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Turnos ({s.shifts.length})</div>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:10, minHeight:28 }}>
-              {s.shifts.length===0 && <span style={{ fontFamily:font.body, fontSize:12, color:C.border }}>Sin turnos aún</span>}
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:10 }}>
+              {s.shifts.length===0 && <span style={{ fontFamily:font.body, fontSize:12, color:C.border }}>Sin turnos</span>}
               {s.shifts.map(sh=>(
                 <div key={sh} style={{ display:"flex", alignItems:"center", gap:4 }}>
                   <Badge color={C.goldLight} sm>{sh}</Badge>
                   <button onClick={()=>removeShift(s.id,sh)}
-                    style={{ background:C.redDim, border:`1px solid ${C.red}33`, color:C.red, borderRadius:4, width:18, height:18, cursor:"pointer", fontSize:10, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+                    style={{ background:C.redDim, border:`1px solid ${C.red}33`, color:C.red, borderRadius:4, width:16, height:16, cursor:"pointer", fontSize:9, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
                 </div>
               ))}
             </div>
             <div style={{ display:"flex", gap:8 }}>
               <input value={newShift[s.id]||""} onChange={e=>setNewShift(p=>({...p,[s.id]:e.target.value}))}
-                onKeyDown={e=>e.key==="Enter"&&addShift(s.id)} placeholder="Código turno (ej: UT5)"
+                onKeyDown={e=>e.key==="Enter"&&addShift(s.id)} placeholder="Nuevo turno"
                 style={{ flex:1, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"6px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }} />
               <Btn onClick={()=>addShift(s.id)} sm>+ Agregar</Btn>
             </div>
@@ -611,11 +648,11 @@ function StoresScreen({ stores, setStores }) {
 
 // ── SCREEN: Check-in ──────────────────────────────────────────────────────────
 function CheckInScreen({ user, records, onRecord, stores }) {
-  const [selStore, setSelStore]   = useState("");
-  const [selShift, setSelShift]   = useState("");
+  const [selStore, setSelStore]     = useState("");
+  const [selShift, setSelShift]     = useState("");
   const [showCamera, setShowCamera] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [toast, setToast]         = useState(null);
+  const [recording, setRecording]   = useState(false);
+  const [toast, setToast]           = useState(null);
 
   const todayRecs = records.filter(r => r.user_id===user.id && r.date===todayStr);
   const lastEvent = todayRecs[todayRecs.length-1]?.event;
@@ -626,30 +663,21 @@ function CheckInScreen({ user, records, onRecord, stores }) {
     : null;
 
   const handleCapture = async (photoBase64) => {
-    setShowCamera(false);
-    setRecording(true);
-
+    setShowCamera(false); setRecording(true);
     let photo_url = null;
     try {
-      const blob     = await fetch(photoBase64).then(r => r.blob());
+      const blob = await fetch(photoBase64).then(r => r.blob());
       const fileName = `${user.id}_${Date.now()}.jpg`;
-      const { data: uploadData } = await supabase.storage
-        .from("fotos-registro").upload(fileName, blob, { contentType:"image/jpeg" });
+      const { data: uploadData } = await supabase.storage.from("fotos-registro").upload(fileName, blob, { contentType:"image/jpeg" });
       if (uploadData) {
         const { data: urlData } = supabase.storage.from("fotos-registro").getPublicUrl(fileName);
         photo_url = urlData.publicUrl;
       }
-    } catch (e) { console.error("Error subiendo foto:", e); }
+    } catch(e) { console.error("Error subiendo foto:", e); }
 
     const { data, error } = await supabase.from("registros").insert({
-      user_id:   user.id,
-      user_name: user.name,
-      store:     selStore,
-      shift:     selShift,
-      event:     nextEvent,
-      date:      todayStr,
-      time:      fmtTime(new Date()),
-      photo_url,
+      user_id: user.id, user_name: user.name, store: selStore, shift: selShift,
+      event: nextEvent, date: todayStr, time: fmtTime(new Date()), photo_url,
     }).select().single();
 
     if (!error) onRecord(data);
@@ -658,71 +686,61 @@ function CheckInScreen({ user, records, onRecord, stores }) {
     setTimeout(()=>setToast(null), 3000);
   };
 
-  const canProceed = selStore && selShift && nextEvent;
-
   return (
     <div>
       {showCamera && <CameraModal eventLabel={EVENT_LABELS[nextEvent]} onCapture={handleCapture} onCancel={()=>setShowCamera(false)} />}
       {toast && (
-        <div style={{ position:"fixed", top:20, right:20, background:C.greenDim, border:`1px solid ${C.green}`, borderRadius:10, padding:"12px 20px", color:C.green, fontFamily:font.body, fontSize:13, fontWeight:600, zIndex:200 }}>{toast}</div>
+        <div style={{ position:"fixed", top:16, right:16, left:16, background:C.greenDim, border:`1px solid ${C.green}`, borderRadius:10, padding:"12px 16px", color:C.green, fontFamily:font.body, fontSize:13, fontWeight:600, zIndex:200, textAlign:"center" }}>{toast}</div>
       )}
+
       <PageHeader title="Marcar Asistencia" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} />
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
-        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-          <Card>
-            <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:14 }}>Seleccionar turno</div>
-            <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}}
-              options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]} />
-            {selStore && stores[selStore]?.shifts?.length > 0 && (
-              <Field label="Turno" value={selShift} onChange={setSelShift}
-                options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).map(s=>({value:s,label:s}))]} />
-            )}
-          </Card>
-          {nextEvent ? (
-            <Card>
-              <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:4 }}>Próximo evento</div>
-              <div style={{ fontFamily:font.body, fontSize:18, fontWeight:700, color:EVENT_COLORS[nextEvent], marginBottom:16 }}>{EVENT_LABELS[nextEvent]}</div>
-              <div style={{ background:`${C.gold}10`, border:`1px solid ${C.borderGold}`, borderRadius:8, padding:"12px 14px", marginBottom:16, fontFamily:font.body, fontSize:12, color:C.textSub }}>
-                📸 Se abrirá la cámara y se tomará una foto automáticamente. Asegúrate de que tu rostro sea visible.
-              </div>
-              <Btn onClick={()=>setShowCamera(true)} disabled={!canProceed||recording} full>
-                {recording ? "Registrando..." : "📸 Abrir cámara y registrar"}
-              </Btn>
-            </Card>
-          ) : (
-            <Card>
-              <div style={{ textAlign:"center", padding:"20px 0" }}>
-                <div style={{ fontSize:40, marginBottom:10 }}>✅</div>
-                <div style={{ fontFamily:font.body, fontSize:16, fontWeight:600, color:C.text }}>Jornada completa</div>
-                <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:4 }}>Todos los eventos del día han sido registrados.</div>
-              </div>
-            </Card>
-          )}
-        </div>
+
+      <Card style={{ marginBottom:12 }}>
+        <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}}
+          options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]} />
+        {selStore && stores[selStore]?.shifts?.length > 0 && (
+          <Field label="Turno" value={selShift} onChange={setSelShift}
+            options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).map(s=>({value:s,label:s}))]} />
+        )}
+      </Card>
+
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10, textTransform:"uppercase", letterSpacing:"0.07em" }}>Registro de hoy</div>
+        {["entrada","inicio_almuerzo","fin_almuerzo","salida"].map((ev,i)=>{
+          const rec = todayRecs.find(r=>r.event===ev);
+          const isNext = ev===nextEvent;
+          return (
+            <div key={ev} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom: i<3?`1px solid ${C.border}`:"none" }}>
+              <div style={{ width:12, height:12, borderRadius:99, background: rec?EVENT_COLORS[ev]:C.border, boxShadow: rec?`0 0 8px ${EVENT_COLORS[ev]}`:"none", flexShrink:0 }} />
+              <div style={{ flex:1, fontFamily:font.body, fontSize:13, color: rec?C.text:C.textMuted }}>{EVENT_LABELS[ev]}</div>
+              {isNext && !rec && <Badge color={C.gold} sm>Pendiente</Badge>}
+              {rec?.photo_url && <span style={{ fontSize:12 }}>📸</span>}
+              <div style={{ fontFamily:font.mono, fontSize:13, color: rec?EVENT_COLORS[ev]:C.border, fontWeight:700 }}>{rec?rec.time:"--:--"}</div>
+            </div>
+          );
+        })}
+      </Card>
+
+      {nextEvent ? (
         <Card>
-          <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:16 }}>Registro de hoy</div>
-          {["entrada","inicio_almuerzo","fin_almuerzo","salida"].map((ev,i)=>{
-            const rec    = todayRecs.find(r=>r.event===ev);
-            const isNext = ev===nextEvent;
-            return (
-              <div key={ev} style={{ display:"flex", alignItems:"flex-start", gap:14, padding:"14px 0", borderBottom: i<3?`1px solid ${C.border}`:"none" }}>
-                <div style={{ display:"flex", flexDirection:"column", alignItems:"center", width:16, paddingTop:2 }}>
-                  <div style={{ width:14, height:14, borderRadius:99, background: rec?EVENT_COLORS[ev]:C.border, boxShadow: rec?`0 0 10px ${EVENT_COLORS[ev]}`:"none" }} />
-                  {i<3 && <div style={{ width:2, height:22, background: rec?EVENT_COLORS[ev]:C.border, marginTop:2, opacity:0.4 }} />}
-                </div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontFamily:font.body, fontSize:13, color: rec?C.text:C.textMuted, fontWeight: rec?500:400 }}>{EVENT_LABELS[ev]}</div>
-                  {isNext && !rec && <div style={{ fontFamily:font.body, fontSize:11, color:C.gold, marginTop:2 }}>Pendiente</div>}
-                </div>
-                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  {rec?.photo_url && <span style={{ fontSize:14 }}>📸</span>}
-                  <div style={{ fontFamily:font.mono, fontSize:14, color: rec?EVENT_COLORS[ev]:C.border, fontWeight:700 }}>{rec?rec.time:"--:--"}</div>
-                </div>
-              </div>
-            );
-          })}
+          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:4 }}>Próximo evento</div>
+          <div style={{ fontFamily:font.body, fontSize:18, fontWeight:700, color:EVENT_COLORS[nextEvent], marginBottom:14 }}>{EVENT_LABELS[nextEvent]}</div>
+          <div style={{ background:`${C.gold}10`, border:`1px solid ${C.borderGold}`, borderRadius:8, padding:"10px 12px", marginBottom:14, fontFamily:font.body, fontSize:12, color:C.textSub }}>
+            📸 Se abrirá la cámara y se tomará una foto. Asegúrate de que tu rostro sea visible.
+          </div>
+          <Btn onClick={()=>setShowCamera(true)} disabled={!selStore||!selShift||recording} full>
+            {recording ? "Registrando..." : "📸 Abrir cámara y registrar"}
+          </Btn>
         </Card>
-      </div>
+      ) : (
+        <Card>
+          <div style={{ textAlign:"center", padding:"16px 0" }}>
+            <div style={{ fontSize:36, marginBottom:8 }}>✅</div>
+            <div style={{ fontFamily:font.body, fontSize:15, fontWeight:600, color:C.text }}>Jornada completa</div>
+            <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:4 }}>Todos los eventos del día registrados.</div>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
@@ -736,29 +754,26 @@ function HistoryScreen({ user, records, stores }) {
   return (
     <div>
       {viewPhoto && (
-        <div onClick={()=>setViewPhoto(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.9)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:400, cursor:"pointer" }}>
-          <img src={viewPhoto} alt="Foto" style={{ maxWidth:"80vw", maxHeight:"80vh", borderRadius:10 }} />
+        <div onClick={()=>setViewPhoto(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.9)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:400, cursor:"pointer", padding:16 }}>
+          <img src={viewPhoto} alt="Foto" style={{ maxWidth:"100%", maxHeight:"90vh", borderRadius:10 }} />
         </div>
       )}
-      <PageHeader title="Mi Historial" subtitle="Todos mis registros de asistencia" />
+      <PageHeader title="Mi Historial" subtitle="Mis registros de asistencia" />
       {Object.entries(grouped).map(([date,recs])=>(
-        <div key={date} style={{ marginBottom:20 }}>
+        <div key={date} style={{ marginBottom:16 }}>
           <div style={{ fontFamily:font.body, fontSize:11, color:C.gold, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:8, fontWeight:600 }}>
             {new Date(date+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}
           </div>
           <Card p="0">
             {recs.map((r,i)=>(
-              <div key={r.id} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 18px", borderBottom: i<recs.length-1?`1px solid ${C.border}`:"none" }}>
-                <div style={{ width:36, height:36, borderRadius:8, background:`${EVENT_COLORS[r.event]}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                  <div style={{ width:10, height:10, borderRadius:99, background:EVENT_COLORS[r.event] }} />
-                </div>
+              <div key={r.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderBottom: i<recs.length-1?`1px solid ${C.border}`:"none" }}>
+                <div style={{ width:10, height:10, borderRadius:99, background:EVENT_COLORS[r.event], flexShrink:0 }} />
                 <div style={{ flex:1 }}>
                   <div style={{ fontFamily:font.body, fontSize:13, color:C.text }}>{EVENT_LABELS[r.event]}</div>
-                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{stores[r.store]?.name} · Turno {r.shift}</div>
+                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{stores[r.store]?.name}</div>
                 </div>
-                {r.photo_url && <button onClick={()=>setViewPhoto(r.photo_url)} style={{ background:"none", border:"none", cursor:"pointer", fontSize:18 }}>📸</button>}
-                <Badge color={EVENT_COLORS[r.event]} sm>{EVENT_LABELS[r.event]}</Badge>
-                <div style={{ fontFamily:font.mono, fontSize:14, color:EVENT_COLORS[r.event], fontWeight:700, minWidth:50, textAlign:"right" }}>{r.time}</div>
+                {r.photo_url && <button onClick={()=>setViewPhoto(r.photo_url)} style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>📸</button>}
+                <div style={{ fontFamily:font.mono, fontSize:14, color:EVENT_COLORS[r.event], fontWeight:700 }}>{r.time}</div>
               </div>
             ))}
           </Card>
@@ -774,10 +789,10 @@ function ScheduleScreen() {
   return (
     <div>
       <PageHeader title="Malla Horaria" subtitle="Consulta tu programación semanal" />
-      <Card glow style={{ maxWidth:480 }}>
-        <div style={{ textAlign:"center", padding:"30px 0" }}>
-          <div style={{ fontSize:48, marginBottom:16 }}>📅</div>
-          <div style={{ fontFamily:font.body, fontSize:14, color:C.textMuted, marginBottom:16 }}>Tu malla horaria está disponible en Google Sheets.</div>
+      <Card glow>
+        <div style={{ textAlign:"center", padding:"24px 0" }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>📅</div>
+          <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginBottom:16 }}>Tu malla horaria está disponible en Google Sheets.</div>
           <a href="https://docs.google.com/spreadsheets/d/1dQ3aPmKrvZXl7Njqvt_F36SIulnV6aenArLBk1bcTe0/edit?usp=sharing"
             target="_blank" rel="noreferrer"
             style={{ display:"inline-flex", alignItems:"center", gap:8, background:C.gold, color:"#fff", fontFamily:font.body, fontWeight:600, fontSize:14, padding:"11px 22px", borderRadius:8, textDecoration:"none" }}>
@@ -790,7 +805,7 @@ function ScheduleScreen() {
 }
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
-function LoginScreen({ onLogin }) {
+function LoginScreen() {
   const [documento, setDocumento] = useState("");
   const [pass, setPass]           = useState("");
   const [err, setErr]             = useState("");
@@ -799,34 +814,26 @@ function LoginScreen({ onLogin }) {
   const handle = async () => {
     if (!documento.trim() || !pass) { setErr("Completa todos los campos."); return; }
     setLoading(true); setErr("");
-    const { data, error } = await supabase
-      .from("usuarios")
-      .select("*")
-      .eq("documento", documento.trim())
-      .eq("password", pass)
-      .eq("active", true)
-      .single();
-    if (data) onLogin(data);
-    else if (error?.code === "PGRST116") setErr("Documento o contraseña incorrecta, o cuenta inactiva.");
-    else setErr("Error de conexión. Intenta de nuevo.");
+    const { data, error } = await supabase.from("usuarios").select("*")
+      .eq("documento", documento.trim()).eq("password", pass).eq("active", true).single();
+    if (data) window.__loginCallback(data);
+    else setErr("Documento o contraseña incorrecta, o cuenta inactiva.");
     setLoading(false);
   };
 
-  const handleKey = (e) => { if (e.key === "Enter") handle(); };
-
   return (
-    <div style={{ minHeight:"100vh", background:C.dark, display:"flex", alignItems:"center", justifyContent:"center" }}>
-      <div style={{ width:400 }}>
-        <div style={{ textAlign:"center", marginBottom:32 }}>
-          <img src="/logo.png" alt="OZEN" style={{ width:160, height:"auto", marginBottom:12 }} />
-          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, letterSpacing:"0.2em", marginTop:4 }}>CONTROL DE PERSONAL</div>
+    <div style={{ minHeight:"100vh", background:C.dark, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div style={{ width:"100%", maxWidth:380 }}>
+        <div style={{ textAlign:"center", marginBottom:28 }}>
+          <img src="/logo.png" alt="OZEN" style={{ width:140, height:"auto", marginBottom:12 }} />
+          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, letterSpacing:"0.2em" }}>CONTROL DE PERSONAL</div>
         </div>
         <Card glow>
-          <div style={{ fontFamily:font.body, fontSize:18, fontWeight:600, color:C.text, marginBottom:20 }}>Iniciar sesión</div>
+          <div style={{ fontFamily:font.body, fontSize:17, fontWeight:600, color:C.text, marginBottom:18 }}>Iniciar sesión</div>
           <Field label="N.º de documento" value={documento} onChange={setDocumento} placeholder="Número de documento" />
           <Field label="Contraseña" type="password" value={pass} onChange={setPass} placeholder="••••••••" />
           {err && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"9px 12px", color:C.red, fontSize:12, marginBottom:12, fontFamily:font.body }}>{err}</div>}
-          <Btn onClick={handle} disabled={loading} full style={{marginTop:4}} onKeyDown={handleKey}>
+          <Btn onClick={handle} disabled={loading} full style={{marginTop:4}}>
             {loading ? "Verificando..." : "Ingresar"}
           </Btn>
         </Card>
@@ -843,8 +850,10 @@ export default function App() {
   const [users, setUsers]     = useState([]);
   const [stores, setStores]   = useState({});
   const [booting, setBooting] = useState(true);
+  const isMobile = useIsMobile();
 
-  // Cargar datos iniciales
+  window.__loginCallback = (u) => { setUser(u); setTab(u.role==="admin" ? "dashboard" : "checkin"); };
+
   useEffect(() => {
     const load = async () => {
       const [{ data: t }, { data: u }, { data: r }] = await Promise.all([
@@ -854,16 +863,13 @@ export default function App() {
       ]);
       const storesMap = {};
       (t||[]).forEach(s => storesMap[s.id] = s);
-      setStores(storesMap);
-      setUsers(u||[]);
-      setRecords(r||[]);
+      setStores(storesMap); setUsers(u||[]); setRecords(r||[]);
       setBooting(false);
     };
     load();
   }, []);
 
-  const login  = (u) => { setUser(u); setTab(u.role==="admin" ? "dashboard" : "checkin"); };
-  const logout = () => { setUser(null); setTab(null); };
+  const logout    = () => { setUser(null); setTab(null); };
   const addRecord = (r) => setRecords(prev => [r, ...prev]);
 
   if (booting) return (
@@ -872,13 +878,13 @@ export default function App() {
     </div>
   );
 
-  if (!user) return <LoginScreen onLogin={login} />;
+  if (!user) return <LoginScreen />;
 
   const renderScreen = () => {
     if (user.role==="admin") {
-      if (tab==="dashboard") return <DashboardScreen records={records} stores={stores} />;
-      if (tab==="records")   return <RecordsScreen records={records} stores={stores} />;
-      if (tab==="users")     return <UsersScreen users={users} setUsers={setUsers} />;
+      if (tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile} />;
+      if (tab==="records")   return <RecordsScreen records={records} stores={stores} isMobile={isMobile} />;
+      if (tab==="users")     return <UsersScreen users={users} setUsers={setUsers} isMobile={isMobile} />;
       if (tab==="stores")    return <StoresScreen stores={stores} setStores={setStores} />;
     } else {
       if (tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} stores={stores} />;
@@ -888,6 +894,20 @@ export default function App() {
     return null;
   };
 
+  // ── Layout móvil
+  if (isMobile) {
+    return (
+      <div style={{ display:"flex", flexDirection:"column", height:"100vh", background:C.dark, overflow:"hidden" }}>
+        <MobileHeader user={user} onLogout={logout} />
+        <main style={{ flex:1, overflowY:"auto", padding:"16px" }}>
+          {renderScreen()}
+        </main>
+        <BottomNav tab={tab} setTab={setTab} isAdmin={user.role==="admin"} />
+      </div>
+    );
+  }
+
+  // ── Layout escritorio
   return (
     <div style={{ display:"flex", height:"100vh", background:C.dark, fontFamily:font.body, overflow:"hidden" }}>
       <Sidebar tab={tab} setTab={setTab} user={user} onLogout={logout} />
