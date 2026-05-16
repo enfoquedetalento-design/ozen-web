@@ -1,4 +1,3 @@
-
 import { useState, useRef, useCallback, useEffect } from "react";
 import { supabase } from "./supabase";
 
@@ -322,9 +321,16 @@ function MobileHeader({ user, onLogout }) {
 // ── SCREEN: Dashboard ─────────────────────────────────────────────────────────
 function DashboardScreen({ records, stores, isMobile }) {
   const todayRecs      = records.filter(r => r.date === todayStr);
-  const activeAdvisors = new Set(todayRecs.map(r => r.user_id)).size;
-  const byStore        = Object.values(stores).map(s => ({ ...s, count: todayRecs.filter(r => r.store === s.id && r.event !== "omitido").length }));
-  const recent         = [...records].sort((a,b) => b.time.localeCompare(a.time)).slice(0, 8);
+  // Activos: tienen entrada pero NO tienen salida ni omitido de salida
+  const conEntrada = new Set(todayRecs.filter(r => r.event === "entrada").map(r => r.user_id));
+  const conCierre  = new Set(todayRecs.filter(r => r.event === "salida" || (r.event === "omitido" && r.time === "salida")).map(r => r.user_id));
+  const activeAdvisors = [...conEntrada].filter(id => !conCierre.has(id)).length;
+
+  // Trabajaron hoy: tuvieron al menos una entrada
+  const trabajaronHoy = conEntrada.size;
+
+  const byStore    = Object.values(stores).map(s => ({ ...s, count: todayRecs.filter(r => r.store === s.id && r.event !== "omitido").length }));
+  const recent     = [...records].sort((a,b) => b.time.localeCompare(a.time)).slice(0, 8);
 
   // Jornadas incompletas: usuarios con al menos un evento omitido hoy
   const incompletas = new Set(todayRecs.filter(r => r.event === "omitido").map(r => r.user_id)).size;
@@ -333,10 +339,10 @@ function DashboardScreen({ records, stores, isMobile }) {
     <div>
       <PageHeader title="Panel General" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} />
       <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,1fr)", gap:10, marginBottom:16 }}>
-        <StatCard label="Registros hoy"       value={todayRecs.filter(r=>r.event!=="omitido").length} icon="📋" color={C.blue}  />
-        <StatCard label="Asesores activos"    value={activeAdvisors}                                  icon="👥" color={C.green} />
-        <StatCard label="Jornadas incompletas" value={incompletas}                                    icon="⚠️" color={incompletas > 0 ? C.red : C.textMuted} />
-        <StatCard label="Con foto"            value={todayRecs.filter(r=>r.photo_url).length}         icon="📸" color={C.amber} />
+        <StatCard label="Trabajaron hoy"      value={trabajaronHoy}                                  icon="👥" color={C.green} />
+        <StatCard label="En turno ahora"      value={activeAdvisors}                                 icon="🟢" color={activeAdvisors > 0 ? C.blue : C.textMuted} />
+        <StatCard label="Jornadas incompletas" value={incompletas}                                   icon="⚠️" color={incompletas > 0 ? C.red : C.textMuted} />
+        <StatCard label="Con foto"            value={todayRecs.filter(r=>r.photo_url).length}        icon="📸" color={C.amber} />
       </div>
 
       <Card style={{ marginBottom:16 }}>
