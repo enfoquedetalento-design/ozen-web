@@ -235,8 +235,8 @@ function Sidebar({ tab, setTab, user, onLogout }) {
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ padding:"24px 20px 16px", borderBottom:`1px solid ${C.border}` }}>
-        <div style={{ fontFamily:font.body, fontWeight:800, fontSize:22, color:C.goldLight, letterSpacing:"0.12em" }}>OZEN</div>
-        <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, letterSpacing:"0.15em", marginTop:2 }}>JOYERÍA · CONTROL DE PERSONAL</div>
+        <img src="/logo.png" alt="OZEN" style={{ width:100, height:"auto", marginBottom:4 }} />
+<div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, letterSpacing:"0.15em", marginTop:2 }}>CONTROL DE PERSONAL</div>
       </div>
       <nav style={{ flex:1, padding:"12px 10px", display:"flex", flexDirection:"column", gap:2 }}>
         {tabs.map(t => {
@@ -818,8 +818,8 @@ function LoginScreen({ onLogin }) {
     <div style={{ minHeight:"100vh", background:C.dark, display:"flex", alignItems:"center", justifyContent:"center" }}>
       <div style={{ width:400 }}>
         <div style={{ textAlign:"center", marginBottom:32 }}>
-          <div style={{ fontFamily:font.body, fontWeight:800, fontSize:36, color:C.goldLight, letterSpacing:"0.15em" }}>OZEN</div>
-          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, letterSpacing:"0.2em", marginTop:4 }}>JOYERÍA · CONTROL DE PERSONAL</div>
+          <img src="/logo.png" alt="OZEN" style={{ width:160, height:"auto", marginBottom:12 }} />
+          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, letterSpacing:"0.2em", marginTop:4 }}>CONTROL DE PERSONAL</div>
         </div>
         <Card glow>
           <div style={{ fontFamily:font.body, fontSize:18, fontWeight:600, color:C.text, marginBottom:20 }}>Iniciar sesión</div>
