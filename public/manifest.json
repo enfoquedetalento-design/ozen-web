@@ -1,0 +1,15 @@
+{
+  "name": "Ozen Control de Personal",
+  "short_name": "Ozen",
+  "icons": [
+    {
+      "src": "/logo-icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0D1117",
+  "theme_color": "#0D1117"
+}
