@@ -862,8 +862,7 @@ function ReportsScreen({ records, users, stores }) {
       return ORDEN.every(e => eventos.includes(e));
     });
     const incompletas = [...dias].filter(d => {
-      const eventos = recs.filter(r => r.date === d && r.event !== "omitido").map(r => r.event);
-      return !ORDEN.every(e => eventos.includes(e));
+      return recs.some(r => r.date === d && r.event === "omitido");
     });
     const entradas = recs.filter(r => r.event === "entrada").sort((a,b) => b.date.localeCompare(a.date));
     return {
