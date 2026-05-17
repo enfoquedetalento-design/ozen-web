@@ -229,7 +229,7 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
 }
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
-function Sidebar({ tab, setTab, user, onLogout }) {
+function Sidebar({ tab, setTab, user, onLogout, onRefresh, refreshing }) {
   const adminTabs   = [{ id: "dashboard", icon: "📊", label: "Panel" }, { id: "records", icon: "📋", label: "Registros" }, { id: "users", icon: "👥", label: "Asesores" }, { id: "stores", icon: "🏬", label: "Tiendas" }];
   const advisorTabs = [{ id: "checkin", icon: "📍", label: "Marcar Asistencia" }, { id: "history", icon: "📋", label: "Mi Historial" }, { id: "schedule", icon: "📅", label: "Malla Horaria" }];
   const tabs = user.role === "admin" ? adminTabs : advisorTabs;
@@ -263,6 +263,7 @@ function Sidebar({ tab, setTab, user, onLogout }) {
             <div style={{ fontFamily: font.body, fontSize: 12, color: C.text, fontWeight: 600 }}>{user.name.split(" ")[0]}</div>
             <div style={{ fontFamily: font.body, fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{user.role === "admin" ? "Administrador" : "Asesor"}</div>
           </div>
+          <button onClick={onRefresh} disabled={refreshing} title="Actualizar datos" style={{ marginLeft: "auto", background: "none", border: "none", cursor: refreshing ? "not-allowed" : "pointer", fontSize: 16, opacity: refreshing ? 0.4 : 1, transition: "transform 0.4s", transform: refreshing ? "rotate(180deg)" : "rotate(0deg)" }}>🔄</button>
         </div>
         <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
       </div>
@@ -290,11 +291,12 @@ function BottomNav({ tab, setTab, isAdmin }) {
   );
 }
 
-function MobileHeader({ user, onLogout }) {
+function MobileHeader({ user, onLogout, onRefresh, refreshing }) {
   return (
     <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.border}`, background: C.sidebar, flexShrink: 0 }}>
       <img src="/logo.png" alt="OZEN" style={{ width: 70, height: "auto" }} />
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button onClick={onRefresh} disabled={refreshing} style={{ background: "none", border: "none", cursor: refreshing ? "not-allowed" : "pointer", fontSize: 18, opacity: refreshing ? 0.4 : 1, transition: "transform 0.3s", transform: refreshing ? "rotate(180deg)" : "rotate(0deg)" }}>🔄</button>
         <div style={{ fontFamily: font.body, fontSize: 12, color: C.text }}>{user.name.split(" ")[0]}</div>
         <button onClick={onLogout} style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 7, padding: "5px 10px", color: C.textMuted, fontSize: 11, cursor: "pointer", fontFamily: font.body }}>Salir</button>
       </div>
@@ -899,9 +901,24 @@ export default function App() {
     load();
   }, []);
 
+  const [refreshing, setRefreshing] = useState(false);
+
   const login  = (u) => { setUser(u); setTab(u.role === "admin" ? "dashboard" : "checkin"); };
   const logout = () => { setUser(null); setTab(null); };
   const addRecord = (r) => setRecords(prev => [r, ...prev]);
+
+  const refreshAll = async () => {
+    setRefreshing(true);
+    const [{ data: t }, { data: u }, { data: r }] = await Promise.all([
+      supabase.from("tiendas").select("*"),
+      supabase.from("usuarios").select("*"),
+      supabase.from("registros").select("*").order("date", { ascending: false }),
+    ]);
+    const storesMap = {};
+    (t || []).forEach(s => storesMap[s.id] = s);
+    setStores(storesMap); setUsers(u || []); setRecords(r || []);
+    setRefreshing(false);
+  };
   const refreshUserRecords = (newRecs) => {
     setRecords(prev => {
       const otros = prev.filter(r => !(r.user_id === user?.id && r.date === todayStr));
@@ -934,7 +951,7 @@ export default function App() {
   if (isMobile) {
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: C.dark, overflow: "hidden" }}>
-        <MobileHeader user={user} onLogout={logout} />
+        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} />
         <main style={{ flex: 1, overflowY: "auto", padding: 16 }}>{renderScreen()}</main>
         <BottomNav tab={tab} setTab={setTab} isAdmin={user.role === "admin"} />
       </div>
@@ -943,7 +960,7 @@ export default function App() {
 
   return (
     <div style={{ display: "flex", height: "100vh", background: C.dark, fontFamily: font.body, overflow: "hidden" }}>
-      <Sidebar tab={tab} setTab={setTab} user={user} onLogout={logout} />
+      <Sidebar tab={tab} setTab={setTab} user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} />
       <main style={{ flex: 1, overflowY: "auto", padding: "32px 36px" }}>{renderScreen()}</main>
     </div>
   );
