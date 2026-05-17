@@ -657,7 +657,7 @@ function StoresScreen({ stores, setStores }) {
 }
 
 // ── SCREEN: Check-in ──────────────────────────────────────────────────────────
-function CheckInScreen({ user, records, onRecord, stores }) {
+function CheckInScreen({ user, records, onRecord, onRefresh, stores }) {
   const [selStore, setSelStore]     = useState("");
   const [selShift, setSelShift]     = useState("");
   const [showCamera, setShowCamera] = useState(false);
@@ -674,6 +674,16 @@ function CheckInScreen({ user, records, onRecord, stores }) {
     : ultimoReal==="inicio_almuerzo" ? "fin_almuerzo"
     : ultimoReal==="fin_almuerzo"    ? "salida"
     : null;
+
+  // Refrescar registros del día desde Supabase
+  const refreshTodayRecs = async () => {
+    const { data } = await supabase
+      .from("registros")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("date", todayStr);
+    if (data) onRefresh(data);
+  };
 
   const handleCapture = async (photoBase64) => {
     setShowCamera(false); setRecording(true);
@@ -693,7 +703,7 @@ function CheckInScreen({ user, records, onRecord, stores }) {
       event: nextEvent, date: todayStr, time: fmtTime(new Date()), photo_url,
     }).select().single();
 
-    if (!error) onRecord(data);
+    if (!error) { onRecord(data); await refreshTodayRecs(); }
     setRecording(false);
     setToast(`✓ ${EVENT_LABELS[nextEvent]} registrada`);
     setTimeout(()=>setToast(null), 3000);
@@ -884,6 +894,13 @@ export default function App() {
 
   const logout    = () => { setUser(null); setTab(null); };
   const addRecord = (r) => setRecords(prev => [r, ...prev]);
+  const refreshUserRecords = (newRecs) => {
+    setRecords(prev => {
+      // Reemplaza los registros del usuario de hoy con los frescos de Supabase
+      const otros = prev.filter(r => !(r.user_id === user?.id && r.date === todayStr));
+      return [...newRecs, ...otros];
+    });
+  };
 
   if (booting) return (
     <div style={{ minHeight:"100vh", background:C.dark, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, color:C.textMuted, fontSize:14 }}>
@@ -900,7 +917,7 @@ export default function App() {
       if (tab==="users")     return <UsersScreen users={users} setUsers={setUsers} isMobile={isMobile} />;
       if (tab==="stores")    return <StoresScreen stores={stores} setStores={setStores} />;
     } else {
-      if (tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} stores={stores} />;
+      if (tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} />;
       if (tab==="history")  return <HistoryScreen user={user} records={records} stores={stores} />;
       if (tab==="schedule") return <ScheduleScreen />;
     }
