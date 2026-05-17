@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { supabase } from "./supabase";
+import { supabase } from "./supabaseClient";
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const C = {
@@ -21,8 +21,8 @@ const fmt      = (d) => d.toISOString().split("T")[0];
 const fmtTime  = (d) => d.toTimeString().slice(0, 5);
 const todayStr = fmt(today);
 
-const EVENT_LABELS = { entrada:"Entrada", inicio_almuerzo:"Inicio Almuerzo", fin_almuerzo:"Fin Almuerzo", salida:"Salida", omitido:"No registrado" };
-const EVENT_COLORS = { entrada:C.green, inicio_almuerzo:C.amber, fin_almuerzo:C.blue, salida:C.red, omitido:C.red };
+const EVENT_LABELS = { entrada:"Entrada", inicio_almuerzo:"Inicio Almuerzo", fin_almuerzo:"Fin Almuerzo", salida:"Salida" };
+const EVENT_COLORS = { entrada:C.green, inicio_almuerzo:C.amber, fin_almuerzo:C.blue, salida:C.red };
 
 // ── Hook responsive ───────────────────────────────────────────────────────────
 function useIsMobile() {
@@ -321,28 +321,18 @@ function MobileHeader({ user, onLogout }) {
 // ── SCREEN: Dashboard ─────────────────────────────────────────────────────────
 function DashboardScreen({ records, stores, isMobile }) {
   const todayRecs      = records.filter(r => r.date === todayStr);
-  // Activos: tienen entrada pero NO tienen salida ni omitido de salida
-  const conEntrada = new Set(todayRecs.filter(r => r.event === "entrada").map(r => r.user_id));
-  const conCierre  = new Set(todayRecs.filter(r => r.event === "salida" || (r.event === "omitido" && r.time === "salida")).map(r => r.user_id));
-  const activeAdvisors = [...conEntrada].filter(id => !conCierre.has(id)).length;
-
-  // Trabajaron hoy: tuvieron al menos una entrada
-  const trabajaronHoy = conEntrada.size;
-
-  const byStore    = Object.values(stores).map(s => ({ ...s, count: todayRecs.filter(r => r.store === s.id && r.event !== "omitido").length }));
-  const recent     = [...records].sort((a,b) => b.time.localeCompare(a.time)).slice(0, 8);
-
-  // Jornadas incompletas: usuarios con al menos un evento omitido hoy
-  const incompletas = new Set(todayRecs.filter(r => r.event === "omitido").map(r => r.user_id)).size;
+  const activeAdvisors = new Set(todayRecs.map(r => r.user_id)).size;
+  const byStore        = Object.values(stores).map(s => ({ ...s, count: todayRecs.filter(r => r.store === s.id).length }));
+  const recent         = [...records].sort((a,b) => b.time.localeCompare(a.time)).slice(0, 8);
 
   return (
     <div>
       <PageHeader title="Panel General" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} />
       <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,1fr)", gap:10, marginBottom:16 }}>
-        <StatCard label="Trabajaron hoy"      value={trabajaronHoy}                                  icon="👥" color={C.green} />
-        <StatCard label="En turno ahora"      value={activeAdvisors}                                 icon="🟢" color={activeAdvisors > 0 ? C.blue : C.textMuted} />
-        <StatCard label="Jornadas incompletas" value={incompletas}                                   icon="⚠️" color={incompletas > 0 ? C.red : C.textMuted} />
-        <StatCard label="Con foto"            value={todayRecs.filter(r=>r.photo_url).length}        icon="📸" color={C.amber} />
+        <StatCard label="Registros hoy"    value={todayRecs.length}                        icon="📋" color={C.blue}  />
+        <StatCard label="Asesores activos" value={activeAdvisors}                          icon="👥" color={C.green} />
+        <StatCard label="Tiendas"          value={Object.keys(stores).length}              icon="🏬" color={C.gold}  />
+        <StatCard label="Con foto"         value={todayRecs.filter(r=>r.photo_url).length} icon="📸" color={C.amber} />
       </div>
 
       <Card style={{ marginBottom:16 }}>
@@ -417,9 +407,9 @@ function RecordsScreen({ records, stores, isMobile }) {
       {isMobile ? (
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
           {filtered.map(r=>(
-            <Card key={r.id} p="12px" style={{ borderColor: r.event==="omitido" ? `${C.red}66` : C.border, background: r.event==="omitido" ? `${C.red}08` : C.surface }}>
+            <Card key={r.id} p="12px">
               <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:6 }}>
-                <div style={{ fontFamily:font.body, fontSize:13, color: r.event==="omitido" ? C.red : C.text, fontWeight:600 }}>{r.user_name}</div>
+                <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{r.user_name}</div>
                 <Badge color={EVENT_COLORS[r.event]} sm>{EVENT_LABELS[r.event]}</Badge>
               </div>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
@@ -429,7 +419,7 @@ function RecordsScreen({ records, stores, isMobile }) {
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                   {r.photo_url && <button onClick={()=>setViewPhoto(r.photo_url)} style={{ background:"none", border:"none", cursor:"pointer", fontSize:18 }}>📸</button>}
-                  <div style={{ fontFamily:font.mono, fontSize:16, color:EVENT_COLORS[r.event], fontWeight:700 }}>{r.event==="omitido" ? "—" : r.time}</div>
+                  <div style={{ fontFamily:font.mono, fontSize:16, color:EVENT_COLORS[r.event], fontWeight:700 }}>{r.time}</div>
                 </div>
               </div>
             </Card>
@@ -448,13 +438,13 @@ function RecordsScreen({ records, stores, isMobile }) {
             </thead>
             <tbody>
               {filtered.map((r,i)=>(
-                <tr key={r.id} style={{ borderBottom: i<filtered.length-1?`1px solid ${C.border}`:"none", background: r.event==="omitido" ? `${C.red}10` : i%2===0?"transparent":`${C.surfaceAlt}44` }}>
-                  <td style={{ padding:"12px 16px", fontFamily:font.body, fontSize:13, color: r.event==="omitido" ? C.red : C.text, fontWeight:500 }}>{r.user_name}</td>
+                <tr key={r.id} style={{ borderBottom: i<filtered.length-1?`1px solid ${C.border}`:"none", background: i%2===0?"transparent":`${C.surfaceAlt}44` }}>
+                  <td style={{ padding:"12px 16px", fontFamily:font.body, fontSize:13, color:C.text, fontWeight:500 }}>{r.user_name}</td>
                   <td style={{ padding:"12px 16px", fontFamily:font.body, fontSize:13, color:C.textMuted }}>{stores[r.store]?.name}</td>
                   <td style={{ padding:"12px 16px", fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{r.shift}</td>
                   <td style={{ padding:"12px 16px" }}><Badge color={EVENT_COLORS[r.event]} sm>{EVENT_LABELS[r.event]}</Badge></td>
                   <td style={{ padding:"12px 16px", fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{r.date}</td>
-                  <td style={{ padding:"12px 16px", fontFamily:font.mono, fontSize:13, color:EVENT_COLORS[r.event], fontWeight:600 }}>{r.event==="omitido" ? "—" : r.time}</td>
+                  <td style={{ padding:"12px 16px", fontFamily:font.mono, fontSize:13, color:EVENT_COLORS[r.event], fontWeight:600 }}>{r.time}</td>
                   <td style={{ padding:"12px 16px" }}>
                     {r.photo_url
                       ? <button onClick={()=>setViewPhoto(r.photo_url)} style={{ background:"none", border:"none", cursor:"pointer", fontSize:18 }}>📸</button>
