@@ -230,7 +230,7 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 function Sidebar({ tab, setTab, user, onLogout, onRefresh, refreshing }) {
-  const adminTabs   = [{ id: "dashboard", icon: "📊", label: "Panel" }, { id: "records", icon: "📋", label: "Registros" }, { id: "users", icon: "👥", label: "Asesores" }, { id: "stores", icon: "🏬", label: "Tiendas" }];
+  const adminTabs   = [{ id: "dashboard", icon: "📊", label: "Panel" }, { id: "records", icon: "📋", label: "Registros" }, { id: "users", icon: "👥", label: "Asesores" }, { id: "stores", icon: "🏬", label: "Tiendas" }, { id: "reports", icon: "📈", label: "Informes" }];
   const advisorTabs = [{ id: "checkin", icon: "📍", label: "Marcar Asistencia" }, { id: "history", icon: "📋", label: "Mi Historial" }, { id: "schedule", icon: "📅", label: "Malla Horaria" }];
   const tabs = user.role === "admin" ? adminTabs : advisorTabs;
   return (
@@ -272,7 +272,7 @@ function Sidebar({ tab, setTab, user, onLogout, onRefresh, refreshing }) {
 }
 
 function BottomNav({ tab, setTab, isAdmin }) {
-  const adminTabs   = [{ id: "dashboard", icon: "📊", label: "Panel" }, { id: "records", icon: "📋", label: "Registros" }, { id: "users", icon: "👥", label: "Asesores" }, { id: "stores", icon: "🏬", label: "Tiendas" }];
+  const adminTabs   = [{ id: "dashboard", icon: "📊", label: "Panel" }, { id: "records", icon: "📋", label: "Registros" }, { id: "users", icon: "👥", label: "Asesores" }, { id: "stores", icon: "🏬", label: "Tiendas" }, { id: "reports", icon: "📈", label: "Informes" }];
   const advisorTabs = [{ id: "checkin", icon: "📍", label: "Asistencia" }, { id: "history", icon: "📋", label: "Historial" }, { id: "schedule", icon: "📅", label: "Turnos" }];
   const tabs = isAdmin ? adminTabs : advisorTabs;
   return (
@@ -838,6 +838,190 @@ function ScheduleScreen() {
   );
 }
 
+// ── SCREEN: Reports ──────────────────────────────────────────────────────────
+function ReportsScreen({ records, users, stores }) {
+  const now = toColombiaDate();
+  const [mes, setMes] = useState(now.getMonth());
+  const [anio, setAnio] = useState(now.getFullYear());
+
+  const meses = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+  // Filtrar registros del mes seleccionado
+  const prefix = `${anio}-${String(mes+1).padStart(2,"0")}`;
+  const recsMes = records.filter(r => r.date.startsWith(prefix));
+
+  // Asesores activos (solo advisors)
+  const advisors = users.filter(u => u.role === "advisor" && u.active);
+
+  // Por asesor
+  const porAsesor = advisors.map(u => {
+    const recs = recsMes.filter(r => r.user_id === u.id);
+    const dias = new Set(recs.filter(r => r.event === "entrada").map(r => r.date));
+    const completas = [...dias].filter(d => {
+      const eventos = recs.filter(r => r.date === d && r.event !== "omitido").map(r => r.event);
+      return ORDEN.every(e => eventos.includes(e));
+    });
+    const incompletas = [...dias].filter(d => {
+      const eventos = recs.filter(r => r.date === d && r.event !== "omitido").map(r => r.event);
+      return !ORDEN.every(e => eventos.includes(e));
+    });
+    const entradas = recs.filter(r => r.event === "entrada").sort((a,b) => b.date.localeCompare(a.date));
+    return {
+      id: u.id, nombre: u.name,
+      dias: dias.size,
+      completas: completas.length,
+      incompletas: incompletas.length,
+      ultimoDia: entradas[0]?.date || null,
+    };
+  }).sort((a,b) => b.dias - a.dias);
+
+  // Por tienda
+  const porTienda = Object.values(stores).map(s => ({
+    nombre: s.name,
+    entradas: recsMes.filter(r => r.store === s.id && r.event === "entrada").length,
+  })).sort((a,b) => b.entradas - a.entradas);
+
+  // Jornadas incompletas detalle
+  const jornadasIncompletas = [];
+  recsMes.filter(r => r.event === "omitido").forEach(r => {
+    if (!jornadasIncompletas.find(j => j.userId === r.user_id && j.date === r.date && j.evento === r.time)) {
+      jornadasIncompletas.push({ userId: r.user_id, nombre: r.user_name, date: r.date, evento: r.time, tienda: stores[r.store]?.name });
+    }
+  });
+  jornadasIncompletas.sort((a,b) => b.date.localeCompare(a.date));
+
+  // Resumen general
+  const totalAsesores = new Set(recsMes.filter(r => r.event === "entrada").map(r => r.user_id)).size;
+  const totalCompletas = porAsesor.reduce((s,a) => s + a.completas, 0);
+  const totalIncompletas = porAsesor.reduce((s,a) => s + a.incompletas, 0);
+  const promDias = totalAsesores > 0 ? (porAsesor.filter(a => a.dias > 0).reduce((s,a) => s + a.dias, 0) / totalAsesores).toFixed(1) : 0;
+
+  // Export CSV
+  const exportCSV = () => {
+    const rows = [["Asesor","Días trabajados","Jornadas completas","Jornadas incompletas","Último día"]];
+    porAsesor.forEach(a => rows.push([a.nombre, a.dias, a.completas, a.incompletas, a.ultimoDia || "—"]));
+    const csv = rows.map(r => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `informe-${prefix}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const thStyle = { padding:"10px 14px", textAlign:"left", fontFamily:font.body, fontSize:11, color:C.textMuted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.07em", borderBottom:`1px solid ${C.border}` };
+  const tdStyle = { padding:"11px 14px", fontFamily:font.body, fontSize:13, borderBottom:`1px solid ${C.border}` };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:20, gap:10, flexWrap:"wrap" }}>
+        <div>
+          <h1 style={{ margin:0, fontFamily:font.body, fontSize:20, fontWeight:700, color:C.text }}>Informes</h1>
+          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>Análisis de asistencia del equipo</div>
+        </div>
+        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+          <select value={mes} onChange={e=>setMes(Number(e.target.value))}
+            style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none" }}>
+            {meses.map((m,i) => <option key={i} value={i}>{m}</option>)}
+          </select>
+          <select value={anio} onChange={e=>setAnio(Number(e.target.value))}
+            style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none" }}>
+            {[2025,2026,2027].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <Btn onClick={exportCSV} variant="ghost" sm>⬇ Exportar CSV</Btn>
+        </div>
+      </div>
+
+      {/* Tarjetas resumen */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:20 }}>
+        <StatCard label="Asesores activos" value={totalAsesores} icon="👥" color={C.green} />
+        <StatCard label="Jornadas completas" value={totalCompletas} icon="✅" color={C.blue} />
+        <StatCard label="Jornadas incompletas" value={totalIncompletas} icon="⚠️" color={totalIncompletas > 0 ? C.red : C.textMuted} />
+        <StatCard label="Promedio días/asesor" value={promDias} icon="📅" color={C.amber} />
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:16 }}>
+        {/* Tabla por asesor */}
+        <Card p="0" style={{ gridColumn:"1 / -1" }}>
+          <div style={{ padding:"14px 16px", borderBottom:`1px solid ${C.border}`, fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text }}>
+            Resumen por asesor — {meses[mes]} {anio}
+          </div>
+          <table style={{ width:"100%", borderCollapse:"collapse" }}>
+            <thead>
+              <tr>
+                {["Asesor","Días trabajados","Jornadas completas","Jornadas incompletas","Último día"].map(h=>(
+                  <th key={h} style={thStyle}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {porAsesor.map((a,i) => (
+                <tr key={a.id} style={{ background: i%2===0?"transparent":`${C.surfaceAlt}44` }}>
+                  <td style={{ ...tdStyle, color:C.text, fontWeight:500 }}>{a.nombre}</td>
+                  <td style={{ ...tdStyle, color:C.text, fontFamily:font.mono }}>{a.dias}</td>
+                  <td style={{ ...tdStyle }}>
+                    <Badge color={a.completas > 0 ? C.green : C.textMuted} sm>{a.completas}</Badge>
+                  </td>
+                  <td style={{ ...tdStyle }}>
+                    <Badge color={a.incompletas > 0 ? C.red : C.textMuted} sm>{a.incompletas}</Badge>
+                  </td>
+                  <td style={{ ...tdStyle, color:C.textMuted, fontFamily:font.mono, fontSize:12 }}>{a.ultimoDia || "—"}</td>
+                </tr>
+              ))}
+              {porAsesor.length === 0 && (
+                <tr><td colSpan={5} style={{ ...tdStyle, textAlign:"center", color:C.textMuted }}>Sin registros para este mes.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </Card>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:16 }}>
+        {/* Por tienda */}
+        <Card>
+          <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:14 }}>Entradas por tienda</div>
+          {porTienda.map((t,i) => {
+            const max = porTienda[0]?.entradas || 1;
+            return (
+              <div key={t.nombre} style={{ marginBottom:12 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+                  <div style={{ fontFamily:font.body, fontSize:12, color:C.text }}>{t.nombre}</div>
+                  <div style={{ fontFamily:font.mono, fontSize:12, color:C.gold }}>{t.entradas}</div>
+                </div>
+                <div style={{ height:6, borderRadius:99, background:C.border }}>
+                  <div style={{ height:6, borderRadius:99, width:`${(t.entradas/max)*100}%`, background:`linear-gradient(90deg, ${C.gold}, ${C.goldLight})`, transition:"width 0.4s" }} />
+                </div>
+              </div>
+            );
+          })}
+          {porTienda.every(t => t.entradas === 0) && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:"20px 0" }}>Sin registros este mes.</div>}
+        </Card>
+
+        {/* Jornadas incompletas detalle */}
+        <Card p="0">
+          <div style={{ padding:"14px 16px", borderBottom:`1px solid ${C.border}`, fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text }}>
+            Detalle jornadas incompletas
+          </div>
+          <div style={{ maxHeight:260, overflowY:"auto" }}>
+            {jornadasIncompletas.length === 0 && (
+              <div style={{ padding:"20px", textAlign:"center", color:C.textMuted, fontFamily:font.body, fontSize:12 }}>Sin jornadas incompletas este mes. ✅</div>
+            )}
+            {jornadasIncompletas.map((j,i) => (
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", borderBottom:`1px solid ${C.border}`, background:`${C.red}06` }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontFamily:font.body, fontSize:12, color:C.text, fontWeight:500 }}>{j.nombre}</div>
+                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{j.tienda} · {j.date}</div>
+                </div>
+                <Badge color={C.red} sm>{EVENT_LABELS[j.evento] || j.evento}</Badge>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const [documento, setDocumento] = useState("");
@@ -940,6 +1124,7 @@ export default function App() {
       if (tab === "records")   return <RecordsScreen records={records} stores={stores} isMobile={isMobile} />;
       if (tab === "users")     return <UsersScreen users={users} setUsers={setUsers} />;
       if (tab === "stores")    return <StoresScreen stores={stores} setStores={setStores} />;
+      if (tab === "reports")   return <ReportsScreen records={records} users={users} stores={stores} />;
     } else {
       if (tab === "checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} />;
       if (tab === "history")  return <HistoryScreen user={user} records={records} stores={stores} />;
