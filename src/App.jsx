@@ -338,12 +338,27 @@ function DashboardScreen({ records, stores, isMobile }) {
   return (
     <div>
       <PageHeader title="Panel General" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} />
-      <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,1fr)", gap:10, marginBottom:16 }}>
-        <StatCard label="Trabajaron hoy"      value={trabajaronHoy}                                  icon="👥" color={C.green} />
-        <StatCard label="En turno ahora"      value={activeAdvisors}                                 icon="🟢" color={activeAdvisors > 0 ? C.blue : C.textMuted} />
-        <StatCard label="Jornadas incompletas" value={incompletas}                                   icon="⚠️" color={incompletas > 0 ? C.red : C.textMuted} />
-        <StatCard label="Con foto"            value={todayRecs.filter(r=>r.photo_url).length}        icon="📸" color={C.amber} />
+      <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(3,1fr)", gap:10, marginBottom:16 }}>
+        <StatCard label="Trabajaron hoy"       value={trabajaronHoy}  icon="👥" color={C.green} />
+        <StatCard label="En turno ahora"       value={activeAdvisors} icon="🟢" color={activeAdvisors > 0 ? C.blue : C.textMuted} />
+        <StatCard label="Jornadas incompletas" value={incompletas}    icon="⚠️" color={incompletas > 0 ? C.red : C.textMuted} />
       </div>
+
+      {/* Quiénes están en turno ahora */}
+      {activosAhora.length > 0 && (
+        <Card style={{ marginBottom:16 }}>
+          <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:12 }}>🟢 En turno ahora</div>
+          {activosAhora.map((a,i)=>(
+            <div key={a.userId} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 0", borderBottom: i<activosAhora.length-1?`1px solid ${C.border}`:"none" }}>
+              <div>
+                <div style={{ fontFamily:font.body, fontSize:13, color:C.text }}>{a.nombre}</div>
+                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{a.tienda}</div>
+              </div>
+              <div style={{ fontFamily:font.mono, fontSize:12, color:C.green }}>Entrada {a.hora}</div>
+            </div>
+          ))}
+        </Card>
+      )}
 
       <Card style={{ marginBottom:16 }}>
         <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:12 }}>Actividad por tienda</div>
@@ -660,6 +675,7 @@ function StoresScreen({ stores, setStores }) {
 function CheckInScreen({ user, records, onRecord, onRefresh, stores }) {
   const [selStore, setSelStore]     = useState("");
   const [selShift, setSelShift]     = useState("");
+  const [storeShiftLocked, setStoreShiftLocked] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [recording, setRecording]   = useState(false);
   const [toast, setToast]           = useState(null);
@@ -703,7 +719,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores }) {
       event: nextEvent, date: todayStr, time: fmtTime(new Date()), photo_url,
     }).select().single();
 
-    if (!error) { onRecord(data); await refreshTodayRecs(); }
+    if (!error) { onRecord(data); setStoreShiftLocked(true); await refreshTodayRecs(); }
     setRecording(false);
     setToast(`✓ ${EVENT_LABELS[nextEvent]} registrada`);
     setTimeout(()=>setToast(null), 3000);
@@ -719,10 +735,10 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores }) {
       <PageHeader title="Marcar Asistencia" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} />
 
       <Card style={{ marginBottom:12 }}>
-        <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}}
+        <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}} disabled={storeShiftLocked}
           options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]} />
         {selStore && stores[selStore]?.shifts?.length > 0 && (
-          <Field label="Turno" value={selShift} onChange={setSelShift}
+          <Field label="Turno" value={selShift} onChange={setSelShift} disabled={storeShiftLocked}
             options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).map(s=>({value:s,label:s}))]} />
         )}
       </Card>
