@@ -15,11 +15,6 @@ const C = {
 };
 const font = { body: "'Segoe UI', system-ui, sans-serif", mono: "monospace" };
 
-const today    = new Date();
-const fmt      = (d) => d.toISOString().split("T")[0];
-const fmtTime  = (d) => d.toTimeString().slice(0, 5);
-const todayStr = fmt(today);
-
 const ORDEN = ["entrada", "inicio_almuerzo", "fin_almuerzo", "salida"];
 
 const EVENT_LABELS = {
@@ -30,6 +25,20 @@ const EVENT_COLORS = {
   entrada: C.green, inicio_almuerzo: C.amber,
   fin_almuerzo: C.blue, salida: C.red, omitido: C.red
 };
+
+// Fecha y hora en zona horaria Colombia
+const toColombiaDate = (d = new Date()) =>
+  new Date(d.toLocaleString("en-US", { timeZone: "America/Bogota" }));
+
+const fmt = (d) => {
+  const c = toColombiaDate(d);
+  return `${c.getFullYear()}-${String(c.getMonth()+1).padStart(2,"0")}-${String(c.getDate()).padStart(2,"0")}`;
+};
+const fmtTime = (d) => {
+  const c = toColombiaDate(d);
+  return `${String(c.getHours()).padStart(2,"0")}:${String(c.getMinutes()).padStart(2,"0")}`;
+};
+const todayStr = fmt(new Date());
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -145,7 +154,6 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
   }, []);
 
   const stopCamera = useCallback(() => { streamRef.current?.getTracks().forEach(t => t.stop()); }, []);
-
   useEffect(() => { startCamera(); return () => stopCamera(); }, []);
 
   const takePhoto = () => {
@@ -220,7 +228,7 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
   );
 }
 
-// ── Nav components ────────────────────────────────────────────────────────────
+// ── Nav ───────────────────────────────────────────────────────────────────────
 function Sidebar({ tab, setTab, user, onLogout }) {
   const adminTabs   = [{ id: "dashboard", icon: "📊", label: "Panel" }, { id: "records", icon: "📋", label: "Registros" }, { id: "users", icon: "👥", label: "Asesores" }, { id: "stores", icon: "🏬", label: "Tiendas" }];
   const advisorTabs = [{ id: "checkin", icon: "📍", label: "Marcar Asistencia" }, { id: "history", icon: "📋", label: "Mi Historial" }, { id: "schedule", icon: "📅", label: "Malla Horaria" }];
@@ -296,16 +304,32 @@ function MobileHeader({ user, onLogout }) {
 
 // ── SCREEN: Dashboard ─────────────────────────────────────────────────────────
 function DashboardScreen({ records, stores, isMobile }) {
-  const todayRecs   = records.filter(r => r.date === todayStr);
-  const conEntrada  = new Set(todayRecs.filter(r => r.event === "entrada").map(r => r.user_id));
-  const conCierre   = new Set(todayRecs.filter(r => r.event === "salida").map(r => r.user_id));
-  const trabajaronHoy  = conEntrada.size;
-  const enTurnoAhora   = [...conEntrada].filter(id => !conCierre.has(id)).length;
-  const incompletas    = new Set(todayRecs.filter(r => r.event === "omitido").map(r => r.user_id)).size;
-  const byStore        = Object.values(stores).map(s => ({ ...s, count: todayRecs.filter(r => r.store === s.id && r.event !== "omitido").length }));
-  const recent         = [...records].filter(r => r.event !== "omitido").sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time)).slice(0, 8);
+  const todayRecs = records.filter(r => r.date === todayStr);
 
-  // Quiénes están en turno ahora
+  // Quiénes tienen entrada hoy
+  const conEntrada = new Set(todayRecs.filter(r => r.event === "entrada").map(r => r.user_id));
+
+  // Quiénes tienen cierre (salida real O omitido de salida)
+  const conCierre = new Set(
+    todayRecs
+      .filter(r => r.event === "salida" || (r.event === "omitido" && r.time === "salida"))
+      .map(r => r.user_id)
+  );
+
+  const trabajaronHoy = conEntrada.size;
+  const enTurnoAhora  = [...conEntrada].filter(id => !conCierre.has(id)).length;
+  const incompletas   = new Set(todayRecs.filter(r => r.event === "omitido").map(r => r.user_id)).size;
+
+  const byStore = Object.values(stores).map(s => ({
+    ...s, count: todayRecs.filter(r => r.store === s.id && r.event !== "omitido").length
+  }));
+
+  const recent = [...records]
+    .filter(r => r.event !== "omitido")
+    .sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time))
+    .slice(0, 8);
+
+  // Quiénes están activos ahora (entrada pero sin cierre)
   const activosAhora = todayRecs
     .filter(r => r.event === "entrada" && !conCierre.has(r.user_id))
     .reduce((acc, r) => { if (!acc.find(x => x.user_id === r.user_id)) acc.push(r); return acc; }, []);
@@ -313,6 +337,7 @@ function DashboardScreen({ records, stores, isMobile }) {
   return (
     <div>
       <PageHeader title="Panel General" subtitle={new Date().toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} />
+
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(3,1fr)", gap: 10, marginBottom: 16 }}>
         <StatCard label="Trabajaron hoy"       value={trabajaronHoy} icon="👥" color={C.green} />
         <StatCard label="En turno ahora"       value={enTurnoAhora}  icon="🟢" color={enTurnoAhora > 0 ? C.blue : C.textMuted} />
@@ -600,11 +625,10 @@ function StoresScreen({ stores, setStores }) {
                 : <div style={{ fontFamily: font.body, fontSize: 15, fontWeight: 700, color: C.goldLight }}>{s.name}</div>
               }
               <div style={{ display: "flex", gap: 6, marginLeft: 10, flexShrink: 0 }}>
-                {editing === s.id ? (
-                  <><Btn onClick={() => saveEdit(s.id)} sm>Guardar</Btn><Btn onClick={() => setEditing(null)} variant="ghost" sm>✕</Btn></>
-                ) : (
-                  <><Btn onClick={() => { setEditing(s.id); setEditVal({ name: s.name }); }} variant="ghost" sm>✏</Btn><Btn onClick={() => deleteStore(s.id)} variant="danger" sm>🗑</Btn></>
-                )}
+                {editing === s.id
+                  ? <><Btn onClick={() => saveEdit(s.id)} sm>Guardar</Btn><Btn onClick={() => setEditing(null)} variant="ghost" sm>✕</Btn></>
+                  : <><Btn onClick={() => { setEditing(s.id); setEditVal({ name: s.name }); }} variant="ghost" sm>✏</Btn><Btn onClick={() => deleteStore(s.id)} variant="danger" sm>🗑</Btn></>
+                }
               </div>
             </div>
             <Divider />
@@ -634,31 +658,30 @@ function StoresScreen({ stores, setStores }) {
 
 // ── SCREEN: CheckIn ───────────────────────────────────────────────────────────
 function CheckInScreen({ user, records, onRecord, onRefresh, stores }) {
-  const [selStore, setSelStore]         = useState("");
-  const [selShift, setSelShift]         = useState("");
-  const [locked, setLocked]             = useState(false);
-  const [showCamera, setShowCamera]     = useState(false);
-  const [recording, setRecording]       = useState(false);
-  const [toast, setToast]               = useState(null);
+  const [selStore, setSelStore]     = useState("");
+  const [selShift, setSelShift]     = useState("");
+  const [locked, setLocked]         = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const [recording, setRecording]   = useState(false);
+  const [toast, setToast]           = useState(null);
 
-  // Al montar, si el usuario ya tiene registros hoy, bloquear tienda/turno automáticamente
+  // Si ya tiene registros hoy, precargar tienda/turno y bloquear
   useEffect(() => {
-    const todayRecsUser = records.filter(r => r.user_id === user.id && r.date === todayStr && r.event !== "omitido");
-    if (todayRecsUser.length > 0) {
-      const primero = todayRecsUser[0];
-      setSelStore(primero.store);
-      setSelShift(primero.shift);
+    const hoy = records.filter(r => r.user_id === user.id && r.date === todayStr && r.event !== "omitido");
+    if (hoy.length > 0) {
+      setSelStore(hoy[0].store);
+      setSelShift(hoy[0].shift);
       setLocked(true);
     }
-  }, []);
+  }, [records]);
 
   const todayRecs     = records.filter(r => r.user_id === user.id && r.date === todayStr);
   const eventosReales = todayRecs.filter(r => r.event !== "omitido").map(r => r.event);
   const ultimoReal    = [...ORDEN].reverse().find(e => eventosReales.includes(e));
   const nextEvent     = !ultimoReal ? "entrada"
-    : ultimoReal === "entrada"          ? "inicio_almuerzo"
-    : ultimoReal === "inicio_almuerzo"  ? "fin_almuerzo"
-    : ultimoReal === "fin_almuerzo"     ? "salida"
+    : ultimoReal === "entrada"         ? "inicio_almuerzo"
+    : ultimoReal === "inicio_almuerzo" ? "fin_almuerzo"
+    : ultimoReal === "fin_almuerzo"    ? "salida"
     : null;
 
   const refreshTodayRecs = async () => {
@@ -876,8 +899,8 @@ export default function App() {
     load();
   }, []);
 
-  const login     = (u) => { setUser(u); setTab(u.role === "admin" ? "dashboard" : "checkin"); };
-  const logout    = () => { setUser(null); setTab(null); };
+  const login  = (u) => { setUser(u); setTab(u.role === "admin" ? "dashboard" : "checkin"); };
+  const logout = () => { setUser(null); setTab(null); };
   const addRecord = (r) => setRecords(prev => [r, ...prev]);
   const refreshUserRecords = (newRecs) => {
     setRecords(prev => {
