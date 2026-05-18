@@ -839,7 +839,7 @@ function ScheduleScreen() {
 }
 
 // ── SCREEN: Reports ──────────────────────────────────────────────────────────
-function ReportsScreen({ records, users, stores }) {
+function ReportsScreen({ records, users, stores, isMobile }) {
   const now = toColombiaDate();
   const [mes, setMes] = useState(now.getMonth());
   const [anio, setAnio] = useState(now.getFullYear());
@@ -932,50 +932,55 @@ function ReportsScreen({ records, users, stores }) {
       </div>
 
       {/* Tarjetas resumen */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:20 }}>
+      <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,1fr)", gap:10, marginBottom:20 }}>
         <StatCard label="Asesores activos" value={totalAsesores} icon="👥" color={C.green} />
         <StatCard label="Jornadas completas" value={totalCompletas} icon="✅" color={C.blue} />
         <StatCard label="Jornadas incompletas" value={totalIncompletas} icon="⚠️" color={totalIncompletas > 0 ? C.red : C.textMuted} />
         <StatCard label="Promedio días/asesor" value={promDias} icon="📅" color={C.amber} />
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:16 }}>
-        {/* Tabla por asesor */}
-        <Card p="0" style={{ gridColumn:"1 / -1" }}>
-          <div style={{ padding:"14px 16px", borderBottom:`1px solid ${C.border}`, fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text }}>
-            Resumen por asesor — {meses[mes]} {anio}
+      {/* Tabla / tarjetas por asesor */}
+      <Card p="0" style={{ marginBottom:16 }}>
+        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${C.border}`, fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text }}>
+          Resumen por asesor — {meses[mes]} {anio}
+        </div>
+        {isMobile ? (
+          <div>
+            {porAsesor.map((a,i) => (
+              <div key={a.id} style={{ padding:"12px 16px", borderBottom: i<porAsesor.length-1?`1px solid ${C.border}`:"none" }}>
+                <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, marginBottom:6 }}>{a.nombre}</div>
+                <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Días: <span style={{ color:C.text, fontFamily:font.mono }}>{a.dias}</span></div>
+                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Completas: <Badge color={a.completas>0?C.green:C.textMuted} sm>{a.completas}</Badge></div>
+                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Incompletas: <Badge color={a.incompletas>0?C.red:C.textMuted} sm>{a.incompletas}</Badge></div>
+                </div>
+                {a.ultimoDia && <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, marginTop:4 }}>Último día: {a.ultimoDia}</div>}
+              </div>
+            ))}
+            {porAsesor.length===0 && <div style={{ padding:20, textAlign:"center", color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin registros para este mes.</div>}
           </div>
+        ) : (
           <table style={{ width:"100%", borderCollapse:"collapse" }}>
             <thead>
-              <tr>
-                {["Asesor","Días trabajados","Jornadas completas","Jornadas incompletas","Último día"].map(h=>(
-                  <th key={h} style={thStyle}>{h}</th>
-                ))}
-              </tr>
+              <tr>{["Asesor","Días trabajados","Jornadas completas","Jornadas incompletas","Último día"].map(h=><th key={h} style={thStyle}>{h}</th>)}</tr>
             </thead>
             <tbody>
               {porAsesor.map((a,i) => (
                 <tr key={a.id} style={{ background: i%2===0?"transparent":`${C.surfaceAlt}44` }}>
                   <td style={{ ...tdStyle, color:C.text, fontWeight:500 }}>{a.nombre}</td>
                   <td style={{ ...tdStyle, color:C.text, fontFamily:font.mono }}>{a.dias}</td>
-                  <td style={{ ...tdStyle }}>
-                    <Badge color={a.completas > 0 ? C.green : C.textMuted} sm>{a.completas}</Badge>
-                  </td>
-                  <td style={{ ...tdStyle }}>
-                    <Badge color={a.incompletas > 0 ? C.red : C.textMuted} sm>{a.incompletas}</Badge>
-                  </td>
-                  <td style={{ ...tdStyle, color:C.textMuted, fontFamily:font.mono, fontSize:12 }}>{a.ultimoDia || "—"}</td>
+                  <td style={tdStyle}><Badge color={a.completas>0?C.green:C.textMuted} sm>{a.completas}</Badge></td>
+                  <td style={tdStyle}><Badge color={a.incompletas>0?C.red:C.textMuted} sm>{a.incompletas}</Badge></td>
+                  <td style={{ ...tdStyle, color:C.textMuted, fontFamily:font.mono, fontSize:12 }}>{a.ultimoDia||"—"}</td>
                 </tr>
               ))}
-              {porAsesor.length === 0 && (
-                <tr><td colSpan={5} style={{ ...tdStyle, textAlign:"center", color:C.textMuted }}>Sin registros para este mes.</td></tr>
-              )}
+              {porAsesor.length===0 && <tr><td colSpan={5} style={{ ...tdStyle, textAlign:"center", color:C.textMuted }}>Sin registros para este mes.</td></tr>}
             </tbody>
           </table>
-        </Card>
-      </div>
+        )}
+      </Card>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:16 }}>
+      <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:16, marginBottom:16 }}>
         {/* Por tienda */}
         <Card>
           <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:14 }}>Entradas por tienda</div>
@@ -1123,7 +1128,7 @@ export default function App() {
       if (tab === "records")   return <RecordsScreen records={records} stores={stores} isMobile={isMobile} />;
       if (tab === "users")     return <UsersScreen users={users} setUsers={setUsers} />;
       if (tab === "stores")    return <StoresScreen stores={stores} setStores={setStores} />;
-      if (tab === "reports")   return <ReportsScreen records={records} users={users} stores={stores} />;
+      if (tab === "reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile} />;
     } else {
       if (tab === "checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} />;
       if (tab === "history")  return <HistoryScreen user={user} records={records} stores={stores} />;
