@@ -377,7 +377,7 @@ function DashboardScreen({ records, stores, isMobile }) {
             <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
               <div style={{ width: 8, height: 8, borderRadius: 99, background: EVENT_COLORS[r.event], flexShrink: 0 }} />
               <div style={{ flex: 1, fontFamily: font.body, fontSize: 13, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.user_name}</div>
-              <Badge color={EVENT_COLORS[r.event]} sm>{isMobile ? r.event.split("_")[0] : EVENT_LABELS[r.event]}</Badge>
+              <Badge color={EVENT_COLORS[r.event]} sm>{EVENT_LABELS[r.event]}</Badge>
               <div style={{ fontFamily: font.mono, fontSize: 12, color: C.textMuted, flexShrink: 0 }}>{r.time}</div>
             </div>
           ))}
