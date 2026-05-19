@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { supabase } from "./supabase";
 
 const C = {
-  gold: "#193C53", goldLight: "#E5D5CC", goldDark: "#102938",
+  gold: "#265D7F", goldLight: "#E5D5CC", goldDark: "#1a3b52",
   dark: "#0D1117", surface: "#161B22",
   surfaceAlt: "#1C2430", surfaceHover: "#21262D", border: "#2D3748",
   borderGold: "rgba(229,213,204,0.18)", text: "#E6EDF3",
@@ -890,17 +890,47 @@ function ReportsScreen({ records, users, stores, isMobile }) {
   jornadasIncompletas.sort((a,b) => b.date.localeCompare(a.date));
 
   // Resumen general
-  const totalAsesores = new Set(recsMes.filter(r => r.event === "entrada").map(r => r.user_id)).size;
+  const totalDias      = porAsesor.reduce((s,a) => s + a.dias, 0);
   const totalCompletas = porAsesor.reduce((s,a) => s + a.completas, 0);
   const totalIncompletas = porAsesor.reduce((s,a) => s + a.incompletas, 0);
-  const promDias = totalAsesores > 0 ? (porAsesor.filter(a => a.dias > 0).reduce((s,a) => s + a.dias, 0) / totalAsesores).toFixed(1) : 0;
+  const promDias = porAsesor.filter(a=>a.dias>0).length > 0
+    ? (totalDias / porAsesor.filter(a=>a.dias>0).length).toFixed(1) : 0;
 
-  // Export CSV
+  // Calcular horas por asesor por día
+  const calcHoras = (userId) => {
+    const dias = [...new Set(recsMes.filter(r => r.user_id === userId && r.event === "entrada").map(r => r.date))];
+    let totalBrutas = 0, totalAlmuerzo = 0;
+    dias.forEach(d => {
+      const rDia = recsMes.filter(r => r.user_id === userId && r.date === d);
+      const entrada     = rDia.find(r => r.event === "entrada")?.time;
+      const salida      = rDia.find(r => r.event === "salida")?.time;
+      const iniAlmuerzo = rDia.find(r => r.event === "inicio_almuerzo")?.time;
+      const finAlmuerzo = rDia.find(r => r.event === "fin_almuerzo")?.time;
+      if (entrada && salida) {
+        const [eh,em] = entrada.split(":").map(Number);
+        const [sh,sm] = salida.split(":").map(Number);
+        totalBrutas += (sh*60+sm) - (eh*60+em);
+      }
+      if (iniAlmuerzo && finAlmuerzo) {
+        const [ih,im] = iniAlmuerzo.split(":").map(Number);
+        const [fh,fm] = finAlmuerzo.split(":").map(Number);
+        totalAlmuerzo += (fh*60+fm) - (ih*60+im);
+      }
+    });
+    const netas = totalBrutas - totalAlmuerzo;
+    const toHM = (min) => `${Math.floor(min/60)}h ${min%60}m`;
+    return { brutas: toHM(totalBrutas), almuerzo: toHM(totalAlmuerzo), netas: toHM(netas), netasMin: netas };
+  };
+
+  // Export CSV con horas
   const exportCSV = () => {
-    const rows = [["Asesor","Días trabajados","Jornadas completas","Jornadas incompletas","Último día"]];
-    porAsesor.forEach(a => rows.push([a.nombre, a.dias, a.completas, a.incompletas, a.ultimoDia || "—"]));
+    const rows = [["Asesor","Días trabajados","Jornadas completas","Jornadas incompletas","Horas brutas","Horas almuerzo","Horas netas","Último día"]];
+    porAsesor.forEach(a => {
+      const h = calcHoras(a.id);
+      rows.push([a.nombre, a.dias, a.completas, a.incompletas, h.brutas, h.almuerzo, h.netas, a.ultimoDia || "—"]);
+    });
     const csv = rows.map(r => r.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = `informe-${prefix}.csv`; a.click();
@@ -932,11 +962,10 @@ function ReportsScreen({ records, users, stores, isMobile }) {
       </div>
 
       {/* Tarjetas resumen */}
-      <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,1fr)", gap:10, marginBottom:20 }}>
-        <StatCard label="Asesores activos" value={totalAsesores} icon="👥" color={C.green} />
+      <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(3,1fr)", gap:10, marginBottom:20 }}>
+        <StatCard label="Días trabajados" value={totalDias} icon="📅" color={C.green} />
         <StatCard label="Jornadas completas" value={totalCompletas} icon="✅" color={C.blue} />
         <StatCard label="Jornadas incompletas" value={totalIncompletas} icon="⚠️" color={totalIncompletas > 0 ? C.red : C.textMuted} />
-        <StatCard label="Promedio días/asesor" value={promDias} icon="📅" color={C.amber} />
       </div>
 
       {/* Tabla / tarjetas por asesor */}
@@ -946,35 +975,48 @@ function ReportsScreen({ records, users, stores, isMobile }) {
         </div>
         {isMobile ? (
           <div>
-            {porAsesor.map((a,i) => (
-              <div key={a.id} style={{ padding:"12px 16px", borderBottom: i<porAsesor.length-1?`1px solid ${C.border}`:"none" }}>
-                <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, marginBottom:6 }}>{a.nombre}</div>
-                <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Días: <span style={{ color:C.text, fontFamily:font.mono }}>{a.dias}</span></div>
-                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Completas: <Badge color={a.completas>0?C.green:C.textMuted} sm>{a.completas}</Badge></div>
-                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Incompletas: <Badge color={a.incompletas>0?C.red:C.textMuted} sm>{a.incompletas}</Badge></div>
+            {porAsesor.map((a,i) => {
+              const h = calcHoras(a.id);
+              return (
+                <div key={a.id} style={{ padding:"12px 16px", borderBottom: i<porAsesor.length-1?`1px solid ${C.border}`:"none" }}>
+                  <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, marginBottom:6 }}>{a.nombre}</div>
+                  <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:4 }}>
+                    <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Días: <span style={{ color:C.text, fontFamily:font.mono }}>{a.dias}</span></div>
+                    <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Completas: <Badge color={a.completas>0?C.green:C.textMuted} sm>{a.completas}</Badge></div>
+                    <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Incompletas: <Badge color={a.incompletas>0?C.red:C.textMuted} sm>{a.incompletas}</Badge></div>
+                  </div>
+                  <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                    <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Horas netas: <span style={{ color:C.green, fontFamily:font.mono, fontWeight:600 }}>{h.netas}</span></div>
+                    <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Almuerzo: <span style={{ color:C.amber, fontFamily:font.mono }}>{h.almuerzo}</span></div>
+                  </div>
+                  {a.ultimoDia && <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, marginTop:4 }}>Último día: {a.ultimoDia}</div>}
                 </div>
-                {a.ultimoDia && <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, marginTop:4 }}>Último día: {a.ultimoDia}</div>}
-              </div>
-            ))}
+              );
+            })}
             {porAsesor.length===0 && <div style={{ padding:20, textAlign:"center", color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin registros para este mes.</div>}
           </div>
         ) : (
           <table style={{ width:"100%", borderCollapse:"collapse" }}>
             <thead>
-              <tr>{["Asesor","Días trabajados","Jornadas completas","Jornadas incompletas","Último día"].map(h=><th key={h} style={thStyle}>{h}</th>)}</tr>
+              <tr>{["Asesor","Días","Completas","Incompletas","Horas brutas","Almuerzo","Horas netas","Último día"].map(h=><th key={h} style={thStyle}>{h}</th>)}</tr>
             </thead>
             <tbody>
-              {porAsesor.map((a,i) => (
-                <tr key={a.id} style={{ background: i%2===0?"transparent":`${C.surfaceAlt}44` }}>
-                  <td style={{ ...tdStyle, color:C.text, fontWeight:500 }}>{a.nombre}</td>
-                  <td style={{ ...tdStyle, color:C.text, fontFamily:font.mono }}>{a.dias}</td>
-                  <td style={tdStyle}><Badge color={a.completas>0?C.green:C.textMuted} sm>{a.completas}</Badge></td>
-                  <td style={tdStyle}><Badge color={a.incompletas>0?C.red:C.textMuted} sm>{a.incompletas}</Badge></td>
-                  <td style={{ ...tdStyle, color:C.textMuted, fontFamily:font.mono, fontSize:12 }}>{a.ultimoDia||"—"}</td>
-                </tr>
-              ))}
-              {porAsesor.length===0 && <tr><td colSpan={5} style={{ ...tdStyle, textAlign:"center", color:C.textMuted }}>Sin registros para este mes.</td></tr>}
+              {porAsesor.map((a,i) => {
+                const h = calcHoras(a.id);
+                return (
+                  <tr key={a.id} style={{ background: i%2===0?"transparent":`${C.surfaceAlt}44` }}>
+                    <td style={{ ...tdStyle, color:C.text, fontWeight:500 }}>{a.nombre}</td>
+                    <td style={{ ...tdStyle, color:C.text, fontFamily:font.mono }}>{a.dias}</td>
+                    <td style={tdStyle}><Badge color={a.completas>0?C.green:C.textMuted} sm>{a.completas}</Badge></td>
+                    <td style={tdStyle}><Badge color={a.incompletas>0?C.red:C.textMuted} sm>{a.incompletas}</Badge></td>
+                    <td style={{ ...tdStyle, fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{h.brutas}</td>
+                    <td style={{ ...tdStyle, fontFamily:font.mono, fontSize:12, color:C.amber }}>{h.almuerzo}</td>
+                    <td style={{ ...tdStyle, fontFamily:font.mono, fontSize:13, color:C.green, fontWeight:600 }}>{h.netas}</td>
+                    <td style={{ ...tdStyle, color:C.textMuted, fontFamily:font.mono, fontSize:12 }}>{a.ultimoDia||"—"}</td>
+                  </tr>
+                );
+              })}
+              {porAsesor.length===0 && <tr><td colSpan={8} style={{ ...tdStyle, textAlign:"center", color:C.textMuted }}>Sin registros para este mes.</td></tr>}
             </tbody>
           </table>
         )}
