@@ -2,16 +2,16 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { supabase } from "./supabase";
 
 const C = {
-  gold: "#265D7F", goldLight: "#E5D5CC", goldDark: "#1a3b52",
-  dark: "#0D1117", surface: "#161B22",
-  surfaceAlt: "#1C2430", surfaceHover: "#21262D", border: "#2D3748",
-  borderGold: "rgba(229,213,204,0.18)", text: "#E6EDF3",
-  textMuted: "#8B949E", textSub: "#C9D1D9",
+  gold: "#265D7F", goldLight: "#E5D5CC", goldDark: "#1A3B52",
+  dark: "#0D1117", surface: "#1A3B52",
+  surfaceAlt: "#153047", surfaceHover: "#1E4260", border: "#265D7F",
+  borderGold: "rgba(229,213,204,0.25)", text: "#E5D5CC",
+  textMuted: "#B8A49C", textSub: "#D4C4BB",
   green: "#2ECC71", greenDim: "rgba(46,204,113,0.12)",
   red: "#E74C3C",   redDim: "rgba(231,76,60,0.12)",
   blue: "#3498DB",  blueDim: "rgba(52,152,219,0.12)",
   amber: "#F39C12", amberDim: "rgba(243,156,18,0.12)",
-  sidebar: "#13191F",
+  sidebar: "#112233",
 };
 const font = { body: "'Segoe UI', system-ui, sans-serif", mono: "monospace" };
 
