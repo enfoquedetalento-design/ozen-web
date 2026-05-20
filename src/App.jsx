@@ -889,12 +889,38 @@ function ReportsScreen({ records, users, stores, isMobile }) {
   });
   jornadasIncompletas.sort((a,b) => b.date.localeCompare(a.date));
 
-  // Resumen general
-  const totalDias      = porAsesor.reduce((s,a) => s + a.dias, 0);
-  const totalCompletas = porAsesor.reduce((s,a) => s + a.completas, 0);
-  const totalIncompletas = porAsesor.reduce((s,a) => s + a.incompletas, 0);
-  const promDias = porAsesor.filter(a=>a.dias>0).length > 0
-    ? (totalDias / porAsesor.filter(a=>a.dias>0).length).toFixed(1) : 0;
+  // Promedios generales
+  let totalNetasMin = 0, totalAlmuerzoMin = 0, jornadasConHoras = 0, jornadasConAlmuerzo = 0;
+  porAsesor.forEach(a => {
+    const dias = [...new Set(recsMes.filter(r => r.user_id === a.id && r.event === "entrada").map(r => r.date))];
+    dias.forEach(d => {
+      const rDia = recsMes.filter(r => r.user_id === a.id && r.date === d);
+      const entrada     = rDia.find(r => r.event === "entrada")?.time;
+      const salida      = rDia.find(r => r.event === "salida")?.time;
+      const iniAlmuerzo = rDia.find(r => r.event === "inicio_almuerzo")?.time;
+      const finAlmuerzo = rDia.find(r => r.event === "fin_almuerzo")?.time;
+      let brutas = 0, almuerzo = 0;
+      if (entrada && salida) {
+        const [eh,em] = entrada.split(":").map(Number);
+        const [sh,sm] = salida.split(":").map(Number);
+        brutas = (sh*60+sm) - (eh*60+em);
+      }
+      if (iniAlmuerzo && finAlmuerzo) {
+        const [ih,im] = iniAlmuerzo.split(":").map(Number);
+        const [fh,fm] = finAlmuerzo.split(":").map(Number);
+        almuerzo = (fh*60+fm) - (ih*60+im);
+        totalAlmuerzoMin += almuerzo;
+        jornadasConAlmuerzo++;
+      }
+      if (brutas > 0) {
+        totalNetasMin += brutas - almuerzo;
+        jornadasConHoras++;
+      }
+    });
+  });
+  const toHM = (min) => min <= 0 ? "—" : `${Math.floor(min/60)}h ${String(min%60).padStart(2,"0")}m`;
+  const promNetasHM   = toHM(jornadasConHoras > 0 ? Math.round(totalNetasMin / jornadasConHoras) : 0);
+  const promAlmuerzoHM = toHM(jornadasConAlmuerzo > 0 ? Math.round(totalAlmuerzoMin / jornadasConAlmuerzo) : 0);
 
   // Calcular horas por asesor por día
   const calcHoras = (userId) => {
@@ -962,10 +988,9 @@ function ReportsScreen({ records, users, stores, isMobile }) {
       </div>
 
       {/* Tarjetas resumen */}
-      <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(3,1fr)", gap:10, marginBottom:20 }}>
-        <StatCard label="Días trabajados" value={totalDias} icon="📅" color={C.green} />
-        <StatCard label="Jornadas completas" value={totalCompletas} icon="✅" color={C.blue} />
-        <StatCard label="Jornadas incompletas" value={totalIncompletas} icon="⚠️" color={totalIncompletas > 0 ? C.red : C.textMuted} />
+      <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr", gap:10, marginBottom:20 }}>
+        <StatCard label="Promedio horas netas por jornada" value={promNetasHM}    icon="⏱" color={C.green} />
+        <StatCard label="Promedio tiempo de almuerzo"      value={promAlmuerzoHM} icon="🍽" color={C.amber} />
       </div>
 
       {/* Tabla / tarjetas por asesor */}
