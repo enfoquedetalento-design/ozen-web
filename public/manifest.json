@@ -1,15 +1,24 @@
 {
   "name": "Ozen Control de Personal",
   "short_name": "Ozen",
+  "description": "Sistema de registro de asistencia Ozen",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0D1117",
+  "theme_color": "#265D7F",
   "icons": [
     {
       "src": "/logo-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo-icon.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
-  ],
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#0D1117",
-  "theme_color": "#0D1117"
+  ]
 }
