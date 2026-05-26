@@ -2,16 +2,16 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { supabase } from "./supabase";
 
 const C = {
-  gold: "#265D7F", goldLight: "#E5D5CC", goldDark: "#1A3B52",
-  dark: "#0D1117", surface: "#1A3B52",
-  surfaceAlt: "#153047", surfaceHover: "#1E4260", border: "#265D7F",
-  borderGold: "rgba(229,213,204,0.25)", text: "#E5D5CC",
-  textMuted: "#B8A49C", textSub: "#D4C4BB",
+  gold: "#265D7F", goldLight: "#E5D5CC", goldDark: "#1a3b52",
+  dark: "#0D1117", surface: "#161B22",
+  surfaceAlt: "#1C2430", surfaceHover: "#21262D", border: "#2D3748",
+  borderGold: "rgba(229,213,204,0.18)", text: "#E6EDF3",
+  textMuted: "#8B949E", textSub: "#C9D1D9",
   green: "#2ECC71", greenDim: "rgba(46,204,113,0.12)",
   red: "#E74C3C",   redDim: "rgba(231,76,60,0.12)",
   blue: "#3498DB",  blueDim: "rgba(52,152,219,0.12)",
   amber: "#F39C12", amberDim: "rgba(243,156,18,0.12)",
-  sidebar: "#112233",
+  sidebar: "#13191F",
 };
 const font = { body: "'Segoe UI', system-ui, sans-serif", mono: "monospace" };
 
@@ -387,18 +387,98 @@ function DashboardScreen({ records, stores, isMobile }) {
   );
 }
 
+// ── Lógica de puntualidad ─────────────────────────────────────────────────────
+const SHIFT_HOURS = {
+  // [horaEntrada_LJ, horaEntrada_VS] en minutos desde medianoche
+  T1: [600, 600],   // 10:00 todos los días
+  T2: [730, 760],   // 12:10 L-J / 12:40 V-S
+  T3: [630, 630],   // 10:30 todos (Chipichape 9:30 se maneja aparte)
+  T4: [690, 690],   // 11:30 todos los días
+};
+const CHIPICHAPE_T3 = 570; // 9:30am
+
+const getExpectedEntry = (shift, date, store) => {
+  if (!shift) return null;
+  const num = shift.slice(-1); // último carácter: 1,2,3,4
+  const key = `T${num}`;
+  if (!SHIFT_HOURS[key]) return null;
+  const d = new Date(date + "T12:00:00");
+  const dow = d.getDay(); // 0=dom,1=lun,...,5=vie,6=sab
+  const isVS = dow === 5 || dow === 6;
+  if (key === "T3" && store === "chipichape") return CHIPICHAPE_T3;
+  return isVS ? SHIFT_HOURS[key][1] : SHIFT_HOURS[key][0];
+};
+
+const calcPuntualidad = (entryTime, shift, date, store) => {
+  if (!entryTime || entryTime === "—") return null;
+  const expected = getExpectedEntry(shift, date, store);
+  if (expected === null) return null;
+  const [h, m] = entryTime.split(":").map(Number);
+  const actual = h * 60 + m;
+  const diff = actual - expected;
+  if (diff <= 5) return { puntual: true, diff: 0 };
+  return { puntual: false, diff };
+};
+
 // ── SCREEN: Records ───────────────────────────────────────────────────────────
 function RecordsScreen({ records, stores, isMobile }) {
   const [storeFilter, setStoreFilter] = useState("all");
-  const [eventFilter, setEventFilter] = useState("all");
+  const [dateFilter, setDateFilter]   = useState(todayStr);
   const [search, setSearch]           = useState("");
   const [viewPhoto, setViewPhoto]     = useState(null);
 
+  // Agrupar registros por asesor+día
   const filtered = records
     .filter(r => storeFilter === "all" || r.store === storeFilter)
-    .filter(r => eventFilter === "all" || r.event === eventFilter)
-    .filter(r => r.user_name.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time));
+    .filter(r => !dateFilter || r.date === dateFilter)
+    .filter(r => r.user_name.toLowerCase().includes(search.toLowerCase()));
+
+  // Crear jornadas únicas (asesor + fecha)
+  const jornadasMap = {};
+  filtered.forEach(r => {
+    const key = `${r.user_id}_${r.date}`;
+    if (!jornadasMap[key]) {
+      jornadasMap[key] = {
+        key, userId: r.user_id, userName: r.user_name,
+        store: r.store, shift: r.shift, date: r.date,
+        entrada: null, inicio_almuerzo: null, fin_almuerzo: null, salida: null,
+      };
+    }
+    if (r.event !== "omitido") jornadasMap[key][r.event] = r;
+    else {
+      // marcar evento omitido
+      if (!jornadasMap[key][r.time + "_omitido"]) jornadasMap[key][r.time + "_omitido"] = true;
+    }
+  });
+
+  const jornadas = Object.values(jornadasMap).sort((a,b) => b.date.localeCompare(a.date) || a.userName.localeCompare(b.userName));
+
+  const EventBlock = ({ label, registro, omitido, color }) => {
+    const isOmitido = !registro && omitido;
+    return (
+      <div style={{
+        flex: 1, minWidth: 0, borderRadius: 8, padding: "10px 8px",
+        background: isOmitido ? `${C.red}18` : `${C.surfaceAlt}`,
+        border: `1px solid ${isOmitido ? C.red + "44" : C.border}`,
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+      }}>
+        <div style={{ fontFamily: font.body, fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+        {registro ? (
+          <>
+            <div style={{ fontFamily: font.mono, fontSize: 14, color, fontWeight: 700 }}>{registro.time}</div>
+            {registro.photo_url && (
+              <button onClick={() => setViewPhoto(registro.photo_url)}
+                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, padding: 0 }}>📸</button>
+            )}
+          </>
+        ) : (
+          <div style={{ fontFamily: font.mono, fontSize: 14, color: isOmitido ? C.red : C.border, fontWeight: 700 }}>
+            {isOmitido ? "N/R" : "—"}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div>
@@ -407,76 +487,58 @@ function RecordsScreen({ records, stores, isMobile }) {
           <img src={viewPhoto} alt="Foto" style={{ maxWidth: "100%", maxHeight: "90vh", borderRadius: 10 }} />
         </div>
       )}
-      <PageHeader title="Registros" subtitle={`${filtered.length} eventos`} />
+
+      <PageHeader title="Registros" subtitle={`${jornadas.length} jornadas`} />
+
       <Card style={{ marginBottom: 12 }} p="12px">
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre..."
           style={{ width: "100%", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 7, padding: "8px 12px", color: C.text, fontSize: 13, fontFamily: font.body, outline: "none", boxSizing: "border-box", marginBottom: 8 }} />
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+            style={{ flex: 1, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 7, padding: 8, color: C.text, fontSize: 12, fontFamily: font.body, outline: "none", minWidth: 130 }} />
           <select value={storeFilter} onChange={e => setStoreFilter(e.target.value)}
             style={{ flex: 1, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 7, padding: 8, color: C.text, fontSize: 12, fontFamily: font.body, outline: "none" }}>
             <option value="all">Todas las tiendas</option>
             {Object.values(stores).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
-          <select value={eventFilter} onChange={e => setEventFilter(e.target.value)}
-            style={{ flex: 1, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 7, padding: 8, color: C.text, fontSize: 12, fontFamily: font.body, outline: "none" }}>
-            <option value="all">Todos</option>
-            {Object.entries(EVENT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
+          {dateFilter && <Btn onClick={() => setDateFilter("")} variant="ghost" sm>Ver todos</Btn>}
         </div>
       </Card>
 
-      {isMobile ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {filtered.map(r => (
-            <Card key={r.id} p="12px" style={{ borderColor: r.event === "omitido" ? `${C.red}66` : C.border, background: r.event === "omitido" ? `${C.red}08` : C.surface }}>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 }}>
-                <div style={{ fontFamily: font.body, fontSize: 13, color: r.event === "omitido" ? C.red : C.text, fontWeight: 600 }}>{r.user_name}</div>
-                <Badge color={EVENT_COLORS[r.event]} sm>{EVENT_LABELS[r.event]}</Badge>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {jornadas.map(j => {
+          const punt = calcPuntualidad(j.entrada?.time, j.shift, j.date, j.store);
+          return (
+            <Card key={j.key} p="14px">
+              {/* Header */}
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
                 <div>
-                  <div style={{ fontFamily: font.body, fontSize: 11, color: C.textMuted }}>{stores[r.store]?.name} · {r.shift}</div>
-                  <div style={{ fontFamily: font.mono, fontSize: 11, color: C.textMuted, marginTop: 2 }}>{r.date}</div>
+                  <div style={{ fontFamily: font.body, fontSize: 14, fontWeight: 600, color: C.text }}>{j.userName}</div>
+                  <div style={{ fontFamily: font.body, fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+                    {stores[j.store]?.name} · {j.shift} · {j.date}
+                  </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {r.photo_url && <button onClick={() => setViewPhoto(r.photo_url)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18 }}>📸</button>}
-                  <div style={{ fontFamily: font.mono, fontSize: 16, color: EVENT_COLORS[r.event], fontWeight: 700 }}>{r.event === "omitido" ? "—" : r.time}</div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  {punt && (
+                    punt.puntual
+                      ? <Badge color={C.green} sm>🟢 Puntual</Badge>
+                      : <Badge color={C.red} sm>🔴 Tarde {punt.diff} min</Badge>
+                  )}
                 </div>
+              </div>
+
+              {/* 4 bloques de eventos */}
+              <div style={{ display: "flex", gap: isMobile ? 6 : 10 }}>
+                <EventBlock label="Entrada"       registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
+                <EventBlock label="Ini. Almuerzo" registro={j.inicio_almuerzo} omitido={j["inicio_almuerzo_omitido"]} color={C.amber} />
+                <EventBlock label="Fin Almuerzo"  registro={j.fin_almuerzo}   omitido={j["fin_almuerzo_omitido"]}   color={C.blue}  />
+                <EventBlock label="Salida"        registro={j.salida}         omitido={j["salida_omitido"]}         color={C.red}   />
               </div>
             </Card>
-          ))}
-          {filtered.length === 0 && <div style={{ textAlign: "center", padding: 40, color: C.textMuted, fontFamily: font.body, fontSize: 13 }}>Sin registros.</div>}
-        </div>
-      ) : (
-        <Card p="0">
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                {["Asesor", "Tienda", "Turno", "Evento", "Fecha", "Hora", "Foto"].map(h => (
-                  <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontFamily: font.body, fontSize: 11, color: C.textMuted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r, i) => (
-                <tr key={r.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${C.border}` : "none", background: r.event === "omitido" ? `${C.red}10` : i % 2 === 0 ? "transparent" : `${C.surfaceAlt}44` }}>
-                  <td style={{ padding: "12px 16px", fontFamily: font.body, fontSize: 13, color: r.event === "omitido" ? C.red : C.text, fontWeight: 500 }}>{r.user_name}</td>
-                  <td style={{ padding: "12px 16px", fontFamily: font.body, fontSize: 13, color: C.textMuted }}>{stores[r.store]?.name}</td>
-                  <td style={{ padding: "12px 16px", fontFamily: font.mono, fontSize: 12, color: C.textMuted }}>{r.shift}</td>
-                  <td style={{ padding: "12px 16px" }}><Badge color={EVENT_COLORS[r.event]} sm>{EVENT_LABELS[r.event]}</Badge></td>
-                  <td style={{ padding: "12px 16px", fontFamily: font.mono, fontSize: 12, color: C.textMuted }}>{r.date}</td>
-                  <td style={{ padding: "12px 16px", fontFamily: font.mono, fontSize: 13, color: EVENT_COLORS[r.event], fontWeight: 600 }}>{r.event === "omitido" ? "—" : r.time}</td>
-                  <td style={{ padding: "12px 16px" }}>
-                    {r.photo_url ? <button onClick={() => setViewPhoto(r.photo_url)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18 }}>📸</button>
-                      : <span style={{ color: C.border, fontSize: 12 }}>—</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {filtered.length === 0 && <div style={{ textAlign: "center", padding: 40, color: C.textMuted, fontFamily: font.body, fontSize: 13 }}>Sin registros.</div>}
-        </Card>
-      )}
+          );
+        })}
+        {jornadas.length === 0 && <div style={{ textAlign: "center", padding: 40, color: C.textMuted, fontFamily: font.body, fontSize: 13 }}>Sin registros para los filtros seleccionados.</div>}
+      </div>
     </div>
   );
 }
