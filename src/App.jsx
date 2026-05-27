@@ -341,21 +341,18 @@ function RecordsScreen({ records, stores, users, isMobile }) {
   });
   const jornadas = Object.values(jornadasMap).sort((a,b)=>b.date.localeCompare(a.date)||a.userName.localeCompare(b.userName));
 
-  const PhotoThumb = ({ url, onClick }) => url ? (
-    <img src={url} onClick={onClick} alt="foto" style={{ width:38, height:38, borderRadius:6, objectFit:"cover", cursor:"pointer", border:`1px solid ${C.border}`, flexShrink:0 }} />
-  ) : (
-    <div style={{ width:38, height:38, borderRadius:6, background:C.surfaceAlt, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-      <span style={{ fontSize:14, opacity:0.3 }}>📷</span>
-    </div>
-  );
-
   const EventBlock = ({ label, registro, omitido, color }) => {
     const isOmitido = !registro && omitido;
     return (
-      <div style={{ flex:1, minWidth:0, borderRadius:8, padding:"8px 6px", background:isOmitido?`${C.red}18`:C.surfaceAlt, border:`1px solid ${isOmitido?C.red+"44":C.border}`, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+      <div style={{ flex:1, minWidth:0, borderRadius:8, padding:"8px 6px", background:isOmitido?`${C.red}18`:C.surfaceAlt, border:`1px solid ${isOmitido?C.red+"44":C.border}`, display:"flex", flexDirection:"column", alignItems:"center", gap:4, height:90 }}>
         <div style={{ fontFamily:font.body, fontSize:9, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", textAlign:"center" }}>{label}</div>
         <div style={{ fontFamily:font.mono, fontSize:13, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?"N/R":"—"}</div>
-        <PhotoThumb url={registro?.photo_url} onClick={()=>registro?.photo_url&&setViewPhoto(registro.photo_url)} />
+        <div style={{ width:38, height:38, borderRadius:6, overflow:"hidden", border:`1px solid ${C.border}`, flexShrink:0, background:C.surfaceAlt, display:"flex", alignItems:"center", justifyContent:"center" }}>
+          {registro?.photo_url
+            ? <img src={registro.photo_url} onClick={()=>setViewPhoto(registro.photo_url)} alt="foto" style={{ width:"100%", height:"100%", objectFit:"cover", cursor:"pointer" }} />
+            : <span style={{ fontSize:14, opacity:0.3 }}>📷</span>
+          }
+        </div>
       </div>
     );
   };
@@ -397,12 +394,13 @@ function RecordsScreen({ records, stores, users, isMobile }) {
           const punt=calcPuntualidad(j.entrada?.time,j.shift,j.date,j.store);
           return (
             <Card key={j.key} p="14px">
-              <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12, flexWrap:"wrap", gap:6 }}>
-                <div>
-                  <div style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.text }}>{j.userName}</div>
-                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>{stores[j.store]?.name} · {j.shift} · {j.date}</div>
+              <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12, gap:8 }}>
+                <div style={{ minWidth:0, flex:1 }}>
+                  <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text }}>{j.userName}</div>
+                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift}</div>
+                  <div style={{ fontFamily:font.mono, fontSize:10, color:C.textMuted }}>{j.date}</div>
                 </div>
-                {punt && (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual</Badge> : <Badge color={C.red} sm>🔴 Tarde {punt.diff} min</Badge>)}
+                {punt && (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual</Badge> : <Badge color={C.red} sm>🔴 {punt.diff}min</Badge>)}
               </div>
               <div style={{ display:"flex", gap:isMobile?4:8 }}>
                 <EventBlock label="Entrada"       registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
@@ -587,13 +585,16 @@ function HistoryScreen({ user, records, stores }) {
       )}
       <PageHeader title="Mi Historial" subtitle="Mis registros de asistencia" />
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-        {jornadas.map(j => (
+        {jornadas.map(j => {
+          const punt = calcPuntualidad(j.entrada?.time, j.shift, j.date, j.store);
+          return (
           <Card key={j.key} p="14px">
-            <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12, flexWrap:"wrap", gap:6 }}>
-              <div>
-                <div style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.text }}>{j.date}</div>
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>{stores[j.store]?.name} · {j.shift}</div>
+            <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12, gap:8 }}>
+              <div style={{ minWidth:0, flex:1 }}>
+                <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text }}>{new Date(j.date+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}</div>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift}</div>
               </div>
+              {punt && (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual</Badge> : <Badge color={C.red} sm>🔴 {punt.diff}min</Badge>)}
             </div>
             <div style={{ display:"flex", gap:6 }}>
               <EventBlock label="Entrada"       registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
@@ -602,7 +603,7 @@ function HistoryScreen({ user, records, stores }) {
               <EventBlock label="Salida"        registro={j.salida}         omitido={j["salida_omitido"]}         color={C.red}   />
             </div>
           </Card>
-        ))}
+        );})})
         {jornadas.length===0 && <div style={{ textAlign:"center", padding:60, color:C.textMuted, fontFamily:font.body }}>Sin registros aún.</div>}
       </div>
     </div>
