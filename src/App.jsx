@@ -365,8 +365,8 @@ function RecordsScreen({ records, stores, users, isMobile }) {
         </div>
       )}
       <PageHeader title="Registros" subtitle={`${jornadas.length} jornadas`} />
-      <Card style={{ marginBottom:12 }} p="12px">
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+      <Card style={{ marginBottom:12, overflow:"hidden" }} p="12px">
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8, width:"100%" }}>
           <div style={{ display:"flex", flexDirection:"column", gap:4, flex:1, minWidth:120 }}>
             <div style={{ fontSize:10, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Desde</div>
             <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", width:"100%", boxSizing:"border-box" }} />
