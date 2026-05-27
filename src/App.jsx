@@ -399,7 +399,10 @@ const CHIPICHAPE_T3 = 570; // 9:30am
 
 const getExpectedEntry = (shift, date, store) => {
   if (!shift) return null;
-  const num = shift.slice(-1); // último carácter: 1,2,3,4
+  // Extrae el número del turno desde cualquier formato: "UT1", "UT1 (10:00-18:20)", etc.
+  const match = shift.match(/T(\d)/i);
+  if (!match) return null;
+  const num = match[1];
   const key = `T${num}`;
   if (!SHIFT_HOURS[key]) return null;
   const d = new Date(date + "T12:00:00");
