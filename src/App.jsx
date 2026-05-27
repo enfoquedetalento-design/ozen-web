@@ -344,13 +344,13 @@ function RecordsScreen({ records, stores, users, isMobile }) {
   const EventBlock = ({ label, registro, omitido, color }) => {
     const isOmitido = !registro && omitido;
     return (
-      <div style={{ flex:1, minWidth:0, borderRadius:8, padding:"8px 6px", background:isOmitido?`${C.red}18`:C.surfaceAlt, border:`1px solid ${isOmitido?C.red+"44":C.border}`, display:"flex", flexDirection:"column", alignItems:"center", gap:4, height:90 }}>
-        <div style={{ fontFamily:font.body, fontSize:9, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", textAlign:"center" }}>{label}</div>
-        <div style={{ fontFamily:font.mono, fontSize:13, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?"N/R":"—"}</div>
-        <div style={{ width:38, height:38, borderRadius:6, overflow:"hidden", border:`1px solid ${C.border}`, flexShrink:0, background:C.surfaceAlt, display:"flex", alignItems:"center", justifyContent:"center" }}>
+      <div style={{ flex:1, minWidth:0, borderRadius:8, padding:"8px 4px", background:isOmitido?`${C.red}18`:C.surfaceAlt, border:`1px solid ${isOmitido?C.red+"44":C.border}`, display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
+        <div style={{ fontFamily:font.body, fontSize:9, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", textAlign:"center", lineHeight:1.2 }}>{label}</div>
+        <div style={{ fontFamily:font.mono, fontSize:12, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?"N/R":"—"}</div>
+        <div style={{ width:36, height:36, borderRadius:6, overflow:"hidden", border:`1px solid ${C.border}`, background:C.dark, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
           {registro?.photo_url
-            ? <img src={registro.photo_url} onClick={()=>setViewPhoto(registro.photo_url)} alt="foto" style={{ width:"100%", height:"100%", objectFit:"cover", cursor:"pointer" }} />
-            : <span style={{ fontSize:14, opacity:0.3 }}>📷</span>
+            ? <img src={registro.photo_url} onClick={()=>setViewPhoto(registro.photo_url)} alt="foto" style={{ width:"100%", height:"100%", objectFit:"cover", cursor:"pointer", display:"block" }} />
+            : <span style={{ fontSize:12, opacity:0.25 }}>📷</span>
           }
         </div>
       </div>
@@ -394,13 +394,12 @@ function RecordsScreen({ records, stores, users, isMobile }) {
           const punt=calcPuntualidad(j.entrada?.time,j.shift,j.date,j.store);
           return (
             <Card key={j.key} p="14px">
-              <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12, gap:8 }}>
-                <div style={{ minWidth:0, flex:1 }}>
-                  <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text }}>{j.userName}</div>
-                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift}</div>
-                  <div style={{ fontFamily:font.mono, fontSize:10, color:C.textMuted }}>{j.date}</div>
+              <div style={{ marginBottom:10 }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:4 }}>
+                  <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>{j.userName}</div>
+                  {punt && (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual</Badge> : <Badge color={C.red} sm>🔴 {punt.diff}min</Badge>)}
                 </div>
-                {punt && (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual</Badge> : <Badge color={C.red} sm>🔴 {punt.diff}min</Badge>)}
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift} · {j.date}</div>
               </div>
               <div style={{ display:"flex", gap:isMobile?4:8 }}>
                 <EventBlock label="Entrada"       registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
@@ -589,12 +588,12 @@ function HistoryScreen({ user, records, stores }) {
           const punt = calcPuntualidad(j.entrada?.time, j.shift, j.date, j.store);
           return (
           <Card key={j.key} p="14px">
-            <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12, gap:8 }}>
-              <div style={{ minWidth:0, flex:1 }}>
-                <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text }}>{new Date(j.date+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}</div>
-                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift}</div>
+            <div style={{ marginBottom:10 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:4 }}>
+                <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>{new Date(j.date+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}</div>
+                {punt && (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual</Badge> : <Badge color={C.red} sm>🔴 {punt.diff}min</Badge>)}
               </div>
-              {punt && (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual</Badge> : <Badge color={C.red} sm>🔴 {punt.diff}min</Badge>)}
+              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift}</div>
             </div>
             <div style={{ display:"flex", gap:6 }}>
               <EventBlock label="Entrada"       registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
