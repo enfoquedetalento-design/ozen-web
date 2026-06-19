@@ -34,7 +34,7 @@ const SHIFT_HOURS = {
   T4:  [690, 690],
   TOF: [540, 540],
 };
-const CHIPICHAPE_T1 = 570;
+const CHIPICHAPE_T1 = 540;
 
 const getExpectedEntry = (shift, date, store) => {
   if (!shift) return null;
