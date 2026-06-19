@@ -27,25 +27,32 @@ const fmtTime = (d) => { const c = toColombiaDate(d); return `${String(c.getHour
 const todayStr = fmt(new Date());
 
 // ── Puntualidad ───────────────────────────────────────────────────────────────
+// Horarios de entrada esperados en minutos desde medianoche: [Lunes-Jueves, Viernes-Sábado]
 const SHIFT_HOURS = {
-  T1:  [600, 600],
-  T2:  [730, 760],
-  T3:  [630, 630],
-  T4:  [690, 690],
-  TOF: [540, 540],
+  T1:  [600, 600],   // 10:00am todos los días (excepto Chipichape, ver abajo)
+  T2:  [730, 760],   // 12:10pm L-J / 12:40pm V-S
+  T3:  [630, 630],   // 10:30am todos los días
+  T4:  [690, 690],   // 11:30am todos los días
+  TOF: [540, 540],   // 9:00am todos los días (oficina)
 };
-const CHIPICHAPE_T1 = 540;
+// Excepción: Chipichape T1 entra a las 9:00am en vez de 10:00am
+const CHIPICHAPE_T1_ENTRY = 540;
 
 const getExpectedEntry = (shift, date, store) => {
   if (!shift) return null;
-  if (shift.toUpperCase().includes("TOF")) return SHIFT_HOURS.TOF[0];
+  const shiftUpper = shift.toUpperCase();
+  if (shiftUpper.includes("TOF")) return SHIFT_HOURS.TOF[0];
+
   const match = shift.match(/T(\d)/i);
   if (!match) return null;
   const key = `T${match[1]}`;
   if (!SHIFT_HOURS[key]) return null;
-  const dow = new Date(date + "T12:00:00").getDay();
+
+  // Excepción Chipichape T1
+  if (key === "T1" && store === "chipichape") return CHIPICHAPE_T1_ENTRY;
+
+  const dow = new Date(date + "T12:00:00").getDay(); // 0=dom,1=lun,...,5=vie,6=sab
   const isVS = dow === 5 || dow === 6;
-  if (key === "T1" && store === "chipichape") return CHIPICHAPE_T1;
   return isVS ? SHIFT_HOURS[key][1] : SHIFT_HOURS[key][0];
 };
 
@@ -168,7 +175,6 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
         const canvas = canvasRef.current, video = videoRef.current;
         canvas.width = video.videoWidth; canvas.height = video.videoHeight;
         canvas.getContext("2d").drawImage(video, 0, 0);
-        // Comprimir foto a ~40KB
         setCaptured(canvas.toDataURL("image/jpeg", 0.4));
         stopCamera();
       }
@@ -316,7 +322,6 @@ function DashboardScreen({ records, stores, isMobile }) {
         </Card>
       )}
 
-      {/* Últimos eventos — solo en escritorio o como lista compacta en móvil */}
       <Card>
         <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:12 }}>Últimos eventos</div>
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
@@ -383,8 +388,8 @@ function RecordsScreen({ records, stores, users, isMobile }) {
         </div>
       )}
       <PageHeader title="Registros" subtitle={`${jornadas.length} jornadas`} />
-      <Card style={{ marginBottom:12 }} p="12px">
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+      <Card style={{ marginBottom:12, overflow:"hidden" }} p="12px">
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8, width:"100%" }}>
           <div>
             <div style={{ fontSize:10, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>Desde</div>
             <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 8px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }} />
@@ -419,7 +424,7 @@ function RecordsScreen({ records, stores, users, isMobile }) {
                 </div>
                 <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift} · {j.date}</div>
               </div>
-              <div style={{ display:"flex", gap:isMobile?4:8 }}>
+              <div style={{ display:"flex", gap:6 }}>
                 <EventBlock label="Entrada"       registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
                 <EventBlock label="Ini. Almuerzo" registro={j.inicio_almuerzo} omitido={j["inicio_almuerzo_omitido"]} color={C.amber} />
                 <EventBlock label="Fin Almuerzo"  registro={j.fin_almuerzo}   omitido={j["fin_almuerzo_omitido"]}   color={C.blue}  />
@@ -523,6 +528,9 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores }) {
   const nextEvent=!ultimoReal?"entrada":ultimoReal==="entrada"?"inicio_almuerzo":ultimoReal==="inicio_almuerzo"?"fin_almuerzo":ultimoReal==="fin_almuerzo"?"salida":null;
   const refreshTodayRecs=async()=>{ const{data}=await supabase.from("registros").select("*").eq("user_id",user.id).eq("date",todayStr); if(data)onRefresh(data); };
   const handleCapture=async(photoBase64)=>{ setShowCamera(false);setRecording(true); let photo_url=null; try{ const blob=await fetch(photoBase64).then(r=>r.blob()); const fileName=`${user.id}_${Date.now()}.jpg`; const{data:up}=await supabase.storage.from("fotos-registro").upload(fileName,blob,{contentType:"image/jpeg"}); if(up){const{data:ud}=supabase.storage.from("fotos-registro").getPublicUrl(fileName);photo_url=ud.publicUrl;} }catch(e){console.error(e);} const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:selStore,shift:selShift,event:nextEvent,date:todayStr,time:fmtTime(new Date()),photo_url}).select().single(); if(!error){onRecord(data);setLocked(true);await refreshTodayRecs();} setRecording(false);setToast(`✓ ${EVENT_LABELS[nextEvent]} registrada`);setTimeout(()=>setToast(null),3000); };
+
+  const puntHoy = calcPuntualidad(todayRecs.find(r=>r.event==="entrada")?.time, selShift, todayStr, selStore);
+
   return (
     <div>
       {showCamera&&<CameraModal eventLabel={EVENT_LABELS[nextEvent]} onCapture={handleCapture} onCancel={()=>setShowCamera(false)}/>}
@@ -545,8 +553,10 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores }) {
       )}
 
       <Card>
-        <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.07em"}}>Registro de hoy</div>
-        {(() => { const punt = calcPuntualidad(todayRecs.find(r=>r.event==="entrada")?.time, selShift, todayStr, selStore); return punt ? (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual hoy</Badge> : <Badge color={C.red} sm>🔴 Tarde {punt.diff} min hoy</Badge>) : null; })()}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+          <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Registro de hoy</div>
+          {puntHoy && (puntHoy.puntual ? <Badge color={C.green} sm>🟢 Puntual hoy</Badge> : <Badge color={C.red} sm>🔴 Tarde {puntHoy.diff} min hoy</Badge>)}
+        </div>
         {ORDEN.map((ev,i)=>{ const rec=todayRecs.find(r=>r.event===ev); const isNext=ev===nextEvent; return (
           <div key={ev} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<3?`1px solid ${C.border}`:"none"}}>
             <div style={{width:12,height:12,borderRadius:99,background:rec?EVENT_COLORS[ev]:C.border,boxShadow:rec?`0 0 8px ${EVENT_COLORS[ev]}`:"none",flexShrink:0}}/>
@@ -563,9 +573,8 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores }) {
 
 // ── SCREEN: History ───────────────────────────────────────────────────────────
 function HistoryScreen({ user, records, stores }) {
-  const [viewPhoto, setViewPhoto] = useState(null);
-  const myRecs = records.filter(r=>r.user_id===user.id);
-
+  const [viewPhoto,setViewPhoto]=useState(null);
+  const myRecs=records.filter(r=>r.user_id===user.id);
   const jornadasMap = {};
   myRecs.forEach(r=>{
     const key=`${r.user_id}_${r.date}`;
@@ -575,33 +584,26 @@ function HistoryScreen({ user, records, stores }) {
   });
   const jornadas = Object.values(jornadasMap).sort((a,b)=>b.date.localeCompare(a.date));
 
-  const PhotoThumb = ({ url, onClick }) => url ? (
-    <img src={url} onClick={onClick} alt="foto" style={{ width:38, height:38, borderRadius:6, objectFit:"cover", cursor:"pointer", border:`1px solid ${C.border}`, flexShrink:0 }} />
-  ) : (
-    <div style={{ width:38, height:38, borderRadius:6, background:C.surfaceAlt, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-      <span style={{ fontSize:14, opacity:0.3 }}>📷</span>
-    </div>
-  );
-
   const EventBlock = ({ label, registro, omitido, color }) => {
     const isOmitido = !registro && omitido;
     return (
-      <div style={{ flex:1, minWidth:0, borderRadius:8, padding:"8px 6px", background:isOmitido?`${C.red}18`:C.surfaceAlt, border:`1px solid ${isOmitido?C.red+"44":C.border}`, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
-        <div style={{ fontFamily:font.body, fontSize:9, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", textAlign:"center" }}>{label}</div>
-        <div style={{ fontFamily:font.mono, fontSize:13, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?"N/R":"—"}</div>
-        <PhotoThumb url={registro?.photo_url} onClick={()=>registro?.photo_url&&setViewPhoto(registro.photo_url)} />
+      <div style={{ flex:1, minWidth:0, borderRadius:8, padding:"8px 4px", background:isOmitido?`${C.red}18`:C.surfaceAlt, border:`1px solid ${isOmitido?C.red+"44":C.border}`, display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
+        <div style={{ fontFamily:font.body, fontSize:9, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", textAlign:"center", lineHeight:1.2 }}>{label}</div>
+        <div style={{ fontFamily:font.mono, fontSize:12, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?"N/R":"—"}</div>
+        <div style={{ width:36, height:36, borderRadius:6, overflow:"hidden", border:`1px solid ${C.border}`, background:C.dark, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+          {registro?.photo_url
+            ? <img src={registro.photo_url} onClick={()=>setViewPhoto(registro.photo_url)} alt="foto" style={{ width:"100%", height:"100%", objectFit:"cover", cursor:"pointer", display:"block" }} />
+            : <span style={{ fontSize:12, opacity:0.25 }}>📷</span>
+          }
+        </div>
       </div>
     );
   };
 
   return (
     <div>
-      {viewPhoto && (
-        <div onClick={()=>setViewPhoto(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.9)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:400, cursor:"pointer", padding:16 }}>
-          <img src={viewPhoto} alt="Foto" style={{ maxWidth:"100%", maxHeight:"90vh", borderRadius:10 }} />
-        </div>
-      )}
-      <PageHeader title="Mi Historial" subtitle="Mis registros de asistencia" />
+      {viewPhoto&&<div onClick={()=>setViewPhoto(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,cursor:"pointer",padding:16}}><img src={viewPhoto} alt="Foto" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:10}}/></div>}
+      <PageHeader title="Mi Historial" subtitle="Mis registros de asistencia"/>
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
         {jornadas.map(j => {
           const punt = calcPuntualidad(j.entrada?.time, j.shift, j.date, j.store);
@@ -621,8 +623,8 @@ function HistoryScreen({ user, records, stores }) {
               <EventBlock label="Salida"        registro={j.salida}         omitido={j["salida_omitido"]}         color={C.red}   />
             </div>
           </Card>
-        );})})
-        {jornadas.length===0 && <div style={{ textAlign:"center", padding:60, color:C.textMuted, fontFamily:font.body }}>Sin registros aún.</div>}
+        );})}
+        {jornadas.length===0&&<div style={{textAlign:"center",padding:60,color:C.textMuted,fontFamily:font.body}}>Sin registros aún.</div>}
       </div>
     </div>
   );
@@ -660,7 +662,7 @@ function ReportsScreen({ records, users, stores, isMobile }) {
       if(entrada&&salida){ const[eh,em]=entrada.split(":").map(Number),[sh,sm]=salida.split(":").map(Number); brutas+=(sh*60+sm)-(eh*60+em); }
       if(iniA&&finA){ const[ih,im]=iniA.split(":").map(Number),[fh,fm]=finA.split(":").map(Number); almuerzo+=(fh*60+fm)-(ih*60+im); }
     });
-    return { brutas:toHM(brutas), almuerzo:toHM(almuerzo), netas:toHM(brutas-almuerzo), brutasMin:brutas, almuerzoMin:almuerzo, netasMin:brutas-almuerzo };
+    return { brutas:toHM(brutas), almuerzo:toHM(almuerzo), netas:toHM(brutas-almuerzo) };
   };
 
   const porAsesor = advisors.map(u=>{
@@ -673,7 +675,6 @@ function ReportsScreen({ records, users, stores, isMobile }) {
     return { id:u.id, nombre:u.name, dias:dias.size, completas:completas.length, incompletas:incompletas.length, ultimoDia:entradas[0]?.date||null, ...horas };
   }).sort((a,b)=>b.dias-a.dias);
 
-  // Promedios
   let totalNetasMin=0,totalAlmuerzoMin=0,jornadasConHoras=0,jornadasConAlmuerzo=0,totalDias=0;
   porAsesor.forEach(a=>{
     totalDias+=a.dias;
@@ -690,24 +691,19 @@ function ReportsScreen({ records, users, stores, isMobile }) {
   });
   const promNetasHM    = toHM(jornadasConHoras>0?Math.round(totalNetasMin/jornadasConHoras):0);
   const promAlmuerzoHM = toHM(jornadasConAlmuerzo>0?Math.round(totalAlmuerzoMin/jornadasConAlmuerzo):0);
-  const totalCompletas   = porAsesor.reduce((s,a)=>s+a.completas,0);
-  const totalIncompletas = porAsesor.reduce((s,a)=>s+a.incompletas,0);
 
   const jornadasIncompletas=[];
   recsMes.filter(r=>r.event==="omitido").forEach(r=>{ if(!jornadasIncompletas.find(j=>j.userId===r.user_id&&j.date===r.date&&j.evento===r.time)) jornadasIncompletas.push({userId:r.user_id,nombre:r.user_name,date:r.date,evento:r.time,tienda:stores[r.store]?.name}); });
   jornadasIncompletas.sort((a,b)=>b.date.localeCompare(a.date));
 
-  // Export CSV estructurado
   const exportCSV = () => {
     const BOM = "\uFEFF";
-    const sep = ";"; // punto y coma para Excel en español
+    const sep = ";";
     const rows = [];
     rows.push([`INFORME DE ASISTENCIA - ${meses[mes].toUpperCase()} ${anio}`]);
     rows.push([]);
     rows.push(["RESUMEN GENERAL"]);
     rows.push(["Días trabajados total", totalDias]);
-    rows.push(["Jornadas completas", totalCompletas]);
-    rows.push(["Jornadas incompletas", totalIncompletas]);
     rows.push(["Promedio horas netas por jornada", promNetasHM]);
     rows.push(["Promedio tiempo de almuerzo", promAlmuerzoHM]);
     rows.push([]);
@@ -749,7 +745,6 @@ function ReportsScreen({ records, users, stores, isMobile }) {
         <StatCard label="Promedio tiempo de almuerzo"      value={promAlmuerzoHM} icon="🍽" color={C.amber}/>
       </div>
 
-      {/* Tabla por asesor */}
       <Card p="0" style={{marginBottom:16}}>
         <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.border}`,fontFamily:font.body,fontSize:13,fontWeight:600,color:C.text}}>Resumen por asesor — {meses[mes]} {anio}</div>
         {isMobile?(
@@ -793,7 +788,6 @@ function ReportsScreen({ records, users, stores, isMobile }) {
         )}
       </Card>
 
-      {/* Jornadas incompletas */}
       <Card p="0">
         <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.border}`,fontFamily:font.body,fontSize:13,fontWeight:600,color:C.text}}>Detalle jornadas incompletas</div>
         <div style={{maxHeight:300,overflowY:"auto"}}>
@@ -847,6 +841,8 @@ export default function App() {
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
+
+  useInactivityLogout(logout, 5);
 
   if(booting) return <div style={{minHeight:"100vh",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,color:C.textMuted,fontSize:14}}>Cargando...</div>;
   if(!user) return <LoginScreen onLogin={login}/>;
