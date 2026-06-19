@@ -34,7 +34,7 @@ const SHIFT_HOURS = {
   T4:  [690, 690],
   TOF: [540, 540],
 };
-const CHIPICHAPE_T3 = 570;
+const CHIPICHAPE_T1 = 540;
 
 const getExpectedEntry = (shift, date, store) => {
   if (!shift) return null;
@@ -45,7 +45,7 @@ const getExpectedEntry = (shift, date, store) => {
   if (!SHIFT_HOURS[key]) return null;
   const dow = new Date(date + "T12:00:00").getDay();
   const isVS = dow === 5 || dow === 6;
-  if (key === "T3" && store === "chipichape") return CHIPICHAPE_T3;
+  if (key === "T1" && store === "chipichape") return CHIPICHAPE_T1;
   return isVS ? SHIFT_HOURS[key][1] : SHIFT_HOURS[key][0];
 };
 
