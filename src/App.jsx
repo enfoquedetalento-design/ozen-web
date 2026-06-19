@@ -546,6 +546,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores }) {
 
       <Card>
         <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.07em"}}>Registro de hoy</div>
+        {(() => { const punt = calcPuntualidad(todayRecs.find(r=>r.event==="entrada")?.time, selShift, todayStr, selStore); return punt ? (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual hoy</Badge> : <Badge color={C.red} sm>🔴 Tarde {punt.diff} min hoy</Badge>) : null; })()}
         {ORDEN.map((ev,i)=>{ const rec=todayRecs.find(r=>r.event===ev); const isNext=ev===nextEvent; return (
           <div key={ev} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<3?`1px solid ${C.border}`:"none"}}>
             <div style={{width:12,height:12,borderRadius:99,background:rec?EVENT_COLORS[ev]:C.border,boxShadow:rec?`0 0 8px ${EVENT_COLORS[ev]}`:"none",flexShrink:0}}/>
