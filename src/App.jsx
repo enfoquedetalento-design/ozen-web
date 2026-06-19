@@ -34,7 +34,7 @@ const SHIFT_HOURS = {
   T4:  [690, 690],
   TOF: [540, 540],
 };
-const CHIPICHAPE_T1 = 540;
+const CHIPICHAPE_T3 = 570;
 
 const getExpectedEntry = (shift, date, store) => {
   if (!shift) return null;
@@ -45,7 +45,7 @@ const getExpectedEntry = (shift, date, store) => {
   if (!SHIFT_HOURS[key]) return null;
   const dow = new Date(date + "T12:00:00").getDay();
   const isVS = dow === 5 || dow === 6;
-  if (key === "T1" && store === "chipichape") return CHIPICHAPE_T1;
+  if (key === "T3" && store === "chipichape") return CHIPICHAPE_T3;
   return isVS ? SHIFT_HOURS[key][1] : SHIFT_HOURS[key][0];
 };
 
@@ -58,6 +58,24 @@ const calcPuntualidad = (entryTime, shift, date, store) => {
   if (diff <= 5) return { puntual: true, diff: 0 };
   return { puntual: false, diff };
 };
+
+// ── Hook de inactividad ───────────────────────────────────────────────────────
+function useInactivityLogout(onTimeout, minutos = 5) {
+  useEffect(() => {
+    let timer;
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(onTimeout, minutos * 60 * 1000);
+    };
+    const eventos = ["mousedown","keydown","touchstart","scroll"];
+    eventos.forEach(ev => window.addEventListener(ev, reset));
+    reset();
+    return () => {
+      clearTimeout(timer);
+      eventos.forEach(ev => window.removeEventListener(ev, reset));
+    };
+  }, [onTimeout, minutos]);
+}
 
 // ── Responsive ────────────────────────────────────────────────────────────────
 function useIsMobile() {
@@ -365,23 +383,23 @@ function RecordsScreen({ records, stores, users, isMobile }) {
         </div>
       )}
       <PageHeader title="Registros" subtitle={`${jornadas.length} jornadas`} />
-      <Card style={{ marginBottom:12, overflow:"hidden" }} p="12px">
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8, width:"100%" }}>
-          <div style={{ display:"flex", flexDirection:"column", gap:4, flex:1, minWidth:120 }}>
-            <div style={{ fontSize:10, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Desde</div>
-            <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", width:"100%", boxSizing:"border-box" }} />
+      <Card style={{ marginBottom:12 }} p="12px">
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+          <div>
+            <div style={{ fontSize:10, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>Desde</div>
+            <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 8px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }} />
           </div>
-          <div style={{ display:"flex", flexDirection:"column", gap:4, flex:1, minWidth:120 }}>
-            <div style={{ fontSize:10, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Hasta</div>
-            <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", width:"100%", boxSizing:"border-box" }} />
+          <div>
+            <div style={{ fontSize:10, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>Hasta</div>
+            <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 8px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }} />
           </div>
         </div>
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-          <select value={userFilter} onChange={e=>setUserFilter(e.target.value)} style={{ flex:1, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:8, color:C.text, fontSize:12, fontFamily:font.body, outline:"none", minWidth:140 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:8 }}>
+          <select value={userFilter} onChange={e=>setUserFilter(e.target.value)} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", width:"100%" }}>
             <option value="all">Todos los asesores</option>
             {advisors.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
-          <select value={storeFilter} onChange={e=>setStoreFilter(e.target.value)} style={{ flex:1, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:8, color:C.text, fontSize:12, fontFamily:font.body, outline:"none", minWidth:120 }}>
+          <select value={storeFilter} onChange={e=>setStoreFilter(e.target.value)} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", width:"100%" }}>
             <option value="all">Todas las tiendas</option>
             {Object.values(stores).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
@@ -528,7 +546,6 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores }) {
 
       <Card>
         <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.07em"}}>Registro de hoy</div>
-        {(() => { const punt = calcPuntualidad(todayRecs.find(r=>r.event==="entrada")?.time, selShift, todayStr, selStore); return punt ? (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual hoy</Badge> : <Badge color={C.red} sm>🔴 Tarde {punt.diff} min hoy</Badge>) : null; })()}
         {ORDEN.map((ev,i)=>{ const rec=todayRecs.find(r=>r.event===ev); const isNext=ev===nextEvent; return (
           <div key={ev} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<3?`1px solid ${C.border}`:"none"}}>
             <div style={{width:12,height:12,borderRadius:99,background:rec?EVENT_COLORS[ev]:C.border,boxShadow:rec?`0 0 8px ${EVENT_COLORS[ev]}`:"none",flexShrink:0}}/>
