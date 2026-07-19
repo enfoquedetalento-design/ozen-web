@@ -27,19 +27,34 @@ const fmtTime = (d) => { const c = toColombiaDate(d); return `${String(c.getHour
 const todayStr = fmt(new Date());
 
 // ── Puntualidad ───────────────────────────────────────────────────────────────
+// Fecha de corte: desde este día (inclusive) rigen los turnos nuevos.
+// Los registros con fecha anterior siguen evaluándose con el horario viejo,
+// congelado para siempre, sin importar qué cambie el código más adelante.
+const CUTOVER_DATE = "2026-07-15";
+
 // Horarios de entrada esperados en minutos desde medianoche: [Lunes-Jueves, Viernes-Sábado]
-const SHIFT_HOURS = {
+// Vigentes hasta el 14 de julio de 2026 (inclusive)
+const SHIFT_HOURS_OLD = {
   T1:  [600, 600],   // 10:00am todos los días (excepto Chipichape, ver abajo)
   T2:  [730, 760],   // 12:10pm L-J / 12:40pm V-S
   T3:  [630, 630],   // 10:30am todos los días
   T4:  [690, 690],   // 11:30am todos los días
   TOF: [540, 540],   // 9:00am todos los días (oficina)
 };
-// Excepción: Chipichape T1 entra a las 9:00am en vez de 10:00am
+// Vigentes desde el 15 de julio de 2026
+const SHIFT_HOURS_NEW = {
+  T1:  [600, 600],   // 10:00am todos los días (excepto Chipichape, ver abajo)
+  T2:  [750, 780],   // 12:30pm L-J / 1:00pm V-S
+  T3:  [630, 630],   // 10:30am todos los días
+  T4:  [690, 690],   // 11:30am todos los días
+  TOF: [540, 540],   // 9:00am todos los días (oficina)
+};
+// Excepción: Chipichape T1 entra a las 9:00am en vez de 10:00am (igual en ambos periodos)
 const CHIPICHAPE_T1_ENTRY = 540;
 
 const getExpectedEntry = (shift, date, store) => {
   if (!shift) return null;
+  const SHIFT_HOURS = date >= CUTOVER_DATE ? SHIFT_HOURS_NEW : SHIFT_HOURS_OLD;
   const shiftUpper = shift.toUpperCase();
   if (shiftUpper.includes("TOF")) return SHIFT_HOURS.TOF[0];
 
@@ -446,7 +461,12 @@ function UsersScreen({ users, setUsers }) {
   const add=async()=>{ if(!form.name.trim()||!form.documento.trim())return; setLoading(true); const{data,error}=await supabase.from("usuarios").insert({name:form.name.trim(),documento:form.documento.trim(),password:form.documento.trim(),role:"advisor",active:true}).select().single(); if(!error){setUsers(prev=>[...prev,data]);setForm({name:"",documento:""});setShowForm(false);} setLoading(false); };
   const toggle=async(u)=>{ const{data}=await supabase.from("usuarios").update({active:!u.active}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
   const saveEdit=async(id)=>{ if(!editVal.name.trim()||!editVal.documento.trim())return; const{data}=await supabase.from("usuarios").update({name:editVal.name.trim(),documento:editVal.documento.trim()}).eq("id",id).select().single(); if(data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setEditing(null);} };
-  const deleteUser=async(id)=>{ await supabase.from("usuarios").delete().eq("id",id); setUsers(prev=>prev.filter(u=>u.id!==id)); };
+  const deleteUser=async(id)=>{
+    const { count } = await supabase.from("registros").select("id", { count: "exact", head: true }).eq("user_id", id);
+    if (count > 0) { alert(`Este asesor tiene ${count} registro(s) de asistencia. Eliminarlo borraría ese historial para siempre. Usa el botón "✕" para desactivarlo en su lugar — así deja de aparecer como activo pero conserva sus registros.`); return; }
+    if (!window.confirm("Este asesor no tiene registros de asistencia. ¿Eliminarlo de todas formas? Esto no se puede deshacer.")) return;
+    await supabase.from("usuarios").delete().eq("id",id); setUsers(prev=>prev.filter(u=>u.id!==id));
+  };
   return (
     <div>
       <PageHeader title="Asesores" subtitle={`${advisors.length} asesores`} action={<Btn onClick={()=>{setShowForm(!showForm);setEditing(null);}} sm>{showForm?"Cancelar":"+ Nuevo"}</Btn>} />
@@ -479,7 +499,12 @@ function UsersScreen({ users, setUsers }) {
 function StoresScreen({ stores, setStores }) {
   const [showForm,setShowForm]=useState(false),[newName,setNewName]=useState(""),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[newShift,setNewShift]=useState({});
   const addStore=async()=>{ if(!newName.trim())return; const id=newName.trim().toLowerCase().replace(/\s+/g,"_").replace(/[^a-z0-9_]/g,""); if(stores[id])return; const{data}=await supabase.from("tiendas").insert({id,name:newName.trim(),shifts:[]}).select().single(); if(data){setStores(prev=>({...prev,[data.id]:data}));setNewName("");setShowForm(false);} };
-  const deleteStore=async(id)=>{ await supabase.from("tiendas").delete().eq("id",id); setStores(prev=>{const c={...prev};delete c[id];return c;}); };
+  const deleteStore=async(id)=>{
+    const { count } = await supabase.from("registros").select("id", { count: "exact", head: true }).eq("store", id);
+    if (count > 0) { alert(`Esta tienda tiene ${count} registro(s) de asistencia asociados. Eliminarla podría borrar ese historial para siempre. Si ya no está operando, simplemente deja de asignarle turnos nuevos en vez de eliminarla.`); return; }
+    if (!window.confirm("Esta tienda no tiene registros de asistencia. ¿Eliminarla de todas formas? Esto no se puede deshacer.")) return;
+    await supabase.from("tiendas").delete().eq("id",id); setStores(prev=>{const c={...prev};delete c[id];return c;});
+  };
   const saveEdit=async(id)=>{ if(!editVal.name.trim())return; const{data}=await supabase.from("tiendas").update({name:editVal.name.trim()}).eq("id",id).select().single(); if(data){setStores(prev=>({...prev,[id]:data}));setEditing(null);} };
   const removeShift=async(sid,sh)=>{ const shifts=stores[sid].shifts.filter(x=>x!==sh); const{data}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data)setStores(prev=>({...prev,[sid]:data})); };
   const addShift=async(sid)=>{ const sh=(newShift[sid]||"").trim(); if(!sh||stores[sid].shifts.includes(sh))return; const shifts=[...stores[sid].shifts,sh]; const{data}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data){setStores(prev=>({...prev,[sid]:data}));setNewShift(p=>({...p,[sid]:""}));} };
