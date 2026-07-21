@@ -286,6 +286,20 @@ manipular la información a su favor:
 - **El texto de "Creado / Actualizado" en cada perfil ahora usa el beige de la
   marca** (`textMuted`) en vez de un gris genérico.
 
+**Cuarta ronda — Indicadores de cumplimiento del Monitor (21 jul 2026)**: nueva
+pestaña **"📊 Indicadores"** (entre "Seguimiento semanal" y "Explicación del rol").
+Sin SQL nuevo — todo se calcula al vuelo con los datos que ya se estaban guardando:
+- **Sesiones hechas**: de los martes que tuvo el mes (normalmente 4), cuántos tienen
+  al menos una tarea registrada en el checklist.
+- **Cumplimiento de tareas**: de las tareas creadas ese mes, qué % quedó marcado como
+  completado.
+- Muestra el mes en curso destacado arriba, y abajo un **historial mes a mes** desde
+  que arrancó el módulo (julio 2026), con el nombre del monitor de cada mes — así se
+  puede comparar el desempeño entre personas con el tiempo.
+- La tarjeta "Monitor de turno" se movió de "Explicación del rol" hacia aquí (tiene
+  más sentido junto a los indicadores). "Explicación del rol" quedó como manual de
+  consulta puro (guion + funciones del Monitor), sin datos dinámicos.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.

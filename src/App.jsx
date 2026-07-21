@@ -91,11 +91,35 @@ const mesesEntre = (ini, fin) => {
   const a = new Date(ini + "T12:00:00"), b = new Date(fin + "T12:00:00");
   return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
 };
-const getMonitorActual = (lideres) => {
+const getMonitorDeMes = (lideres, anio, mes) => {
   if (!lideres.length) return null;
   const ordenados = [...lideres].sort((x, y) => (x.orden ?? 999) - (y.orden ?? 999));
-  const ciclo = Math.max(0, mesesEntre(JUNTA_ROTATION_EPOCH, todayStr));
+  const fechaMes = `${anio}-${String(mes + 1).padStart(2, "0")}-01`;
+  const ciclo = Math.max(0, mesesEntre(JUNTA_ROTATION_EPOCH, fechaMes));
   return ordenados[ciclo % ordenados.length];
+};
+const getMonitorActual = (lideres) => {
+  const hoy = toColombiaDate();
+  return getMonitorDeMes(lideres, hoy.getFullYear(), hoy.getMonth());
+};
+// Fechas (aaaa-mm-dd) de todos los martes de un mes calendario dado.
+const martesDelMes = (anio, mes) => {
+  const dias = [];
+  const d = new Date(anio, mes, 1, 12);
+  while (d.getMonth() === mes) {
+    if (d.getDay() === 2) dias.push(fmt(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return dias;
+};
+// Indicadores de un mes: sesiones registradas (martes con al menos una tarea) y % de tareas completadas.
+const statsDelMes = (compromisos, anio, mes) => {
+  const martes = martesDelMes(anio, mes);
+  const tareas = compromisos.filter(c => martes.includes(c.semana));
+  const sesiones = new Set(tareas.map(t => t.semana)).size;
+  const completadas = tareas.filter(t => t.completado).length;
+  const pct = tareas.length ? Math.round((completadas / tareas.length) * 100) : null;
+  return { totalMartes: martes.length, sesiones, totalTareas: tareas.length, completadas, pct };
 };
 // Devuelve el martes de la semana de una fecha (o la fecha misma si ya es martes)
 const martesDeSemana = (dateStr) => {
@@ -268,7 +292,7 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id:"records",icon:"📋",label:"Registros" },{ id:"users",icon:"👥",label:"Asesores" },{ id:"stores",icon:"🏬",label:"Tiendas" },{ id:"reports",icon:"📈",label:"Informes" }];
-const ADMIN_TABS_JUNTA      = [{ id:"equipo",icon:"👥",label:"Equipo y perfiles" },{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"guion",icon:"📖",label:"Explicación del rol" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" }];
+const ADMIN_TABS_JUNTA      = [{ id:"equipo",icon:"👥",label:"Equipo y perfiles" },{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"indicadores",icon:"📊",label:"Indicadores" },{ id:"guion",icon:"📖",label:"Explicación del rol" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" }];
 const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
 
 function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing }) {
@@ -1069,6 +1093,82 @@ function JuntaSeguimientoScreen({ lideres, compromisos, setCompromisos }) {
   );
 }
 
+// ── SCREEN: Junta Admin — Indicadores (cumplimiento del Monitor) ────────────
+function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
+  const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+  const listaMeses = () => {
+    const meses = [];
+    const inicio = new Date(JUNTA_ROTATION_EPOCH + "T12:00:00");
+    let anio = inicio.getFullYear(), mes = inicio.getMonth();
+    const hoy = toColombiaDate();
+    const anioActual = hoy.getFullYear(), mesActual = hoy.getMonth();
+    while (anio < anioActual || (anio === anioActual && mes <= mesActual)) {
+      meses.push({ anio, mes });
+      mes++; if (mes > 11) { mes = 0; anio++; }
+    }
+    return meses.reverse();
+  };
+
+  const meses = listaMeses();
+  const actual = meses[0];
+  const monitorActual = actual ? getMonitorDeMes(lideres, actual.anio, actual.mes) : null;
+  const statsActual = actual ? statsDelMes(compromisos, actual.anio, actual.mes) : null;
+
+  return (
+    <div>
+      <PageHeader title="Indicadores" subtitle="Cumplimiento del Monitor, mes a mes" />
+
+      {!actual ? (
+        <Card><div style={{ textAlign:"center", padding:20, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Aún no hay meses para mostrar.</div></Card>
+      ) : (
+        <Card glow style={{ marginBottom:16 }}>
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:12 }}>{MESES[actual.mes]} {actual.anio} · mes en curso</div>
+          <div style={{ display:"flex", alignItems:"center", gap:16, flexWrap:"wrap", marginBottom:18 }}>
+            <div style={{ width:52, height:52, borderRadius:12, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>🎯</div>
+            <div>
+              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:2 }}>Monitor de este mes</div>
+              <div style={{ fontFamily:font.body, fontSize:20, fontWeight:700, color:C.goldLight }}>{monitorActual ? (monitorActual.nombre || "— sin nombre") : "— sin líderes configurados"}</div>
+            </div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:12 }}>
+            <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Sesiones hechas</div>
+              <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:statsActual.sesiones>=statsActual.totalMartes?C.green:C.amber }}>{statsActual.sesiones} / {statsActual.totalMartes}</div>
+              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>martes con checklist registrado</div>
+            </div>
+            <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Cumplimiento de tareas</div>
+              <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:statsActual.pct===null?C.textMuted:statsActual.pct>=70?C.green:C.amber }}>{statsActual.pct===null?"—":`${statsActual.pct}%`}</div>
+              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>{statsActual.completadas} de {statsActual.totalTareas} tareas completadas</div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <Card p="0">
+        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${C.border}`, fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text }}>Historial por mes</div>
+        {meses.map(({ anio, mes }, idx) => {
+          const monitor = getMonitorDeMes(lideres, anio, mes);
+          const s = statsDelMes(compromisos, anio, mes);
+          return (
+            <div key={`${anio}-${mes}`} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderBottom:idx<meses.length-1?`1px solid ${C.border}`:"none", flexWrap:"wrap" }}>
+              <div style={{ minWidth:120 }}>
+                <div style={{ fontFamily:font.body, fontSize:12, fontWeight:600, color:C.text }}>{MESES[mes]} {anio}</div>
+                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{monitor ? (monitor.nombre || "— sin nombre") : "—"}</div>
+              </div>
+              <div style={{ flex:1, minWidth:160, display:"flex", gap:8, flexWrap:"wrap" }}>
+                <Badge color={s.sesiones>=s.totalMartes?C.green:C.amber} sm>{s.sesiones}/{s.totalMartes} sesiones</Badge>
+                <Badge color={s.pct===null?C.textMuted:s.pct>=70?C.green:C.amber} sm>{s.pct===null?"Sin tareas registradas":`${s.pct}% cumplido`}</Badge>
+              </div>
+            </div>
+          );
+        })}
+      </Card>
+    </div>
+  );
+}
+
 // ── SCREEN: Junta Admin — Explicación del rol ────────────────────────────────
 function JuntaGuionTab({ monitor, isMobile }) {
   const guion = [
@@ -1252,6 +1352,7 @@ export default function App() {
       if(area==="junta"){
         if(tab==="equipo")       return <JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} isMobile={isMobile}/>;
         if(tab==="seguimiento")  return <JuntaSeguimientoScreen lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos}/>;
+        if(tab==="indicadores")  return <JuntaIndicadoresTab lideres={juntaLideres} compromisos={juntaCompromisos} isMobile={isMobile}/>;
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else {
