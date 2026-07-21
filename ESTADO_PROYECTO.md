@@ -188,37 +188,65 @@ Lo que NO hace (esto blinda el rol):
      cuente y sea visible, no solo lo planeado.
 
 **Decisiones confirmadas por Santiago (21 jul 2026)**: este módulo REEMPLAZA el Excel
-desde ya (no corre en paralelo). Edwin ya existe como usuario admin en el sistema.
+desde ya (no corre en paralelo).
+
+**Rediseño (21 jul 2026, segunda vuelta, tras la primera versión)**: Santiago pidió
+tres cambios grandes sobre la primera versión:
+1. Que al entrar a la sesión aparezca primero una pantalla para elegir entre
+   **"La Junta Admin"** y **"Registro de Asistencia"** — son dos herramientas que no
+   tienen que ver entre sí, así que se separan desde el login (solo aplica a usuarios
+   admin; los asesores entran directo a marcar asistencia, igual que siempre).
+2. Que los "líderes" de la Junta ya NO sean los usuarios admin del sistema (que sirven
+   para iniciar sesión), sino una lista aparte de cargos: **Líder 1, Líder 2... Líder
+   N**, cada uno con el nombre de quien lo ocupa en texto libre, y que se puedan
+   agregar o quitar líderes cuando haga falta.
+3. Que "Seguimiento semanal" sea una lista de checklist simple (tarea, quién la hace,
+   fecha estimada, comentarios, check de completado) en vez de la estructura de 5
+   momentos por persona que tenía la primera versión.
 
 **Estado: construido en código (rama `staging`), pendiente de**:
-1. Correr el SQL de abajo en Supabase de PRÁCTICA (`ozen-staging`).
+1. Correr el SQL de abajo en Supabase de PRÁCTICA (`ozen-staging`) — este SQL
+   REEMPLAZA las tablas de la primera versión (`junta_perfiles` y las columnas
+   `junta_orden`/`junta_lider` en `usuarios` quedan sin usar, no hace falta borrarlas).
 2. Publicar en la URL de práctica y probarlo con calma.
-3. Marcar a Edwin como líder y poner el orden de rotación (1 = Santiago) desde la
-   pestaña "Equipo y perfiles" dentro del propio módulo — ya no hace falta SQL para eso.
+3. Desde "La Junta Admin" → "Equipo y perfiles", agregar los líderes reales (ya viene
+   con espacio para 5, se pueden agregar o quitar) y marcar quién es el líder fijo del
+   equipo (Edwin) y el orden de rotación (Santiago = Líder 1, para empezar la
+   rotación con él).
 4. Cuando esté aprobado: correr el mismo SQL en Supabase REAL (proyecto `OZEN`) y
    fusionar `staging` a `main`.
 
-**Qué se construyó**: una pestaña nueva "Junta Admin" en el menú de admin, con 3
-sub-pestañas:
-- **Monitor y guion**: quién es el Monitor de turno (calculado automáticamente según
-  la rotación), quién es el líder fijo, la lista de funciones que sí/no hace el
-  Monitor, y el guion de los 5 momentos como referencia.
-- **Seguimiento semanal**: la pantalla de trabajo de cada martes. Por cada admin:
-  revisión de lo comprometido la semana anterior (con estado y evidencia), planeación
-  de la semana actual (qué, cómo día por día, resultado esperado, fecha límite), y lo
-  no previsto de la semana pasada. Debajo, una sección aparte para acuerdos de trabajo
-  grupal (quién hace qué, de qué depende, para cuándo).
-- **Equipo y perfiles**: marcar el líder fijo del equipo, el orden de rotación del
-  Monitor, y el objetivo + procesos macro de cada admin (visible para todo el equipo).
+**Qué se construyó**:
+- **Pantalla de selección de área** (solo para admins, justo después de iniciar
+  sesión): dos botones grandes, "La Junta Admin" y "Registro de Asistencia". Cada uno
+  lleva a su propio menú lateral independiente. Hay un botón "🔀 Cambiar de área" para
+  volver a elegir sin cerrar sesión.
+- **La Junta Admin**, con 3 pestañas en este orden:
+  - **Equipo y perfiles** (primera pestaña): la lista de liderazgos — "Líder 1",
+    "Líder 2", etc. — cada uno con nombre libre, objetivo y procesos macro editables,
+    botón para marcar cuál es el líder fijo del equipo, y botones para agregar o
+    quitar líderes.
+  - **Seguimiento semanal**: checklist por semana (selector de "martes de la
+    semana"). Cada tarea tiene: descripción, quién la hace (elegido de la lista de
+    líderes), fecha estimada de término, comentarios/avance de texto libre, y un
+    check para marcarla completada.
+  - **Explicación del rol** (última pestaña): quién es el Monitor de turno (calculado
+    solo según la rotación), quién es el líder fijo del equipo, la lista de funciones
+    que sí/no hace el Monitor, y el guion de los 5 momentos de la reunión como
+    referencia de lectura.
+- **Registro de Asistencia**: exactamente lo mismo que ya existía (Panel, Registros,
+  Asesores, Tiendas, Informes), ahora como su propia área separada de la Junta.
 
-**Datos nuevos en la base de datos**: tablas `junta_compromisos` (una fila por tarea,
-sirve para revisión/planeación/no previsto/grupal según sus columnas) y
-`junta_perfiles` (objetivo y procesos macro por persona), más dos columnas nuevas en
-`usuarios`: `junta_orden` (número, para la rotación) y `junta_lider` (sí/no).
+**Datos en la base de datos**: tabla `junta_lideres` (un renglón por liderazgo: orden,
+nombre, objetivo, procesos_macro, si es el líder fijo del equipo) y tabla
+`junta_compromisos` (un renglón por tarea del checklist: semana, descripción, a qué
+líder está asignada, fecha estimada, comentarios, si está completada). Ya no se usan
+`junta_perfiles` ni las columnas `junta_orden`/`junta_lider` de `usuarios` de la
+primera versión — quedaron huérfanas en la base pero no estorban.
 
-**Rotación del Monitor**: arranca el 21 de julio de 2026 con la persona que tenga
-`junta_orden = 1` (debe ser Santiago), rota cada 2 meses en orden. Se calcula solo,
-no hay que tocarlo cada vez — solo definir el orden una vez desde "Equipo y perfiles".
+**Rotación del Monitor**: arranca el 21 de julio de 2026 con quien tenga el número más
+bajo en "Equipo y perfiles" (debe quedar Santiago = Líder 1), rota cada 2 meses según
+el orden de la lista. Se calcula solo, no hay que tocarlo cada semana.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 

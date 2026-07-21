@@ -82,17 +82,17 @@ const calcPuntualidad = (entryTime, shift, date, store) => {
 };
 
 // ── Junta Admin — rotación del Monitor ───────────────────────────────────────
-// El Monitor rota cada 2 meses entre los admins, en el orden que cada quien
-// tenga en "junta_orden" (se edita desde la pestaña Equipo y perfiles).
+// El Monitor rota cada 2 meses entre los líderes, en el orden de la lista
+// (se edita desde la pestaña Equipo y perfiles: agregar/quitar/orden).
 // Arranca el 21 de julio de 2026 (primer martes del protocolo).
 const JUNTA_ROTATION_EPOCH = "2026-07-21";
 const mesesEntre = (ini, fin) => {
   const a = new Date(ini + "T12:00:00"), b = new Date(fin + "T12:00:00");
   return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
 };
-const getMonitorActual = (admins) => {
-  if (!admins.length) return null;
-  const ordenados = [...admins].sort((x, y) => (x.junta_orden ?? 999) - (y.junta_orden ?? 999) || x.name.localeCompare(y.name));
+const getMonitorActual = (lideres) => {
+  if (!lideres.length) return null;
+  const ordenados = [...lideres].sort((x, y) => (x.orden ?? 999) - (y.orden ?? 999));
   const meses = Math.max(0, mesesEntre(JUNTA_ROTATION_EPOCH, todayStr));
   const ciclo = Math.floor(meses / 2);
   return ordenados[ciclo % ordenados.length];
@@ -265,15 +265,18 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
 }
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
-function Sidebar({ tab, setTab, user, onLogout, onRefresh, refreshing }) {
-  const adminTabs   = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id:"records",icon:"📋",label:"Registros" },{ id:"users",icon:"👥",label:"Asesores" },{ id:"stores",icon:"🏬",label:"Tiendas" },{ id:"reports",icon:"📈",label:"Informes" },{ id:"junta",icon:"🗓️",label:"Junta Admin" }];
-  const advisorTabs = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
-  const tabs = user.role==="admin" ? adminTabs : advisorTabs;
+const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id:"records",icon:"📋",label:"Registros" },{ id:"users",icon:"👥",label:"Asesores" },{ id:"stores",icon:"🏬",label:"Tiendas" },{ id:"reports",icon:"📈",label:"Informes" }];
+const ADMIN_TABS_JUNTA      = [{ id:"equipo",icon:"👥",label:"Equipo y perfiles" },{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"guion",icon:"📖",label:"Explicación del rol" }];
+const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
+
+function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing }) {
+  const tabs = user.role!=="admin" ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : ADMIN_TABS_ASISTENCIA);
+  const areaLabel = user.role!=="admin" ? "CONTROL DE PERSONAL" : (area==="junta" ? "JUNTA ADMIN" : "REGISTRO DE ASISTENCIA");
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ padding:"20px 16px", borderBottom:`1px solid ${C.border}` }}>
         <img src="/logo.png" alt="OZEN" style={{ width:100, height:"auto", marginBottom:4 }} />
-        <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, letterSpacing:"0.15em", marginTop:2 }}>CONTROL DE PERSONAL</div>
+        <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, letterSpacing:"0.15em", marginTop:2 }}>{areaLabel}</div>
       </div>
       <nav style={{ flex:1, padding:"12px 10px", display:"flex", flexDirection:"column", gap:2 }}>
         {tabs.map(t => { const active=tab===t.id; return (
@@ -291,16 +294,15 @@ function Sidebar({ tab, setTab, user, onLogout, onRefresh, refreshing }) {
           </div>
           <button onClick={onRefresh} disabled={refreshing} title="Actualizar" style={{ marginLeft:"auto", background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:16, opacity:refreshing?0.4:1, transition:"transform 0.4s", transform:refreshing?"rotate(180deg)":"rotate(0deg)" }}>🔄</button>
         </div>
+        {user.role==="admin" && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
         <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
       </div>
     </div>
   );
 }
 
-function BottomNav({ tab, setTab, isAdmin }) {
-  const adminTabs   = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id:"records",icon:"📋",label:"Registros" },{ id:"users",icon:"👥",label:"Asesores" },{ id:"stores",icon:"🏬",label:"Tiendas" },{ id:"reports",icon:"📈",label:"Informes" },{ id:"junta",icon:"🗓️",label:"Junta" }];
-  const advisorTabs = [{ id:"checkin",icon:"📍",label:"Asistencia" },{ id:"history",icon:"📋",label:"Historial" },{ id:"schedule",icon:"📅",label:"Turnos" }];
-  const tabs = isAdmin ? adminTabs : advisorTabs;
+function BottomNav({ tab, setTab, isAdmin, area }) {
+  const tabs = !isAdmin ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : ADMIN_TABS_ASISTENCIA);
   return (
     <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:C.sidebar, paddingBottom:"env(safe-area-inset-bottom, 8px)", flexShrink:0 }}>
       {tabs.map(t => { const active=tab===t.id; return (
@@ -314,11 +316,12 @@ function BottomNav({ tab, setTab, isAdmin }) {
   );
 }
 
-function MobileHeader({ user, onLogout, onRefresh, refreshing }) {
+function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea }) {
   return (
     <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
       <img src="/logo.png" alt="OZEN" style={{ width:70, height:"auto" }} />
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+        {user.role==="admin" && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
         <div style={{ fontFamily:font.body, fontSize:12, color:C.text }}>{user.name.split(" ")[0]}</div>
         <button onClick={onLogout} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 10px", color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:font.body }}>Salir</button>
@@ -854,29 +857,147 @@ function ReportsScreen({ records, users, stores, isMobile }) {
   );
 }
 
-// ── SCREEN: Junta Admin ───────────────────────────────────────────────────────
-function JuntaScreen({ users, setUsers, isMobile, compromisos, setCompromisos, perfiles, setPerfiles }) {
-  const admins = users.filter(u => u.role === "admin");
-  const [subTab, setSubTab] = useState("monitor");
-  const monitor = getMonitorActual(admins);
-  const lider = admins.find(a => a.junta_lider);
+// ── SCREEN: Junta Admin — Equipo y perfiles ──────────────────────────────────
+function JuntaEquipoTab({ lideres, setLideres }) {
+  const [editingId, setEditingId] = useState(null);
+  const [editVal, setEditVal] = useState({ nombre:"", objetivo:"", procesos_macro:"" });
+
+  const ordenados = [...lideres].sort((a,b)=>(a.orden??999)-(b.orden??999));
+
+  const agregar = async () => {
+    const siguienteOrden = lideres.length ? Math.max(...lideres.map(l=>l.orden??0)) + 1 : 1;
+    const { data, error } = await supabase.from("junta_lideres").insert({ orden:siguienteOrden, nombre:"", objetivo:"", procesos_macro:"" }).select().single();
+    if (!error && data) setLideres(prev=>[...prev, data]);
+  };
+  const quitar = async (id) => {
+    if (!window.confirm("¿Quitar este liderazgo de la Junta? Esto no se puede deshacer.")) return;
+    await supabase.from("junta_lideres").delete().eq("id", id);
+    setLideres(prev=>prev.filter(l=>l.id!==id));
+  };
+  const marcarLiderEquipo = async (id) => {
+    await supabase.from("junta_lideres").update({ lider_equipo:false }).not("id","is",null);
+    const { data } = await supabase.from("junta_lideres").update({ lider_equipo:true }).eq("id", id).select().single();
+    if (data) setLideres(prev=>prev.map(l=>({ ...l, lider_equipo: l.id===id })));
+  };
+  const guardar = async (id) => {
+    const { data, error } = await supabase.from("junta_lideres").update({ nombre:editVal.nombre.trim(), objetivo:editVal.objetivo.trim(), procesos_macro:editVal.procesos_macro.trim() }).eq("id", id).select().single();
+    if (!error && data) { setLideres(prev=>prev.map(l=>l.id===id?data:l)); setEditingId(null); }
+  };
 
   return (
     <div>
-      <PageHeader title="Junta Admin" subtitle="Reunión semanal de martes — equipo administrativo" />
-      <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
-        <Btn onClick={()=>setSubTab("monitor")} variant={subTab==="monitor"?"primary":"ghost"} sm>🎯 Monitor y guion</Btn>
-        <Btn onClick={()=>setSubTab("seguimiento")} variant={subTab==="seguimiento"?"primary":"ghost"} sm>📋 Seguimiento semanal</Btn>
-        <Btn onClick={()=>setSubTab("equipo")} variant={subTab==="equipo"?"primary":"ghost"} sm>👥 Equipo y perfiles</Btn>
-      </div>
-      {subTab==="monitor" && <JuntaMonitorTab monitor={monitor} lider={lider} />}
-      {subTab==="seguimiento" && <JuntaSeguimientoTab admins={admins} compromisos={compromisos} setCompromisos={setCompromisos} />}
-      {subTab==="equipo" && <JuntaEquipoTab admins={admins} setUsers={setUsers} perfiles={perfiles} setPerfiles={setPerfiles} />}
+      <PageHeader title="Equipo y perfiles" subtitle="Los liderazgos que componen la Junta Admin" action={<Btn onClick={agregar} sm>+ Agregar líder</Btn>} />
+      {ordenados.map((l,i)=>(
+        <Card key={l.id} style={{ marginBottom:12 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10, flexWrap:"wrap", gap:8 }}>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>Líder {i+1}</div>
+            <div style={{ display:"flex", gap:6 }}>
+              <Btn onClick={()=>marcarLiderEquipo(l.id)} variant={l.lider_equipo?"success":"ghost"} sm>{l.lider_equipo?"✓ Líder del equipo":"Marcar como líder del equipo"}</Btn>
+              <Btn onClick={()=>quitar(l.id)} variant="danger" sm>🗑</Btn>
+            </div>
+          </div>
+          {editingId===l.id ? (
+            <div>
+              <Field label="Nombre de quien ocupa este liderazgo" value={editVal.nombre} onChange={v=>setEditVal(p=>({...p,nombre:v}))} placeholder="Nombre Apellido"/>
+              <Field label="Objetivo" value={editVal.objetivo} onChange={v=>setEditVal(p=>({...p,objetivo:v}))} placeholder="¿Cuál es su objetivo dentro del equipo?"/>
+              <Field label="Procesos macro" value={editVal.procesos_macro} onChange={v=>setEditVal(p=>({...p,procesos_macro:v}))} placeholder="¿Qué procesos macro lidera?"/>
+              <div style={{ display:"flex", gap:8 }}><Btn onClick={()=>guardar(l.id)} sm full>Guardar</Btn><Btn onClick={()=>setEditingId(null)} variant="ghost" sm full>Cancelar</Btn></div>
+            </div>
+          ):(
+            <div>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.goldLight }}>{l.nombre || "— sin nombre asignado"}</div>
+                {l.lider_equipo && <Badge color={C.gold} sm>Líder del equipo</Badge>}
+              </div>
+              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>Objetivo</div>
+              <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:10 }}>{l.objetivo || "— sin definir"}</div>
+              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>Procesos macro</div>
+              <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:10 }}>{l.procesos_macro || "— sin definir"}</div>
+              <Btn onClick={()=>{ setEditingId(l.id); setEditVal({ nombre:l.nombre||"", objetivo:l.objetivo||"", procesos_macro:l.procesos_macro||"" }); }} variant="ghost" sm>✏ Editar</Btn>
+            </div>
+          )}
+        </Card>
+      ))}
+      {ordenados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin líderes agregados todavía. Usa "+ Agregar líder" para empezar.</div>}
     </div>
   );
 }
 
-function JuntaMonitorTab({ monitor, lider }) {
+// ── SCREEN: Junta Admin — Seguimiento semanal (checklist) ───────────────────
+function JuntaSeguimientoScreen({ lideres, compromisos, setCompromisos }) {
+  const [semana, setSemana] = useState(martesDeSemana(todayStr));
+  const [showNueva, setShowNueva] = useState(false);
+  const [nueva, setNueva] = useState({ descripcion:"", lider_id:"", fecha_estimada:"", comentarios:"" });
+
+  const tareas = compromisos.filter(c=>c.semana===semana);
+  const nombreLider = (id) => lideres.find(l=>l.id===id)?.nombre || "— sin asignar";
+
+  const crear = async () => {
+    if (!nueva.descripcion.trim()) return;
+    const { data, error } = await supabase.from("junta_compromisos").insert({
+      semana, descripcion:nueva.descripcion.trim(), lider_id:nueva.lider_id||null,
+      fecha_estimada:nueva.fecha_estimada||null, comentarios:nueva.comentarios.trim(), completado:false,
+    }).select().single();
+    if (!error && data) { setCompromisos(prev=>[data, ...prev]); setNueva({ descripcion:"", lider_id:"", fecha_estimada:"", comentarios:"" }); setShowNueva(false); }
+  };
+  const actualizar = async (id, patch) => {
+    const { data, error } = await supabase.from("junta_compromisos").update(patch).eq("id", id).select().single();
+    if (!error && data) setCompromisos(prev=>prev.map(c=>c.id===id?data:c));
+  };
+  const eliminar = async (id) => {
+    if (!window.confirm("¿Eliminar esta tarea? Esto no se puede deshacer.")) return;
+    await supabase.from("junta_compromisos").delete().eq("id", id);
+    setCompromisos(prev=>prev.filter(c=>c.id!==id));
+  };
+
+  return (
+    <div>
+      <PageHeader title="Seguimiento semanal" subtitle="Checklist de tareas de la Junta" />
+      <Card style={{ marginBottom:16 }} p="12px">
+        <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>Semana del martes</div>
+          <input type="date" value={semana} onChange={e=>setSemana(e.target.value)} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}/>
+          <Btn onClick={()=>setSemana(martesDeSemana(todayStr))} variant="ghost" sm>Esta semana</Btn>
+          <Btn onClick={()=>setShowNueva(true)} sm style={{ marginLeft:"auto" }}>+ Nueva tarea</Btn>
+        </div>
+      </Card>
+
+      {showNueva && (
+        <Card glow style={{ marginBottom:16 }}>
+          <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.goldLight, marginBottom:14 }}>Nueva tarea</div>
+          <Field label="Tarea" value={nueva.descripcion} onChange={v=>setNueva(p=>({...p,descripcion:v}))} placeholder="¿Qué hay que hacer?"/>
+          <Field label="Quién la hace" value={nueva.lider_id} onChange={v=>setNueva(p=>({...p,lider_id:v}))} options={[{value:"",label:"Selecciona"},...lideres.map(l=>({value:l.id,label:l.nombre||"(sin nombre)"}))]}/>
+          <Field label="¿Cuándo cree que la termina?" type="date" value={nueva.fecha_estimada} onChange={v=>setNueva(p=>({...p,fecha_estimada:v}))}/>
+          <Field label="Comentarios / avance" value={nueva.comentarios} onChange={v=>setNueva(p=>({...p,comentarios:v}))} placeholder="Opcional"/>
+          <div style={{ display:"flex", gap:8 }}><Btn onClick={crear} full>Guardar</Btn><Btn onClick={()=>setShowNueva(false)} variant="ghost" full>Cancelar</Btn></div>
+        </Card>
+      )}
+
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {tareas.map(t=>(
+          <Card key={t.id} p="14px" style={{ opacity:t.completado?0.6:1 }}>
+            <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
+              <button onClick={()=>actualizar(t.id,{completado:!t.completado})} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${t.completado?C.green:C.border}`, background:t.completado?C.green:"transparent", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:13, marginTop:2 }}>{t.completado?"✓":""}</button>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, textDecoration:t.completado?"line-through":"none" }}>{t.descripcion}</div>
+                <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginTop:4 }}>
+                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>👤 {nombreLider(t.lider_id)}</div>
+                  {t.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:11, color:C.amber }}>📅 {t.fecha_estimada}</div>}
+                </div>
+                <input placeholder="Comentarios / avance..." defaultValue={t.comentarios||""} onBlur={e=>{ if(e.target.value!==t.comentarios) actualizar(t.id,{comentarios:e.target.value}); }} style={{ width:"100%", marginTop:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+              </div>
+              <Btn onClick={()=>eliminar(t.id)} variant="ghost" sm>🗑</Btn>
+            </div>
+          </Card>
+        ))}
+        {tareas.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin tareas para esta semana. Usa "+ Nueva tarea".</div>}
+      </div>
+    </div>
+  );
+}
+
+// ── SCREEN: Junta Admin — Explicación del rol ────────────────────────────────
+function JuntaGuionTab({ monitor, liderEquipo }) {
   const guion = [
     { t:"1. Revisión de la semana anterior", qs:["¿Qué te comprometiste a hacer la semana pasada?","¿Qué quedó hecho y qué no?","¿Cuál es la evidencia de lo hecho?"] },
     { t:"2. Planeación individual de la semana", qs:["¿Qué vas a hacer esta semana?","¿Cómo, día por día?","¿Qué queda como resultado verificable de cada tarea?"] },
@@ -886,14 +1007,15 @@ function JuntaMonitorTab({ monitor, lider }) {
   ];
   return (
     <div>
+      <PageHeader title="Explicación del rol" subtitle="Monitor, líder del equipo y guion de la reunión" />
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
         <Card glow>
           <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Monitor de turno (rota cada 2 meses)</div>
-          <div style={{ fontFamily:font.body, fontSize:18, fontWeight:700, color:C.goldLight }}>{monitor ? monitor.name : "— sin admins configurados"}</div>
+          <div style={{ fontFamily:font.body, fontSize:18, fontWeight:700, color:C.goldLight }}>{monitor ? (monitor.nombre || "— sin nombre") : "— sin líderes configurados"}</div>
         </Card>
         <Card>
           <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Líder del equipo (fijo)</div>
-          <div style={{ fontFamily:font.body, fontSize:18, fontWeight:700, color:C.text }}>{lider ? lider.name : "— márcalo en Equipo y perfiles"}</div>
+          <div style={{ fontFamily:font.body, fontSize:18, fontWeight:700, color:C.text }}>{liderEquipo ? (liderEquipo.nombre || "— sin nombre") : "— márcalo en Equipo y perfiles"}</div>
         </Card>
       </div>
 
@@ -931,241 +1053,6 @@ function JuntaMonitorTab({ monitor, lider }) {
   );
 }
 
-const ESTADO_COLOR = { pendiente:C.amber, hecho:C.green, no_hecho:C.red };
-const ESTADO_LABEL = { pendiente:"Pendiente", hecho:"Hecho", no_hecho:"No hecho" };
-const EstadoBotones = ({ estado, onChange }) => (
-  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-    {["pendiente","hecho","no_hecho"].map(e=>(
-      <button key={e} onClick={()=>onChange(e)} style={{ fontSize:10, fontFamily:font.body, fontWeight:600, padding:"3px 8px", borderRadius:99, border:`1px solid ${estado===e?ESTADO_COLOR[e]:C.border}`, background:estado===e?`${ESTADO_COLOR[e]}20`:"transparent", color:estado===e?ESTADO_COLOR[e]:C.textMuted, cursor:"pointer" }}>{ESTADO_LABEL[e]}</button>
-    ))}
-  </div>
-);
-
-function JuntaSeguimientoTab({ admins, compromisos, setCompromisos }) {
-  const [semana, setSemana] = useState(martesDeSemana(todayStr));
-  const semanaAnterior = fmt(new Date(new Date(semana + "T12:00:00").getTime() - 7*86400000));
-
-  const crear = async (payload) => {
-    const { data, error } = await supabase.from("junta_compromisos").insert(payload).select().single();
-    if (!error && data) setCompromisos(prev=>[data, ...prev]);
-  };
-  const actualizar = async (id, patch) => {
-    const { data, error } = await supabase.from("junta_compromisos").update(patch).eq("id", id).select().single();
-    if (!error && data) setCompromisos(prev=>prev.map(c=>c.id===id?data:c));
-  };
-  const eliminar = async (id) => {
-    if (!window.confirm("¿Eliminar esta tarea? Esto no se puede deshacer.")) return;
-    await supabase.from("junta_compromisos").delete().eq("id", id);
-    setCompromisos(prev=>prev.filter(c=>c.id!==id));
-  };
-
-  const deSemana = (s, userId, opts={}) => compromisos.filter(c =>
-    c.semana===s && (userId ? c.user_id===userId : true) && !!c.grupal===!!opts.grupal && !!c.no_previsto===!!opts.no_previsto
-  );
-
-  return (
-    <div>
-      <Card style={{ marginBottom:16 }} p="12px">
-        <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>Semana del martes</div>
-          <input type="date" value={semana} onChange={e=>setSemana(e.target.value)} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}/>
-          <Btn onClick={()=>setSemana(martesDeSemana(todayStr))} variant="ghost" sm>Esta semana</Btn>
-        </div>
-      </Card>
-
-      {admins.length===0 && <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, textAlign:"center", padding:20 }}>No hay usuarios admin configurados.</div>}
-
-      {admins.map(a=>(
-        <PersonaSeguimiento key={a.id} persona={a} semana={semana} semanaAnterior={semanaAnterior}
-          tareasAnteriores={deSemana(semanaAnterior, a.id)}
-          tareasSemana={deSemana(semana, a.id)}
-          noPrevisto={deSemana(semana, a.id, { no_previsto:true })}
-          crear={crear} actualizar={actualizar} eliminar={eliminar} />
-      ))}
-
-      <TrabajoGrupal semana={semana} tareas={deSemana(semana, null, { grupal:true })} crear={crear} actualizar={actualizar} eliminar={eliminar} />
-    </div>
-  );
-}
-
-function PersonaSeguimiento({ persona, semana, semanaAnterior, tareasAnteriores, tareasSemana, noPrevisto, crear, actualizar, eliminar }) {
-  const [showNueva, setShowNueva] = useState(false);
-  const [nueva, setNueva] = useState({ descripcion:"", plan_diario:"", resultado_esperado:"", fecha_limite:"" });
-  const [showPrevisto, setShowPrevisto] = useState(false);
-  const [previstoTxt, setPrevistoTxt] = useState("");
-
-  const guardarNueva = async () => {
-    if (!nueva.descripcion.trim()) return;
-    await crear({ user_id:persona.id, semana, descripcion:nueva.descripcion.trim(), plan_diario:nueva.plan_diario.trim(), resultado_esperado:nueva.resultado_esperado.trim(), fecha_limite:nueva.fecha_limite||null, grupal:false, no_previsto:false, estado:"pendiente" });
-    setNueva({ descripcion:"", plan_diario:"", resultado_esperado:"", fecha_limite:"" }); setShowNueva(false);
-  };
-  const guardarPrevisto = async () => {
-    if (!previstoTxt.trim()) return;
-    await crear({ user_id:persona.id, semana, descripcion:previstoTxt.trim(), grupal:false, no_previsto:true, estado:"hecho" });
-    setPrevistoTxt(""); setShowPrevisto(false);
-  };
-
-  return (
-    <Card style={{ marginBottom:14 }}>
-      <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.goldLight, marginBottom:12 }}>{persona.name}</div>
-
-      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>① Revisión — semana del {semanaAnterior}</div>
-      {tareasAnteriores.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.border, marginBottom:12 }}>Sin tareas planeadas esa semana.</div>}
-      {tareasAnteriores.map(t=>(
-        <div key={t.id} style={{ padding:"8px 0", borderBottom:`1px solid ${C.border}` }}>
-          <div style={{ fontFamily:font.body, fontSize:12, color:C.text, marginBottom:6 }}>{t.descripcion}</div>
-          <div style={{ marginBottom:6 }}><EstadoBotones estado={t.estado} onChange={(e)=>actualizar(t.id,{estado:e})} /></div>
-          <input placeholder="Evidencia..." defaultValue={t.evidencia||""} onBlur={e=>{ if(e.target.value!==t.evidencia) actualizar(t.id,{evidencia:e.target.value}); }} style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
-        </div>
-      ))}
-
-      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"14px 0 8px" }}>② Planeación — semana del {semana}</div>
-      {tareasSemana.map(t=>(
-        <div key={t.id} style={{ padding:"8px 0", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", gap:8 }}>
-          <div style={{ flex:1 }}>
-            <div style={{ fontFamily:font.body, fontSize:12, color:C.text }}>{t.descripcion}</div>
-            {t.plan_diario && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>📅 {t.plan_diario}</div>}
-            {t.resultado_esperado && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>✓ Resultado: {t.resultado_esperado}</div>}
-            {t.fecha_limite && <div style={{ fontFamily:font.mono, fontSize:10, color:C.amber, marginTop:2 }}>Para: {t.fecha_limite}</div>}
-          </div>
-          <Btn onClick={()=>eliminar(t.id)} variant="ghost" sm>🗑</Btn>
-        </div>
-      ))}
-      {!showNueva ? (
-        <Btn onClick={()=>setShowNueva(true)} variant="ghost" sm style={{ marginTop:8 }}>+ Agregar tarea de la semana</Btn>
-      ):(
-        <div style={{ marginTop:8, background:C.surfaceAlt, borderRadius:8, padding:10 }}>
-          <Field label="¿Qué vas a hacer?" value={nueva.descripcion} onChange={v=>setNueva(p=>({...p,descripcion:v}))} placeholder="Descripción concreta de la tarea"/>
-          <Field label="¿Cómo, día por día?" value={nueva.plan_diario} onChange={v=>setNueva(p=>({...p,plan_diario:v}))} placeholder="Opcional"/>
-          <Field label="¿Qué resultado queda?" value={nueva.resultado_esperado} onChange={v=>setNueva(p=>({...p,resultado_esperado:v}))} placeholder="Resultado verificable"/>
-          <Field label="Fecha límite" type="date" value={nueva.fecha_limite} onChange={v=>setNueva(p=>({...p,fecha_limite:v}))}/>
-          <div style={{ display:"flex", gap:8 }}><Btn onClick={guardarNueva} sm full>Guardar</Btn><Btn onClick={()=>setShowNueva(false)} variant="ghost" sm full>Cancelar</Btn></div>
-        </div>
-      )}
-
-      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"14px 0 8px" }}>⑤ No previsto de la semana pasada</div>
-      {noPrevisto.map(t=>(
-        <div key={t.id} style={{ display:"flex", justifyContent:"space-between", gap:8, padding:"6px 0" }}>
-          <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub }}>• {t.descripcion}</div>
-          <Btn onClick={()=>eliminar(t.id)} variant="ghost" sm>🗑</Btn>
-        </div>
-      ))}
-      {!showPrevisto ? (
-        <Btn onClick={()=>setShowPrevisto(true)} variant="ghost" sm>+ Agregar algo no previsto</Btn>
-      ):(
-        <div style={{ marginTop:8, display:"flex", gap:8 }}>
-          <input value={previstoTxt} onChange={e=>setPrevistoTxt(e.target.value)} placeholder="¿Qué te cayó sin estar planeado?" style={{ flex:1, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}/>
-          <Btn onClick={guardarPrevisto} sm>Guardar</Btn>
-          <Btn onClick={()=>setShowPrevisto(false)} variant="ghost" sm>✕</Btn>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function TrabajoGrupal({ semana, tareas, crear, actualizar, eliminar }) {
-  const [show, setShow] = useState(false);
-  const [f, setF] = useState({ descripcion:"", depende_de:"", fecha_limite:"" });
-  const guardar = async () => {
-    if (!f.descripcion.trim()) return;
-    await crear({ semana, descripcion:f.descripcion.trim(), depende_de:f.depende_de.trim(), fecha_limite:f.fecha_limite||null, grupal:true, no_previsto:false, estado:"pendiente", user_id:null });
-    setF({ descripcion:"", depende_de:"", fecha_limite:"" }); setShow(false);
-  };
-  return (
-    <Card glow style={{ marginTop:6 }}>
-      <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.text, marginBottom:4 }}>④ Trabajo grupal — semana del {semana}</div>
-      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:12 }}>Quién toma qué parte, de qué depende, y para cuándo.</div>
-      {tareas.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.border, marginBottom:8 }}>Sin acuerdos grupales esta semana.</div>}
-      {tareas.map(t=>(
-        <div key={t.id} style={{ padding:"10px 0", borderBottom:`1px solid ${C.border}` }}>
-          <div style={{ display:"flex", justifyContent:"space-between", gap:8 }}>
-            <div style={{ fontFamily:font.body, fontSize:12, color:C.text, flex:1 }}>{t.descripcion}</div>
-            <Btn onClick={()=>eliminar(t.id)} variant="ghost" sm>🗑</Btn>
-          </div>
-          {t.depende_de && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:4 }}>Depende de: {t.depende_de}</div>}
-          {t.fecha_limite && <div style={{ fontFamily:font.mono, fontSize:10, color:C.amber, marginTop:2 }}>Para: {t.fecha_limite}</div>}
-          <div style={{ marginTop:6 }}><EstadoBotones estado={t.estado} onChange={(e)=>actualizar(t.id,{estado:e})} /></div>
-        </div>
-      ))}
-      {!show ? (
-        <Btn onClick={()=>setShow(true)} variant="ghost" sm style={{ marginTop:10 }}>+ Agregar acuerdo grupal</Btn>
-      ):(
-        <div style={{ marginTop:10, background:C.surfaceAlt, borderRadius:8, padding:10 }}>
-          <Field label="¿Qué se acordó y quién toma qué parte?" value={f.descripcion} onChange={v=>setF(p=>({...p,descripcion:v}))} placeholder="Ej: Edwin arma el informe, Santiago revisa cifras"/>
-          <Field label="¿De qué o de quién depende?" value={f.depende_de} onChange={v=>setF(p=>({...p,depende_de:v}))} placeholder="Opcional"/>
-          <Field label="Para cuándo" type="date" value={f.fecha_limite} onChange={v=>setF(p=>({...p,fecha_limite:v}))}/>
-          <div style={{ display:"flex", gap:8 }}><Btn onClick={guardar} sm full>Guardar</Btn><Btn onClick={()=>setShow(false)} variant="ghost" sm full>Cancelar</Btn></div>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function JuntaEquipoTab({ admins, setUsers, perfiles, setPerfiles }) {
-  const [editingPerfil, setEditingPerfil] = useState(null);
-  const [perfilVal, setPerfilVal] = useState({ objetivo:"", procesos_macro:"" });
-
-  const marcarLider = async (id) => {
-    await supabase.from("usuarios").update({ junta_lider:false }).not("id","is",null);
-    const { data } = await supabase.from("usuarios").update({ junta_lider:true }).eq("id", id).select().single();
-    if (data) setUsers(prev=>prev.map(u=>({ ...u, junta_lider: u.id===id })));
-  };
-
-  const guardarOrden = async (id, val) => {
-    const n = val==="" ? null : Number(val);
-    const { data } = await supabase.from("usuarios").update({ junta_orden:n }).eq("id", id).select().single();
-    if (data) setUsers(prev=>prev.map(u=>u.id===id?data:u));
-  };
-
-  const guardarPerfil = async (id) => {
-    const { data, error } = await supabase.from("junta_perfiles").upsert({ user_id:id, objetivo:perfilVal.objetivo.trim(), procesos_macro:perfilVal.procesos_macro.trim(), updated_at:new Date().toISOString() }).select().single();
-    if (!error && data) { setPerfiles(prev=>({ ...prev, [id]:data })); setEditingPerfil(null); }
-  };
-
-  return (
-    <div>
-      <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:14 }}>
-        Marca quién es el líder fijo del equipo y el orden de rotación del Monitor (1 = primero). El objetivo y los procesos macro de cada quien quedan visibles para que el resto del equipo sepa qué hace y en qué puede apoyarse.
-      </div>
-      {admins.map(a=>{
-        const perfil = perfiles[a.id] || {};
-        return (
-          <Card key={a.id} style={{ marginBottom:12 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10, flexWrap:"wrap" }}>
-              <div style={{ width:36, height:36, borderRadius:8, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontWeight:700, color:"#fff", flexShrink:0 }}>{a.name[0]}</div>
-              <div style={{ flex:1, minWidth:120 }}>
-                <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{a.name}</div>
-                {a.junta_lider && <Badge color={C.gold} sm>Líder del equipo</Badge>}
-              </div>
-              <Btn onClick={()=>marcarLider(a.id)} variant={a.junta_lider?"success":"ghost"} sm>{a.junta_lider?"✓ Líder":"Marcar como líder"}</Btn>
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Orden rotación</span>
-                <input type="number" min="1" defaultValue={a.junta_orden ?? ""} onBlur={e=>guardarOrden(a.id, e.target.value)} style={{ width:50, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 6px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}/>
-              </div>
-            </div>
-            <Divider/>
-            {editingPerfil===a.id ? (
-              <div>
-                <Field label="Objetivo" value={perfilVal.objetivo} onChange={v=>setPerfilVal(p=>({...p,objetivo:v}))} placeholder="¿Cuál es tu objetivo dentro del equipo?"/>
-                <Field label="Procesos macro" value={perfilVal.procesos_macro} onChange={v=>setPerfilVal(p=>({...p,procesos_macro:v}))} placeholder="¿Qué procesos macro lideras?"/>
-                <div style={{ display:"flex", gap:8 }}><Btn onClick={()=>guardarPerfil(a.id)} sm full>Guardar</Btn><Btn onClick={()=>setEditingPerfil(null)} variant="ghost" sm full>Cancelar</Btn></div>
-              </div>
-            ):(
-              <div>
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>Objetivo</div>
-                <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:10 }}>{perfil.objetivo || "— sin definir"}</div>
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>Procesos macro</div>
-                <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:10 }}>{perfil.procesos_macro || "— sin definir"}</div>
-                <Btn onClick={()=>{ setEditingPerfil(a.id); setPerfilVal({ objetivo:perfil.objetivo||"", procesos_macro:perfil.procesos_macro||"" }); }} variant="ghost" sm>✏ Editar</Btn>
-              </div>
-            )}
-          </Card>
-        );
-      })}
-    </div>
-  );
-}
-
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const [documento,setDocumento]=useState(""),[pass,setPass]=useState(""),[err,setErr]=useState(""),[loading,setLoading]=useState(false);
@@ -1189,31 +1076,69 @@ function LoginScreen({ onLogin }) {
   );
 }
 
+// ── SELECTOR DE ÁREA (solo admin) ───────────────────────────────────────────
+function AreaSelector({ user, onChoose, onLogout }) {
+  return (
+    <div style={{ minHeight:"100vh", background:C.dark, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div style={{ width:"100%", maxWidth:520 }}>
+        <div style={{ textAlign:"center", marginBottom:28 }}>
+          <img src="/logo.png" alt="OZEN" style={{ width:120, height:"auto", marginBottom:10 }} />
+          <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>Hola, {user.name.split(" ")[0]} — ¿qué quieres abrir?</div>
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          <Card glow style={{ cursor:"pointer" }} p="0">
+            <button onClick={()=>onChoose("junta")} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"26px 22px", display:"flex", alignItems:"center", gap:16, textAlign:"left" }}>
+              <div style={{ fontSize:32 }}>🗓️</div>
+              <div>
+                <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.goldLight }}>La Junta Admin</div>
+                <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:2 }}>Equipo, seguimiento semanal y guion de la reunión</div>
+              </div>
+            </button>
+          </Card>
+          <Card style={{ cursor:"pointer" }} p="0">
+            <button onClick={()=>onChoose("asistencia")} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"26px 22px", display:"flex", alignItems:"center", gap:16, textAlign:"left" }}>
+              <div style={{ fontSize:32 }}>📋</div>
+              <div>
+                <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>Registro de Asistencia</div>
+                <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:2 }}>Panel, registros, asesores, tiendas e informes</div>
+              </div>
+            </button>
+          </Card>
+        </div>
+        <div style={{ textAlign:"center", marginTop:20 }}>
+          <Btn onClick={onLogout} variant="ghost" sm>Cerrar sesión</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── APP SHELL ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [user,setUser]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
-  const [juntaCompromisos,setJuntaCompromisos]=useState([]),[juntaPerfiles,setJuntaPerfiles]=useState({});
+  const [user,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
+  const [juntaLideres,setJuntaLideres]=useState([]),[juntaCompromisos,setJuntaCompromisos]=useState([]);
   const isMobile=useIsMobile();
 
   const loadAll=async()=>{
-    const[{data:t},{data:u},{data:r},{data:jc},{data:jp}]=await Promise.all([
+    const[{data:t},{data:u},{data:r},{data:jl},{data:jc}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
       supabase.from("registros").select("*").order("date",{ascending:false}),
+      supabase.from("junta_lideres").select("*").order("orden",{ascending:true}),
       supabase.from("junta_compromisos").select("*").order("semana",{ascending:false}),
-      supabase.from("junta_perfiles").select("*"),
     ]);
     const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
     setStores(sm);setUsers(u||[]);setRecords(r||[]);
+    setJuntaLideres(jl||[]);
     setJuntaCompromisos(jc||[]);
-    const pm={}; (jp||[]).forEach(p=>pm[p.user_id]=p);
-    setJuntaPerfiles(pm);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
 
-  const login=(u)=>{setUser(u);setTab(u.role==="admin"?"dashboard":"checkin");};
-  const logout=()=>{setUser(null);setTab(null);};
+  const login=(u)=>{setUser(u);setArea(null);setTab(u.role==="admin"?null:"checkin");};
+  const logout=()=>{setUser(null);setArea(null);setTab(null);};
+  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"equipo":"dashboard");};
+  const backToAreas=()=>{setArea(null);setTab(null);};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
@@ -1222,15 +1147,21 @@ export default function App() {
 
   if(booting) return <div style={{minHeight:"100vh",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,color:C.textMuted,fontSize:14}}>Cargando...</div>;
   if(!user) return <LoginScreen onLogin={login}/>;
+  if(user.role==="admin" && !area) return <AreaSelector user={user} onChoose={chooseArea} onLogout={logout}/>;
 
   const renderScreen=()=>{
     if(user.role==="admin"){
-      if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
-      if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
-      if(tab==="users")     return <UsersScreen users={users} setUsers={setUsers}/>;
-      if(tab==="stores")    return <StoresScreen stores={stores} setStores={setStores}/>;
-      if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
-      if(tab==="junta")     return <JuntaScreen users={users} setUsers={setUsers} isMobile={isMobile} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos} perfiles={juntaPerfiles} setPerfiles={setJuntaPerfiles}/>;
+      if(area==="junta"){
+        if(tab==="equipo")       return <JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres}/>;
+        if(tab==="seguimiento")  return <JuntaSeguimientoScreen lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos}/>;
+        if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} liderEquipo={juntaLideres.find(l=>l.lider_equipo)}/>;
+      } else {
+        if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
+        if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
+        if(tab==="users")     return <UsersScreen users={users} setUsers={setUsers}/>;
+        if(tab==="stores")    return <StoresScreen stores={stores} setStores={setStores}/>;
+        if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
+      }
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores}/>;
@@ -1241,15 +1172,15 @@ export default function App() {
 
   if(isMobile) return (
     <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden"}}>
-      <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing}/>
+      <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas}/>
       <main style={{flex:1,overflowY:"auto",padding:16}}>{renderScreen()}</main>
-      <BottomNav tab={tab} setTab={setTab} isAdmin={user.role==="admin"}/>
+      <BottomNav tab={tab} setTab={setTab} isAdmin={user.role==="admin"} area={area}/>
     </div>
   );
 
   return (
     <div style={{display:"flex",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
-      <Sidebar tab={tab} setTab={setTab} user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing}/>
+      <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing}/>
       <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}>{renderScreen()}</main>
     </div>
   );
