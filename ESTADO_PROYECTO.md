@@ -300,6 +300,34 @@ Sin SQL nuevo — todo se calcula al vuelo con los datos que ya se estaban guard
   más sentido junto a los indicadores). "Explicación del rol" quedó como manual de
   consulta puro (guion + funciones del Monitor), sin datos dinámicos.
 
+**Quinta ronda (21 jul 2026)** — feedback de Santiago tras mostrárselo a Felipe:
+
+1. **"Monitor de turno" se movió de nuevo**, esta vez a la parte de arriba de
+   "Seguimiento semanal" (antes estaba en "Indicadores"). En "Indicadores" el mes en
+   curso ahora solo muestra el nombre del monitor en una línea chica junto a las
+   métricas, sin la tarjeta grande — el historial de abajo ya lo muestra por mes.
+
+2. **"Equipo y perfiles" ahora tiene dos vistas** (botones arriba: "👤 Por líder" /
+   "🗂️ Por área"):
+   - **Por líder** (la vista que ya existía, mejorada): al editar un líder, ya no hay
+     un solo campo de "procesos macro". Ahora hay un selector de **áreas** (chips que
+     se activan/desactivan) y, por cada área que el líder tenga marcada, se abre un
+     cuadro de texto propio para escribir los procesos macro que hace en *esa* área
+     específica. Se puede crear una área nueva sin salir de la edición.
+   - **Por área** (nueva): aquí se crean y administran las áreas (solo el nombre). Por
+     cada área, la pantalla junta automáticamente los procesos macro que cada líder
+     escribió para esa área — así se arma solo un mapa de "quién hace qué" por área,
+     sin tener que definirlo aparte.
+   - Un mismo líder puede pertenecer a varias áreas a la vez, y una misma área puede
+     tener procesos de varios líderes.
+   - El campo `procesos_macro` que antes vivía directo en `junta_lideres` ya no se usa
+     (queda huérfano en la base, no estorba) — ahora ese texto vive por combinación
+     de líder + área, en la tabla nueva `junta_lider_areas`.
+
+**Datos nuevos en la base**: tabla `junta_areas` (id, nombre) y tabla
+`junta_lider_areas` (relación líder↔área, con su propio texto de `procesos_macro` y
+timestamps; un líder no puede tener la misma área dos veces — restricción `unique`).
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.

@@ -884,21 +884,40 @@ function ReportsScreen({ records, users, stores, isMobile }) {
 }
 
 // ── SCREEN: Junta Admin — Equipo y perfiles ──────────────────────────────────
-function JuntaEquipoTab({ lideres, setLideres, isMobile }) {
+function JuntaEquipoTab({ lideres, setLideres, areas, setAreas, liderAreas, setLiderAreas, isMobile }) {
+  const [vista, setVista] = useState("lideres");
+  return (
+    <div>
+      <PageHeader title="Equipo y perfiles" subtitle="Los liderazgos que componen la Junta Admin y las áreas de trabajo que cubren" />
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        <Btn onClick={()=>setVista("lideres")} variant={vista==="lideres"?"primary":"ghost"} sm>👤 Por líder</Btn>
+        <Btn onClick={()=>setVista("areas")} variant={vista==="areas"?"primary":"ghost"} sm>🗂️ Por área</Btn>
+      </div>
+      {vista==="lideres"
+        ? <JuntaVistaPorLider lideres={lideres} setLideres={setLideres} areas={areas} setAreas={setAreas} liderAreas={liderAreas} setLiderAreas={setLiderAreas} isMobile={isMobile}/>
+        : <JuntaVistaPorArea areas={areas} setAreas={setAreas} lideres={lideres} liderAreas={liderAreas}/>}
+    </div>
+  );
+}
+
+function JuntaVistaPorLider({ lideres, setLideres, areas, setAreas, liderAreas, setLiderAreas, isMobile }) {
   const [editingId, setEditingId] = useState(null);
-  const [editVal, setEditVal] = useState({ nombre:"", objetivo:"", procesos_macro:"" });
+  const [editVal, setEditVal] = useState({ nombre:"", objetivo:"" });
+  const [editAreas, setEditAreas] = useState({}); // { [areaId]: texto de procesos macro }
+  const [nuevaAreaTexto, setNuevaAreaTexto] = useState("");
 
   const ordenados = [...lideres].sort((a,b)=>(a.orden??999)-(b.orden??999));
 
   const agregar = async () => {
     const siguienteOrden = lideres.length ? Math.max(...lideres.map(l=>l.orden??0)) + 1 : 1;
-    const { data, error } = await supabase.from("junta_lideres").insert({ orden:siguienteOrden, nombre:"", objetivo:"", procesos_macro:"" }).select().single();
+    const { data, error } = await supabase.from("junta_lideres").insert({ orden:siguienteOrden, nombre:"", objetivo:"" }).select().single();
     if (!error && data) setLideres(prev=>[...prev, data]);
   };
   const quitar = async (id) => {
     if (!window.confirm("¿Quitar este liderazgo de la Junta? Esto no se puede deshacer.")) return;
     await supabase.from("junta_lideres").delete().eq("id", id);
     setLideres(prev=>prev.filter(l=>l.id!==id));
+    setLiderAreas(prev=>prev.filter(la=>la.lider_id!==id));
   };
   const mover = async (id, direccion) => {
     const idx = ordenados.findIndex(l=>l.id===id);
@@ -911,15 +930,57 @@ function JuntaEquipoTab({ lideres, setLideres, isMobile }) {
     ]);
     if (da && db) setLideres(prev=>prev.map(l=> l.id===da.id?da : l.id===db.id?db : l));
   };
+
+  const abrirEdicion = (l) => {
+    setEditingId(l.id);
+    setEditVal({ nombre:l.nombre||"", objetivo:l.objetivo||"" });
+    const asociadas = {};
+    liderAreas.filter(la=>la.lider_id===l.id).forEach(la=>{ asociadas[la.area_id] = la.procesos_macro||""; });
+    setEditAreas(asociadas);
+  };
+  const toggleArea = (areaId) => {
+    setEditAreas(prev => {
+      const next = { ...prev };
+      if (areaId in next) delete next[areaId]; else next[areaId] = "";
+      return next;
+    });
+  };
+  const agregarAreaNueva = async () => {
+    const nombre = nuevaAreaTexto.trim();
+    if (!nombre) return;
+    const { data, error } = await supabase.from("junta_areas").insert({ nombre }).select().single();
+    if (!error && data) { setAreas(prev=>[...prev, data]); setEditAreas(prev=>({ ...prev, [data.id]:"" })); setNuevaAreaTexto(""); }
+  };
+
   const guardar = async (id) => {
-    const { data, error } = await supabase.from("junta_lideres").update({ nombre:editVal.nombre.trim(), objetivo:editVal.objetivo.trim(), procesos_macro:editVal.procesos_macro.trim(), updated_at:new Date().toISOString() }).eq("id", id).select().single();
-    if (!error && data) { setLideres(prev=>prev.map(l=>l.id===id?data:l)); setEditingId(null); }
+    const { data: liderData, error: liderErr } = await supabase.from("junta_lideres").update({ nombre:editVal.nombre.trim(), objetivo:editVal.objetivo.trim(), updated_at:new Date().toISOString() }).eq("id", id).select().single();
+    if (liderErr || !liderData) return;
+
+    const existentes = liderAreas.filter(la=>la.lider_id===id);
+    const idsNuevos = Object.keys(editAreas);
+    const aBorrar = existentes.filter(la=>!idsNuevos.includes(la.area_id));
+    const filas = idsNuevos.map(areaId=>({ lider_id:id, area_id:areaId, procesos_macro:(editAreas[areaId]||"").trim(), updated_at:new Date().toISOString() }));
+
+    if (aBorrar.length) await supabase.from("junta_lider_areas").delete().in("id", aBorrar.map(a=>a.id));
+    let nuevasFilas = [];
+    if (filas.length) {
+      const { data } = await supabase.from("junta_lider_areas").upsert(filas, { onConflict:"lider_id,area_id" }).select();
+      nuevasFilas = data || [];
+    }
+
+    setLideres(prev=>prev.map(l=>l.id===id?liderData:l));
+    setLiderAreas(prev=>[...prev.filter(la=>la.lider_id!==id), ...nuevasFilas]);
+    setEditingId(null);
   };
 
   return (
     <div>
-      <PageHeader title="Equipo y perfiles" subtitle="Los liderazgos que componen la Junta Admin — el orden de arriba hacia abajo es el orden de rotación del Monitor" action={<Btn onClick={agregar} sm>+ Agregar líder</Btn>} />
-      {ordenados.map((l,i)=>(
+      <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:14 }}>
+        <Btn onClick={agregar} sm>+ Agregar líder</Btn>
+      </div>
+      {ordenados.map((l,i)=>{
+        const misAreas = liderAreas.filter(la=>la.lider_id===l.id).map(la=>({ ...la, areaNombre: areas.find(a=>a.id===la.area_id)?.nombre || "— área eliminada" }));
+        return (
         <Card key={l.id} style={{ marginBottom:14 }}>
           <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14, flexWrap:"wrap" }}>
             <div style={{ width:42, height:42, borderRadius:10, background:C.surfaceAlt, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:16, fontWeight:700, color:C.textSub, flexShrink:0 }}>
@@ -932,7 +993,7 @@ function JuntaEquipoTab({ lideres, setLideres, isMobile }) {
             <div style={{ display:"flex", gap:6, flexShrink:0 }}>
               <Btn onClick={()=>mover(l.id,-1)} disabled={i===0} variant="ghost" sm>▲</Btn>
               <Btn onClick={()=>mover(l.id,1)} disabled={i===ordenados.length-1} variant="ghost" sm>▼</Btn>
-              <Btn onClick={()=>{ setEditingId(l.id); setEditVal({ nombre:l.nombre||"", objetivo:l.objetivo||"", procesos_macro:l.procesos_macro||"" }); }} variant="ghost" sm>✏</Btn>
+              <Btn onClick={()=>abrirEdicion(l)} variant="ghost" sm>✏</Btn>
               <Btn onClick={()=>quitar(l.id)} variant="danger" sm>🗑</Btn>
             </div>
           </div>
@@ -941,21 +1002,52 @@ function JuntaEquipoTab({ lideres, setLideres, isMobile }) {
             <div>
               <Field label="Nombre de quien ocupa este liderazgo" value={editVal.nombre} onChange={v=>setEditVal(p=>({...p,nombre:v}))} placeholder="Nombre Apellido"/>
               <Field label="Objetivo" value={editVal.objetivo} onChange={v=>setEditVal(p=>({...p,objetivo:v}))} placeholder="¿Cuál es su objetivo dentro del equipo?" multiline rows={3}/>
-              <Field label="Procesos macro" value={editVal.procesos_macro} onChange={v=>setEditVal(p=>({...p,procesos_macro:v}))} placeholder={"¿Qué procesos macro lidera?\n1. ...\n2. ..."} multiline rows={5}/>
+
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:8, textTransform:"uppercase", letterSpacing:"0.07em" }}>Áreas a las que pertenece</div>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:10 }}>
+                  {areas.map(a=>{
+                    const activa = a.id in editAreas;
+                    return (
+                      <button key={a.id} onClick={()=>toggleArea(a.id)} style={{ padding:"6px 12px", borderRadius:99, border:`1px solid ${activa?C.gold:C.border}`, background:activa?`${C.gold}20`:"transparent", color:activa?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12, cursor:"pointer" }}>
+                        {activa?"✓ ":""}{a.nombre}
+                      </button>
+                    );
+                  })}
+                  {areas.length===0 && <span style={{ fontFamily:font.body, fontSize:12, color:C.border }}>Sin áreas creadas todavía — crea una abajo.</span>}
+                </div>
+                <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+                  <input value={nuevaAreaTexto} onChange={e=>setNuevaAreaTexto(e.target.value)} onKeyDown={e=>e.key==="Enter"&&agregarAreaNueva()} placeholder="Nueva área (ej: Ventas)" style={{ flex:1, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}/>
+                  <Btn onClick={agregarAreaNueva} variant="ghost" sm>+ Crear</Btn>
+                </div>
+                {Object.keys(editAreas).map(areaId=>{
+                  const area = areas.find(a=>a.id===areaId);
+                  return (
+                    <Field key={areaId} label={`Procesos macro en ${area?.nombre||"esta área"}`} value={editAreas[areaId]} onChange={v=>setEditAreas(prev=>({...prev,[areaId]:v}))} placeholder={"1. ...\n2. ..."} multiline rows={3}/>
+                  );
+                })}
+              </div>
+
               <div style={{ display:"flex", gap:8 }}><Btn onClick={()=>guardar(l.id)} sm full>Guardar</Btn><Btn onClick={()=>setEditingId(null)} variant="ghost" sm full>Cancelar</Btn></div>
             </div>
           ):(
             <div>
-              <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, marginBottom:12 }}>
-                <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
-                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:5 }}>🎯 Objetivo</div>
-                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5, whiteSpace:"pre-wrap" }}>{l.objetivo || "— sin definir"}</div>
-                </div>
-                <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
-                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:5 }}>⚙️ Procesos macro</div>
-                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5, whiteSpace:"pre-wrap" }}>{l.procesos_macro || "— sin definir"}</div>
-                </div>
+              <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", marginBottom:10 }}>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:5 }}>🎯 Objetivo</div>
+                <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5, whiteSpace:"pre-wrap" }}>{l.objetivo || "— sin definir"}</div>
               </div>
+              {misAreas.length===0 ? (
+                <div style={{ fontFamily:font.body, fontSize:12, color:C.border, marginBottom:10 }}>Sin áreas asignadas todavía.</div>
+              ) : (
+                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, marginBottom:10 }}>
+                  {misAreas.map(a=>(
+                    <div key={a.area_id} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
+                      <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:5 }}>🗂️ {a.areaNombre}</div>
+                      <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5, whiteSpace:"pre-wrap" }}>{a.procesos_macro || "— sin definir"}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:8, display:"flex", gap:14, flexWrap:"wrap", fontFamily:font.body, fontSize:10, color:C.textMuted }}>
                 <span>🕒 Creado {fmtFechaHora(l.created_at)}</span>
                 <span>✎ Actualizado {fmtFechaHora(l.updated_at||l.created_at)}</span>
@@ -963,8 +1055,73 @@ function JuntaEquipoTab({ lideres, setLideres, isMobile }) {
             </div>
           )}
         </Card>
-      ))}
+      );})}
       {ordenados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin líderes agregados todavía. Usa "+ Agregar líder" para empezar.</div>}
+    </div>
+  );
+}
+
+function JuntaVistaPorArea({ areas, setAreas, lideres, liderAreas }) {
+  const [nuevaArea, setNuevaArea] = useState("");
+  const [editingAreaId, setEditingAreaId] = useState(null);
+  const [editAreaNombre, setEditAreaNombre] = useState("");
+
+  const crearArea = async () => {
+    if (!nuevaArea.trim()) return;
+    const { data, error } = await supabase.from("junta_areas").insert({ nombre:nuevaArea.trim() }).select().single();
+    if (!error && data) { setAreas(prev=>[...prev, data]); setNuevaArea(""); }
+  };
+  const guardarNombreArea = async (id) => {
+    if (!editAreaNombre.trim()) return;
+    const { data, error } = await supabase.from("junta_areas").update({ nombre:editAreaNombre.trim() }).eq("id", id).select().single();
+    if (!error && data) { setAreas(prev=>prev.map(a=>a.id===id?data:a)); setEditingAreaId(null); }
+  };
+  const quitarArea = async (id) => {
+    if (!window.confirm("¿Quitar esta área? También se quitará de los líderes que la tengan asignada. Esto no se puede deshacer.")) return;
+    await supabase.from("junta_areas").delete().eq("id", id);
+    setAreas(prev=>prev.filter(a=>a.id!==id));
+  };
+
+  return (
+    <div>
+      <Card glow style={{ marginBottom:16 }}>
+        <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.goldLight, marginBottom:10 }}>Nueva área</div>
+        <div style={{ display:"flex", gap:8 }}>
+          <input value={nuevaArea} onChange={e=>setNuevaArea(e.target.value)} onKeyDown={e=>e.key==="Enter"&&crearArea()} placeholder="Ej: Ventas, Recursos Humanos, Operaciones..." style={{ flex:1, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none" }}/>
+          <Btn onClick={crearArea} sm>+ Crear área</Btn>
+        </div>
+      </Card>
+
+      {areas.map(area=>{
+        const contribuciones = liderAreas.filter(la=>la.area_id===area.id).map(la=>({ ...la, liderNombre: lideres.find(l=>l.id===la.lider_id)?.nombre || "— sin nombre" }));
+        return (
+          <Card key={area.id} style={{ marginBottom:14 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:12, flexWrap:"wrap" }}>
+              {editingAreaId===area.id ? (
+                <input value={editAreaNombre} onChange={e=>setEditAreaNombre(e.target.value)} style={{ flex:1, background:C.surfaceAlt, border:`1px solid ${C.gold}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:15, fontFamily:font.body, outline:"none", fontWeight:700 }}/>
+              ) : (
+                <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.goldLight }}>🗂️ {area.nombre}</div>
+              )}
+              <div style={{ display:"flex", gap:6 }}>
+                {editingAreaId===area.id ? (
+                  <><Btn onClick={()=>guardarNombreArea(area.id)} sm>Guardar</Btn><Btn onClick={()=>setEditingAreaId(null)} variant="ghost" sm>✕</Btn></>
+                ):(
+                  <><Btn onClick={()=>{ setEditingAreaId(area.id); setEditAreaNombre(area.nombre); }} variant="ghost" sm>✏</Btn><Btn onClick={()=>quitarArea(area.id)} variant="danger" sm>🗑</Btn></>
+                )}
+              </div>
+            </div>
+            {contribuciones.length===0 ? (
+              <div style={{ fontFamily:font.body, fontSize:12, color:C.border }}>Ningún líder tiene procesos asignados en esta área todavía.</div>
+            ) : contribuciones.map(c=>(
+              <div key={c.id} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", marginBottom:8 }}>
+                <div style={{ fontFamily:font.body, fontSize:11, fontWeight:700, color:C.text, marginBottom:4 }}>{c.liderNombre}</div>
+                <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5, whiteSpace:"pre-wrap" }}>{c.procesos_macro || "— sin definir"}</div>
+              </div>
+            ))}
+          </Card>
+        );
+      })}
+      {areas.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin áreas creadas todavía. Usa "+ Crear área" para empezar.</div>}
     </div>
   );
 }
@@ -1028,6 +1185,7 @@ function JuntaSeguimientoScreen({ lideres, compromisos, setCompromisos }) {
 
   const tareas = compromisos.filter(c=>c.semana===semana);
   const nombreLider = (id) => lideres.find(l=>l.id===id)?.nombre || "— sin asignar";
+  const monitor = getMonitorActual(lideres);
 
   const crear = async () => {
     if (!nueva.descripcion.trim()) return;
@@ -1050,6 +1208,17 @@ function JuntaSeguimientoScreen({ lideres, compromisos, setCompromisos }) {
   return (
     <div>
       <PageHeader title="Seguimiento semanal" subtitle="Checklist de tareas de la Junta" />
+
+      <Card glow style={{ marginBottom:16 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+          <div style={{ width:44, height:44, borderRadius:10, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontSize:19, flexShrink:0 }}>🎯</div>
+          <div>
+            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:2 }}>Monitor de turno · rota cada mes</div>
+            <div style={{ fontFamily:font.body, fontSize:17, fontWeight:700, color:C.goldLight }}>{monitor ? (monitor.nombre || "— sin nombre") : "— sin líderes configurados"}</div>
+          </div>
+        </div>
+      </Card>
+
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
           <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>Semana del martes</div>
@@ -1123,13 +1292,9 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
         <Card><div style={{ textAlign:"center", padding:20, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Aún no hay meses para mostrar.</div></Card>
       ) : (
         <Card glow style={{ marginBottom:16 }}>
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:12 }}>{MESES[actual.mes]} {actual.anio} · mes en curso</div>
-          <div style={{ display:"flex", alignItems:"center", gap:16, flexWrap:"wrap", marginBottom:18 }}>
-            <div style={{ width:52, height:52, borderRadius:12, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>🎯</div>
-            <div>
-              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:2 }}>Monitor de este mes</div>
-              <div style={{ fontFamily:font.body, fontSize:20, fontWeight:700, color:C.goldLight }}>{monitorActual ? (monitorActual.nombre || "— sin nombre") : "— sin líderes configurados"}</div>
-            </div>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8, marginBottom:14 }}>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>{MESES[actual.mes]} {actual.anio} · mes en curso</div>
+            <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub }}>Monitor: <span style={{ color:C.goldLight, fontWeight:700 }}>{monitorActual ? (monitorActual.nombre || "— sin nombre") : "—"}</span></div>
           </div>
           <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:12 }}>
             <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
@@ -1313,22 +1478,27 @@ function AreaSelector({ user, onChoose, onLogout }) {
 export default function App() {
   const [user,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
   const [juntaLideres,setJuntaLideres]=useState([]),[juntaCompromisos,setJuntaCompromisos]=useState([]),[juntaAcuerdos,setJuntaAcuerdos]=useState([]);
+  const [juntaAreas,setJuntaAreas]=useState([]),[juntaLiderAreas,setJuntaLiderAreas]=useState([]);
   const isMobile=useIsMobile();
 
   const loadAll=async()=>{
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja}]=await Promise.all([
+    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
       supabase.from("registros").select("*").order("date",{ascending:false}),
       supabase.from("junta_lideres").select("*").order("orden",{ascending:true}),
       supabase.from("junta_compromisos").select("*").order("semana",{ascending:false}),
       supabase.from("junta_acuerdos").select("*").order("fecha",{ascending:false}),
+      supabase.from("junta_areas").select("*").order("nombre",{ascending:true}),
+      supabase.from("junta_lider_areas").select("*"),
     ]);
     const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
     setStores(sm);setUsers(u||[]);setRecords(r||[]);
     setJuntaLideres(jl||[]);
     setJuntaCompromisos(jc||[]);
     setJuntaAcuerdos(ja||[]);
+    setJuntaAreas(jar||[]);
+    setJuntaLiderAreas(jla||[]);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
@@ -1350,7 +1520,7 @@ export default function App() {
   const renderScreen=()=>{
     if(user.role==="admin"){
       if(area==="junta"){
-        if(tab==="equipo")       return <JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} isMobile={isMobile}/>;
+        if(tab==="equipo")       return <JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} areas={juntaAreas} setAreas={setJuntaAreas} liderAreas={juntaLiderAreas} setLiderAreas={setJuntaLiderAreas} isMobile={isMobile}/>;
         if(tab==="seguimiento")  return <JuntaSeguimientoScreen lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos}/>;
         if(tab==="indicadores")  return <JuntaIndicadoresTab lideres={juntaLideres} compromisos={juntaCompromisos} isMobile={isMobile}/>;
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
