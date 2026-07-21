@@ -83,8 +83,8 @@ const calcPuntualidad = (entryTime, shift, date, store) => {
 };
 
 // ── Junta Admin — rotación del Monitor ───────────────────────────────────────
-// El Monitor rota cada 2 meses entre los líderes, en el orden de la lista
-// (se edita desde la pestaña Equipo y perfiles: agregar/quitar/orden).
+// El Monitor rota cada mes entre los líderes, en el orden de la lista
+// (se edita desde la pestaña Equipo y perfiles, con las flechas ▲▼).
 // Arranca el 21 de julio de 2026 (primer martes del protocolo).
 const JUNTA_ROTATION_EPOCH = "2026-07-21";
 const mesesEntre = (ini, fin) => {
@@ -94,8 +94,7 @@ const mesesEntre = (ini, fin) => {
 const getMonitorActual = (lideres) => {
   if (!lideres.length) return null;
   const ordenados = [...lideres].sort((x, y) => (x.orden ?? 999) - (y.orden ?? 999));
-  const meses = Math.max(0, mesesEntre(JUNTA_ROTATION_EPOCH, todayStr));
-  const ciclo = Math.floor(meses / 2);
+  const ciclo = Math.max(0, mesesEntre(JUNTA_ROTATION_EPOCH, todayStr));
   return ordenados[ciclo % ordenados.length];
 };
 // Devuelve el martes de la semana de una fecha (o la fecha misma si ya es martes)
@@ -157,13 +156,15 @@ const Card = ({ children, style={}, glow, p="20px" }) => (
   <div style={{ background:C.surface, borderRadius:10, border:`1px solid ${glow?C.borderGold:C.border}`, padding:p, boxShadow:glow?`0 0 20px ${C.gold}15`:"0 1px 3px rgba(0,0,0,0.3)", ...style }}>{children}</div>
 );
 
-const Field = ({ label, value, onChange, type="text", placeholder, options, disabled }) => (
+const Field = ({ label, value, onChange, type="text", placeholder, options, disabled, multiline, rows=4 }) => (
   <div style={{ marginBottom:14 }}>
     {label && <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>{label}</div>}
     {options ? (
       <select value={value} onChange={e=>onChange(e.target.value)} disabled={disabled} style={{ width:"100%", background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}>
         {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
+    ) : multiline ? (
+      <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} disabled={disabled} rows={rows} style={{ width:"100%", background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box", resize:"vertical", lineHeight:1.5 }} />
     ) : (
       <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} disabled={disabled} style={{ width:"100%", background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }} />
     )}
@@ -875,10 +876,16 @@ function JuntaEquipoTab({ lideres, setLideres, isMobile }) {
     await supabase.from("junta_lideres").delete().eq("id", id);
     setLideres(prev=>prev.filter(l=>l.id!==id));
   };
-  const marcarLiderEquipo = async (id) => {
-    await supabase.from("junta_lideres").update({ lider_equipo:false }).not("id","is",null);
-    const { data } = await supabase.from("junta_lideres").update({ lider_equipo:true }).eq("id", id).select().single();
-    if (data) setLideres(prev=>prev.map(l=>({ ...l, lider_equipo: l.id===id })));
+  const mover = async (id, direccion) => {
+    const idx = ordenados.findIndex(l=>l.id===id);
+    const otroIdx = idx + direccion;
+    if (otroIdx<0 || otroIdx>=ordenados.length) return;
+    const a = ordenados[idx], b = ordenados[otroIdx];
+    const [{data:da},{data:db}] = await Promise.all([
+      supabase.from("junta_lideres").update({ orden:b.orden }).eq("id", a.id).select().single(),
+      supabase.from("junta_lideres").update({ orden:a.orden }).eq("id", b.id).select().single(),
+    ]);
+    if (da && db) setLideres(prev=>prev.map(l=> l.id===da.id?da : l.id===db.id?db : l));
   };
   const guardar = async (id) => {
     const { data, error } = await supabase.from("junta_lideres").update({ nombre:editVal.nombre.trim(), objetivo:editVal.objetivo.trim(), procesos_macro:editVal.procesos_macro.trim(), updated_at:new Date().toISOString() }).eq("id", id).select().single();
@@ -887,23 +894,21 @@ function JuntaEquipoTab({ lideres, setLideres, isMobile }) {
 
   return (
     <div>
-      <PageHeader title="Equipo y perfiles" subtitle="Los liderazgos que componen la Junta Admin" action={<Btn onClick={agregar} sm>+ Agregar líder</Btn>} />
+      <PageHeader title="Equipo y perfiles" subtitle="Los liderazgos que componen la Junta Admin — el orden de arriba hacia abajo es el orden de rotación del Monitor" action={<Btn onClick={agregar} sm>+ Agregar líder</Btn>} />
       {ordenados.map((l,i)=>(
-        <Card key={l.id} glow={l.lider_equipo} style={{ marginBottom:14 }}>
+        <Card key={l.id} style={{ marginBottom:14 }}>
           <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14, flexWrap:"wrap" }}>
-            <div style={{ width:42, height:42, borderRadius:10, background:l.lider_equipo?C.gold:C.surfaceAlt, border:`1px solid ${l.lider_equipo?C.gold:C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:16, fontWeight:700, color:l.lider_equipo?"#fff":C.textSub, flexShrink:0 }}>
+            <div style={{ width:42, height:42, borderRadius:10, background:C.surfaceAlt, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:16, fontWeight:700, color:C.textSub, flexShrink:0 }}>
               {l.nombre ? l.nombre[0].toUpperCase() : "?"}
             </div>
             <div style={{ flex:1, minWidth:140 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>{l.nombre || "— sin nombre asignado"}</div>
-                {l.lider_equipo && <Badge color={C.gold} sm>★ Líder del equipo</Badge>}
-              </div>
+              <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>{l.nombre || "— sin nombre asignado"}</div>
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>Líder {i+1} en la rotación</div>
             </div>
             <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+              <Btn onClick={()=>mover(l.id,-1)} disabled={i===0} variant="ghost" sm>▲</Btn>
+              <Btn onClick={()=>mover(l.id,1)} disabled={i===ordenados.length-1} variant="ghost" sm>▼</Btn>
               <Btn onClick={()=>{ setEditingId(l.id); setEditVal({ nombre:l.nombre||"", objetivo:l.objetivo||"", procesos_macro:l.procesos_macro||"" }); }} variant="ghost" sm>✏</Btn>
-              <Btn onClick={()=>marcarLiderEquipo(l.id)} variant={l.lider_equipo?"success":"ghost"} sm>{l.lider_equipo?"✓":"★"}</Btn>
               <Btn onClick={()=>quitar(l.id)} variant="danger" sm>🗑</Btn>
             </div>
           </div>
@@ -911,8 +916,8 @@ function JuntaEquipoTab({ lideres, setLideres, isMobile }) {
           {editingId===l.id ? (
             <div>
               <Field label="Nombre de quien ocupa este liderazgo" value={editVal.nombre} onChange={v=>setEditVal(p=>({...p,nombre:v}))} placeholder="Nombre Apellido"/>
-              <Field label="Objetivo" value={editVal.objetivo} onChange={v=>setEditVal(p=>({...p,objetivo:v}))} placeholder="¿Cuál es su objetivo dentro del equipo?"/>
-              <Field label="Procesos macro" value={editVal.procesos_macro} onChange={v=>setEditVal(p=>({...p,procesos_macro:v}))} placeholder="¿Qué procesos macro lidera?"/>
+              <Field label="Objetivo" value={editVal.objetivo} onChange={v=>setEditVal(p=>({...p,objetivo:v}))} placeholder="¿Cuál es su objetivo dentro del equipo?" multiline rows={3}/>
+              <Field label="Procesos macro" value={editVal.procesos_macro} onChange={v=>setEditVal(p=>({...p,procesos_macro:v}))} placeholder={"¿Qué procesos macro lidera?\n1. ...\n2. ..."} multiline rows={5}/>
               <div style={{ display:"flex", gap:8 }}><Btn onClick={()=>guardar(l.id)} sm full>Guardar</Btn><Btn onClick={()=>setEditingId(null)} variant="ghost" sm full>Cancelar</Btn></div>
             </div>
           ):(
@@ -920,14 +925,14 @@ function JuntaEquipoTab({ lideres, setLideres, isMobile }) {
               <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, marginBottom:12 }}>
                 <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
                   <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:5 }}>🎯 Objetivo</div>
-                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5 }}>{l.objetivo || "— sin definir"}</div>
+                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5, whiteSpace:"pre-wrap" }}>{l.objetivo || "— sin definir"}</div>
                 </div>
                 <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
                   <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:5 }}>⚙️ Procesos macro</div>
-                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5 }}>{l.procesos_macro || "— sin definir"}</div>
+                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5, whiteSpace:"pre-wrap" }}>{l.procesos_macro || "— sin definir"}</div>
                 </div>
               </div>
-              <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:8, display:"flex", gap:14, flexWrap:"wrap", fontFamily:font.body, fontSize:10, color:C.border }}>
+              <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:8, display:"flex", gap:14, flexWrap:"wrap", fontFamily:font.body, fontSize:10, color:C.textMuted }}>
                 <span>🕒 Creado {fmtFechaHora(l.created_at)}</span>
                 <span>✎ Actualizado {fmtFechaHora(l.updated_at||l.created_at)}</span>
               </div>
@@ -1065,55 +1070,78 @@ function JuntaSeguimientoScreen({ lideres, compromisos, setCompromisos }) {
 }
 
 // ── SCREEN: Junta Admin — Explicación del rol ────────────────────────────────
-function JuntaGuionTab({ monitor, liderEquipo }) {
+function JuntaGuionTab({ monitor, isMobile }) {
   const guion = [
-    { t:"1. Revisión de la semana anterior", qs:["¿Qué te comprometiste a hacer la semana pasada?","¿Qué quedó hecho y qué no?","¿Cuál es la evidencia de lo hecho?"] },
-    { t:"2. Planeación individual de la semana", qs:["¿Qué vas a hacer esta semana?","¿Cómo, día por día?","¿Qué queda como resultado verificable de cada tarea?"] },
-    { t:"3. Operacionalización (cuando una tarea llega vaga)", qs:["Eso concretamente, ¿es hacer qué? ¿Cuánto tiempo toma? ¿Con quién/dónde/con qué?","¿Qué evidencia deja? Si no deja nada, ¿cómo sabremos que se hizo?"] },
-    { t:"4. Trabajo grupal", qs:["¿Quién toma qué parte?","¿De qué o de quién depende cada parte?","¿Acuerdo concreto y para cuándo? → queda registrado."] },
-    { t:"5. Cierre — lo no previsto", qs:["Además de lo planeado, ¿qué te cayó la semana pasada que no estaba previsto?","(Mucho del trabajo real es reactivo — esta pregunta existe para que también cuente y sea visible.)"] },
+    { t:"Revisión de la semana anterior", qs:["¿Qué te comprometiste a hacer la semana pasada?","¿Qué quedó hecho y qué no?","¿Cuál es la evidencia de lo hecho?"] },
+    { t:"Planeación individual de la semana", qs:["¿Qué vas a hacer esta semana?","¿Cómo, día por día?","¿Qué queda como resultado verificable de cada tarea?"] },
+    { t:"Operacionalización (cuando una tarea llega vaga)", qs:["Eso concretamente, ¿es hacer qué? ¿Cuánto tiempo toma? ¿Con quién/dónde/con qué?","¿Qué evidencia deja? Si no deja nada, ¿cómo sabremos que se hizo?"] },
+    { t:"Trabajo grupal", qs:["¿Quién toma qué parte?","¿De qué o de quién depende cada parte?","¿Acuerdo concreto y para cuándo? → queda registrado."] },
+    { t:"Cierre — lo no previsto", qs:["Además de lo planeado, ¿qué te cayó la semana pasada que no estaba previsto?","Mucho del trabajo real es reactivo — esta pregunta existe para que también cuente y sea visible."] },
+  ];
+  const siHace = [
+    "Garantiza que la reunión pase siempre el martes 9:00am; si hay que reprogramar, lo resuelve el mismo día.",
+    "Conduce la sesión con el guion fijo de 5 momentos, sin improvisar.",
+    "Operacionaliza tareas vagas: qué es exactamente, cómo, cuánto tiempo, qué resultado queda.",
+    "Registra todo (plan de cada uno, cumplimiento, evidencia, acuerdos) — aquí, en este módulo.",
+    "Ante algo incumplido, ayuda a destrabarlo (\"¿cómo lo resolvemos?\"), no pregunta el porqué.",
+  ];
+  const noHace = [
+    "No juzga ni reprocha.",
+    "No lidera al equipo — solo hace seguimiento de la semana.",
+    "No ejecuta el trabajo de otros, solo lo hace visible.",
+    "No reporta hacia arriba ni interpreta — el reporte es a la propia Junta, en vivo.",
   ];
   return (
     <div>
-      <PageHeader title="Explicación del rol" subtitle="Monitor, líder del equipo y guion de la reunión" />
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
-        <Card glow>
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Monitor de turno (rota cada 2 meses)</div>
-          <div style={{ fontFamily:font.body, fontSize:18, fontWeight:700, color:C.goldLight }}>{monitor ? (monitor.nombre || "— sin nombre") : "— sin líderes configurados"}</div>
-        </Card>
-        <Card>
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Líder del equipo (fijo)</div>
-          <div style={{ fontFamily:font.body, fontSize:18, fontWeight:700, color:C.text }}>{liderEquipo ? (liderEquipo.nombre || "— sin nombre") : "— márcalo en Equipo y perfiles"}</div>
-        </Card>
-      </div>
+      <PageHeader title="Explicación del rol" subtitle="Monitor y guion de la reunión semanal" />
+
+      <Card glow style={{ marginBottom:16 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:16, flexWrap:"wrap" }}>
+          <div style={{ width:52, height:52, borderRadius:12, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>🎯</div>
+          <div>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>Monitor de turno · rota cada mes</div>
+            <div style={{ fontFamily:font.body, fontSize:22, fontWeight:700, color:C.goldLight }}>{monitor ? (monitor.nombre || "— sin nombre") : "— sin líderes configurados"}</div>
+          </div>
+        </div>
+      </Card>
 
       <Card style={{ marginBottom:16 }}>
-        <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:10 }}>Funciones del Monitor</div>
-        <div style={{ fontFamily:font.body, fontSize:12, color:C.green, fontWeight:600, marginBottom:6 }}>✓ Sí hace</div>
-        <ul style={{ margin:"0 0 12px", paddingLeft:18, fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.7 }}>
-          <li>Garantiza que la reunión pase siempre el martes 9:00am; si hay que reprogramar, lo resuelve el mismo día.</li>
-          <li>Conduce la sesión con el guion fijo de 5 momentos, sin improvisar.</li>
-          <li>Operacionaliza tareas vagas: qué es exactamente, cómo, cuánto tiempo, qué resultado queda.</li>
-          <li>Registra todo (plan de cada uno, cumplimiento, evidencia, acuerdos) — aquí, en este módulo.</li>
-          <li>Ante algo incumplido, ayuda a destrabarlo ("¿cómo lo resolvemos?"), no pregunta el porqué.</li>
-        </ul>
-        <div style={{ fontFamily:font.body, fontSize:12, color:C.red, fontWeight:600, marginBottom:6 }}>✕ No hace</div>
-        <ul style={{ margin:0, paddingLeft:18, fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.7 }}>
-          <li>No juzga ni reprocha.</li>
-          <li>No lidera el equipo (eso es del líder) — solo hace seguimiento de la semana.</li>
-          <li>No ejecuta el trabajo de otros, solo lo hace visible.</li>
-          <li>No reporta hacia arriba ni interpreta — el reporte es a la propia Junta, en vivo.</li>
-        </ul>
+        <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, marginBottom:14 }}>Funciones del Monitor</div>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:12 }}>
+          <div style={{ background:C.greenDim, border:`1px solid ${C.green}33`, borderRadius:8, padding:"12px 14px" }}>
+            <div style={{ fontFamily:font.body, fontSize:11, fontWeight:700, color:C.green, marginBottom:10, textTransform:"uppercase", letterSpacing:"0.06em" }}>Sí hace</div>
+            {siHace.map((t,i)=>(
+              <div key={i} style={{ display:"flex", gap:8, marginBottom:i<siHace.length-1?9:0 }}>
+                <span style={{ color:C.green, fontSize:12, flexShrink:0 }}>✓</span>
+                <span style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5 }}>{t}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ background:C.redDim, border:`1px solid ${C.red}33`, borderRadius:8, padding:"12px 14px" }}>
+            <div style={{ fontFamily:font.body, fontSize:11, fontWeight:700, color:C.red, marginBottom:10, textTransform:"uppercase", letterSpacing:"0.06em" }}>No hace</div>
+            {noHace.map((t,i)=>(
+              <div key={i} style={{ display:"flex", gap:8, marginBottom:i<noHace.length-1?9:0 }}>
+                <span style={{ color:C.red, fontSize:12, flexShrink:0 }}>✕</span>
+                <span style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5 }}>{t}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </Card>
 
       <Card>
-        <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:12 }}>Guion fijo de cada martes — 5 momentos</div>
+        <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, marginBottom:16 }}>Guion fijo de cada martes</div>
         {guion.map((m,i)=>(
-          <div key={i} style={{ marginBottom:i<guion.length-1?14:0 }}>
-            <div style={{ fontFamily:font.body, fontSize:12, fontWeight:600, color:C.goldLight, marginBottom:4 }}>{m.t}</div>
-            <ul style={{ margin:0, paddingLeft:18, fontFamily:font.body, fontSize:12, color:C.textMuted, lineHeight:1.6 }}>
-              {m.qs.map((q,j)=><li key={j}>{q}</li>)}
-            </ul>
+          <div key={i} style={{ display:"flex", gap:14, marginBottom:i<guion.length-1?18:0 }}>
+            <div style={{ width:26, height:26, borderRadius:99, background:C.gold, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.mono, fontSize:12, fontWeight:700, flexShrink:0 }}>{i+1}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color:C.goldLight, marginBottom:6 }}>{m.t}</div>
+              <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
+                {m.qs.map((q,j)=>(
+                  <div key={j} style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5, marginBottom:j<m.qs.length-1?6:0 }}>{q}</div>
+                ))}
+              </div>
+            </div>
           </div>
         ))}
       </Card>
@@ -1224,7 +1252,7 @@ export default function App() {
       if(area==="junta"){
         if(tab==="equipo")       return <JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} isMobile={isMobile}/>;
         if(tab==="seguimiento")  return <JuntaSeguimientoScreen lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos}/>;
-        if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} liderEquipo={juntaLideres.find(l=>l.lider_equipo)}/>;
+        if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;

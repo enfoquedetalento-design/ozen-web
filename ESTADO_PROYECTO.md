@@ -210,9 +210,8 @@ tres cambios grandes sobre la primera versión:
    `junta_orden`/`junta_lider` en `usuarios` quedan sin usar, no hace falta borrarlas).
 2. Publicar en la URL de práctica y probarlo con calma.
 3. Desde "La Junta Admin" → "Equipo y perfiles", agregar los líderes reales (ya viene
-   con espacio para 5, se pueden agregar o quitar) y marcar quién es el líder fijo del
-   equipo (Edwin) y el orden de rotación (Santiago = Líder 1, para empezar la
-   rotación con él).
+   con espacio para 5, se pueden agregar o quitar) y usar las flechas ▲▼ para dejar a
+   Santiago como Líder 1 (así la rotación mensual empieza con él).
 4. Cuando esté aprobado: correr el mismo SQL en Supabase REAL (proyecto `OZEN`) y
    fusionar `staging` a `main`.
 
@@ -268,6 +267,24 @@ manipular la información a su favor:
    la base de datos lo rechaza. Es la única parte de todo el sistema con esta
    protección — el resto de los datos (incluidos los perfiles de líderes y las
    tareas del checklist) sigue siendo editable normalmente, como el resto de la app.
+
+**Tercera ronda de ajustes (21 jul 2026)** — solo cambios de código, sin SQL nuevo:
+- **Se quitó el concepto de "líder del equipo" fijo** (el botón para marcarlo, la
+  insignia, todo). Santiago no le vio utilidad práctica. La columna `lider_equipo`
+  en `junta_lideres` queda sin usar en la base de datos (no estorba).
+- **Rotación del Monitor: ahora es mensual**, no cada 2 meses.
+- **Orden de rotación editable con flechas ▲▼** en "Equipo y perfiles" — antes el
+  orden solo se podía definir agregando en el orden correcto; ahora cada tarjeta
+  tiene botones para subir o bajar de posición en la lista, y esa posición es
+  literalmente el orden de rotación (Líder 1 primero, etc.).
+- **"Explicación del rol" rediseñada**: se actualizó el texto a "rota cada mes" y se
+  le dio una apariencia más profesional (números en círculos para los 5 momentos,
+  cajas verdes/rojas para "sí hace / no hace" en vez de listas con viñetas planas).
+- **Objetivo y Procesos macro ahora son campos de texto de varias líneas**: se puede
+  dar Enter para hacer una lista numerada o con saltos de línea, y esos saltos se
+  respetan al mostrarlo (antes era una sola línea de texto).
+- **El texto de "Creado / Actualizado" en cada perfil ahora usa el beige de la
+  marca** (`textMuted`) en vez de un gris genérico.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
