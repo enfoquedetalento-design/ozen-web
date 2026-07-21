@@ -859,7 +859,7 @@ function ReportsScreen({ records, users, stores, isMobile }) {
 }
 
 // ── SCREEN: Junta Admin — Equipo y perfiles ──────────────────────────────────
-function JuntaEquipoTab({ lideres, setLideres }) {
+function JuntaEquipoTab({ lideres, setLideres, isMobile }) {
   const [editingId, setEditingId] = useState(null);
   const [editVal, setEditVal] = useState({ nombre:"", objetivo:"", procesos_macro:"" });
 
@@ -889,14 +889,25 @@ function JuntaEquipoTab({ lideres, setLideres }) {
     <div>
       <PageHeader title="Equipo y perfiles" subtitle="Los liderazgos que componen la Junta Admin" action={<Btn onClick={agregar} sm>+ Agregar líder</Btn>} />
       {ordenados.map((l,i)=>(
-        <Card key={l.id} style={{ marginBottom:12 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10, flexWrap:"wrap", gap:8 }}>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>Líder {i+1}</div>
-            <div style={{ display:"flex", gap:6 }}>
-              <Btn onClick={()=>marcarLiderEquipo(l.id)} variant={l.lider_equipo?"success":"ghost"} sm>{l.lider_equipo?"✓ Líder del equipo":"Marcar como líder del equipo"}</Btn>
+        <Card key={l.id} glow={l.lider_equipo} style={{ marginBottom:14 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14, flexWrap:"wrap" }}>
+            <div style={{ width:42, height:42, borderRadius:10, background:l.lider_equipo?C.gold:C.surfaceAlt, border:`1px solid ${l.lider_equipo?C.gold:C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:16, fontWeight:700, color:l.lider_equipo?"#fff":C.textSub, flexShrink:0 }}>
+              {l.nombre ? l.nombre[0].toUpperCase() : "?"}
+            </div>
+            <div style={{ flex:1, minWidth:140 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>{l.nombre || "— sin nombre asignado"}</div>
+                {l.lider_equipo && <Badge color={C.gold} sm>★ Líder del equipo</Badge>}
+              </div>
+              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>Líder {i+1} en la rotación</div>
+            </div>
+            <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+              <Btn onClick={()=>{ setEditingId(l.id); setEditVal({ nombre:l.nombre||"", objetivo:l.objetivo||"", procesos_macro:l.procesos_macro||"" }); }} variant="ghost" sm>✏</Btn>
+              <Btn onClick={()=>marcarLiderEquipo(l.id)} variant={l.lider_equipo?"success":"ghost"} sm>{l.lider_equipo?"✓":"★"}</Btn>
               <Btn onClick={()=>quitar(l.id)} variant="danger" sm>🗑</Btn>
             </div>
           </div>
+
           {editingId===l.id ? (
             <div>
               <Field label="Nombre de quien ocupa este liderazgo" value={editVal.nombre} onChange={v=>setEditVal(p=>({...p,nombre:v}))} placeholder="Nombre Apellido"/>
@@ -906,19 +917,20 @@ function JuntaEquipoTab({ lideres, setLideres }) {
             </div>
           ):(
             <div>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
-                <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.goldLight }}>{l.nombre || "— sin nombre asignado"}</div>
-                {l.lider_equipo && <Badge color={C.gold} sm>Líder del equipo</Badge>}
+              <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, marginBottom:12 }}>
+                <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
+                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:5 }}>🎯 Objetivo</div>
+                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5 }}>{l.objetivo || "— sin definir"}</div>
+                </div>
+                <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
+                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:5 }}>⚙️ Procesos macro</div>
+                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.5 }}>{l.procesos_macro || "— sin definir"}</div>
+                </div>
               </div>
-              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>Objetivo</div>
-              <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:10 }}>{l.objetivo || "— sin definir"}</div>
-              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>Procesos macro</div>
-              <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:10 }}>{l.procesos_macro || "— sin definir"}</div>
-              <div style={{ display:"flex", gap:14, flexWrap:"wrap", marginBottom:10, fontFamily:font.body, fontSize:10, color:C.border }}>
-                <span>Creado: {fmtFechaHora(l.created_at)}</span>
-                <span>Última actualización: {fmtFechaHora(l.updated_at||l.created_at)}</span>
+              <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:8, display:"flex", gap:14, flexWrap:"wrap", fontFamily:font.body, fontSize:10, color:C.border }}>
+                <span>🕒 Creado {fmtFechaHora(l.created_at)}</span>
+                <span>✎ Actualizado {fmtFechaHora(l.updated_at||l.created_at)}</span>
               </div>
-              <Btn onClick={()=>{ setEditingId(l.id); setEditVal({ nombre:l.nombre||"", objetivo:l.objetivo||"", procesos_macro:l.procesos_macro||"" }); }} variant="ghost" sm>✏ Editar</Btn>
             </div>
           )}
         </Card>
@@ -956,12 +968,20 @@ function JuntaAcuerdosTab({ user, acuerdos, setAcuerdos }) {
       )}
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
         {ordenados.map(a=>(
-          <Card key={a.id} p="14px">
-            <div style={{ fontFamily:font.body, fontSize:13, color:C.text, marginBottom:8, lineHeight:1.5 }}>{a.texto}</div>
-            <div style={{ display:"flex", gap:12, flexWrap:"wrap", fontFamily:font.body, fontSize:11, color:C.textMuted }}>
-              <span>📅 Fecha del acuerdo: {a.fecha}</span>
-              {a.registrado_por && <span>✍️ Registrado por {a.registrado_por}</span>}
-              <span>🔒 Guardado el {fmtFechaHora(a.created_at)}</span>
+          <Card key={a.id} p="0" style={{ overflow:"hidden" }}>
+            <div style={{ display:"flex" }}>
+              <div style={{ width:5, flexShrink:0, background:C.gold }} />
+              <div style={{ flex:1, padding:"14px 16px" }}>
+                <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10, marginBottom:10 }}>
+                  <div style={{ fontFamily:font.body, fontSize:13, color:C.text, lineHeight:1.5 }}>{a.texto}</div>
+                  <Badge color={C.gold} sm>🔒 Fijo</Badge>
+                </div>
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                  <Badge color={C.textMuted} sm>📅 {a.fecha}</Badge>
+                  {a.registrado_por && <Badge color={C.textMuted} sm>✍️ {a.registrado_por}</Badge>}
+                  <Badge color={C.textMuted} sm>🕒 {fmtFechaHora(a.created_at)}</Badge>
+                </div>
+              </div>
             </div>
           </Card>
         ))}
@@ -1202,7 +1222,7 @@ export default function App() {
   const renderScreen=()=>{
     if(user.role==="admin"){
       if(area==="junta"){
-        if(tab==="equipo")       return <JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres}/>;
+        if(tab==="equipo")       return <JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} isMobile={isMobile}/>;
         if(tab==="seguimiento")  return <JuntaSeguimientoScreen lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos}/>;
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} liderEquipo={juntaLideres.find(l=>l.lider_equipo)}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
