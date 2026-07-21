@@ -25,6 +25,7 @@ const toColombiaDate = (d = new Date()) => new Date(d.toLocaleString("en-US", { 
 const fmt = (d) => { const c = toColombiaDate(d); return `${c.getFullYear()}-${String(c.getMonth()+1).padStart(2,"0")}-${String(c.getDate()).padStart(2,"0")}`; };
 const fmtTime = (d) => { const c = toColombiaDate(d); return `${String(c.getHours()).padStart(2,"0")}:${String(c.getMinutes()).padStart(2,"0")}`; };
 const todayStr = fmt(new Date());
+const fmtFechaHora = (iso) => iso ? new Date(iso).toLocaleString("es-CO", { day:"numeric", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" }) : "—";
 
 // ── Puntualidad ───────────────────────────────────────────────────────────────
 // Fecha de corte: desde este día (inclusive) rigen los turnos nuevos.
@@ -266,7 +267,7 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id:"records",icon:"📋",label:"Registros" },{ id:"users",icon:"👥",label:"Asesores" },{ id:"stores",icon:"🏬",label:"Tiendas" },{ id:"reports",icon:"📈",label:"Informes" }];
-const ADMIN_TABS_JUNTA      = [{ id:"equipo",icon:"👥",label:"Equipo y perfiles" },{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"guion",icon:"📖",label:"Explicación del rol" }];
+const ADMIN_TABS_JUNTA      = [{ id:"equipo",icon:"👥",label:"Equipo y perfiles" },{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"guion",icon:"📖",label:"Explicación del rol" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" }];
 const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
 
 function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing }) {
@@ -880,7 +881,7 @@ function JuntaEquipoTab({ lideres, setLideres }) {
     if (data) setLideres(prev=>prev.map(l=>({ ...l, lider_equipo: l.id===id })));
   };
   const guardar = async (id) => {
-    const { data, error } = await supabase.from("junta_lideres").update({ nombre:editVal.nombre.trim(), objetivo:editVal.objetivo.trim(), procesos_macro:editVal.procesos_macro.trim() }).eq("id", id).select().single();
+    const { data, error } = await supabase.from("junta_lideres").update({ nombre:editVal.nombre.trim(), objetivo:editVal.objetivo.trim(), procesos_macro:editVal.procesos_macro.trim(), updated_at:new Date().toISOString() }).eq("id", id).select().single();
     if (!error && data) { setLideres(prev=>prev.map(l=>l.id===id?data:l)); setEditingId(null); }
   };
 
@@ -913,12 +914,59 @@ function JuntaEquipoTab({ lideres, setLideres }) {
               <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:10 }}>{l.objetivo || "— sin definir"}</div>
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>Procesos macro</div>
               <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:10 }}>{l.procesos_macro || "— sin definir"}</div>
+              <div style={{ display:"flex", gap:14, flexWrap:"wrap", marginBottom:10, fontFamily:font.body, fontSize:10, color:C.border }}>
+                <span>Creado: {fmtFechaHora(l.created_at)}</span>
+                <span>Última actualización: {fmtFechaHora(l.updated_at||l.created_at)}</span>
+              </div>
               <Btn onClick={()=>{ setEditingId(l.id); setEditVal({ nombre:l.nombre||"", objetivo:l.objetivo||"", procesos_macro:l.procesos_macro||"" }); }} variant="ghost" sm>✏ Editar</Btn>
             </div>
           )}
         </Card>
       ))}
       {ordenados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin líderes agregados todavía. Usa "+ Agregar líder" para empezar.</div>}
+    </div>
+  );
+}
+
+// ── SCREEN: Junta Admin — Acuerdos y decisiones (registro permanente) ───────
+function JuntaAcuerdosTab({ user, acuerdos, setAcuerdos }) {
+  const [showNuevo, setShowNuevo] = useState(false);
+  const [f, setF] = useState({ fecha: todayStr, texto: "" });
+
+  const guardar = async () => {
+    if (!f.texto.trim()) return;
+    const { data, error } = await supabase.from("junta_acuerdos").insert({ fecha:f.fecha, texto:f.texto.trim(), registrado_por:user.name }).select().single();
+    if (!error && data) { setAcuerdos(prev=>[data, ...prev]); setF({ fecha: todayStr, texto:"" }); setShowNuevo(false); }
+    else if (error) alert("No se pudo guardar. Revisa que el SQL de esta pestaña ya se haya corrido en Supabase.");
+  };
+
+  const ordenados = [...acuerdos].sort((a,b)=> b.fecha.localeCompare(a.fecha) || (b.created_at||"").localeCompare(a.created_at||""));
+
+  return (
+    <div>
+      <PageHeader title="Acuerdos y decisiones" subtitle="Registro permanente de la Junta — una vez guardado, no se puede editar ni borrar" action={<Btn onClick={()=>setShowNuevo(true)} sm>+ Nuevo acuerdo</Btn>} />
+      {showNuevo && (
+        <Card glow style={{ marginBottom:16 }}>
+          <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.goldLight, marginBottom:6 }}>Nuevo acuerdo</div>
+          <div style={{ background:`${C.amber}10`, border:`1px solid ${C.amber}44`, borderRadius:8, padding:"10px 12px", marginBottom:14, fontFamily:font.body, fontSize:11, color:C.amber }}>⚠️ Revisa bien antes de guardar: una vez guardado, este acuerdo queda fijo — no se podrá editar ni eliminar desde la aplicación.</div>
+          <Field label="Fecha del acuerdo" type="date" value={f.fecha} onChange={v=>setF(p=>({...p,fecha:v}))}/>
+          <Field label="¿Qué se acordó?" value={f.texto} onChange={v=>setF(p=>({...p,texto:v}))} placeholder='Ej: "A partir de la semana del 4 de agosto, la Junta será a las 8:00am."'/>
+          <div style={{ display:"flex", gap:8 }}><Btn onClick={guardar} full>Guardar acuerdo (definitivo)</Btn><Btn onClick={()=>setShowNuevo(false)} variant="ghost" full>Cancelar</Btn></div>
+        </Card>
+      )}
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        {ordenados.map(a=>(
+          <Card key={a.id} p="14px">
+            <div style={{ fontFamily:font.body, fontSize:13, color:C.text, marginBottom:8, lineHeight:1.5 }}>{a.texto}</div>
+            <div style={{ display:"flex", gap:12, flexWrap:"wrap", fontFamily:font.body, fontSize:11, color:C.textMuted }}>
+              <span>📅 Fecha del acuerdo: {a.fecha}</span>
+              {a.registrado_por && <span>✍️ Registrado por {a.registrado_por}</span>}
+              <span>🔒 Guardado el {fmtFechaHora(a.created_at)}</span>
+            </div>
+          </Card>
+        ))}
+        {ordenados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin acuerdos registrados todavía.</div>}
+      </div>
     </div>
   );
 }
@@ -1116,21 +1164,23 @@ function AreaSelector({ user, onChoose, onLogout }) {
 // ── APP SHELL ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
-  const [juntaLideres,setJuntaLideres]=useState([]),[juntaCompromisos,setJuntaCompromisos]=useState([]);
+  const [juntaLideres,setJuntaLideres]=useState([]),[juntaCompromisos,setJuntaCompromisos]=useState([]),[juntaAcuerdos,setJuntaAcuerdos]=useState([]);
   const isMobile=useIsMobile();
 
   const loadAll=async()=>{
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc}]=await Promise.all([
+    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
       supabase.from("registros").select("*").order("date",{ascending:false}),
       supabase.from("junta_lideres").select("*").order("orden",{ascending:true}),
       supabase.from("junta_compromisos").select("*").order("semana",{ascending:false}),
+      supabase.from("junta_acuerdos").select("*").order("fecha",{ascending:false}),
     ]);
     const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
     setStores(sm);setUsers(u||[]);setRecords(r||[]);
     setJuntaLideres(jl||[]);
     setJuntaCompromisos(jc||[]);
+    setJuntaAcuerdos(ja||[]);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
@@ -1155,6 +1205,7 @@ export default function App() {
         if(tab==="equipo")       return <JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres}/>;
         if(tab==="seguimiento")  return <JuntaSeguimientoScreen lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos}/>;
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} liderEquipo={juntaLideres.find(l=>l.lider_equipo)}/>;
+        if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;

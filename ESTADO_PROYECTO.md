@@ -248,6 +248,27 @@ primera versión — quedaron huérfanas en la base pero no estorban.
 bajo en "Equipo y perfiles" (debe quedar Santiago = Líder 1), rota cada 2 meses según
 el orden de la lista. Se calcula solo, no hay que tocarlo cada semana.
 
+**Segunda ronda de ajustes (21 jul 2026)**: Santiago pidió dos cosas más, ambas por la
+misma preocupación de fondo — que alguien pueda decir después "esto nunca existió" o
+manipular la información a su favor:
+
+1. **Fecha de creación y última actualización visibles en cada perfil de líder**
+   (pestaña "Equipo y perfiles"). Se agregó la columna `updated_at` a
+   `junta_lideres` y se muestra debajo de cada perfil "Creado: ... · Última
+   actualización: ...".
+2. **Nueva pestaña "Acuerdos y decisiones"** (la última, con candado 🔒): para
+   guardar decisiones tomadas en la Junta (ej. "desde la semana X la reunión es a
+   las 8am"). Registra fecha del acuerdo, el texto, quién lo registró (el admin que
+   tiene la sesión abierta) y el momento exacto en que se guardó.
+   **Estos acuerdos NO se pueden editar ni borrar desde la aplicación — ni siquiera
+   Santiago puede hacerlo una vez guardados.** Esto no es solo una regla de la
+   pantalla: se configuró también a nivel de la base de datos (tabla
+   `junta_acuerdos` solo tiene permiso de "agregar" y "leer", no de "modificar" ni
+   "borrar"), así que aunque alguien intente cambiarlo por fuera de la aplicación,
+   la base de datos lo rechaza. Es la única parte de todo el sistema con esta
+   protección — el resto de los datos (incluidos los perfiles de líderes y las
+   tareas del checklist) sigue siendo editable normalmente, como el resto de la app.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
