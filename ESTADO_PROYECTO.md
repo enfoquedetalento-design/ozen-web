@@ -328,6 +328,23 @@ Sin SQL nuevo — todo se calcula al vuelo con los datos que ya se estaban guard
 `junta_lider_areas` (relación líder↔área, con su propio texto de `procesos_macro` y
 timestamps; un líder no puede tener la misma área dos veces — restricción `unique`).
 
+**Sexta ronda (21 jul 2026)** — ajustes finales antes de presentar a la Junta:
+- **Logo dentro de la app**: el menú lateral y el encabezado móvil ya no repiten el
+  logo completo (el vertical con "OZEN" y la frase, pensado para pantalla de login).
+  Ahora usan `public/logo-icon.png` — un ícono redondo compacto que ya existía en el
+  proyecto pero no se estaba usando — y se quitó el texto ("REGISTRO DE
+  ASISTENCIA"/"JUNTA ADMIN") que iba debajo. El logo completo se queda solo en la
+  pantalla de login. Pendiente: Santiago mandó una imagen nueva del logo en el chat;
+  si la quiere usar en vez del ícono redondo actual, debe arrastrarla directamente a
+  la carpeta `public` del proyecto (Finder) y avisar el nombre del archivo para
+  conectarla — desde el chat no es posible guardar imágenes adjuntas directo al
+  proyecto.
+- **Pestañas de La Junta Admin renombradas**: "Equipo y perfiles" → **"Perfiles y
+  áreas"**, "Explicación del rol" → **"Rol de Monitor"**.
+- **Orden final de las pestañas**: Seguimiento semanal, Acuerdos y decisiones,
+  Perfiles y áreas, Rol de Monitor, Indicadores. Al entrar a "La Junta Admin" ahora
+  abre directo en Seguimiento semanal (antes abría en Perfiles y áreas).
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.

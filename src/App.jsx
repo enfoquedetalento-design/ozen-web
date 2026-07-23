@@ -292,17 +292,15 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id:"records",icon:"📋",label:"Registros" },{ id:"users",icon:"👥",label:"Asesores" },{ id:"stores",icon:"🏬",label:"Tiendas" },{ id:"reports",icon:"📈",label:"Informes" }];
-const ADMIN_TABS_JUNTA      = [{ id:"equipo",icon:"👥",label:"Equipo y perfiles" },{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"indicadores",icon:"📊",label:"Indicadores" },{ id:"guion",icon:"📖",label:"Explicación del rol" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" }];
+const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
 const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
 
 function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing }) {
   const tabs = user.role!=="admin" ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : ADMIN_TABS_ASISTENCIA);
-  const areaLabel = user.role!=="admin" ? "CONTROL DE PERSONAL" : (area==="junta" ? "JUNTA ADMIN" : "REGISTRO DE ASISTENCIA");
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
-      <div style={{ padding:"20px 16px", borderBottom:`1px solid ${C.border}` }}>
-        <img src="/logo.png" alt="OZEN" style={{ width:100, height:"auto", marginBottom:4 }} />
-        <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, letterSpacing:"0.15em", marginTop:2 }}>{areaLabel}</div>
+      <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C.border}` }}>
+        <img src="/logo-icon.png" alt="OZEN" style={{ width:44, height:44, borderRadius:"50%" }} />
       </div>
       <nav style={{ flex:1, padding:"12px 10px", display:"flex", flexDirection:"column", gap:2 }}>
         {tabs.map(t => { const active=tab===t.id; return (
@@ -345,7 +343,7 @@ function BottomNav({ tab, setTab, isAdmin, area }) {
 function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea }) {
   return (
     <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
-      <img src="/logo.png" alt="OZEN" style={{ width:70, height:"auto" }} />
+      <img src="/logo-icon.png" alt="OZEN" style={{ width:34, height:34, borderRadius:"50%" }} />
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         {user.role==="admin" && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
@@ -888,7 +886,7 @@ function JuntaEquipoTab({ lideres, setLideres, areas, setAreas, liderAreas, setL
   const [vista, setVista] = useState("lideres");
   return (
     <div>
-      <PageHeader title="Equipo y perfiles" subtitle="Los liderazgos que componen la Junta Admin y las áreas de trabajo que cubren" />
+      <PageHeader title="Perfiles y áreas" subtitle="Los liderazgos que componen la Junta Admin y las áreas de trabajo que cubren" />
       <div style={{ display:"flex", gap:8, marginBottom:16 }}>
         <Btn onClick={()=>setVista("lideres")} variant={vista==="lideres"?"primary":"ghost"} sm>👤 Por líder</Btn>
         <Btn onClick={()=>setVista("areas")} variant={vista==="areas"?"primary":"ghost"} sm>🗂️ Por área</Btn>
@@ -1358,7 +1356,7 @@ function JuntaGuionTab({ monitor, isMobile }) {
   ];
   return (
     <div>
-      <PageHeader title="Explicación del rol" subtitle="Monitor y guion de la reunión semanal" />
+      <PageHeader title="Rol de Monitor" subtitle="Monitor y guion de la reunión semanal" />
 
       <Card glow style={{ marginBottom:16 }}>
         <div style={{ display:"flex", alignItems:"center", gap:16, flexWrap:"wrap" }}>
@@ -1505,7 +1503,7 @@ export default function App() {
 
   const login=(u)=>{setUser(u);setArea(null);setTab(u.role==="admin"?null:"checkin");};
   const logout=()=>{setUser(null);setArea(null);setTab(null);};
-  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"equipo":"dashboard");};
+  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":"dashboard");};
   const backToAreas=()=>{setArea(null);setTab(null);};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
