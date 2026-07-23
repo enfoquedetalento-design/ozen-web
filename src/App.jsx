@@ -1493,9 +1493,29 @@ function JuntaGuionTab({ monitor, isMobile }) {
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const [documento,setDocumento]=useState(""),[pass,setPass]=useState(""),[err,setErr]=useState(""),[loading,setLoading]=useState(false);
+  const docRef=useRef(null), passRef=useRef(null);
+
+  // Solo acepta cambios que vengan de escritura real de teclado (letra por letra o
+  // borrar). Si el cambio viene de pegar, arrastrar texto, o de que el navegador
+  // autocompletó el campo solo, se ignora y se revierte al valor anterior.
+  const soloTeclado = (valorActual, setValor) => (e) => {
+    const tipo = e.nativeEvent && e.nativeEvent.inputType;
+    const esEscrituraReal = tipo==="insertText" || tipo==="deleteContentBackward" || tipo==="deleteContentForward" || tipo==="deleteByCut" || tipo==="deleteWordBackward" || tipo==="deleteWordForward" || tipo==="historyUndo" || tipo==="historyRedo";
+    if (esEscrituraReal) setValor(e.target.value);
+    else e.target.value = valorActual;
+  };
+  const bloquear = (e) => e.preventDefault();
+  // Detecta cuando Chrome/Safari rellenan el campo solos (el resaltado amarillo de
+  // "autocompletar") y lo vacía de inmediato.
+  const siAutocompletaLimpiar = (setValor) => () => setValor("");
+
   const handle=async(e)=>{ if(e)e.preventDefault(); if(!documento.trim()||!pass){setErr("Completa todos los campos.");return;} setLoading(true);setErr(""); const{data}=await supabase.from("usuarios").select("*").eq("documento",documento.trim()).eq("password",pass).eq("active",true).single(); if(data)onLogin(data); else setErr("Documento o contraseña incorrecta, o cuenta inactiva."); setLoading(false); };
   return (
     <div style={{minHeight:"100vh",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <style>{`
+        @keyframes ozenNoAutofill { from {} to {} }
+        input.ozen-anti-autofill:-webkit-autofill { animation-name: ozenNoAutofill; }
+      `}</style>
       <div style={{width:"100%",maxWidth:380}}>
         <div style={{textAlign:"center",marginBottom:28}}>
           <img src="/logo.png" alt="OZEN" style={{width:140,height:"auto",marginBottom:12}}/>
@@ -1504,8 +1524,48 @@ function LoginScreen({ onLogin }) {
         <Card glow>
           <form onSubmit={handle} autoComplete="off">
             <div style={{fontFamily:font.body,fontSize:17,fontWeight:600,color:C.text,marginBottom:18}}>Iniciar sesión</div>
-            <Field label="N.º de documento" value={documento} onChange={setDocumento} placeholder="Número de documento" autoComplete="off"/>
-            <Field label="Contraseña" type="password" value={pass} onChange={setPass} placeholder="••••••••" autoComplete="new-password"/>
+
+            {/* Campos señuelo ocultos: distraen al navegador para que no ofrezca
+                guardar la contraseña de los campos reales de abajo */}
+            <input type="text" name="username" autoComplete="username" style={{position:"absolute",width:1,height:1,opacity:0,pointerEvents:"none"}} tabIndex={-1} aria-hidden="true" />
+            <input type="password" name="password" autoComplete="new-password" style={{position:"absolute",width:1,height:1,opacity:0,pointerEvents:"none"}} tabIndex={-1} aria-hidden="true" />
+
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>N.º de documento</div>
+              <input
+                ref={docRef}
+                className="ozen-anti-autofill"
+                type="text"
+                name="ozen_doc_x1"
+                value={documento}
+                placeholder="Número de documento"
+                autoComplete="off"
+                onChange={soloTeclado(documento, setDocumento)}
+                onPaste={bloquear}
+                onDrop={bloquear}
+                onAnimationStart={siAutocompletaLimpiar(setDocumento)}
+                style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}
+              />
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Contraseña</div>
+              <input
+                ref={passRef}
+                className="ozen-anti-autofill"
+                type="password"
+                name="ozen_pwd_x1"
+                value={pass}
+                placeholder="••••••••"
+                autoComplete="new-password"
+                onChange={soloTeclado(pass, setPass)}
+                onPaste={bloquear}
+                onDrop={bloquear}
+                onAnimationStart={siAutocompletaLimpiar(setPass)}
+                style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}
+              />
+            </div>
+
             {err&&<div style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,padding:"9px 12px",color:C.red,fontSize:12,marginBottom:12,fontFamily:font.body}}>{err}</div>}
             <Btn disabled={loading} full style={{marginTop:4}}>{loading?"Verificando...":"Ingresar"}</Btn>
           </form>

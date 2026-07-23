@@ -428,14 +428,32 @@ values ('Nombre Apellido', 'documento_aqui', 'contraseña_temporal', 'visualizad
 - **Seguridad del login — aviso de Santiago (23 jul 2026)**: Santiago probó el login
   después del cambio anterior y confirmó que el navegador **sí** ofreció guardar la
   contraseña, y al volver a entrar la autocompletó — es decir, el intento anterior
-  con `autoComplete="new-password"` no fue suficiente. **Esto sigue pendiente de
-  resolver** (queda registrado como tarea abierta más abajo); se va a intentar un
-  método más agresivo para desanimar al navegador, aunque hay que ser honestos: no
-  existe ningún truco de código que garantice al 100% que un navegador nunca guarde
-  una contraseña, porque esa decisión la toma el navegador, no la página. Por eso la
-  recomendación de borrar de vez en cuando las contraseñas guardadas en los
-  computadores compartidos de tienda (Configuración → Contraseñas) sigue siendo
-  importante mientras tanto.
+  con `autoComplete="new-password"` no fue suficiente.
+
+- **Refuerzo del bloqueo (mismo día)**: Santiago pidió específicamente que los
+  campos de documento y contraseña del login solo acepten caracteres escritos con
+  el teclado. Se reforzó así:
+  - Los dos campos ahora **ignoran cualquier valor que no venga de una tecla
+    presionada de verdad** — si el navegador intenta rellenarlos solo (autocompletar)
+    o si alguien pega texto (Ctrl+V) o lo arrastra, el campo lo rechaza y se queda
+    como estaba.
+  - Se bloqueó explícitamente pegar y arrastrar texto en ambos campos.
+  - Se agregó una detección adicional (un truco de CSS) que nota cuando Chrome o
+    Safari rellenan un campo con el resaltado amarillo típico del autocompletado, y
+    lo vacía al instante.
+  - Se agregaron dos campos "señuelo" invisibles antes de los campos reales, para
+    que el navegador intente ofrecer guardar/autocompletar ahí y no en los campos
+    verdaderos.
+  - Se le cambió el nombre interno a los campos reales (ya no dicen "usuario" ni
+    "contraseña" por dentro) para que el navegador los reconozca menos como un
+    login típico.
+  - **Sigue sin ser un 100% garantizado** — ningún truco de código puede asegurar
+    eso al 100%, porque la decisión final siempre es del navegador — pero esta
+    combinación es mucho más fuerte que el intento anterior y cubre los casos que
+    Santiago probó. Falta que Santiago la pruebe en práctica para confirmar. La
+    recomendación de borrar de vez en cuando las contraseñas guardadas en los
+    computadores compartidos de tienda (Configuración → Contraseñas del navegador)
+    sigue siendo una buena medida adicional mientras tanto.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
@@ -445,9 +463,9 @@ values ('Nombre Apellido', 'documento_aqui', 'contraseña_temporal', 'visualizad
   pestaña "Usuarios" (ver "Séptima ronda" arriba).
 - ~~Perfil de solo consulta~~ — resuelto: rol `visualizador` (ver "Octava ronda"
   arriba).
-- **Pendiente (abierto)**: reforzar el bloqueo de guardar/autocompletar contraseña
-  en el login — el intento actual no fue suficiente según pruebas de Santiago (ver
-  "Octava ronda" arriba).
+- ~~Reforzar bloqueo de guardar/autocompletar contraseña en el login~~ — reforzado
+  (ver "Octava ronda" arriba). Pendiente que Santiago lo pruebe en práctica para
+  confirmar que ya no se guarda ni autocompleta.
 - La idea de convertir esto en un producto para vender a otras empresas quedó
   mencionada pero no decidida — no es prioridad mientras la operación de Ozen no
   esté 100% estable.
