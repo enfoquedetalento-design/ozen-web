@@ -180,7 +180,7 @@ const Card = ({ children, style={}, glow, p="20px" }) => (
   <div style={{ background:C.surface, borderRadius:10, border:`1px solid ${glow?C.borderGold:C.border}`, padding:p, boxShadow:glow?`0 0 20px ${C.gold}15`:"0 1px 3px rgba(0,0,0,0.3)", ...style }}>{children}</div>
 );
 
-const Field = ({ label, value, onChange, type="text", placeholder, options, disabled, multiline, rows=4 }) => (
+const Field = ({ label, value, onChange, type="text", placeholder, options, disabled, multiline, rows=4, autoComplete }) => (
   <div style={{ marginBottom:14 }}>
     {label && <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>{label}</div>}
     {options ? (
@@ -190,7 +190,7 @@ const Field = ({ label, value, onChange, type="text", placeholder, options, disa
     ) : multiline ? (
       <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} disabled={disabled} rows={rows} style={{ width:"100%", background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box", resize:"vertical", lineHeight:1.5 }} />
     ) : (
-      <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} disabled={disabled} style={{ width:"100%", background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }} />
+      <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} disabled={disabled} autoComplete={autoComplete} style={{ width:"100%", background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }} />
     )}
   </div>
 );
@@ -292,11 +292,13 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id:"records",icon:"📋",label:"Registros" },{ id:"users",icon:"👥",label:"Asesores" },{ id:"stores",icon:"🏬",label:"Tiendas" },{ id:"reports",icon:"📈",label:"Informes" }];
+const ADMIN_TABS_ASISTENCIA_MASTER = ADMIN_TABS_ASISTENCIA.map(t => t.id==="users" ? { id:"usuarios", icon:"🗝️", label:"Usuarios" } : t);
 const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
 const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
+const esAdminOMaster = (user) => user.role==="admin" || user.role==="master";
 
 function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing }) {
-  const tabs = user.role!=="admin" ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : ADMIN_TABS_ASISTENCIA);
+  const tabs = !esAdminOMaster(user) ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : (user.role==="master" ? ADMIN_TABS_ASISTENCIA_MASTER : ADMIN_TABS_ASISTENCIA));
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C.border}` }}>
@@ -314,19 +316,19 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
           <div style={{ width:32, height:32, borderRadius:8, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:13, fontWeight:700, color:"#fff", flexShrink:0 }}>{user.name[0]}</div>
           <div>
             <div style={{ fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{user.name.split(" ")[0]}</div>
-            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>{user.role==="admin"?"Administrador":"Asesor"}</div>
+            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>{ROLE_LABEL[user.role] || "Asesor"}</div>
           </div>
           <button onClick={onRefresh} disabled={refreshing} title="Actualizar" style={{ marginLeft:"auto", background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:16, opacity:refreshing?0.4:1, transition:"transform 0.4s", transform:refreshing?"rotate(180deg)":"rotate(0deg)" }}>🔄</button>
         </div>
-        {user.role==="admin" && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
+        {esAdminOMaster(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
         <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
       </div>
     </div>
   );
 }
 
-function BottomNav({ tab, setTab, isAdmin, area }) {
-  const tabs = !isAdmin ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : ADMIN_TABS_ASISTENCIA);
+function BottomNav({ tab, setTab, user, area }) {
+  const tabs = !esAdminOMaster(user) ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : (user.role==="master" ? ADMIN_TABS_ASISTENCIA_MASTER : ADMIN_TABS_ASISTENCIA));
   return (
     <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:C.sidebar, paddingBottom:"env(safe-area-inset-bottom, 8px)", flexShrink:0 }}>
       {tabs.map(t => { const active=tab===t.id; return (
@@ -345,7 +347,7 @@ function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea }) {
     <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
       <img src="/logo-icon.png" alt="OZEN" style={{ width:34, height:34, borderRadius:"50%" }} />
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-        {user.role==="admin" && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
+        {esAdminOMaster(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
         <div style={{ fontFamily:font.body, fontSize:12, color:C.text }}>{user.name.split(" ")[0]}</div>
         <button onClick={onLogout} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 10px", color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:font.body }}>Salir</button>
@@ -537,6 +539,72 @@ function UsersScreen({ users, setUsers }) {
                   <Btn onClick={()=>{setEditing(u.id);setEditVal({name:u.name,documento:u.documento});}} variant="ghost" sm>✏</Btn>
                   <Btn onClick={()=>toggle(u)} variant={u.active?"danger":"success"} sm>{u.active?"✕":"✓"}</Btn>
                   <Btn onClick={()=>deleteUser(u.id)} variant="danger" sm>🗑</Btn>
+                </div>
+              </div>
+            )}
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── SCREEN: Usuarios (solo master) ─────────────────────────────────────────────
+const ROLE_LABEL = { master:"Master", admin:"Administrador", advisor:"Asesor" };
+const ROLE_COLOR = { master:C.red, admin:C.gold, advisor:C.blue };
+function UsuariosScreen({ users, setUsers }) {
+  const [showForm,setShowForm]=useState(false),[form,setForm]=useState({name:"",documento:"",role:"advisor"}),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[cambiandoPass,setCambiandoPass]=useState(null),[nuevaPass,setNuevaPass]=useState(""),[loading,setLoading]=useState(false);
+  const ordenados=[...users].sort((a,b)=>(a.role==="master"?0:a.role==="admin"?1:2)-(b.role==="master"?0:b.role==="admin"?1:2) || a.name.localeCompare(b.name));
+  const roleOptions=[{value:"advisor",label:"Asesor"},{value:"admin",label:"Administrador"},{value:"master",label:"Master"}];
+  const add=async()=>{ if(!form.name.trim()||!form.documento.trim())return; setLoading(true); const{data,error}=await supabase.from("usuarios").insert({name:form.name.trim(),documento:form.documento.trim(),password:form.documento.trim(),role:form.role,active:true}).select().single(); if(!error&&data){setUsers(prev=>[...prev,data]);setForm({name:"",documento:"",role:"advisor"});setShowForm(false);} setLoading(false); };
+  const toggle=async(u)=>{ const{data}=await supabase.from("usuarios").update({active:!u.active}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
+  const saveEdit=async(id)=>{ if(!editVal.name.trim()||!editVal.documento.trim())return; const{data}=await supabase.from("usuarios").update({name:editVal.name.trim(),documento:editVal.documento.trim(),role:editVal.role}).eq("id",id).select().single(); if(data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setEditing(null);} };
+  const deleteUsuario=async(id)=>{
+    const { count } = await supabase.from("registros").select("id", { count: "exact", head: true }).eq("user_id", id);
+    if (count > 0) { alert(`Este usuario tiene ${count} registro(s) de asistencia. Eliminarlo borraría ese historial para siempre. Usa el botón "✕" para desactivarlo en su lugar.`); return; }
+    if (!window.confirm("Este usuario no tiene registros de asistencia. ¿Eliminarlo de todas formas? Esto no se puede deshacer.")) return;
+    await supabase.from("usuarios").delete().eq("id",id); setUsers(prev=>prev.filter(u=>u.id!==id));
+  };
+  const guardarPassword=async(id)=>{ if(!nuevaPass.trim())return; const{data,error}=await supabase.from("usuarios").update({password:nuevaPass.trim()}).eq("id",id).select().single(); if(!error&&data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setCambiandoPass(null);setNuevaPass("");alert("Contraseña actualizada.");} };
+  return (
+    <div>
+      <PageHeader title="Usuarios" subtitle={`${users.length} usuarios · solo visible para cuentas master`} action={<Btn onClick={()=>{setShowForm(!showForm);setEditing(null);setCambiandoPass(null);}} sm>{showForm?"Cancelar":"+ Nuevo usuario"}</Btn>} />
+      {showForm&&(
+        <Card glow style={{marginBottom:16}}>
+          <div style={{fontFamily:font.body,fontSize:13,fontWeight:600,color:C.goldLight,marginBottom:14}}>Nuevo usuario</div>
+          <Field label="Nombre completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nombre Apellido" />
+          <Field label="N.º de documento" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Número de documento" />
+          <Field label="Tipo de usuario" value={form.role} onChange={v=>setForm(f=>({...f,role:v}))} options={roleOptions} />
+          <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 La contraseña inicial será el número de documento.</div>
+          <Btn onClick={add} disabled={loading} full>{loading?"Guardando...":"Crear usuario"}</Btn>
+        </Card>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {ordenados.map(u=>(
+          <Card key={u.id} p="14px" style={{opacity:u.active?1:0.6}}>
+            {editing===u.id?(
+              <div>
+                <Field label="Nombre" value={editVal.name} onChange={v=>setEditVal(p=>({...p,name:v}))} />
+                <Field label="Documento" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} />
+                <Field label="Tipo de usuario" value={editVal.role} onChange={v=>setEditVal(p=>({...p,role:v}))} options={roleOptions} />
+                <div style={{display:"flex",gap:8}}><Btn onClick={()=>saveEdit(u.id)} variant="success" sm full>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm full>Cancelar</Btn></div>
+              </div>
+            ):cambiandoPass===u.id?(
+              <div>
+                <Field label={`Nueva contraseña para ${u.name}`} type="password" value={nuevaPass} onChange={setNuevaPass} placeholder="Nueva contraseña" autoComplete="new-password" />
+                <div style={{display:"flex",gap:8}}><Btn onClick={()=>guardarPassword(u.id)} variant="success" sm full>Guardar contraseña</Btn><Btn onClick={()=>{setCambiandoPass(null);setNuevaPass("");}} variant="ghost" sm full>Cancelar</Btn></div>
+              </div>
+            ):(
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <div style={{width:36,height:36,borderRadius:8,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,fontWeight:700,color:"#fff",flexShrink:0}}>{u.name[0]}</div>
+                <div style={{flex:1,minWidth:120}}><div style={{fontFamily:font.body,fontSize:13,color:C.text,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div><div style={{fontFamily:font.mono,fontSize:11,color:C.textMuted}}>{u.documento}</div></div>
+                <Badge color={ROLE_COLOR[u.role]||C.textMuted} sm>{ROLE_LABEL[u.role]||u.role}</Badge>
+                <Badge color={u.active?C.green:C.red} sm>{u.active?"Activo":"Inactivo"}</Badge>
+                <div style={{display:"flex",gap:4,flexShrink:0}}>
+                  <Btn onClick={()=>{setEditing(u.id);setEditVal({name:u.name,documento:u.documento,role:u.role});}} variant="ghost" sm>✏</Btn>
+                  <Btn onClick={()=>{setCambiandoPass(u.id);setNuevaPass("");}} variant="ghost" sm>🔑</Btn>
+                  <Btn onClick={()=>toggle(u)} variant={u.active?"danger":"success"} sm>{u.active?"✕":"✓"}</Btn>
+                  <Btn onClick={()=>deleteUsuario(u.id)} variant="danger" sm>🗑</Btn>
                 </div>
               </div>
             )}
@@ -1415,7 +1483,7 @@ function JuntaGuionTab({ monitor, isMobile }) {
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const [documento,setDocumento]=useState(""),[pass,setPass]=useState(""),[err,setErr]=useState(""),[loading,setLoading]=useState(false);
-  const handle=async()=>{ if(!documento.trim()||!pass){setErr("Completa todos los campos.");return;} setLoading(true);setErr(""); const{data}=await supabase.from("usuarios").select("*").eq("documento",documento.trim()).eq("password",pass).eq("active",true).single(); if(data)onLogin(data); else setErr("Documento o contraseña incorrecta, o cuenta inactiva."); setLoading(false); };
+  const handle=async(e)=>{ if(e)e.preventDefault(); if(!documento.trim()||!pass){setErr("Completa todos los campos.");return;} setLoading(true);setErr(""); const{data}=await supabase.from("usuarios").select("*").eq("documento",documento.trim()).eq("password",pass).eq("active",true).single(); if(data)onLogin(data); else setErr("Documento o contraseña incorrecta, o cuenta inactiva."); setLoading(false); };
   return (
     <div style={{minHeight:"100vh",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{width:"100%",maxWidth:380}}>
@@ -1424,11 +1492,13 @@ function LoginScreen({ onLogin }) {
           <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,letterSpacing:"0.2em"}}>CONTROL DE PERSONAL</div>
         </div>
         <Card glow>
-          <div style={{fontFamily:font.body,fontSize:17,fontWeight:600,color:C.text,marginBottom:18}}>Iniciar sesión</div>
-          <Field label="N.º de documento" value={documento} onChange={setDocumento} placeholder="Número de documento"/>
-          <Field label="Contraseña" type="password" value={pass} onChange={setPass} placeholder="••••••••"/>
-          {err&&<div style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,padding:"9px 12px",color:C.red,fontSize:12,marginBottom:12,fontFamily:font.body}}>{err}</div>}
-          <Btn onClick={handle} disabled={loading} full style={{marginTop:4}}>{loading?"Verificando...":"Ingresar"}</Btn>
+          <form onSubmit={handle} autoComplete="off">
+            <div style={{fontFamily:font.body,fontSize:17,fontWeight:600,color:C.text,marginBottom:18}}>Iniciar sesión</div>
+            <Field label="N.º de documento" value={documento} onChange={setDocumento} placeholder="Número de documento" autoComplete="off"/>
+            <Field label="Contraseña" type="password" value={pass} onChange={setPass} placeholder="••••••••" autoComplete="new-password"/>
+            {err&&<div style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,padding:"9px 12px",color:C.red,fontSize:12,marginBottom:12,fontFamily:font.body}}>{err}</div>}
+            <Btn disabled={loading} full style={{marginTop:4}}>{loading?"Verificando...":"Ingresar"}</Btn>
+          </form>
         </Card>
       </div>
     </div>
@@ -1449,7 +1519,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
             <button onClick={()=>onChoose("junta")} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"26px 22px", display:"flex", alignItems:"center", gap:16, textAlign:"left" }}>
               <div style={{ fontSize:32 }}>🗓️</div>
               <div>
-                <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.goldLight }}>La Junta Admin</div>
+                <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.goldLight }}>La Junta Administrativa</div>
                 <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:2 }}>Equipo, seguimiento semanal y guion de la reunión</div>
               </div>
             </button>
@@ -1501,7 +1571,7 @@ export default function App() {
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
 
-  const login=(u)=>{setUser(u);setArea(null);setTab(u.role==="admin"?null:"checkin");};
+  const login=(u)=>{setUser(u);setArea(null);setTab(esAdminOMaster(u)?null:"checkin");};
   const logout=()=>{setUser(null);setArea(null);setTab(null);};
   const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":"dashboard");};
   const backToAreas=()=>{setArea(null);setTab(null);};
@@ -1513,10 +1583,10 @@ export default function App() {
 
   if(booting) return <div style={{minHeight:"100vh",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,color:C.textMuted,fontSize:14}}>Cargando...</div>;
   if(!user) return <LoginScreen onLogin={login}/>;
-  if(user.role==="admin" && !area) return <AreaSelector user={user} onChoose={chooseArea} onLogout={logout}/>;
+  if(esAdminOMaster(user) && !area) return <AreaSelector user={user} onChoose={chooseArea} onLogout={logout}/>;
 
   const renderScreen=()=>{
-    if(user.role==="admin"){
+    if(esAdminOMaster(user)){
       if(area==="junta"){
         if(tab==="equipo")       return <JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} areas={juntaAreas} setAreas={setJuntaAreas} liderAreas={juntaLiderAreas} setLiderAreas={setJuntaLiderAreas} isMobile={isMobile}/>;
         if(tab==="seguimiento")  return <JuntaSeguimientoScreen lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos}/>;
@@ -1527,6 +1597,7 @@ export default function App() {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
         if(tab==="users")     return <UsersScreen users={users} setUsers={setUsers}/>;
+        if(tab==="usuarios")  return <UsuariosScreen users={users} setUsers={setUsers}/>;
         if(tab==="stores")    return <StoresScreen stores={stores} setStores={setStores}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
@@ -1542,7 +1613,7 @@ export default function App() {
     <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden"}}>
       <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas}/>
       <main style={{flex:1,overflowY:"auto",padding:16}}>{renderScreen()}</main>
-      <BottomNav tab={tab} setTab={setTab} isAdmin={user.role==="admin"} area={area}/>
+      <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
     </div>
   );
 

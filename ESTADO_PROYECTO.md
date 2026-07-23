@@ -86,7 +86,8 @@ el código completo y Santiago lo pega él mismo en VS Code (Cmd+A, Cmd+V, luego
 - Tiendas activas: Unicentro (UT*), Jardín Plaza (JT*), Chipichape (CT*), Oficina (TOF).
 - Llanogrande (LT*) se cerró — ya no debería tener turnos nuevos asignados.
 - Login: por número de documento + contraseña (inicial = mismo documento). Roles:
-  `admin` (Gestión Humana) y `advisor` (asesor).
+  `master` (Santiago — control total), `admin` (Gestión Humana) y `advisor` (asesor).
+  Ver "Séptima ronda" más abajo para el detalle del rol master.
 - **Horarios / turnos — fecha de corte 2026-07-15**: el 15 de julio de 2026 cambiaron
   las horas de entrada esperadas (usadas para calcular puntualidad). El código tiene
   `SHIFT_HOURS_OLD` (hasta el 14 de julio inclusive) y `SHIFT_HOURS_NEW` (desde el 15),
@@ -345,11 +346,55 @@ timestamps; un líder no puede tener la misma área dos veces — restricción `
   Perfiles y áreas, Rol de Monitor, Indicadores. Al entrar a "La Junta Admin" ahora
   abre directo en Seguimiento semanal (antes abría en Perfiles y áreas).
 
+**Séptima ronda (21 jul 2026)** — nombre del módulo, rol master y seguridad del login:
+
+- **El módulo se renombró a "La Junta Administrativa"** (antes "La Junta Admin"),
+  en el botón del selector de área.
+
+- **Nuevo rol `master`**: Santiago pidió una cuenta superior a `admin` que pueda ver
+  y administrar a TODOS los usuarios (incluyendo otros admins), algo que antes solo
+  se podía hacer directo en Supabase. Ahora existe un tercer rol, `master`, que:
+  - Ve exactamente las mismas áreas que un `admin` (Registro de Asistencia y La
+    Junta Administrativa) — el rol master no cambia lo que se ve ahí.
+  - Dentro de "Registro de Asistencia", la pestaña "Asesores" es reemplazada por una
+    pestaña **"🗝️ Usuarios"**, visible solo para cuentas master, que lista TODOS los
+    usuarios (master, admin y asesor) — no solo asesores. Desde ahí se pueden crear
+    usuarios de cualquier tipo, editar nombre/documento/tipo, activar/desactivar, y
+    **cambiar la contraseña de cualquier usuario** con un botón nuevo (🔑) que abre
+    un campo para escribir una contraseña nueva.
+  - Los admins normales (no master) siguen viendo la pestaña "Asesores" de siempre,
+    limitada a los asesores — no ven ni pueden tocar cuentas admin o master.
+  - **Pendiente en Santiago**: convertir su propia cuenta a `master` corriendo el SQL
+    de abajo (una vez en práctica, y luego en la real cuando esté aprobado).
+
+- **Seguridad del login**:
+  - El formulario de inicio de sesión ahora es un `<form>` real, así que con solo
+    presionar Enter se ingresa (antes solo funcionaba el clic en "Ingresar").
+  - Se le puso `autoComplete="off"` al campo de documento y `autoComplete="new-password"`
+    al de contraseña, para que el navegador deje de ofrecer guardar o autocompletar
+    esas credenciales. **Aviso importante**: esto reduce mucho el problema, pero
+    ningún truco de código puede garantizar al 100% que un navegador nunca guarde ni
+    sugiera una contraseña — cada navegador decide por su cuenta. Como medida
+    adicional (fuera del código), conviene que en los computadores compartidos de
+    tienda alguien borre de vez en cuando las contraseñas guardadas del navegador
+    (Configuración → Contraseñas), sobre todo ahora al inicio mientras el cambio
+    toma efecto en los equipos que ya tenían contraseñas guardadas de antes.
+
+**SQL pendiente de correr** (primero en práctica, luego en la real):
+```sql
+-- Defensivo: por si existiera una restricción vieja que no deje usar 'master'
+alter table usuarios drop constraint if exists usuarios_role_check;
+
+-- Sustituye 'TU_DOCUMENTO' por el número de documento con el que Santiago inicia sesión
+update usuarios set role = 'master' where documento = 'TU_DOCUMENTO';
+```
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
 - Notificaciones de inasistencia (WhatsApp o correo).
-- Gestión de más de un admin desde la propia app (hoy se hace directo en Supabase).
+- ~~Gestión de más de un admin desde la propia app~~ — resuelto: rol `master` +
+  pestaña "Usuarios" (ver "Séptima ronda" arriba).
 - La idea de convertir esto en un producto para vender a otras empresas quedó
   mencionada pero no decidida — no es prioridad mientras la operación de Ozen no
   esté 100% estable.
