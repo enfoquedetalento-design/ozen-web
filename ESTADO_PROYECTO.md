@@ -389,12 +389,65 @@ alter table usuarios drop constraint if exists usuarios_role_check;
 update usuarios set role = 'master' where documento = 'TU_DOCUMENTO';
 ```
 
+**Octava ronda (23 jul 2026)** — nuevo rol Visualizador (solo lectura):
+
+- **Nuevo rol `visualizador`**: Santiago pidió un perfil que vea exactamente lo mismo
+  que un `admin` (Registro de Asistencia y La Junta Administrativa, con todas sus
+  pestañas) pero que **no pueda editar, crear ni borrar absolutamente nada** — solo
+  mirar. Pensado para dar acceso a personas que necesitan consultar la información
+  sin riesgo de que modifiquen algo sin querer.
+  - Técnicamente se hizo con un mecanismo de React llamado "contexto de solo
+    lectura": quien entra con rol `visualizador` activa una bandera interna que cada
+    pantalla revisa para decidir si muestra o esconde sus botones de crear/editar/
+    borrar. No se duplicó ninguna pantalla — es la misma pantalla del admin, solo que
+    con esos controles ocultos.
+  - Pantallas ya bloqueadas para visualizador (no aparece ningún botón de crear,
+    editar, activar/desactivar, borrar, ni campos donde se pueda escribir):
+    "Asesores", "Tiendas", "Perfiles y áreas" (vista por líder y por área),
+    "Seguimiento semanal" (no puede marcar tareas como hechas, comentar, crear ni
+    borrar tareas) y "Acuerdos y decisiones" (no puede crear acuerdos nuevos — los
+    acuerdos ya de por sí nadie los puede editar ni borrar, ni siquiera un master).
+  - "Indicadores" y "Rol de Monitor" son pantallas de solo consulta para todo el
+    mundo, así que no necesitaron ningún cambio.
+  - Un visualizador **no** ve la pestaña "🗝️ Usuarios" (esa sigue siendo exclusiva de
+    master) — si algún día alguien con perfil visualizador necesita cambiar de
+    contraseña, eso lo debe hacer un master desde esa pestaña.
+  - **Pendiente en Santiago**: crear o convertir una cuenta de prueba a `visualizador`
+    corriendo el SQL de abajo, primero en práctica.
+
+**SQL pendiente de correr** (primero en práctica):
+```sql
+-- Opción A: convertir un usuario existente a visualizador
+update usuarios set role = 'visualizador' where documento = 'TU_DOCUMENTO';
+
+-- Opción B: crear un usuario nuevo directamente como visualizador
+insert into usuarios (nombre, documento, password, role, activo)
+values ('Nombre Apellido', 'documento_aqui', 'contraseña_temporal', 'visualizador', true);
+```
+
+- **Seguridad del login — aviso de Santiago (23 jul 2026)**: Santiago probó el login
+  después del cambio anterior y confirmó que el navegador **sí** ofreció guardar la
+  contraseña, y al volver a entrar la autocompletó — es decir, el intento anterior
+  con `autoComplete="new-password"` no fue suficiente. **Esto sigue pendiente de
+  resolver** (queda registrado como tarea abierta más abajo); se va a intentar un
+  método más agresivo para desanimar al navegador, aunque hay que ser honestos: no
+  existe ningún truco de código que garantice al 100% que un navegador nunca guarde
+  una contraseña, porque esa decisión la toma el navegador, no la página. Por eso la
+  recomendación de borrar de vez en cuando las contraseñas guardadas en los
+  computadores compartidos de tienda (Configuración → Contraseñas) sigue siendo
+  importante mientras tanto.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
 - Notificaciones de inasistencia (WhatsApp o correo).
 - ~~Gestión de más de un admin desde la propia app~~ — resuelto: rol `master` +
   pestaña "Usuarios" (ver "Séptima ronda" arriba).
+- ~~Perfil de solo consulta~~ — resuelto: rol `visualizador` (ver "Octava ronda"
+  arriba).
+- **Pendiente (abierto)**: reforzar el bloqueo de guardar/autocompletar contraseña
+  en el login — el intento actual no fue suficiente según pruebas de Santiago (ver
+  "Octava ronda" arriba).
 - La idea de convertir esto en un producto para vender a otras empresas quedó
   mencionada pero no decidida — no es prioridad mientras la operación de Ozen no
   esté 100% estable.

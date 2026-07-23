@@ -1,5 +1,9 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, createContext, useContext } from "react";
 import { supabase } from "./supabase";
+
+// ── Contexto de solo-lectura (rol "visualizador") ───────────────────────────────
+const ReadOnlyContext = createContext(false);
+const useReadOnly = () => useContext(ReadOnlyContext);
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const C = {
@@ -295,10 +299,10 @@ const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id
 const ADMIN_TABS_ASISTENCIA_MASTER = ADMIN_TABS_ASISTENCIA.map(t => t.id==="users" ? { id:"usuarios", icon:"🗝️", label:"Usuarios" } : t);
 const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
 const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
-const esAdminOMaster = (user) => user.role==="admin" || user.role==="master";
+const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador";
 
 function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing }) {
-  const tabs = !esAdminOMaster(user) ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : (user.role==="master" ? ADMIN_TABS_ASISTENCIA_MASTER : ADMIN_TABS_ASISTENCIA));
+  const tabs = !puedeUsarAreas(user) ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : (user.role==="master" ? ADMIN_TABS_ASISTENCIA_MASTER : ADMIN_TABS_ASISTENCIA));
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C.border}` }}>
@@ -320,7 +324,7 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
           </div>
           <button onClick={onRefresh} disabled={refreshing} title="Actualizar" style={{ marginLeft:"auto", background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:16, opacity:refreshing?0.4:1, transition:"transform 0.4s", transform:refreshing?"rotate(180deg)":"rotate(0deg)" }}>🔄</button>
         </div>
-        {esAdminOMaster(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
+        {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
         <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
       </div>
     </div>
@@ -328,7 +332,7 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
 }
 
 function BottomNav({ tab, setTab, user, area }) {
-  const tabs = !esAdminOMaster(user) ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : (user.role==="master" ? ADMIN_TABS_ASISTENCIA_MASTER : ADMIN_TABS_ASISTENCIA));
+  const tabs = !puedeUsarAreas(user) ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : (user.role==="master" ? ADMIN_TABS_ASISTENCIA_MASTER : ADMIN_TABS_ASISTENCIA));
   return (
     <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:C.sidebar, paddingBottom:"env(safe-area-inset-bottom, 8px)", flexShrink:0 }}>
       {tabs.map(t => { const active=tab===t.id; return (
@@ -347,7 +351,7 @@ function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea }) {
     <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
       <img src="/logo-icon.png" alt="OZEN" style={{ width:34, height:34, borderRadius:"50%" }} />
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-        {esAdminOMaster(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
+        {puedeUsarAreas(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
         <div style={{ fontFamily:font.body, fontSize:12, color:C.text }}>{user.name.split(" ")[0]}</div>
         <button onClick={onLogout} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 10px", color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:font.body }}>Salir</button>
@@ -510,6 +514,7 @@ function RecordsScreen({ records, stores, users, isMobile }) {
 
 // ── SCREEN: Users ─────────────────────────────────────────────────────────────
 function UsersScreen({ users, setUsers }) {
+  const soloLectura = useReadOnly();
   const [showForm,setShowForm]=useState(false),[form,setForm]=useState({name:"",documento:""}),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[loading,setLoading]=useState(false);
   const advisors=users.filter(u=>u.role==="advisor");
   const add=async()=>{ if(!form.name.trim()||!form.documento.trim())return; setLoading(true); const{data,error}=await supabase.from("usuarios").insert({name:form.name.trim(),documento:form.documento.trim(),password:form.documento.trim(),role:"advisor",active:true}).select().single(); if(!error){setUsers(prev=>[...prev,data]);setForm({name:"",documento:""});setShowForm(false);} setLoading(false); };
@@ -523,23 +528,23 @@ function UsersScreen({ users, setUsers }) {
   };
   return (
     <div>
-      <PageHeader title="Asesores" subtitle={`${advisors.length} asesores`} action={<Btn onClick={()=>{setShowForm(!showForm);setEditing(null);}} sm>{showForm?"Cancelar":"+ Nuevo"}</Btn>} />
-      {showForm&&(<Card glow style={{marginBottom:16}}><div style={{fontFamily:font.body,fontSize:13,fontWeight:600,color:C.goldLight,marginBottom:14}}>Nuevo asesor</div><Field label="Nombre completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nombre Apellido" /><Field label="N.º de documento" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Número de documento" /><div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 La contraseña inicial será el número de documento.</div><Btn onClick={add} disabled={loading} full>{loading?"Guardando...":"Crear asesor"}</Btn></Card>)}
+      <PageHeader title="Asesores" subtitle={`${advisors.length} asesores`} action={soloLectura?null:<Btn onClick={()=>{setShowForm(!showForm);setEditing(null);}} sm>{showForm?"Cancelar":"+ Nuevo"}</Btn>} />
+      {!soloLectura && showForm&&(<Card glow style={{marginBottom:16}}><div style={{fontFamily:font.body,fontSize:13,fontWeight:600,color:C.goldLight,marginBottom:14}}>Nuevo asesor</div><Field label="Nombre completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nombre Apellido" /><Field label="N.º de documento" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Número de documento" /><div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 La contraseña inicial será el número de documento.</div><Btn onClick={add} disabled={loading} full>{loading?"Guardando...":"Crear asesor"}</Btn></Card>)}
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {advisors.map(u=>(
           <Card key={u.id} p="14px" style={{opacity:u.active?1:0.6}}>
-            {editing===u.id?(
+            {!soloLectura && editing===u.id?(
               <div><Field label="Nombre" value={editVal.name} onChange={v=>setEditVal(p=>({...p,name:v}))} /><Field label="Documento" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} /><div style={{display:"flex",gap:8}}><Btn onClick={()=>saveEdit(u.id)} variant="success" sm full>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm full>Cancelar</Btn></div></div>
             ):(
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <div style={{width:36,height:36,borderRadius:8,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,fontWeight:700,color:"#fff",flexShrink:0}}>{u.name[0]}</div>
                 <div style={{flex:1,minWidth:0}}><div style={{fontFamily:font.body,fontSize:13,color:C.text,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div><div style={{fontFamily:font.mono,fontSize:11,color:C.textMuted}}>{u.documento}</div></div>
                 <Badge color={u.active?C.green:C.red} sm>{u.active?"Activo":"Inactivo"}</Badge>
-                <div style={{display:"flex",gap:4,flexShrink:0}}>
+                {!soloLectura && <div style={{display:"flex",gap:4,flexShrink:0}}>
                   <Btn onClick={()=>{setEditing(u.id);setEditVal({name:u.name,documento:u.documento});}} variant="ghost" sm>✏</Btn>
                   <Btn onClick={()=>toggle(u)} variant={u.active?"danger":"success"} sm>{u.active?"✕":"✓"}</Btn>
                   <Btn onClick={()=>deleteUser(u.id)} variant="danger" sm>🗑</Btn>
-                </div>
+                </div>}
               </div>
             )}
           </Card>
@@ -550,12 +555,12 @@ function UsersScreen({ users, setUsers }) {
 }
 
 // ── SCREEN: Usuarios (solo master) ─────────────────────────────────────────────
-const ROLE_LABEL = { master:"Master", admin:"Administrador", advisor:"Asesor" };
-const ROLE_COLOR = { master:C.red, admin:C.gold, advisor:C.blue };
+const ROLE_LABEL = { master:"Master", admin:"Administrador", visualizador:"Visualizador", advisor:"Asesor" };
+const ROLE_COLOR = { master:C.red, admin:C.gold, visualizador:C.amber, advisor:C.blue };
 function UsuariosScreen({ users, setUsers }) {
   const [showForm,setShowForm]=useState(false),[form,setForm]=useState({name:"",documento:"",role:"advisor"}),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[cambiandoPass,setCambiandoPass]=useState(null),[nuevaPass,setNuevaPass]=useState(""),[loading,setLoading]=useState(false);
   const ordenados=[...users].sort((a,b)=>(a.role==="master"?0:a.role==="admin"?1:2)-(b.role==="master"?0:b.role==="admin"?1:2) || a.name.localeCompare(b.name));
-  const roleOptions=[{value:"advisor",label:"Asesor"},{value:"admin",label:"Administrador"},{value:"master",label:"Master"}];
+  const roleOptions=[{value:"advisor",label:"Asesor"},{value:"admin",label:"Administrador"},{value:"visualizador",label:"Visualizador"},{value:"master",label:"Master"}];
   const add=async()=>{ if(!form.name.trim()||!form.documento.trim())return; setLoading(true); const{data,error}=await supabase.from("usuarios").insert({name:form.name.trim(),documento:form.documento.trim(),password:form.documento.trim(),role:form.role,active:true}).select().single(); if(!error&&data){setUsers(prev=>[...prev,data]);setForm({name:"",documento:"",role:"advisor"});setShowForm(false);} setLoading(false); };
   const toggle=async(u)=>{ const{data}=await supabase.from("usuarios").update({active:!u.active}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
   const saveEdit=async(id)=>{ if(!editVal.name.trim()||!editVal.documento.trim())return; const{data}=await supabase.from("usuarios").update({name:editVal.name.trim(),documento:editVal.documento.trim(),role:editVal.role}).eq("id",id).select().single(); if(data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setEditing(null);} };
@@ -617,6 +622,7 @@ function UsuariosScreen({ users, setUsers }) {
 
 // ── SCREEN: Stores ────────────────────────────────────────────────────────────
 function StoresScreen({ stores, setStores }) {
+  const soloLectura = useReadOnly();
   const [showForm,setShowForm]=useState(false),[newName,setNewName]=useState(""),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[newShift,setNewShift]=useState({});
   const addStore=async()=>{ if(!newName.trim())return; const id=newName.trim().toLowerCase().replace(/\s+/g,"_").replace(/[^a-z0-9_]/g,""); if(stores[id])return; const{data}=await supabase.from("tiendas").insert({id,name:newName.trim(),shifts:[]}).select().single(); if(data){setStores(prev=>({...prev,[data.id]:data}));setNewName("");setShowForm(false);} };
   const deleteStore=async(id)=>{
@@ -630,16 +636,16 @@ function StoresScreen({ stores, setStores }) {
   const addShift=async(sid)=>{ const sh=(newShift[sid]||"").trim(); if(!sh||stores[sid].shifts.includes(sh))return; const shifts=[...stores[sid].shifts,sh]; const{data}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data){setStores(prev=>({...prev,[sid]:data}));setNewShift(p=>({...p,[sid]:""}));} };
   return (
     <div>
-      <PageHeader title="Tiendas" subtitle="Puntos de venta y turnos" action={<Btn onClick={()=>setShowForm(!showForm)} sm>{showForm?"Cancelar":"+ Nueva"}</Btn>} />
-      {showForm&&(<Card glow style={{marginBottom:16}}><Field label="Nombre de la tienda" value={newName} onChange={setNewName} placeholder="Ej: Centenario" /><Btn onClick={addStore} full>Crear tienda</Btn></Card>)}
+      <PageHeader title="Tiendas" subtitle="Puntos de venta y turnos" action={soloLectura?null:<Btn onClick={()=>setShowForm(!showForm)} sm>{showForm?"Cancelar":"+ Nueva"}</Btn>} />
+      {!soloLectura && showForm&&(<Card glow style={{marginBottom:16}}><Field label="Nombre de la tienda" value={newName} onChange={setNewName} placeholder="Ej: Centenario" /><Btn onClick={addStore} full>Crear tienda</Btn></Card>)}
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         {Object.values(stores).map(s=>(
           <Card key={s.id} glow={editing===s.id}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-              {editing===s.id?<input value={editVal.name} onChange={e=>setEditVal(p=>({...p,name:e.target.value}))} style={{flex:1,background:C.surfaceAlt,border:`1px solid ${C.gold}`,borderRadius:7,padding:"7px 10px",color:C.text,fontSize:15,fontFamily:font.body,outline:"none",fontWeight:700}}/>:<div style={{fontFamily:font.body,fontSize:15,fontWeight:700,color:C.goldLight}}>{s.name}</div>}
-              <div style={{display:"flex",gap:6,marginLeft:10,flexShrink:0}}>
+              {!soloLectura && editing===s.id?<input value={editVal.name} onChange={e=>setEditVal(p=>({...p,name:e.target.value}))} style={{flex:1,background:C.surfaceAlt,border:`1px solid ${C.gold}`,borderRadius:7,padding:"7px 10px",color:C.text,fontSize:15,fontFamily:font.body,outline:"none",fontWeight:700}}/>:<div style={{fontFamily:font.body,fontSize:15,fontWeight:700,color:C.goldLight}}>{s.name}</div>}
+              {!soloLectura && <div style={{display:"flex",gap:6,marginLeft:10,flexShrink:0}}>
                 {editing===s.id?<><Btn onClick={()=>saveEdit(s.id)} sm>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm>✕</Btn></>:<><Btn onClick={()=>{setEditing(s.id);setEditVal({name:s.name});}} variant="ghost" sm>✏</Btn><Btn onClick={()=>deleteStore(s.id)} variant="danger" sm>🗑</Btn></>}
-              </div>
+              </div>}
             </div>
             <Divider />
             <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Turnos ({s.shifts.length})</div>
@@ -648,14 +654,14 @@ function StoresScreen({ stores, setStores }) {
               {s.shifts.map(sh=>(
                 <div key={sh} style={{display:"flex",alignItems:"center",gap:4}}>
                   <Badge color={C.goldLight} sm>{sh}</Badge>
-                  <button onClick={()=>removeShift(s.id,sh)} style={{background:C.redDim,border:`1px solid ${C.red}33`,color:C.red,borderRadius:4,width:16,height:16,cursor:"pointer",fontSize:9,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                  {!soloLectura && <button onClick={()=>removeShift(s.id,sh)} style={{background:C.redDim,border:`1px solid ${C.red}33`,color:C.red,borderRadius:4,width:16,height:16,cursor:"pointer",fontSize:9,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>}
                 </div>
               ))}
             </div>
-            <div style={{display:"flex",gap:8}}>
+            {!soloLectura && <div style={{display:"flex",gap:8}}>
               <input value={newShift[s.id]||""} onChange={e=>setNewShift(p=>({...p,[s.id]:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addShift(s.id)} placeholder="Nuevo turno" style={{flex:1,background:C.surfaceAlt,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px",color:C.text,fontSize:12,fontFamily:font.body,outline:"none"}}/>
               <Btn onClick={()=>addShift(s.id)} sm>+ Agregar</Btn>
-            </div>
+            </div>}
           </Card>
         ))}
       </div>
@@ -967,6 +973,7 @@ function JuntaEquipoTab({ lideres, setLideres, areas, setAreas, liderAreas, setL
 }
 
 function JuntaVistaPorLider({ lideres, setLideres, areas, setAreas, liderAreas, setLiderAreas, isMobile }) {
+  const soloLectura = useReadOnly();
   const [editingId, setEditingId] = useState(null);
   const [editVal, setEditVal] = useState({ nombre:"", objetivo:"" });
   const [editAreas, setEditAreas] = useState({}); // { [areaId]: texto de procesos macro }
@@ -1041,9 +1048,9 @@ function JuntaVistaPorLider({ lideres, setLideres, areas, setAreas, liderAreas, 
 
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:14 }}>
+      {!soloLectura && <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:14 }}>
         <Btn onClick={agregar} sm>+ Agregar líder</Btn>
-      </div>
+      </div>}
       {ordenados.map((l,i)=>{
         const misAreas = liderAreas.filter(la=>la.lider_id===l.id).map(la=>({ ...la, areaNombre: areas.find(a=>a.id===la.area_id)?.nombre || "— área eliminada" }));
         return (
@@ -1056,15 +1063,15 @@ function JuntaVistaPorLider({ lideres, setLideres, areas, setAreas, liderAreas, 
               <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>{l.nombre || "— sin nombre asignado"}</div>
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>Líder {i+1} en la rotación</div>
             </div>
-            <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+            {!soloLectura && <div style={{ display:"flex", gap:6, flexShrink:0 }}>
               <Btn onClick={()=>mover(l.id,-1)} disabled={i===0} variant="ghost" sm>▲</Btn>
               <Btn onClick={()=>mover(l.id,1)} disabled={i===ordenados.length-1} variant="ghost" sm>▼</Btn>
               <Btn onClick={()=>abrirEdicion(l)} variant="ghost" sm>✏</Btn>
               <Btn onClick={()=>quitar(l.id)} variant="danger" sm>🗑</Btn>
-            </div>
+            </div>}
           </div>
 
-          {editingId===l.id ? (
+          {!soloLectura && editingId===l.id ? (
             <div>
               <Field label="Nombre de quien ocupa este liderazgo" value={editVal.nombre} onChange={v=>setEditVal(p=>({...p,nombre:v}))} placeholder="Nombre Apellido"/>
               <Field label="Objetivo" value={editVal.objetivo} onChange={v=>setEditVal(p=>({...p,objetivo:v}))} placeholder="¿Cuál es su objetivo dentro del equipo?" multiline rows={3}/>
@@ -1128,6 +1135,7 @@ function JuntaVistaPorLider({ lideres, setLideres, areas, setAreas, liderAreas, 
 }
 
 function JuntaVistaPorArea({ areas, setAreas, lideres, liderAreas }) {
+  const soloLectura = useReadOnly();
   const [nuevaArea, setNuevaArea] = useState("");
   const [editingAreaId, setEditingAreaId] = useState(null);
   const [editAreaNombre, setEditAreaNombre] = useState("");
@@ -1150,31 +1158,31 @@ function JuntaVistaPorArea({ areas, setAreas, lideres, liderAreas }) {
 
   return (
     <div>
-      <Card glow style={{ marginBottom:16 }}>
+      {!soloLectura && <Card glow style={{ marginBottom:16 }}>
         <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.goldLight, marginBottom:10 }}>Nueva área</div>
         <div style={{ display:"flex", gap:8 }}>
           <input value={nuevaArea} onChange={e=>setNuevaArea(e.target.value)} onKeyDown={e=>e.key==="Enter"&&crearArea()} placeholder="Ej: Ventas, Recursos Humanos, Operaciones..." style={{ flex:1, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none" }}/>
           <Btn onClick={crearArea} sm>+ Crear área</Btn>
         </div>
-      </Card>
+      </Card>}
 
       {areas.map(area=>{
         const contribuciones = liderAreas.filter(la=>la.area_id===area.id).map(la=>({ ...la, liderNombre: lideres.find(l=>l.id===la.lider_id)?.nombre || "— sin nombre" }));
         return (
           <Card key={area.id} style={{ marginBottom:14 }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:12, flexWrap:"wrap" }}>
-              {editingAreaId===area.id ? (
+              {!soloLectura && editingAreaId===area.id ? (
                 <input value={editAreaNombre} onChange={e=>setEditAreaNombre(e.target.value)} style={{ flex:1, background:C.surfaceAlt, border:`1px solid ${C.gold}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:15, fontFamily:font.body, outline:"none", fontWeight:700 }}/>
               ) : (
                 <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.goldLight }}>🗂️ {area.nombre}</div>
               )}
-              <div style={{ display:"flex", gap:6 }}>
+              {!soloLectura && <div style={{ display:"flex", gap:6 }}>
                 {editingAreaId===area.id ? (
                   <><Btn onClick={()=>guardarNombreArea(area.id)} sm>Guardar</Btn><Btn onClick={()=>setEditingAreaId(null)} variant="ghost" sm>✕</Btn></>
                 ):(
                   <><Btn onClick={()=>{ setEditingAreaId(area.id); setEditAreaNombre(area.nombre); }} variant="ghost" sm>✏</Btn><Btn onClick={()=>quitarArea(area.id)} variant="danger" sm>🗑</Btn></>
                 )}
-              </div>
+              </div>}
             </div>
             {contribuciones.length===0 ? (
               <div style={{ fontFamily:font.body, fontSize:12, color:C.border }}>Ningún líder tiene procesos asignados en esta área todavía.</div>
@@ -1194,6 +1202,7 @@ function JuntaVistaPorArea({ areas, setAreas, lideres, liderAreas }) {
 
 // ── SCREEN: Junta Admin — Acuerdos y decisiones (registro permanente) ───────
 function JuntaAcuerdosTab({ user, acuerdos, setAcuerdos }) {
+  const soloLectura = useReadOnly();
   const [showNuevo, setShowNuevo] = useState(false);
   const [f, setF] = useState({ fecha: todayStr, texto: "" });
 
@@ -1208,8 +1217,8 @@ function JuntaAcuerdosTab({ user, acuerdos, setAcuerdos }) {
 
   return (
     <div>
-      <PageHeader title="Acuerdos y decisiones" subtitle="Registro permanente de la Junta — una vez guardado, no se puede editar ni borrar" action={<Btn onClick={()=>setShowNuevo(true)} sm>+ Nuevo acuerdo</Btn>} />
-      {showNuevo && (
+      <PageHeader title="Acuerdos y decisiones" subtitle="Registro permanente de la Junta — una vez guardado, no se puede editar ni borrar" action={!soloLectura && <Btn onClick={()=>setShowNuevo(true)} sm>+ Nuevo acuerdo</Btn>} />
+      {!soloLectura && showNuevo && (
         <Card glow style={{ marginBottom:16 }}>
           <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.goldLight, marginBottom:6 }}>Nuevo acuerdo</div>
           <div style={{ background:`${C.amber}10`, border:`1px solid ${C.amber}44`, borderRadius:8, padding:"10px 12px", marginBottom:14, fontFamily:font.body, fontSize:11, color:C.amber }}>⚠️ Revisa bien antes de guardar: una vez guardado, este acuerdo queda fijo — no se podrá editar ni eliminar desde la aplicación.</div>
@@ -1245,6 +1254,7 @@ function JuntaAcuerdosTab({ user, acuerdos, setAcuerdos }) {
 
 // ── SCREEN: Junta Admin — Seguimiento semanal (checklist) ───────────────────
 function JuntaSeguimientoScreen({ lideres, compromisos, setCompromisos }) {
+  const soloLectura = useReadOnly();
   const [semana, setSemana] = useState(martesDeSemana(todayStr));
   const [showNueva, setShowNueva] = useState(false);
   const [nueva, setNueva] = useState({ descripcion:"", lider_id:"", fecha_estimada:"", comentarios:"" });
@@ -1290,11 +1300,11 @@ function JuntaSeguimientoScreen({ lideres, compromisos, setCompromisos }) {
           <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>Semana del martes</div>
           <input type="date" value={semana} onChange={e=>setSemana(e.target.value)} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}/>
           <Btn onClick={()=>setSemana(martesDeSemana(todayStr))} variant="ghost" sm>Esta semana</Btn>
-          <Btn onClick={()=>setShowNueva(true)} sm style={{ marginLeft:"auto" }}>+ Nueva tarea</Btn>
+          {!soloLectura && <Btn onClick={()=>setShowNueva(true)} sm style={{ marginLeft:"auto" }}>+ Nueva tarea</Btn>}
         </div>
       </Card>
 
-      {showNueva && (
+      {!soloLectura && showNueva && (
         <Card glow style={{ marginBottom:16 }}>
           <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.goldLight, marginBottom:14 }}>Nueva tarea</div>
           <Field label="Tarea" value={nueva.descripcion} onChange={v=>setNueva(p=>({...p,descripcion:v}))} placeholder="¿Qué hay que hacer?"/>
@@ -1309,16 +1319,16 @@ function JuntaSeguimientoScreen({ lideres, compromisos, setCompromisos }) {
         {tareas.map(t=>(
           <Card key={t.id} p="14px" style={{ opacity:t.completado?0.6:1 }}>
             <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
-              <button onClick={()=>actualizar(t.id,{completado:!t.completado})} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${t.completado?C.green:C.border}`, background:t.completado?C.green:"transparent", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:13, marginTop:2 }}>{t.completado?"✓":""}</button>
+              <button onClick={soloLectura?undefined:()=>actualizar(t.id,{completado:!t.completado})} disabled={soloLectura} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${t.completado?C.green:C.border}`, background:t.completado?C.green:"transparent", cursor:soloLectura?"default":"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:13, marginTop:2 }}>{t.completado?"✓":""}</button>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, textDecoration:t.completado?"line-through":"none" }}>{t.descripcion}</div>
                 <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginTop:4 }}>
                   <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>👤 {nombreLider(t.lider_id)}</div>
                   {t.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:11, color:C.amber }}>📅 {t.fecha_estimada}</div>}
                 </div>
-                <input placeholder="Comentarios / avance..." defaultValue={t.comentarios||""} onBlur={e=>{ if(e.target.value!==t.comentarios) actualizar(t.id,{comentarios:e.target.value}); }} style={{ width:"100%", marginTop:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+                <input placeholder="Comentarios / avance..." defaultValue={t.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==t.comentarios) actualizar(t.id,{comentarios:e.target.value}); }} style={{ width:"100%", marginTop:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
               </div>
-              <Btn onClick={()=>eliminar(t.id)} variant="ghost" sm>🗑</Btn>
+              {!soloLectura && <Btn onClick={()=>eliminar(t.id)} variant="ghost" sm>🗑</Btn>}
             </div>
           </Card>
         ))}
@@ -1571,7 +1581,7 @@ export default function App() {
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
 
-  const login=(u)=>{setUser(u);setArea(null);setTab(esAdminOMaster(u)?null:"checkin");};
+  const login=(u)=>{setUser(u);setArea(null);setTab(puedeUsarAreas(u)?null:"checkin");};
   const logout=()=>{setUser(null);setArea(null);setTab(null);};
   const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":"dashboard");};
   const backToAreas=()=>{setArea(null);setTab(null);};
@@ -1583,10 +1593,10 @@ export default function App() {
 
   if(booting) return <div style={{minHeight:"100vh",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,color:C.textMuted,fontSize:14}}>Cargando...</div>;
   if(!user) return <LoginScreen onLogin={login}/>;
-  if(esAdminOMaster(user) && !area) return <AreaSelector user={user} onChoose={chooseArea} onLogout={logout}/>;
+  if(puedeUsarAreas(user) && !area) return <AreaSelector user={user} onChoose={chooseArea} onLogout={logout}/>;
 
   const renderScreen=()=>{
-    if(esAdminOMaster(user)){
+    if(puedeUsarAreas(user)){
       if(area==="junta"){
         if(tab==="equipo")       return <JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} areas={juntaAreas} setAreas={setJuntaAreas} liderAreas={juntaLiderAreas} setLiderAreas={setJuntaLiderAreas} isMobile={isMobile}/>;
         if(tab==="seguimiento")  return <JuntaSeguimientoScreen lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos}/>;
@@ -1609,18 +1619,24 @@ export default function App() {
     return null;
   };
 
+  const soloLectura = user.role==="visualizador";
+
   if(isMobile) return (
-    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden"}}>
-      <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas}/>
-      <main style={{flex:1,overflowY:"auto",padding:16}}>{renderScreen()}</main>
-      <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
-    </div>
+    <ReadOnlyContext.Provider value={soloLectura}>
+      <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden"}}>
+        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas}/>
+        <main style={{flex:1,overflowY:"auto",padding:16}}>{renderScreen()}</main>
+        <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
+      </div>
+    </ReadOnlyContext.Provider>
   );
 
   return (
-    <div style={{display:"flex",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
-      <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing}/>
-      <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}>{renderScreen()}</main>
-    </div>
+    <ReadOnlyContext.Provider value={soloLectura}>
+      <div style={{display:"flex",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
+        <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing}/>
+        <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}>{renderScreen()}</main>
+      </div>
+    </ReadOnlyContext.Provider>
   );
 }
