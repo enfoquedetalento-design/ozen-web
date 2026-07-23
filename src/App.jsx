@@ -570,6 +570,12 @@ const ROLE_COLOR = { master:C.red, admin:C.gold, visualizador:C.amber, advisor:C
 function UsuariosScreen({ users, setUsers }) {
   const [showForm,setShowForm]=useState(false),[form,setForm]=useState({name:"",documento:"",role:"advisor"}),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[cambiandoPass,setCambiandoPass]=useState(null),[nuevaPass,setNuevaPass]=useState(""),[loading,setLoading]=useState(false);
   const [passVisible,setPassVisible]=useState({});
+  const [sincronizando,setSincronizando]=useState(false);
+  const traerFrescos=async()=>{ setSincronizando(true); const{data}=await supabase.from("usuarios").select("*"); if(data)setUsers(data); setSincronizando(false); };
+  // Cada vez que se entra a esta pestaña, trae los datos más recientes de la base de
+  // datos — así si alguien cambió su propia contraseña desde otra sesión, aparece
+  // aquí sin que master tenga que adivinar o darle refrescar manualmente.
+  useEffect(()=>{ traerFrescos(); },[]);
   const ordenados=[...users].sort((a,b)=>(a.role==="master"?0:a.role==="admin"?1:2)-(b.role==="master"?0:b.role==="admin"?1:2) || a.name.localeCompare(b.name));
   const roleOptions=[{value:"advisor",label:"Asesor"},{value:"admin",label:"Administrador"},{value:"visualizador",label:"Visualizador"},{value:"master",label:"Master"}];
   const add=async()=>{ if(!form.name.trim()||!form.documento.trim())return; setLoading(true); const{data,error}=await supabase.from("usuarios").insert({name:form.name.trim(),documento:form.documento.trim(),password:form.documento.trim(),role:form.role,active:true}).select().single(); if(!error&&data){setUsers(prev=>[...prev,data]);setForm({name:"",documento:"",role:"advisor"});setShowForm(false);} setLoading(false); };
@@ -584,7 +590,12 @@ function UsuariosScreen({ users, setUsers }) {
   const guardarPassword=async(id)=>{ if(!nuevaPass.trim())return; const{data,error}=await supabase.from("usuarios").update({password:nuevaPass.trim(),password_updated_at:new Date().toISOString()}).eq("id",id).select().single(); if(!error&&data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setCambiandoPass(null);setNuevaPass("");alert("Contraseña actualizada.");} };
   return (
     <div>
-      <PageHeader title="Usuarios" subtitle={`${users.length} usuarios · solo visible para cuentas master · aquí se ve y controla la contraseña de todos`} action={<Btn onClick={()=>{setShowForm(!showForm);setEditing(null);setCambiandoPass(null);}} sm>{showForm?"Cancelar":"+ Nuevo usuario"}</Btn>} />
+      <PageHeader title="Usuarios" subtitle={`${users.length} usuarios · solo visible para cuentas master · aquí se ve y controla la contraseña de todos`} action={
+        <div style={{display:"flex",gap:8}}>
+          <Btn onClick={traerFrescos} variant="ghost" sm disabled={sincronizando}>{sincronizando?"Actualizando...":"🔄 Actualizar"}</Btn>
+          <Btn onClick={()=>{setShowForm(!showForm);setEditing(null);setCambiandoPass(null);}} sm>{showForm?"Cancelar":"+ Nuevo usuario"}</Btn>
+        </div>
+      } />
       {showForm&&(
         <Card glow style={{marginBottom:16}}>
           <div style={{fontFamily:font.body,fontSize:13,fontWeight:600,color:C.goldLight,marginBottom:14}}>Nuevo usuario</div>

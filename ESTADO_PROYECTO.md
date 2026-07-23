@@ -499,6 +499,15 @@ update usuarios set password_updated_at = now() where password_updated_at is nul
   contraseña nueva cuando haga falta (por ejemplo, si alguien la olvidó) — ese cambio
   también actualiza la fecha visible y reinicia el conteo de 90 días para esa
   persona.
+- **Corrección el mismo día**: Santiago probó cambiando la contraseña de un asesor
+  desde la cuenta de ese asesor, y en la sesión de master (que ya llevaba un rato
+  abierta) no aparecía el cambio. La causa: la pantalla de Usuarios usaba los datos
+  que se cargaron al entrar a la app, y no se actualizaban solos con lo que pasa en
+  otras sesiones (así funcionan casi todas las apps web, no es un error de guardado —
+  el dato sí quedó bien guardado en la base de datos). Se corrigió para que la
+  pestaña "Usuarios" **siempre traiga los datos más recientes de la base de datos
+  apenas se entra a ella**, y además se le agregó un botón "🔄 Actualizar" por si se
+  necesita refrescar sin salir y volver a entrar a la pestaña.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
