@@ -301,7 +301,15 @@ const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento 
 const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador";
 
-function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing }) {
+// ── Vencimiento de contraseña ────────────────────────────────────────────────
+const DIAS_EXPIRACION_PASSWORD = 90;
+const passwordVencida = (u) => {
+  if (!u.password_updated_at) return true;
+  const dias = (Date.now() - new Date(u.password_updated_at).getTime()) / 86400000;
+  return dias >= DIAS_EXPIRACION_PASSWORD;
+};
+
+function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword }) {
   const tabs = !puedeUsarAreas(user) ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : (user.role==="master" ? ADMIN_TABS_ASISTENCIA_MASTER : ADMIN_TABS_ASISTENCIA));
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
@@ -325,6 +333,7 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
           <button onClick={onRefresh} disabled={refreshing} title="Actualizar" style={{ marginLeft:"auto", background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:16, opacity:refreshing?0.4:1, transition:"transform 0.4s", transform:refreshing?"rotate(180deg)":"rotate(0deg)" }}>🔄</button>
         </div>
         {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
+        <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8 }}>🔑 Mi contraseña</Btn>
         <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
       </div>
     </div>
@@ -346,12 +355,13 @@ function BottomNav({ tab, setTab, user, area }) {
   );
 }
 
-function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea }) {
+function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword }) {
   return (
     <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
       <img src="/logo-icon.png" alt="OZEN" style={{ width:34, height:34, borderRadius:"50%" }} />
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         {puedeUsarAreas(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
+        <button onClick={onCambiarPassword} title="Mi contraseña" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔑</button>
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
         <div style={{ fontFamily:font.body, fontSize:12, color:C.text }}>{user.name.split(" ")[0]}</div>
         <button onClick={onLogout} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 10px", color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:font.body }}>Salir</button>
@@ -570,7 +580,7 @@ function UsuariosScreen({ users, setUsers }) {
     if (!window.confirm("Este usuario no tiene registros de asistencia. ¿Eliminarlo de todas formas? Esto no se puede deshacer.")) return;
     await supabase.from("usuarios").delete().eq("id",id); setUsers(prev=>prev.filter(u=>u.id!==id));
   };
-  const guardarPassword=async(id)=>{ if(!nuevaPass.trim())return; const{data,error}=await supabase.from("usuarios").update({password:nuevaPass.trim()}).eq("id",id).select().single(); if(!error&&data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setCambiandoPass(null);setNuevaPass("");alert("Contraseña actualizada.");} };
+  const guardarPassword=async(id)=>{ if(!nuevaPass.trim())return; const{data,error}=await supabase.from("usuarios").update({password:nuevaPass.trim(),password_updated_at:new Date().toISOString()}).eq("id",id).select().single(); if(!error&&data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setCambiandoPass(null);setNuevaPass("");alert("Contraseña actualizada.");} };
   return (
     <div>
       <PageHeader title="Usuarios" subtitle={`${users.length} usuarios · solo visible para cuentas master`} action={<Btn onClick={()=>{setShowForm(!showForm);setEditing(null);setCambiandoPass(null);}} sm>{showForm?"Cancelar":"+ Nuevo usuario"}</Btn>} />
@@ -1612,11 +1622,54 @@ function AreaSelector({ user, onChoose, onLogout }) {
   );
 }
 
+// ── CAMBIAR MI CONTRASEÑA (autoservicio, cualquier rol) ─────────────────────
+function CambiarPasswordForm({ user, onUpdated, onCancel, obligatorio }) {
+  const [actual,setActual]=useState("");
+  const [nueva,setNueva]=useState("");
+  const [confirmar,setConfirmar]=useState("");
+  const [err,setErr]=useState("");
+  const [ok,setOk]=useState(false);
+  const [loading,setLoading]=useState(false);
+
+  const guardar = async () => {
+    setErr("");
+    if(!actual||!nueva||!confirmar){ setErr("Completa todos los campos."); return; }
+    if(nueva.length<4){ setErr("La contraseña nueva debe tener al menos 4 caracteres."); return; }
+    if(nueva!==confirmar){ setErr("La nueva contraseña no coincide en los dos campos."); return; }
+    if(nueva===actual){ setErr("La contraseña nueva debe ser diferente a la actual."); return; }
+    setLoading(true);
+    const { data:chk } = await supabase.from("usuarios").select("id").eq("id",user.id).eq("password",actual).single();
+    if(!chk){ setErr("La contraseña actual no es correcta."); setLoading(false); return; }
+    const { data, error } = await supabase.from("usuarios").update({ password:nueva, password_updated_at:new Date().toISOString() }).eq("id",user.id).select().single();
+    setLoading(false);
+    if(error||!data){ setErr("No se pudo actualizar. Intenta de nuevo."); return; }
+    setOk(true);
+    setTimeout(()=>onUpdated(data), 600);
+  };
+
+  return (
+    <Card glow style={{ maxWidth:380, width:"100%" }}>
+      <div style={{ fontFamily:font.body, fontSize:17, fontWeight:600, color:C.text, marginBottom:6 }}>Cambiar mi contraseña</div>
+      {obligatorio && <div style={{ background:`${C.amber}10`, border:`1px solid ${C.amber}44`, borderRadius:8, padding:"10px 12px", marginBottom:14, fontFamily:font.body, fontSize:11, color:C.amber }}>⚠️ Por seguridad, debes actualizar tu contraseña antes de continuar. Ya pasaron {DIAS_EXPIRACION_PASSWORD} días o más desde el último cambio.</div>}
+      <Field label="Contraseña actual" type="password" value={actual} onChange={setActual} placeholder="••••••••" autoComplete="off"/>
+      <Field label="Contraseña nueva" type="password" value={nueva} onChange={setNueva} placeholder="••••••••" autoComplete="new-password"/>
+      <Field label="Confirmar contraseña nueva" type="password" value={confirmar} onChange={setConfirmar} placeholder="••••••••" autoComplete="new-password"/>
+      {err && <div style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,padding:"9px 12px",color:C.red,fontSize:12,marginBottom:12,fontFamily:font.body}}>{err}</div>}
+      {ok && <div style={{background:`${C.green}18`,border:`1px solid ${C.green}44`,borderRadius:7,padding:"9px 12px",color:C.green,fontSize:12,marginBottom:12,fontFamily:font.body}}>Contraseña actualizada ✓</div>}
+      <div style={{ display:"flex", gap:8 }}>
+        <Btn onClick={guardar} disabled={loading||ok} full>{loading?"Guardando...":"Guardar contraseña"}</Btn>
+        {!obligatorio && <Btn onClick={onCancel} variant="ghost" full>Cancelar</Btn>}
+      </div>
+    </Card>
+  );
+}
+
 // ── APP SHELL ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
   const [juntaLideres,setJuntaLideres]=useState([]),[juntaCompromisos,setJuntaCompromisos]=useState([]),[juntaAcuerdos,setJuntaAcuerdos]=useState([]);
   const [juntaAreas,setJuntaAreas]=useState([]),[juntaLiderAreas,setJuntaLiderAreas]=useState([]);
+  const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const isMobile=useIsMobile();
 
   const loadAll=async()=>{
@@ -1653,6 +1706,15 @@ export default function App() {
 
   if(booting) return <div style={{minHeight:"100vh",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,color:C.textMuted,fontSize:14}}>Cargando...</div>;
   if(!user) return <LoginScreen onLogin={login}/>;
+
+  if(passwordVencida(user)) return (
+    <div style={{minHeight:"100vh",background:C.dark,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:16,gap:20}}>
+      <img src="/logo.png" alt="OZEN" style={{width:120,height:"auto"}}/>
+      <CambiarPasswordForm user={user} obligatorio onUpdated={setUser}/>
+      <Btn onClick={logout} variant="ghost" sm>Cerrar sesión</Btn>
+    </div>
+  );
+
   if(puedeUsarAreas(user) && !area) return <AreaSelector user={user} onChoose={chooseArea} onLogout={logout}/>;
 
   const renderScreen=()=>{
@@ -1681,12 +1743,19 @@ export default function App() {
 
   const soloLectura = user.role==="visualizador";
 
+  const modalCambiarPassword = mostrarCambiarPassword && (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:1000}}>
+      <CambiarPasswordForm user={user} onUpdated={(u)=>{setUser(u);setMostrarCambiarPassword(false);}} onCancel={()=>setMostrarCambiarPassword(false)}/>
+    </div>
+  );
+
   if(isMobile) return (
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden"}}>
-        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas}/>
+        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas} onCambiarPassword={()=>setMostrarCambiarPassword(true)}/>
         <main style={{flex:1,overflowY:"auto",padding:16}}>{renderScreen()}</main>
         <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
+        {modalCambiarPassword}
       </div>
     </ReadOnlyContext.Provider>
   );
@@ -1694,8 +1763,9 @@ export default function App() {
   return (
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
-        <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing}/>
+        <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onCambiarPassword={()=>setMostrarCambiarPassword(true)}/>
         <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}>{renderScreen()}</main>
+        {modalCambiarPassword}
       </div>
     </ReadOnlyContext.Provider>
   );

@@ -455,6 +455,34 @@ values ('Nombre Apellido', 'documento_aqui', 'contraseña_temporal', 'visualizad
     computadores compartidos de tienda (Configuración → Contraseñas del navegador)
     sigue siendo una buena medida adicional mientras tanto.
 
+**Novena ronda (23 jul 2026)** — cada usuario puede cambiar su propia contraseña, y se vence cada 90 días:
+
+- **Botón "🔑 Mi contraseña"** disponible para TODOS los roles (asesor, admin, master,
+  visualizador), en el menú lateral (computador) y en el encabezado (celular). Pide
+  la contraseña actual + la nueva dos veces, valida que la actual sea correcta antes
+  de guardar, y no se puede usar para ver o cambiar la contraseña de nadie más — solo
+  la propia. Esto no lo bloquea el modo Visualizador, porque es sobre la propia
+  cuenta, no sobre los datos de la empresa.
+- **Vencimiento automático cada 90 días**: si a un usuario le corresponde cambiar la
+  contraseña (pasaron 90 días desde el último cambio, o nunca se ha registrado un
+  cambio), al iniciar sesión le aparece una pantalla obligatoria para cambiarla antes
+  de poder ver cualquier otra cosa de la app — no se puede omitir, solo cerrar sesión.
+- Para que esto funcione hace falta una columna nueva en la base de datos:
+  `password_updated_at` en la tabla `usuarios`. El SQL de abajo la crea y, para que
+  nadie quede forzado a cambiar su contraseña el primer día, marca a todos los
+  usuarios existentes como "cambiada hoy" — el conteo de 90 días empieza a correr
+  desde que se publique este cambio, no antes.
+- El botón de master en "Usuarios" para cambiar la contraseña de cualquier persona
+  (de la Séptima ronda) también se actualizó para que reinicie el contador de 90
+  días — si un master le cambia la contraseña a alguien, a esa persona no le vuelve
+  a salir la pantalla obligatoria hasta dentro de otros 90 días.
+
+**SQL pendiente de correr** (primero en práctica):
+```sql
+alter table usuarios add column if not exists password_updated_at timestamptz;
+update usuarios set password_updated_at = now() where password_updated_at is null;
+```
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
