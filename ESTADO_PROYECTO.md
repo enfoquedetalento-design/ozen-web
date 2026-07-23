@@ -483,6 +483,23 @@ alter table usuarios add column if not exists password_updated_at timestamptz;
 update usuarios set password_updated_at = now() where password_updated_at is null;
 ```
 
+**Décima ronda (23 jul 2026)** — la pestaña "Usuarios" es ahora el centro de contraseñas para master:
+
+- Santiago notó que no tenía sentido que la cuenta master también tuviera el botón
+  "🔑 Mi contraseña", porque esa cuenta ya controla las contraseñas de todos desde la
+  pestaña "Usuarios". Se quitó ese botón solo para cuentas master (los demás roles
+  —asesor, admin, visualizador— lo siguen teniendo, para cambiar la suya propia).
+- La pestaña **"Usuarios"** ahora muestra, debajo de cada persona, su contraseña
+  actual (oculta con puntos por defecto, con un botón "👁 Ver" para revelarla) y la
+  fecha de la última actualización. Como esa información sale directo de la base de
+  datos cada vez que se abre o se refresca la pantalla, siempre refleja lo último que
+  haya hecho cada quien — si un asesor cambia su propia contraseña desde "Mi
+  contraseña", a Santiago le aparece ahí mismo la nueva, con la fecha del cambio.
+- El botón 🔑 junto a cada usuario se mantiene para que master pueda forzar una
+  contraseña nueva cuando haga falta (por ejemplo, si alguien la olvidó) — ese cambio
+  también actualiza la fecha visible y reinicia el conteo de 90 días para esa
+  persona.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
