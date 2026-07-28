@@ -509,6 +509,25 @@ update usuarios set password_updated_at = now() where password_updated_at is nul
   apenas se entra a ella**, y además se le agregó un botón "🔄 Actualizar" por si se
   necesita refrescar sin salir y volver a entrar a la pestaña.
 
+**Onceava ronda (23 jul 2026)** — reunión movida de día (miércoles, jueves) o que cruza de mes:
+
+- Santiago preguntó qué pasa si la reunión de la Junta no se puede hacer el martes
+  exacto, sino un día después (miércoles o jueves) — y qué pasa si el último día del
+  mes es martes y la reunión se corre a miércoles, que ya es del mes siguiente.
+- Antes, el campo "Semana del martes" en Seguimiento semanal guardaba literalmente el
+  día que se eligiera. Si alguien elegía un miércoles o jueves en vez del martes, esa
+  semana quedaba archivada bajo una fecha que no es martes — y como Indicadores solo
+  cuenta martes reales de cada mes, esa sesión **desaparecía** de las estadísticas
+  (no contaba ni para el mes viejo ni para el nuevo).
+- **Corregido**: ahora, sin importar qué día se elija en ese campo, la aplicación lo
+  archiva sola bajo el martes real de esa semana — incluso si ese martes queda en el
+  mes anterior al de la fecha elegida. Se probó exactamente el caso que Santiago
+  planteó (30 de junio de 2026, que es martes, con la reunión corrida a miércoles 1
+  de julio) y queda archivada correctamente bajo el 30 de junio. Se le agregó un
+  mensaje de ayuda debajo del campo explicando este comportamiento.
+- El Monitor del mes no se ve afectado por nada de esto — rota por mes calendario,
+  no por martes específicos (ver la conversación anterior sobre meses de 5 martes).
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
