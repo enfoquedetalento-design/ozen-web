@@ -299,7 +299,18 @@ const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id
 const ADMIN_TABS_ASISTENCIA_MASTER = ADMIN_TABS_ASISTENCIA.map(t => t.id==="users" ? { id:"usuarios", icon:"🗝️", label:"Usuarios" } : t);
 const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
 const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
-const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador";
+const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar venta" },{ id:"lista",icon:"📋",label:"Lista de ventas" },{ id:"metricas",icon:"📊",label:"Métricas" }];
+const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_turnos";
+// Quién puede elegir el área "Ventas" desde el selector (no todos los que puedeUsarAreas)
+const puedeUsarVentasArea = (user) => user.role==="master" || user.role==="admin_turnos";
+// Cuentas de tienda: login compartido, van directo a Ventas sin selector de área
+const esCuentaTienda = (user) => user.role==="tienda";
+// Quién puede editar metas y aprobar notas crédito dentro de Ventas
+const esAdminDeVentas = (user) => user.role==="master" || user.role==="admin_turnos";
+// Qué pestañas le corresponden a cada quien, según su rol y el área elegida
+const tabsPara = (user, area) => !puedeUsarAreas(user)
+  ? (esCuentaTienda(user) ? ADMIN_TABS_VENTAS : ADVISOR_TABS)
+  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? ADMIN_TABS_VENTAS : (user.role==="master" ? ADMIN_TABS_ASISTENCIA_MASTER : ADMIN_TABS_ASISTENCIA));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -310,7 +321,7 @@ const passwordVencida = (u) => {
 };
 
 function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword }) {
-  const tabs = !puedeUsarAreas(user) ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : (user.role==="master" ? ADMIN_TABS_ASISTENCIA_MASTER : ADMIN_TABS_ASISTENCIA));
+  const tabs = tabsPara(user, area);
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C.border}` }}>
@@ -341,7 +352,7 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
 }
 
 function BottomNav({ tab, setTab, user, area }) {
-  const tabs = !puedeUsarAreas(user) ? ADVISOR_TABS : (area==="junta" ? ADMIN_TABS_JUNTA : (user.role==="master" ? ADMIN_TABS_ASISTENCIA_MASTER : ADMIN_TABS_ASISTENCIA));
+  const tabs = tabsPara(user, area);
   return (
     <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:C.sidebar, paddingBottom:"env(safe-area-inset-bottom, 8px)", flexShrink:0 }}>
       {tabs.map(t => { const active=tab===t.id; return (
@@ -565,8 +576,8 @@ function UsersScreen({ users, setUsers }) {
 }
 
 // ── SCREEN: Usuarios (solo master) ─────────────────────────────────────────────
-const ROLE_LABEL = { master:"Master", admin:"Administrador", visualizador:"Visualizador", advisor:"Asesor" };
-const ROLE_COLOR = { master:C.red, admin:C.gold, visualizador:C.amber, advisor:C.blue };
+const ROLE_LABEL = { master:"Master", admin:"Administrador", admin_turnos:"Admin Turnos", visualizador:"Visualizador", advisor:"Asesor", tienda:"Cuenta de tienda" };
+const ROLE_COLOR = { master:C.red, admin:C.gold, admin_turnos:C.green, visualizador:C.amber, advisor:C.blue, tienda:C.textMuted };
 function UsuariosScreen({ users, setUsers }) {
   const [showForm,setShowForm]=useState(false),[form,setForm]=useState({name:"",documento:"",role:"advisor"}),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[cambiandoPass,setCambiandoPass]=useState(null),[nuevaPass,setNuevaPass]=useState(""),[loading,setLoading]=useState(false);
   const [passVisible,setPassVisible]=useState({});
@@ -577,7 +588,7 @@ function UsuariosScreen({ users, setUsers }) {
   // aquí sin que master tenga que adivinar o darle refrescar manualmente.
   useEffect(()=>{ traerFrescos(); },[]);
   const ordenados=[...users].sort((a,b)=>(a.role==="master"?0:a.role==="admin"?1:2)-(b.role==="master"?0:b.role==="admin"?1:2) || a.name.localeCompare(b.name));
-  const roleOptions=[{value:"advisor",label:"Asesor"},{value:"admin",label:"Administrador"},{value:"visualizador",label:"Visualizador"},{value:"master",label:"Master"}];
+  const roleOptions=[{value:"advisor",label:"Asesor"},{value:"admin",label:"Administrador"},{value:"admin_turnos",label:"Admin Turnos"},{value:"visualizador",label:"Visualizador"},{value:"master",label:"Master"}];
   const add=async()=>{ if(!form.name.trim()||!form.documento.trim())return; setLoading(true); const{data,error}=await supabase.from("usuarios").insert({name:form.name.trim(),documento:form.documento.trim(),password:form.documento.trim(),role:form.role,active:true}).select().single(); if(!error&&data){setUsers(prev=>[...prev,data]);setForm({name:"",documento:"",role:"advisor"});setShowForm(false);} setLoading(false); };
   const toggle=async(u)=>{ const{data}=await supabase.from("usuarios").update({active:!u.active}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
   const saveEdit=async(id)=>{ if(!editVal.name.trim()||!editVal.documento.trim())return; const{data}=await supabase.from("usuarios").update({name:editVal.name.trim(),documento:editVal.documento.trim(),role:editVal.role}).eq("id",id).select().single(); if(data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setEditing(null);} };
@@ -1634,6 +1645,17 @@ function AreaSelector({ user, onChoose, onLogout }) {
               </div>
             </button>
           </Card>
+          {puedeUsarVentasArea(user) && (
+            <Card style={{ cursor:"pointer" }} p="0">
+              <button onClick={()=>onChoose("ventas")} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"26px 22px", display:"flex", alignItems:"center", gap:16, textAlign:"left" }}>
+                <div style={{ fontSize:32 }}>💰</div>
+                <div>
+                  <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.green }}>Ventas</div>
+                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:2 }}>Registro de ventas, metas y métricas por tienda</div>
+                </div>
+              </button>
+            </Card>
+          )}
         </div>
         <div style={{ textAlign:"center", marginTop:20 }}>
           <Btn onClick={onLogout} variant="ghost" sm>Cerrar sesión</Btn>
@@ -1685,16 +1707,151 @@ function CambiarPasswordForm({ user, onUpdated, onCancel, obligatorio }) {
   );
 }
 
+// ── VENTAS ────────────────────────────────────────────────────────────────────
+const VENTAS_MEDIOS_PAGO = [
+  { value:"efectivo", label:"Efectivo" },
+  { value:"td_debito", label:"Tarjeta débito" },
+  { value:"td_credito", label:"Tarjeta crédito" },
+  { value:"transferencia", label:"Transferencia" },
+  { value:"addi", label:"ADDI" },
+  { value:"bnflex", label:"BN FLEX" },
+  { value:"flexipago", label:"Flexipago" },
+];
+const VENTAS_MEDIOS_TARJETA = ["td_debito","td_credito"];
+const VENTAS_TIPOS = [
+  { value:"producto", label:"Producto (cuenta para la meta)" },
+  { value:"arreglo", label:"Arreglo (no cuenta para la meta)" },
+  { value:"marcacion", label:"Marcación (no cuenta para la meta)" },
+];
+
+function VentasRegistrarScreen({ user, stores, users, ventas, setVentas }) {
+  const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
+  const [tiendaId, setTiendaId] = useState(tiendaFija || Object.keys(stores)[0] || "");
+  const [fecha, setFecha] = useState(todayStr);
+  const [vendedorId, setVendedorId] = useState("");
+  const [tipo, setTipo] = useState("producto");
+  const [valor, setValor] = useState("");
+  const [descuento, setDescuento] = useState("");
+  const [medioPago, setMedioPago] = useState("efectivo");
+  const [numeroAutorizacion, setNumeroAutorizacion] = useState("");
+  const [tieneOtrosIngresos, setTieneOtrosIngresos] = useState(false);
+  const [otrosIngresosValor, setOtrosIngresosValor] = useState("");
+  const [observacion, setObservacion] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const asesores = users.filter(u=>u.role==="advisor" && u.active);
+  const requiereAutorizacion = VENTAS_MEDIOS_TARJETA.includes(medioPago);
+
+  useEffect(()=>{ if(tipo==="marcacion" && !valor) setValor("30000"); }, [tipo]);
+
+  const limpiar = () => {
+    setVendedorId(""); setTipo("producto"); setValor(""); setDescuento("");
+    setMedioPago("efectivo"); setNumeroAutorizacion(""); setTieneOtrosIngresos(false);
+    setOtrosIngresosValor(""); setObservacion("");
+  };
+
+  const guardar = async () => {
+    setMsg("");
+    if(!tiendaId){ setMsg("Falta elegir la tienda."); return; }
+    if(!vendedorId){ setMsg("Falta elegir quién hizo la venta."); return; }
+    if(!valor || Number(valor)<=0){ setMsg("El valor de la venta debe ser mayor a cero."); return; }
+    if(requiereAutorizacion && !numeroAutorizacion.trim()){ setMsg("Falta el número de autorización del datáfono."); return; }
+    setGuardando(true);
+    const vendedor = users.find(u=>u.id===vendedorId);
+    const { data, error } = await supabase.from("ventas").insert({
+      fecha, tienda_id:tiendaId, vendedor_id:vendedorId, vendedor_nombre:vendedor?.name||"",
+      registrado_por:user.name, tipo, valor:Number(valor), descuento:Number(descuento||0),
+      medio_pago:medioPago, numero_autorizacion:requiereAutorizacion?numeroAutorizacion.trim():null,
+      otros_ingresos_valor:tieneOtrosIngresos?Number(otrosIngresosValor||0):null,
+      observacion:observacion.trim(),
+    }).select().single();
+    setGuardando(false);
+    if(error || !data){ setMsg("No se pudo guardar. Intenta de nuevo."); return; }
+    setVentas(prev=>[data, ...prev]);
+    limpiar();
+    setMsg("✓ Venta registrada");
+    setTimeout(()=>setMsg(""), 2500);
+  };
+
+  const ventasHoy = ventas.filter(v=>v.fecha===fecha && v.tienda_id===tiendaId);
+
+  return (
+    <div>
+      <PageHeader title="Registrar venta" subtitle={stores[tiendaId]?.name ? `Tienda: ${stores[tiendaId].name}` : "Elige la tienda"} />
+      <Card glow style={{ marginBottom:16 }}>
+        {!tiendaFija && (
+          <Field label="Tienda" value={tiendaId} onChange={setTiendaId} options={Object.values(stores).map(s=>({value:s.id,label:s.name}))}/>
+        )}
+        <Field label="Fecha" type="date" value={fecha} onChange={setFecha}/>
+        <Field label="¿Quién hizo la venta?" value={vendedorId} onChange={setVendedorId} options={[{value:"",label:"Selecciona un asesor"},...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+        <Field label="Tipo" value={tipo} onChange={setTipo} options={VENTAS_TIPOS}/>
+        <Field label="Valor" type="number" value={valor} onChange={setValor} placeholder="0"/>
+        <Field label="Descuento" type="number" value={descuento} onChange={setDescuento} placeholder="0"/>
+        <Field label="Medio de pago" value={medioPago} onChange={setMedioPago} options={VENTAS_MEDIOS_PAGO}/>
+        {requiereAutorizacion && (
+          <Field label="Número de autorización (datáfono)" value={numeroAutorizacion} onChange={setNumeroAutorizacion} placeholder="Ej: 056495"/>
+        )}
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
+          <input type="checkbox" checked={tieneOtrosIngresos} onChange={e=>setTieneOtrosIngresos(e.target.checked)} id="ventasOtrosIngresos"/>
+          <label htmlFor="ventasOtrosIngresos" style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>¿Hay otros ingresos aparte de esta venta?</label>
+        </div>
+        {tieneOtrosIngresos && (
+          <Field label="Valor de otros ingresos" type="number" value={otrosIngresosValor} onChange={setOtrosIngresosValor} placeholder="0"/>
+        )}
+        <Field label="Observación" value={observacion} onChange={setObservacion} placeholder="Notas adicionales (opcional)" multiline rows={2}/>
+        {msg && <div style={{ background: msg.startsWith("✓")?`${C.green}18`:C.redDim, border:`1px solid ${msg.startsWith("✓")?C.green:C.red}44`, borderRadius:7, padding:"9px 12px", color: msg.startsWith("✓")?C.green:C.red, fontSize:12, marginBottom:12, fontFamily:font.body }}>{msg}</div>}
+        <Btn onClick={guardar} disabled={guardando} full>{guardando?"Guardando...":"Registrar venta"}</Btn>
+      </Card>
+
+      <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:10 }}>Ventas de hoy en esta tienda ({ventasHoy.length})</div>
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {ventasHoy.map(v=>(
+          <Card key={v.id} p="12px">
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8 }}>
+              <div>
+                <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{v.vendedor_nombre}</div>
+                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{VENTAS_TIPOS.find(t=>t.value===v.tipo)?.label.split(" (")[0]} · {VENTAS_MEDIOS_PAGO.find(m=>m.value===v.medio_pago)?.label}</div>
+              </div>
+              <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight }}>${Number(v.valor).toLocaleString("es-CO")}</div>
+            </div>
+          </Card>
+        ))}
+        {ventasHoy.length===0 && <div style={{ textAlign:"center", padding:30, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin ventas registradas hoy en esta tienda.</div>}
+      </div>
+    </div>
+  );
+}
+
+function VentasListaScreen({ esAdmin }) {
+  return (
+    <div>
+      <PageHeader title="Lista de ventas" subtitle="Próximamente: historial completo con filtros y solicitud de nota crédito" />
+      <Card><div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>🚧 En construcción — la próxima ronda.</div></Card>
+    </div>
+  );
+}
+
+function VentasMetricasScreen({ esAdmin }) {
+  return (
+    <div>
+      <PageHeader title="Métricas" subtitle="Próximamente: cumplimiento, IDC, MDA y ranking de asesores" />
+      <Card><div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>🚧 En construcción — la próxima ronda.</div></Card>
+    </div>
+  );
+}
+
 // ── APP SHELL ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
   const [juntaLideres,setJuntaLideres]=useState([]),[juntaCompromisos,setJuntaCompromisos]=useState([]),[juntaAcuerdos,setJuntaAcuerdos]=useState([]);
   const [juntaAreas,setJuntaAreas]=useState([]),[juntaLiderAreas,setJuntaLiderAreas]=useState([]);
+  const [ventas,setVentas]=useState([]),[ventasMetas,setVentasMetas]=useState([]);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const isMobile=useIsMobile();
 
   const loadAll=async()=>{
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla}]=await Promise.all([
+    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vm}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
       supabase.from("registros").select("*").order("date",{ascending:false}),
@@ -1703,6 +1860,8 @@ export default function App() {
       supabase.from("junta_acuerdos").select("*").order("fecha",{ascending:false}),
       supabase.from("junta_areas").select("*").order("nombre",{ascending:true}),
       supabase.from("junta_lider_areas").select("*"),
+      supabase.from("ventas").select("*").order("fecha",{ascending:false}),
+      supabase.from("ventas_metas").select("*"),
     ]);
     const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
     setStores(sm);setUsers(u||[]);setRecords(r||[]);
@@ -1711,13 +1870,15 @@ export default function App() {
     setJuntaAcuerdos(ja||[]);
     setJuntaAreas(jar||[]);
     setJuntaLiderAreas(jla||[]);
+    setVentas(v||[]);
+    setVentasMetas(vm||[]);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
 
-  const login=(u)=>{setUser(u);setArea(null);setTab(puedeUsarAreas(u)?null:"checkin");};
+  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":puedeUsarAreas(u)?null:"checkin");};
   const logout=()=>{setUser(null);setArea(null);setTab(null);};
-  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":"dashboard");};
+  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?"registrar":"dashboard");};
   const backToAreas=()=>{setArea(null);setTab(null);};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
@@ -1746,6 +1907,10 @@ export default function App() {
         if(tab==="indicadores")  return <JuntaIndicadoresTab lideres={juntaLideres} compromisos={juntaCompromisos} isMobile={isMobile}/>;
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
+      } else if(area==="ventas"){
+        if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)}/>;
+        if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)}/>;
+        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} metas={ventasMetas} setMetas={setVentasMetas} esAdmin={esAdminDeVentas(user)}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
@@ -1754,6 +1919,10 @@ export default function App() {
         if(tab==="stores")    return <StoresScreen stores={stores} setStores={setStores}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
+    } else if(esCuentaTienda(user)){
+      if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false}/>;
+      if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false}/>;
+      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} metas={ventasMetas} setMetas={setVentasMetas} esAdmin={false}/>;
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores}/>;
