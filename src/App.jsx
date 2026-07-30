@@ -1750,8 +1750,9 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   const [tiendaId, setTiendaId] = useState(tiendaFija || Object.keys(stores)[0] || "");
   const [fecha, setFecha] = useState(todayStr);
   const [vendedorId, setVendedorId] = useState("");
-  const [tipo, setTipo] = useState("producto");
-  const [valorVenta, setValorVenta] = useState("");
+  const [items, setItems] = useState([]); // [{tipo, valor}]
+  const [itemTipo, setItemTipo] = useState("producto");
+  const [itemValor, setItemValor] = useState("");
   const [descuento, setDescuento] = useState("");
   const [descuentoTipo, setDescuentoTipo] = useState("valor");
   const [observacion, setObservacion] = useState("");
@@ -1794,7 +1795,14 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
     return () => clearTimeout(t);
   }, [clienteDocumento]);
 
-  const valorBruto = Number(valorVenta||0);
+  const agregarItem = () => {
+    if(!itemValor || Number(itemValor)<=0) return;
+    setItems(prev=>[...prev, { tipo:itemTipo, valor:Number(itemValor) }]);
+    setItemValor("");
+  };
+  const quitarItem = (idx) => setItems(prev=>prev.filter((_,i)=>i!==idx));
+
+  const valorBruto = items.reduce((a,i)=>a+i.valor,0);
   const descuentoInput = Number(descuento||0);
   const descuentoNum = descuentoTipo==="porcentaje" ? Math.round(valorBruto*descuentoInput/100) : descuentoInput;
   const total = valorBruto - descuentoNum;
@@ -1826,7 +1834,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   const saldoPendiente = esFlexipago ? total - Number(abonoInicialValor||0) : 0;
 
   const limpiarTodo = () => {
-    setVendedorId(""); setTipo("producto"); setValorVenta(""); setDescuento(""); setDescuentoTipo("valor"); setObservacion("");
+    setVendedorId(""); setItems([]); setItemTipo("producto"); setItemValor(""); setDescuento(""); setDescuentoTipo("valor"); setObservacion("");
     setMedios({}); setAutorizaciones({});
     setAbonoInicialValor(""); setAbonoInicialMedio("efectivo");
     setClienteTipoDoc("CC"); setClienteDocumento(""); setClienteNombre(""); setClienteTelefono(""); setClienteEncontrado(false);
@@ -1836,7 +1844,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
     setMsg("");
     if(!tiendaId){ setMsg("Falta elegir la tienda."); return; }
     if(!vendedorId){ setMsg("Falta elegir quién hizo la venta."); return; }
-    if(!valorVenta || total<=0){ setMsg("Falta el valor de la venta."); return; }
+    if(items.length===0 || valorBruto<=0){ setMsg("Agrega al menos un producto o servicio."); return; }
     if(Object.keys(medios).length===0){ setMsg("Selecciona al menos un medio de pago."); return; }
     if(Math.abs(diferencia)>=1){ setMsg(`Los medios de pago suman $${sumaPagos.toLocaleString("es-CO")} pero el total es $${total.toLocaleString("es-CO")}. Deben coincidir.`); return; }
     for(const m of VENTAS_MEDIOS_TARJETA){ if(m in medios && !(autorizaciones[m]||"").trim()){ setMsg("Falta el número de autorización del datáfono."); return; } }
@@ -1851,9 +1859,12 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
       registrado_por:user.name,
       cliente_tipo_doc:esFlexipago?clienteTipoDoc:null, cliente_documento:esFlexipago?clienteDocumento.trim():null,
       cliente_nombre:esFlexipago?clienteNombre.trim():null, cliente_telefono:esFlexipago?clienteTelefono.trim():null,
-      observacion:observacion.trim(), tipo, valor_bruto:valorBruto, descuento_total:descuentoNum, total, es_flexipago:esFlexipago,
+      observacion:observacion.trim(), valor_bruto:valorBruto, descuento_total:descuentoNum, total, es_flexipago:esFlexipago,
     }).select().single();
     if(error || !venta){ setGuardando(false); setMsg("No se pudo guardar. Intenta de nuevo."); return; }
+    const filasItems = items.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valor }));
+    const { error:errorItems } = await supabase.from("ventas_items").insert(filasItems);
+    if(errorItems){ setGuardando(false); setMsg("La venta se guardó, pero hubo un problema guardando los productos/servicios."); return; }
     const filasPago = Object.entries(medios).map(([medio,v])=>({ venta_id:venta.id, medio_pago:medio, valor:Number(v||0), numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(medio)?(autorizaciones[medio]||"").trim():null }));
     const { error:errorPagos } = await supabase.from("ventas_pagos").insert(filasPago);
     if(errorPagos){ setGuardando(false); setMsg("La venta se guardó, pero hubo un problema guardando los medios de pago."); return; }
@@ -1890,22 +1901,32 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
             <Field label="¿Quién hizo la venta?" value={vendedorId} onChange={setVendedorId} options={[{value:"",label:"Selecciona un asesor"},...asesores.map(a=>({value:a.id,label:a.name}))]}/>
           </SeccionVenta>
 
-          <SeccionVenta icon="🛍️" titulo="Valor de la venta" subtitulo="Valor total y descuento, si aplica">
-            <Field label="Tipo" value={tipo} onChange={setTipo} options={VENTAS_TIPOS}/>
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr", gap:12 }}>
-              <Field label="Valor" type="number" value={valorVenta} onChange={setValorVenta} placeholder="0"/>
-              <div>
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
-                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento</div>
-                  <div style={{ display:"flex", gap:4 }}>
-                    {VENTAS_DESCUENTO_TIPOS.map(dt=>(
-                      <button key={dt.value} type="button" onClick={()=>setDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${descuentoTipo===dt.value?C.gold:C.border}`, background:descuentoTipo===dt.value?`${C.gold}22`:"transparent", color:descuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
-                    ))}
-                  </div>
+          <SeccionVenta icon="🛍️" titulo="Productos y servicios" subtitulo="Agrega cada producto o servicio de la venta">
+            <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:12 }}>
+              {items.map((it,idx)=>(
+                <div key={idx} style={{ display:"flex", alignItems:"center", gap:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px" }}>
+                  <Badge color={it.tipo==="producto"?C.green:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label}</Badge>
+                  <div style={{ flex:1, fontFamily:font.mono, fontSize:12, color:C.text }}>${it.valor.toLocaleString("es-CO")}</div>
+                  <button onClick={()=>quitarItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
                 </div>
-                <Field value={descuento} type="number" onChange={setDescuento} placeholder="0"/>
+              ))}
+              {items.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Todavía no has agregado nada.</div>}
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr auto", gap:10, alignItems:"end" }}>
+              <Field label="Tipo" value={itemTipo} onChange={setItemTipo} options={VENTAS_TIPOS}/>
+              <Field label="Valor" type="number" value={itemValor} onChange={setItemValor} placeholder="0"/>
+              <div style={{ marginBottom:14 }}><Btn onClick={agregarItem} sm>+ Agregar</Btn></div>
+            </div>
+            <Divider/>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5, marginTop:10 }}>
+              <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento sobre el total</div>
+              <div style={{ display:"flex", gap:4 }}>
+                {VENTAS_DESCUENTO_TIPOS.map(dt=>(
+                  <button key={dt.value} type="button" onClick={()=>setDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${descuentoTipo===dt.value?C.gold:C.border}`, background:descuentoTipo===dt.value?`${C.gold}22`:"transparent", color:descuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
+                ))}
               </div>
             </div>
+            <Field value={descuento} type="number" onChange={setDescuento} placeholder="0"/>
           </SeccionVenta>
 
           <SeccionVenta icon="💳" titulo="Medios de pago" subtitulo="Marca uno o varios si se pagó por partes">
@@ -1976,7 +1997,18 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
             </div>
 
             <div style={{ padding:"14px 16px" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:6 }}>
+              {items.length>0 && (
+                <>
+                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Productos y servicios</div>
+                  {items.map((it,idx)=>(
+                    <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:4 }}>
+                      <span>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label}</span><span style={{fontFamily:font.mono}}>${it.valor.toLocaleString("es-CO")}</span>
+                    </div>
+                  ))}
+                  <Divider/>
+                </>
+              )}
+              <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:6, marginTop:items.length>0?10:0 }}>
                 <span>Valor bruto</span><span style={{fontFamily:font.mono}}>${valorBruto.toLocaleString("es-CO")}</span>
               </div>
               <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.red, marginBottom:10 }}>
@@ -2024,9 +2056,8 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
           <Card key={v.id} p="12px">
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8 }}>
               <div>
-                <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, display:"flex", alignItems:"center", gap:6 }}>
+                <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>
                   {v.numero_factura?`#${String(v.numero_factura).padStart(4,"0")} · `:""}{v.vendedor_nombre}
-                  {v.tipo && v.tipo!=="producto" && <Badge color={C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===v.tipo)?.label}</Badge>}
                 </div>
                 <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{v.cliente_nombre ? `Cliente: ${v.cliente_nombre}` : "Sin cliente registrado"}</div>
               </div>
@@ -2053,8 +2084,9 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
 
   const [editando, setEditando] = useState(null);
   const [editPagos, setEditPagos] = useState([]);
-  const [editTipo, setEditTipo] = useState("producto");
-  const [editValorVenta, setEditValorVenta] = useState("");
+  const [editItems, setEditItems] = useState([]);
+  const [editItemTipo, setEditItemTipo] = useState("producto");
+  const [editItemValor, setEditItemValor] = useState("");
   const [editDescuento, setEditDescuento] = useState("");
   const [editObservacion, setEditObservacion] = useState("");
   const [editNuevoMedio, setEditNuevoMedio] = useState("");
@@ -2077,12 +2109,13 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
 
   const fetchDetalle = async (ventaId) => {
     setDetalle(prev=>({...prev, [ventaId]:{...(prev[ventaId]||{}), cargando:true}}));
-    const [{data:pagos},{data:abonos},{data:solicitudes}] = await Promise.all([
+    const [{data:items},{data:pagos},{data:abonos},{data:solicitudes}] = await Promise.all([
+      supabase.from("ventas_items").select("*").eq("venta_id",ventaId),
       supabase.from("ventas_pagos").select("*").eq("venta_id",ventaId),
       supabase.from("ventas_abonos").select("*").eq("venta_id",ventaId).order("fecha",{ascending:true}),
       supabase.from("ventas_solicitudes_correccion").select("*").eq("venta_id",ventaId).order("fecha_solicitud",{ascending:false}),
     ]);
-    setDetalle(prev=>({...prev, [ventaId]:{ pagos:pagos||[], abonos:abonos||[], solicitudes:solicitudes||[], cargando:false }}));
+    setDetalle(prev=>({...prev, [ventaId]:{ items:items||[], pagos:pagos||[], abonos:abonos||[], solicitudes:solicitudes||[], cargando:false }}));
   };
   const toggleExpand = (ventaId) => {
     if(expandido===ventaId){ setExpandido(null); return; }
@@ -2109,11 +2142,16 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
   const iniciarEdicion = (venta) => {
     setEditando(venta.id);
     setEditPagos((detalle[venta.id]?.pagos||[]).map(p=>({...p})));
-    setEditTipo(venta.tipo||"producto");
-    setEditValorVenta(String(venta.valor_bruto));
+    setEditItems((detalle[venta.id]?.items||[]).map(i=>({...i})));
     setEditDescuento(String(venta.descuento_total||0));
     setEditObservacion(venta.observacion||"");
   };
+  const agregarEditItem = () => {
+    if(!editItemValor || Number(editItemValor)<=0) return;
+    setEditItems(prev=>[...prev, { tipo:editItemTipo, valor:Number(editItemValor) }]);
+    setEditItemValor("");
+  };
+  const quitarEditItem = (idx) => setEditItems(prev=>prev.filter((_,i)=>i!==idx));
   const agregarEditPago = () => {
     if(!editNuevoMedio || !editNuevoValor) return;
     setEditPagos(prev=>[...prev, { medio_pago:editNuevoMedio, valor:Number(editNuevoValor), numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(editNuevoMedio)?editNuevaAutorizacion.trim():null }]);
@@ -2122,13 +2160,16 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
   const quitarEditPago = (idx) => setEditPagos(prev=>prev.filter((_,i)=>i!==idx));
 
   const guardarEdicion = async (venta) => {
-    if(editPagos.length===0) return;
+    if(editPagos.length===0 || editItems.length===0) return;
     setGuardando(true);
-    const bruto = Number(editValorVenta||0);
+    const bruto = editItems.reduce((a,i)=>a+i.valor,0);
     const desc = Number(editDescuento||0);
     const total = bruto - desc;
     const esFlexipagoEdit = editPagos.some(p=>p.medio_pago==="flexipago");
-    const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), tipo:editTipo, valor_bruto:bruto, descuento_total:desc, total, es_flexipago:esFlexipagoEdit, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
+    const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), valor_bruto:bruto, descuento_total:desc, total, es_flexipago:esFlexipagoEdit, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
+    await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
+    const filasItems = editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valor }));
+    const { data:itemsNuevos } = await supabase.from("ventas_items").insert(filasItems).select();
     await supabase.from("ventas_pagos").delete().eq("venta_id",venta.id);
     const filas = editPagos.map(p=>({ venta_id:venta.id, medio_pago:p.medio_pago, valor:p.valor, numero_autorizacion:p.numero_autorizacion||null }));
     const { data:pagosNuevos } = await supabase.from("ventas_pagos").insert(filas).select();
@@ -2139,7 +2180,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
     setGuardando(false);
     if(ventaAct){
       setVentas(prev=>prev.map(v=>v.id===venta.id?ventaAct:v));
-      setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], pagos:pagosNuevos||[], solicitudes:(prev[venta.id]?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s) }}));
+      setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], items:itemsNuevos||[], pagos:pagosNuevos||[], solicitudes:(prev[venta.id]?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s) }}));
     }
     setEditando(null);
   };
@@ -2185,7 +2226,6 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                   <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{v.vendedor_nombre}</div>
                   <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{v.fecha} · {stores[v.tienda_id]?.name||v.tienda_id}{v.cliente_nombre?` · ${v.cliente_nombre}`:""}</div>
                 </div>
-                {v.tipo && v.tipo!=="producto" && <Badge color={C.gold} sm>{VENTAS_TIPOS.find(t=>t.value===v.tipo)?.label}</Badge>}
                 {v.es_flexipago && <Badge color={C.amber} sm>Flexipago</Badge>}
                 <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight }}>${Number(v.total).toLocaleString("es-CO")}</div>
                 <span style={{ color:C.textMuted, fontSize:12 }}>{expandido===v.id?"▲":"▼"}</span>
@@ -2201,6 +2241,38 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                         <span>Valor bruto: <span style={{color:C.text,fontFamily:font.mono}}>${Number(v.valor_bruto).toLocaleString("es-CO")}</span></span>
                         {Number(v.descuento_total)>0 && <span>Descuento: <span style={{color:C.text,fontFamily:font.mono}}>${Number(v.descuento_total).toLocaleString("es-CO")}</span></span>}
                       </div>
+
+                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"12px 0 6px" }}>Productos y servicios</div>
+                      {!abiertoEdicion ? (
+                        <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:10 }}>
+                          {(d?.items||[]).map(i=>(
+                            <div key={i.id} style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:12, color:C.text }}>
+                              <Badge color={i.tipo==="producto"?C.green:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
+                              <span style={{ fontFamily:font.mono }}>${Number(i.valor).toLocaleString("es-CO")}</span>
+                            </div>
+                          ))}
+                          {(d?.items||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin productos/servicios registrados.</div>}
+                        </div>
+                      ) : (
+                        <div style={{ marginBottom:10 }}>
+                          <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:8 }}>
+                            {editItems.map((i,idx)=>(
+                              <div key={idx} style={{ display:"flex", alignItems:"center", gap:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px" }}>
+                                <Badge color={i.tipo==="producto"?C.green:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
+                                <div style={{ flex:1, fontFamily:font.mono, fontSize:12, color:C.text }}>${Number(i.valor).toLocaleString("es-CO")}</div>
+                                <button onClick={()=>quitarEditItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:8, alignItems:"end", marginBottom:8 }}>
+                            <Field label="Tipo" value={editItemTipo} onChange={setEditItemTipo} options={VENTAS_TIPOS}/>
+                            <Field label="Valor" type="number" value={editItemValor} onChange={setEditItemValor} placeholder="0"/>
+                            <div style={{ marginBottom:14 }}><Btn onClick={agregarEditItem} sm>+ Agregar</Btn></div>
+                          </div>
+                          <Field label="Descuento ($)" type="number" value={editDescuento} onChange={setEditDescuento} placeholder="0"/>
+                        </div>
+                      )}
+
                       <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"12px 0 6px" }}>Medios de pago</div>
                       {!abiertoEdicion ? (
                         <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:10 }}>
@@ -2215,11 +2287,6 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                         </div>
                       ) : (
                         <div style={{ marginBottom:10 }}>
-                          <Field label="Tipo" value={editTipo} onChange={setEditTipo} options={VENTAS_TIPOS}/>
-                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
-                            <Field label="Valor de la venta" type="number" value={editValorVenta} onChange={setEditValorVenta} placeholder="0"/>
-                            <Field label="Descuento ($)" type="number" value={editDescuento} onChange={setEditDescuento} placeholder="0"/>
-                          </div>
                           <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:10 }}>
                             {editPagos.map((p,idx)=>(
                               <div key={idx} style={{ display:"flex", alignItems:"center", gap:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px" }}>
