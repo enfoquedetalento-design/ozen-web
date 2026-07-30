@@ -305,11 +305,15 @@ const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || 
 const puedeUsarVentasArea = (user) => user.role==="master" || user.role==="admin_turnos";
 // Cuentas de tienda: login compartido, van directo a Ventas sin selector de área
 const esCuentaTienda = (user) => user.role==="tienda";
-// Quién puede editar metas y aprobar notas crédito dentro de Ventas
+// Admin Finanzas: rol angosto solo para Ventas (métricas y metas), sin Junta/Asistencia ni notas crédito. Va directo a Ventas, como las cuentas de tienda.
+const esAdminFinanzas = (user) => user.role==="admin_finanzas";
+// Quién puede aprobar/rechazar notas crédito dentro de Ventas
 const esAdminDeVentas = (user) => user.role==="master" || user.role==="admin_turnos";
+// Quién puede asignar las metas mensuales en Métricas
+const puedeAsignarMetas = (user) => user.role==="master" || user.role==="admin_turnos" || user.role==="admin_finanzas";
 // Qué pestañas le corresponden a cada quien, según su rol y el área elegida
 const tabsPara = (user, area) => !puedeUsarAreas(user)
-  ? (esCuentaTienda(user) ? ADMIN_TABS_VENTAS : ADVISOR_TABS)
+  ? ((esCuentaTienda(user) || esAdminFinanzas(user)) ? ADMIN_TABS_VENTAS : ADVISOR_TABS)
   : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? ADMIN_TABS_VENTAS : (user.role==="master" ? ADMIN_TABS_ASISTENCIA_MASTER : ADMIN_TABS_ASISTENCIA));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
@@ -576,8 +580,8 @@ function UsersScreen({ users, setUsers }) {
 }
 
 // ── SCREEN: Usuarios (solo master) ─────────────────────────────────────────────
-const ROLE_LABEL = { master:"Master", admin:"Administrador", admin_turnos:"Admin Turnos", visualizador:"Visualizador", advisor:"Asesor", tienda:"Cuenta de tienda" };
-const ROLE_COLOR = { master:C.red, admin:C.gold, admin_turnos:C.green, visualizador:C.amber, advisor:C.blue, tienda:C.textMuted };
+const ROLE_LABEL = { master:"Master", admin:"Administrador", admin_turnos:"Admin Turnos", admin_finanzas:"Admin Finanzas", visualizador:"Visualizador", advisor:"Asesor", tienda:"Cuenta de tienda" };
+const ROLE_COLOR = { master:C.red, admin:C.gold, admin_turnos:C.green, admin_finanzas:C.blue, visualizador:C.amber, advisor:C.blue, tienda:C.textMuted };
 function UsuariosScreen({ users, setUsers }) {
   const [showForm,setShowForm]=useState(false),[form,setForm]=useState({name:"",documento:"",role:"advisor"}),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[cambiandoPass,setCambiandoPass]=useState(null),[nuevaPass,setNuevaPass]=useState(""),[loading,setLoading]=useState(false);
   const [passVisible,setPassVisible]=useState({});
@@ -588,7 +592,7 @@ function UsuariosScreen({ users, setUsers }) {
   // aquí sin que master tenga que adivinar o darle refrescar manualmente.
   useEffect(()=>{ traerFrescos(); },[]);
   const ordenados=[...users].sort((a,b)=>(a.role==="master"?0:a.role==="admin"?1:2)-(b.role==="master"?0:b.role==="admin"?1:2) || a.name.localeCompare(b.name));
-  const roleOptions=[{value:"advisor",label:"Asesor"},{value:"admin",label:"Administrador"},{value:"admin_turnos",label:"Admin Turnos"},{value:"visualizador",label:"Visualizador"},{value:"master",label:"Master"}];
+  const roleOptions=[{value:"advisor",label:"Asesor"},{value:"admin",label:"Administrador"},{value:"admin_turnos",label:"Admin Turnos"},{value:"admin_finanzas",label:"Admin Finanzas"},{value:"visualizador",label:"Visualizador"},{value:"master",label:"Master"}];
   const add=async()=>{ if(!form.name.trim()||!form.documento.trim())return; setLoading(true); const{data,error}=await supabase.from("usuarios").insert({name:form.name.trim(),documento:form.documento.trim(),password:form.documento.trim(),role:form.role,active:true}).select().single(); if(!error&&data){setUsers(prev=>[...prev,data]);setForm({name:"",documento:"",role:"advisor"});setShowForm(false);} setLoading(false); };
   const toggle=async(u)=>{ const{data}=await supabase.from("usuarios").update({active:!u.active}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
   const saveEdit=async(id)=>{ if(!editVal.name.trim()||!editVal.documento.trim())return; const{data}=await supabase.from("usuarios").update({name:editVal.name.trim(),documento:editVal.documento.trim(),role:editVal.role}).eq("id",id).select().single(); if(data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setEditing(null);} };
@@ -2320,11 +2324,220 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
   );
 }
 
-function VentasMetricasScreen({ esAdmin }) {
+const MESES_NOMBRE = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const diasDelMes = (anio, mesIdx) => new Date(anio, mesIdx+1, 0).getDate();
+const fmtCOP = (n) => `$${Math.round(n||0).toLocaleString("es-CO")}`;
+
+function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas, setMetas, esAdmin, puedeAsignarMetas, isMobile }) {
+  const hoy = toColombiaDate();
+  const [anio, setAnio] = useState(hoy.getFullYear());
+  const [mesIdx, setMesIdx] = useState(hoy.getMonth());
+  const [tiendaSel, setTiendaSel] = useState("");
+  const [metaInputs, setMetaInputs] = useState({});
+  const [guardandoMeta, setGuardandoMeta] = useState(null);
+
+  const mesKey = `${anio}-${String(mesIdx+1).padStart(2,"0")}`;
+  const esMesActual = anio===hoy.getFullYear() && mesIdx===hoy.getMonth();
+  const diasTotalesMes = diasDelMes(anio, mesIdx);
+  const diasRestantes = esMesActual ? (diasTotalesMes - hoy.getDate() + 1) : 0;
+
+  const irMesAnterior = () => { if(mesIdx===0){ setMesIdx(11); setAnio(a=>a-1); } else setMesIdx(m=>m-1); };
+  const irMesSiguiente = () => { if(mesIdx===11){ setMesIdx(0); setAnio(a=>a+1); } else setMesIdx(m=>m+1); };
+
+  const tiendasList = Object.values(stores);
+  const asesores = users.filter(u=>u.role==="advisor" && u.active);
+
+  const metaTiendaValor = (tiendaId) => Number(metas.find(m=>m.mes===mesKey && m.tienda_id===tiendaId)?.valor || 0);
+  const metaAsesorValor = (asesorId) => Number(metas.find(m=>m.mes===mesKey && m.vendedor_id===asesorId)?.valor || 0);
+
+  useEffect(()=>{
+    const obj = {};
+    tiendasList.forEach(t=>{ obj[`tienda:${t.id}`] = String(metaTiendaValor(t.id)||""); });
+    asesores.forEach(a=>{ obj[`asesor:${a.id}`] = String(metaAsesorValor(a.id)||""); });
+    setMetaInputs(obj);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesKey, metas.length]);
+
+  const guardarMeta = async (tipo, id) => {
+    const key = `${tipo}:${id}`;
+    const valor = Number(metaInputs[key]||0);
+    setGuardandoMeta(key);
+    const existente = metas.find(m=>m.mes===mesKey && (tipo==="tienda" ? m.tienda_id===id : m.vendedor_id===id));
+    let data, error;
+    if(existente){
+      ({data,error} = await supabase.from("ventas_metas").update({ valor }).eq("id",existente.id).select().single());
+    } else {
+      const payload = tipo==="tienda" ? { mes:mesKey, tienda_id:id, vendedor_id:null, valor } : { mes:mesKey, tienda_id:null, vendedor_id:id, valor };
+      ({data,error} = await supabase.from("ventas_metas").insert(payload).select().single());
+    }
+    if(data && !error){
+      setMetas(prev => existente ? prev.map(m=>m.id===data.id?data:m) : [...prev, data]);
+    }
+    setGuardandoMeta(null);
+  };
+
+  const ventasDelMes = ventas.filter(v => v.fecha && v.fecha.slice(0,7)===mesKey && (!tiendaSel || v.tienda_id===tiendaSel));
+  const idsVentasDelMes = new Set(ventasDelMes.map(v=>v.id));
+  const itemsDelMes = ventasItems.filter(i => idsVentasDelMes.has(i.venta_id));
+  const itemsDelMesProducto = itemsDelMes.filter(i=>i.tipo==="producto");
+
+  const totalConServicios = ventasDelMes.reduce((a,v)=>a+Number(v.total||0),0);
+  const totalSinServicios = itemsDelMesProducto.reduce((a,i)=>a+(Number(i.valor)-Number(i.descuento||0)),0);
+
+  const metaTiendaTotal = tiendaSel ? metaTiendaValor(tiendaSel) : tiendasList.reduce((a,t)=>a+metaTiendaValor(t.id),0);
+  const idcTienda = metaTiendaTotal>0 ? Math.round((totalSinServicios/metaTiendaTotal)*1000)/10 : null;
+  const mdaTienda = esMesActual && diasRestantes>0 && metaTiendaTotal>0 ? Math.round((metaTiendaTotal-totalSinServicios)/diasRestantes) : null;
+
+  const fechaPorVenta = {}; ventasDelMes.forEach(v=>{ fechaPorVenta[v.id]=v.fecha; });
+
+  const dataAsesores = asesores.map(a=>{
+    const ventasAsesor = ventasDelMes.filter(v=>v.vendedor_id===a.id);
+    const idsAsesor = new Set(ventasAsesor.map(v=>v.id));
+    const sinServicios = itemsDelMesProducto.filter(i=>idsAsesor.has(i.venta_id)).reduce((s,i)=>s+(Number(i.valor)-Number(i.descuento||0)),0);
+    const conServicios = ventasAsesor.reduce((s,v)=>s+Number(v.total||0),0);
+    const meta = metaAsesorValor(a.id);
+    const idc = meta>0 ? Math.round((sinServicios/meta)*1000)/10 : null;
+    const mda = esMesActual && diasRestantes>0 && meta>0 ? Math.round((meta-sinServicios)/diasRestantes) : null;
+    return { asesor:a, sinServicios, conServicios, meta, idc, mda };
+  });
+
+  const ranking = [...dataAsesores].filter(d=>d.idc!==null).sort((a,b)=>b.idc-a.idc);
+
+  const porDia = {};
+  ventasDelMes.forEach(v=>{ porDia[v.fecha] = porDia[v.fecha] || { con:0, sin:0, count:0 }; porDia[v.fecha].con += Number(v.total||0); porDia[v.fecha].count += 1; });
+  itemsDelMesProducto.forEach(i=>{ const f=fechaPorVenta[i.venta_id]; if(f){ porDia[f].sin += (Number(i.valor)-Number(i.descuento||0)); } });
+  const diasList = Object.entries(porDia).sort((a,b)=>b[0].localeCompare(a[0]));
+
+  const medalla = (idx) => idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.`;
+
   return (
     <div>
-      <PageHeader title="Métricas" subtitle="Próximamente: cumplimiento, IDC, MDA y ranking de asesores" />
-      <Card><div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>🚧 En construcción — la próxima ronda.</div></Card>
+      <PageHeader title="Métricas" subtitle={tiendaSel ? `${stores[tiendaSel]?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`} />
+
+      <Card style={{ marginBottom:16 }} p="12px">
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12, flexWrap:"wrap" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <button onClick={irMesAnterior} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:6, color:C.text, cursor:"pointer", padding:"4px 10px", fontSize:14 }}>‹</button>
+            <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.goldLight, minWidth:140, textAlign:"center" }}>{MESES_NOMBRE[mesIdx]} {anio}{esMesActual && <span style={{ color:C.textMuted, fontWeight:400, fontSize:11 }}> · en curso</span>}</div>
+            <button onClick={irMesSiguiente} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:6, color:C.text, cursor:"pointer", padding:"4px 10px", fontSize:14 }}>›</button>
+          </div>
+          {esMesActual && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{diasRestantes} días restantes del mes</div>}
+        </div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          <button onClick={()=>setTiendaSel("")} style={{ padding:"6px 12px", borderRadius:20, border:`1px solid ${!tiendaSel?C.gold:C.border}`, background:!tiendaSel?`${C.gold}22`:"transparent", color:!tiendaSel?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12, cursor:"pointer" }}>Todas las tiendas</button>
+          {tiendasList.map(t=>(
+            <button key={t.id} onClick={()=>setTiendaSel(t.id)} style={{ padding:"6px 12px", borderRadius:20, border:`1px solid ${tiendaSel===t.id?C.gold:C.border}`, background:tiendaSel===t.id?`${C.gold}22`:"transparent", color:tiendaSel===t.id?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12, cursor:"pointer" }}>{t.name}</button>
+          ))}
+        </div>
+      </Card>
+
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5, 1fr)", gap:10, marginBottom:16 }}>
+        <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingresos (con servicios)</div>
+          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(totalConServicios)}</div>
+        </div>
+        <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingresos (sin servicios)</div>
+          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(totalSinServicios)}</div>
+        </div>
+        <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Meta {tiendaSel?"de la tienda":"total"}</div>
+          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{metaTiendaTotal>0?fmtCOP(metaTiendaTotal):"—"}</div>
+        </div>
+        <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>IDC</div>
+          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:idcTienda===null?C.textMuted:idcTienda>=100?C.green:C.amber }}>{idcTienda===null?"—":`${idcTienda}%`}</div>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2 }}>sin servicios</div>
+        </div>
+        <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>MDA</div>
+          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{mdaTienda===null?"—":fmtCOP(mdaTienda)}</div>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2 }}>por día, sin servicios</div>
+        </div>
+      </div>
+
+      {puedeAsignarMetas && (
+        <SeccionVenta icon="🎯" titulo="Metas del mes" subtitulo={`Asigna las metas para ${MESES_NOMBRE[mesIdx]} ${anio}`}>
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Por tienda</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
+            {tiendasList.map(t=>(
+              <div key={t.id} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text }}>{t.name}</div>
+                <div style={{ width:160 }}><Field type="number" value={metaInputs[`tienda:${t.id}`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}`]:v}))} placeholder="0"/></div>
+                <Btn onClick={()=>guardarMeta("tienda",t.id)} disabled={guardandoMeta===`tienda:${t.id}`} sm>{guardandoMeta===`tienda:${t.id}`?"...":"Guardar"}</Btn>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Por asesor</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {asesores.map(a=>(
+              <div key={a.id} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text }}>{a.name}</div>
+                <div style={{ width:160 }}><Field type="number" value={metaInputs[`asesor:${a.id}`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`asesor:${a.id}`]:v}))} placeholder="0"/></div>
+                <Btn onClick={()=>guardarMeta("asesor",a.id)} disabled={guardandoMeta===`asesor:${a.id}`} sm>{guardandoMeta===`asesor:${a.id}`?"...":"Guardar"}</Btn>
+              </div>
+            ))}
+            {asesores.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>No hay asesores activos.</div>}
+          </div>
+        </SeccionVenta>
+      )}
+
+      <SeccionVenta icon="🏆" titulo="Top asesores por cumplimiento" subtitulo="Ordenado por IDC, de mayor a menor">
+        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+          {ranking.map((d,idx)=>(
+            <div key={d.asesor.id} style={{ display:"flex", alignItems:"center", gap:10, background:idx<3?`${C.gold}0d`:C.surfaceAlt, border:`1px solid ${idx<3?C.gold:C.border}`, borderRadius:8, padding:"9px 12px" }}>
+              <div style={{ fontFamily:font.body, fontSize:idx<3?16:13, width:28, textAlign:"center" }}>{medalla(idx)}</div>
+              <div style={{ flex:1, fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{d.asesor.name}</div>
+              <div style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{fmtCOP(d.sinServicios)} / {fmtCOP(d.meta)}</div>
+              <Badge color={d.idc>=100?C.green:d.idc>=70?C.amber:C.red} sm>{d.idc}%</Badge>
+            </div>
+          ))}
+          {ranking.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
+        </div>
+      </SeccionVenta>
+
+      <SeccionVenta icon="👤" titulo="Ventas por asesor" subtitulo="Con y sin servicios, del mes seleccionado">
+        <div style={{ overflowX:"auto" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontFamily:font.body, fontSize:12 }}>
+            <thead>
+              <tr style={{ borderBottom:`1px solid ${C.border}`, color:C.textMuted, textAlign:"left" }}>
+                <th style={{ padding:"6px 8px", fontWeight:500 }}>Asesor</th>
+                <th style={{ padding:"6px 8px", fontWeight:500 }}>Sin servicios</th>
+                <th style={{ padding:"6px 8px", fontWeight:500 }}>Con servicios</th>
+                <th style={{ padding:"6px 8px", fontWeight:500 }}>Meta</th>
+                <th style={{ padding:"6px 8px", fontWeight:500 }}>IDC</th>
+                <th style={{ padding:"6px 8px", fontWeight:500 }}>MDA</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dataAsesores.map(d=>(
+                <tr key={d.asesor.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                  <td style={{ padding:"7px 8px", color:C.text }}>{d.asesor.name}</td>
+                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.text }}>{fmtCOP(d.sinServicios)}</td>
+                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted }}>{fmtCOP(d.conServicios)}</td>
+                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted }}>{d.meta>0?fmtCOP(d.meta):"—"}</td>
+                  <td style={{ padding:"7px 8px" }}>{d.idc===null?"—":<Badge color={d.idc>=100?C.green:d.idc>=70?C.amber:C.red} sm>{d.idc}%</Badge>}</td>
+                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted }}>{d.mda===null?"—":fmtCOP(d.mda)}</td>
+                </tr>
+              ))}
+              {dataAsesores.length===0 && <tr><td colSpan={6} style={{ padding:16, textAlign:"center", color:C.textMuted }}>No hay asesores activos.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </SeccionVenta>
+
+      <SeccionVenta icon="📅" titulo="Ventas por día" subtitulo={tiendaSel ? stores[tiendaSel]?.name : "Todas las tiendas"}>
+        <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+          {diasList.map(([fecha,d])=>(
+            <div key={fecha} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, padding:"6px 4px", borderBottom:`1px solid ${C.border}` }}>
+              <span>{new Date(fecha+"T12:00:00").toLocaleDateString("es-CO",{weekday:"short",day:"numeric",month:"short"})}</span>
+              <span style={{ color:C.textMuted }}>{d.count} venta{d.count!==1?"s":""}</span>
+              <span style={{ fontFamily:font.mono }}>{fmtCOP(d.sin)} <span style={{ color:C.textMuted }}>/ {fmtCOP(d.con)}</span></span>
+            </div>
+          ))}
+          {diasList.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Sin ventas registradas este mes.</div>}
+        </div>
+      </SeccionVenta>
     </div>
   );
 }
@@ -2334,12 +2547,12 @@ export default function App() {
   const [user,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
   const [juntaLideres,setJuntaLideres]=useState([]),[juntaCompromisos,setJuntaCompromisos]=useState([]),[juntaAcuerdos,setJuntaAcuerdos]=useState([]);
   const [juntaAreas,setJuntaAreas]=useState([]),[juntaLiderAreas,setJuntaLiderAreas]=useState([]);
-  const [ventas,setVentas]=useState([]),[ventasMetas,setVentasMetas]=useState([]);
+  const [ventas,setVentas]=useState([]),[ventasItems,setVentasItems]=useState([]),[ventasMetas,setVentasMetas]=useState([]);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const isMobile=useIsMobile();
 
   const loadAll=async()=>{
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vm}]=await Promise.all([
+    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
       supabase.from("registros").select("*").order("date",{ascending:false}),
@@ -2349,6 +2562,7 @@ export default function App() {
       supabase.from("junta_areas").select("*").order("nombre",{ascending:true}),
       supabase.from("junta_lider_areas").select("*"),
       supabase.from("ventas").select("*").order("fecha",{ascending:false}),
+      supabase.from("ventas_items").select("*"),
       supabase.from("ventas_metas").select("*"),
     ]);
     const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
@@ -2359,12 +2573,13 @@ export default function App() {
     setJuntaAreas(jar||[]);
     setJuntaLiderAreas(jla||[]);
     setVentas(v||[]);
+    setVentasItems(vi||[]);
     setVentasMetas(vm||[]);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
 
-  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":puedeUsarAreas(u)?null:"checkin");};
+  const login=(u)=>{setUser(u);setArea(null);setTab((esCuentaTienda(u)||esAdminFinanzas(u))?"registrar":puedeUsarAreas(u)?null:"checkin");};
   const logout=()=>{setUser(null);setArea(null);setTab(null);};
   const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?"registrar":"dashboard");};
   const backToAreas=()=>{setArea(null);setTab(null);};
@@ -2398,7 +2613,7 @@ export default function App() {
       } else if(area==="ventas"){
         if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)}/>;
-        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} metas={ventasMetas} setMetas={setVentasMetas} esAdmin={esAdminDeVentas(user)}/>;
+        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} metas={ventasMetas} setMetas={setVentasMetas} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
@@ -2407,10 +2622,10 @@ export default function App() {
         if(tab==="stores")    return <StoresScreen stores={stores} setStores={setStores}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
-    } else if(esCuentaTienda(user)){
+    } else if(esCuentaTienda(user) || esAdminFinanzas(user)){
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false}/>;
-      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} metas={ventasMetas} setMetas={setVentasMetas} esAdmin={false}/>;
+      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} metas={ventasMetas} setMetas={setVentasMetas} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores}/>;
