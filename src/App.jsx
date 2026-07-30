@@ -1720,7 +1720,7 @@ const VENTAS_MEDIOS_TARJETA = ["tarjeta"];
 const VENTAS_MEDIOS_REALES = VENTAS_MEDIOS_PAGO.filter(m=>m.value!=="flexipago");
 
 const VENTAS_TIPOS = [
-  { value:"producto", label:"Producto" },
+  { value:"producto", label:"Venta" },
   { value:"arreglo", label:"Arreglo" },
   { value:"marcacion", label:"Marcación" },
   { value:"grabado", label:"Grabado" },
@@ -1822,7 +1822,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
     setMsg("");
     if(!tiendaId){ setMsg("Falta elegir la tienda."); return; }
     if(!vendedorId){ setMsg("Falta elegir quién hizo la venta."); return; }
-    if(items.length===0 || valorBruto<=0){ setMsg("Agrega al menos un producto o servicio."); return; }
+    if(items.length===0 || valorBruto<=0){ setMsg("Agrega al menos una venta o servicio."); return; }
     if(esFlexipago){
       if(!clienteDocumento.trim() || !clienteNombre.trim()){ setMsg("Flexipago necesita los datos del cliente para poder contactarlo."); return; }
       if(Number(abonoInicialValor||0)>0 && !abonoInicialMedio){ setMsg("Falta el medio de pago del abono inicial."); return; }
@@ -1839,7 +1839,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
     if(error || !venta){ setGuardando(false); setMsg("No se pudo guardar. Intenta de nuevo."); return; }
     const filasItems = items.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valor, descuento:i.descuento, medio_pago:i.medio_pago, numero_autorizacion:i.numero_autorizacion }));
     const { error:errorItems } = await supabase.from("ventas_items").insert(filasItems);
-    if(errorItems){ setGuardando(false); setMsg("La venta se guardó, pero hubo un problema guardando los productos/servicios."); return; }
+    if(errorItems){ setGuardando(false); setMsg("La venta se guardó, pero hubo un problema guardando las ventas/servicios."); return; }
     if(esFlexipago && Number(abonoInicialValor||0) > 0){
       await supabase.from("ventas_abonos").insert({ venta_id:venta.id, fecha, valor:Number(abonoInicialValor), registrado_por:user.name, medio_pago:abonoInicialMedio });
     }
@@ -1873,7 +1873,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
             <Field label="¿Quién hizo la venta?" value={vendedorId} onChange={setVendedorId} options={[{value:"",label:"Selecciona un asesor"},...asesores.map(a=>({value:a.id,label:a.name}))]}/>
           </SeccionVenta>
 
-          <SeccionVenta icon="🛍️" titulo="Productos y servicios" subtitulo="Cada uno con su valor, descuento (si aplica) y medio de pago">
+          <SeccionVenta icon="🛍️" titulo="Ventas y servicios" subtitulo="Cada uno con su valor, descuento (si aplica) y medio de pago">
             <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:14 }}>
               {items.map((it,idx)=>(
                 <div key={idx} style={{ display:"flex", alignItems:"center", gap:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", flexWrap:"wrap" }}>
@@ -1952,7 +1952,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
             <div style={{ padding:"14px 16px" }}>
               {items.length>0 && (
                 <>
-                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Productos y servicios</div>
+                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Ventas y servicios</div>
                   {items.map((it,idx)=>(
                     <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:4 }}>
                       <span>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label} · {VENTAS_MEDIOS_PAGO.find(m=>m.value===it.medio_pago)?.label}</span><span style={{fontFamily:font.mono}}>${it.valor.toLocaleString("es-CO")}</span>
@@ -2185,7 +2185,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                         {Number(v.descuento_total)>0 && <span>Descuento: <span style={{color:C.text,fontFamily:font.mono}}>${Number(v.descuento_total).toLocaleString("es-CO")}</span></span>}
                       </div>
 
-                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"12px 0 6px" }}>Productos y servicios</div>
+                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"12px 0 6px" }}>Ventas y servicios</div>
                       {!abiertoEdicion ? (
                         <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:10 }}>
                           {(d?.items||[]).map(i=>(
@@ -2196,7 +2196,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                               <span style={{ fontFamily:font.mono }}>${Number(i.valor).toLocaleString("es-CO")}{Number(i.descuento)>0 && ` (desc $${Number(i.descuento).toLocaleString("es-CO")})`}</span>
                             </div>
                           ))}
-                          {(d?.items||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin productos/servicios registrados.</div>}
+                          {(d?.items||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin ventas/servicios registrados.</div>}
                         </div>
                       ) : (
                         <div style={{ marginBottom:10 }}>
