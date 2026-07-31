@@ -32,10 +32,11 @@ const todayStr = fmt(new Date());
 const fmtFechaHora = (iso) => iso ? new Date(iso).toLocaleString("es-CO", { day:"numeric", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" }) : "—";
 
 // ── Puntualidad ───────────────────────────────────────────────────────────────
-// Fecha de corte: desde este día (inclusive) rigen los turnos nuevos.
-// Los registros con fecha anterior siguen evaluándose con el horario viejo,
-// congelado para siempre, sin importar qué cambie el código más adelante.
+// Fechas de corte: desde cada fecha (inclusive) rigen los horarios de esa fila.
+// Los registros con fecha anterior siguen evaluándose con el horario que regía
+// en ese momento, congelado para siempre, sin importar qué cambie el código después.
 const CUTOVER_DATE = "2026-07-15";
+const CUTOVER_DATE_2 = "2026-08-01"; // nuevo horario de cierre (T2)
 
 // Horarios de entrada esperados en minutos desde medianoche: [Lunes-Jueves, Viernes-Sábado]
 // Vigentes hasta el 14 de julio de 2026 (inclusive)
@@ -46,7 +47,7 @@ const SHIFT_HOURS_OLD = {
   T4:  [690, 690],   // 11:30am todos los días
   TOF: [540, 540],   // 9:00am todos los días (oficina)
 };
-// Vigentes desde el 15 de julio de 2026
+// Vigentes del 15 de julio al 31 de julio de 2026 (inclusive)
 const SHIFT_HOURS_NEW = {
   T1:  [600, 600],   // 10:00am todos los días (excepto Chipichape, ver abajo)
   T2:  [750, 780],   // 12:30pm L-J / 1:00pm V-S
@@ -54,12 +55,21 @@ const SHIFT_HOURS_NEW = {
   T4:  [690, 690],   // 11:30am todos los días
   TOF: [540, 540],   // 9:00am todos los días (oficina)
 };
-// Excepción: Chipichape T1 entra a las 9:00am en vez de 10:00am (igual en ambos periodos)
+// Vigentes desde el 1 de agosto de 2026 — nuevo horario de cierre:
+// Lunes a jueves 12:00m-8:00pm, Viernes y sábado 12:30pm-8:30pm
+const SHIFT_HOURS_V3 = {
+  T1:  [600, 600],   // 10:00am todos los días (excepto Chipichape, ver abajo)
+  T2:  [720, 750],   // 12:00m L-J / 12:30pm V-S
+  T3:  [630, 630],   // 10:30am todos los días
+  T4:  [690, 690],   // 11:30am todos los días
+  TOF: [540, 540],   // 9:00am todos los días (oficina)
+};
+// Excepción: Chipichape T1 entra a las 9:00am en vez de 10:00am (igual en todos los periodos)
 const CHIPICHAPE_T1_ENTRY = 540;
 
 const getExpectedEntry = (shift, date, store) => {
   if (!shift) return null;
-  const SHIFT_HOURS = date >= CUTOVER_DATE ? SHIFT_HOURS_NEW : SHIFT_HOURS_OLD;
+  const SHIFT_HOURS = date >= CUTOVER_DATE_2 ? SHIFT_HOURS_V3 : date >= CUTOVER_DATE ? SHIFT_HOURS_NEW : SHIFT_HOURS_OLD;
   const shiftUpper = shift.toUpperCase();
   if (shiftUpper.includes("TOF")) return SHIFT_HOURS.TOF[0];
 
