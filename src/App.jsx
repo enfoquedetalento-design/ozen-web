@@ -1766,17 +1766,18 @@ const VENTAS_MEDIOS_PAGO = [
   { value:"tarjeta", label:"Tarjeta (débito/crédito)" },
   { value:"transferencia", label:"Transferencia" },
   { value:"addi", label:"ADDI" },
-  { value:"flexipago", label:"Flexipago (plan separe)" },
 ];
 const VENTAS_MEDIOS_TARJETA = ["tarjeta"];
-// Medios que sí ingresan dinero de verdad (todos menos Flexipago, que es un plan a crédito)
-const VENTAS_MEDIOS_REALES = VENTAS_MEDIOS_PAGO.filter(m=>m.value!=="flexipago");
+// Flexipago ya no es un medio de pago: es su propio Tipo. Este alias se deja
+// porque se usa para elegir el medio de los abonos (que sí ingresan dinero real).
+const VENTAS_MEDIOS_REALES = VENTAS_MEDIOS_PAGO;
 
 const VENTAS_TIPOS = [
   { value:"producto", label:"Venta" },
   { value:"arreglo", label:"Arreglo" },
   { value:"marcacion", label:"Marcación" },
   { value:"grabado", label:"Grabado" },
+  { value:"flexipago", label:"Flexipago (plan separe)" },
 ];
 const VENTAS_DESCUENTO_TIPOS = [
   { value:"valor", label:"$" },
@@ -1811,6 +1812,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   const [itemDescuentoTipo, setItemDescuentoTipo] = useState("valor");
   const [itemMedios, setItemMedios] = useState({}); // { efectivo: "50000" }
   const [itemAutorizaciones, setItemAutorizaciones] = useState({});
+  const [itemMedioNuevo, setItemMedioNuevo] = useState("efectivo");
   const [observacion, setObservacion] = useState("");
 
   const [clienteTipoDoc, setClienteTipoDoc] = useState("CC");
@@ -1847,8 +1849,8 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
     return () => clearTimeout(t);
   }, [clienteDocumento]);
 
-  const itemEsServicio = itemTipo !== "producto";
-  const itemMediosDisponibles = itemEsServicio ? VENTAS_MEDIOS_PAGO.filter(m=>m.value!=="flexipago") : VENTAS_MEDIOS_PAGO;
+  const itemEsFlexipago = itemTipo === "flexipago";
+  const itemMediosDisponibles = VENTAS_MEDIOS_PAGO.filter(m=>!(m.value in itemMedios));
 
   const itemValorNum = Number(itemValor||0);
   const itemDescuentoInput = Number(itemDescuento||0);
@@ -1858,36 +1860,30 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   const itemFalta = itemNeto - itemSumaMedios;
   const itemFaltaAUT = VENTAS_MEDIOS_TARJETA.some(m=> m in itemMedios && !(itemAutorizaciones[m]||"").trim());
 
-  const toggleItemMedio = (value) => {
-    setItemMedios(prev=>{
-      if(value==="flexipago"){
-        if("flexipago" in prev) return {};
-        return { flexipago:String(itemNeto) };
-      }
-      if("flexipago" in prev) return prev; // bloqueado mientras Flexipago esté activo en este renglón
-      const c = {...prev};
-      if(value in c) delete c[value]; else c[value] = "";
-      return c;
-    });
+  // Mantiene el selector de "agregar medio" apuntando a una opción que todavía no se ha añadido
+  useEffect(()=>{
+    if(itemMediosDisponibles.length>0 && !itemMediosDisponibles.some(m=>m.value===itemMedioNuevo)) setItemMedioNuevo(itemMediosDisponibles[0].value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemMedios]);
+
+  const agregarMedioAItem = () => {
+    if(!itemMedioNuevo || itemMedioNuevo in itemMedios) return;
+    setItemMedios(prev=>({...prev, [itemMedioNuevo]:""}));
+  };
+  const quitarMedioDeItem = (medio) => {
+    setItemMedios(prev=>{ const c={...prev}; delete c[medio]; return c; });
+    setItemAutorizaciones(prev=>{ const c={...prev}; delete c[medio]; return c; });
   };
   const setItemMedioValor = (value, v) => setItemMedios(prev=>({...prev, [value]:v}));
   const setItemAutorizacion = (value, v) => setItemAutorizaciones(prev=>({...prev, [value]:v}));
 
-  // Mientras Flexipago esté activo en el renglón, su valor siempre cubre el 100% del neto (es exclusivo)
-  useEffect(()=>{
-    if("flexipago" in itemMedios){
-      setItemMedios(prev => prev.flexipago===String(itemNeto) ? prev : { flexipago:String(itemNeto) });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemNeto]);
-
-  // Flexipago solo aplica a "Venta" — si cambian a un servicio, se quita
-  useEffect(()=>{
-    if(itemEsServicio && "flexipago" in itemMedios) setItemMedios({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemTipo]);
-
   const agregarItem = () => {
+    if(itemEsFlexipago){
+      if(itemValorNum<=0) return;
+      setItems(prev=>[...prev, { tipo:"flexipago", valorTotal:itemValorNum, descuento:0, pagos:[] }]);
+      setItemValor("");
+      return;
+    }
     if(itemValorNum<=0 || Object.keys(itemMedios).length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT) return;
     const pagos = Object.entries(itemMedios).map(([medio,v])=>({ medio_pago:medio, valor:Number(v||0), numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(medio)?(itemAutorizaciones[medio]||"").trim():null }));
     setItems(prev=>[...prev, { tipo:itemTipo, valorTotal:itemValorNum, descuento:itemDescuentoNum, pagos }]);
@@ -1898,12 +1894,12 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   const valorBruto = items.reduce((a,i)=>a+i.valorTotal,0);
   const descuentoNum = items.reduce((a,i)=>a+i.descuento,0);
   const total = valorBruto - descuentoNum;
-  const esFlexipago = items.some(i=>i.pagos.some(p=>p.medio_pago==="flexipago"));
-  const valorFlexipago = items.flatMap(i=>i.pagos).filter(p=>p.medio_pago==="flexipago").reduce((a,p)=>a+p.valor,0);
+  const esFlexipago = items.some(i=>i.tipo==="flexipago");
+  const valorFlexipago = items.filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+i.valorTotal,0);
   const saldoPendiente = esFlexipago ? valorFlexipago - Number(abonoInicialValor||0) : 0;
 
   const limpiarTodo = () => {
-    setNumeroFactura(""); setVendedorId(""); setItems([]); setItemTipo("producto"); setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemMedios({}); setItemAutorizaciones({}); setObservacion("");
+    setNumeroFactura(""); setVendedorId(""); setItems([]); setItemTipo("producto"); setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemMedios({}); setItemAutorizaciones({}); setItemMedioNuevo("efectivo"); setObservacion("");
     setAbonoInicialValor(""); setAbonoInicialMedio("efectivo");
     setClienteTipoDoc("CC"); setClienteDocumento(""); setClienteNombre(""); setClienteTelefono(""); setClienteEncontrado(false);
   };
@@ -1961,11 +1957,6 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
               )}
               <Field label="Fecha" type="date" value={fecha} onChange={setFecha}/>
             </div>
-            {esFlexipago ? (
-              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:14 }}>📦 Flexipago no factura en Siigo hasta que se termine de pagar. El número de factura se agrega después, cuando se complete el abono, desde "Lista de ventas".</div>
-            ) : (
-              <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>
-            )}
             <Field label="¿Quién hizo la venta?" value={vendedorId} onChange={setVendedorId} options={[{value:"",label:"Selecciona un asesor"},...asesores.map(a=>({value:a.id,label:a.name}))]}/>
           </SeccionVenta>
 
@@ -1974,13 +1965,15 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
               {items.map((it,idx)=>(
                 <div key={idx} style={{ display:"flex", flexDirection:"column", gap:4, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                    <Badge color={it.tipo==="producto"?C.green:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label}</Badge>
+                    <Badge color={it.tipo==="producto"?C.green:it.tipo==="flexipago"?C.blue:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label}</Badge>
                     <div style={{ flex:1, fontFamily:font.mono, fontSize:12, color:C.text, textAlign:"right" }}>${it.valorTotal.toLocaleString("es-CO")}{it.descuento>0 && ` (desc $${it.descuento.toLocaleString("es-CO")})`}</div>
                     <button onClick={()=>quitarItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
                   </div>
                   <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                    {it.pagos.map((p,pidx)=>(
-                      <Badge key={pidx} color={p.medio_pago==="flexipago"?C.amber:C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
+                    {it.tipo==="flexipago" ? (
+                      <Badge color={C.blue} sm>📦 Pago diferido — se cobra con abonos</Badge>
+                    ) : it.pagos.map((p,pidx)=>(
+                      <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
                     ))}
                   </div>
                 </div>
@@ -1990,53 +1983,62 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
 
             <div style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"12px" }}>
               <Field label="Tipo" value={itemTipo} onChange={setItemTipo} options={VENTAS_TIPOS}/>
-              <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr", gap:10, marginBottom:4 }}>
-                <CurrencyField label="Valor total" value={itemValor} onChange={setItemValor}/>
-                <div>
-                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
-                    <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento</div>
-                    <div style={{ display:"flex", gap:4 }}>
-                      {VENTAS_DESCUENTO_TIPOS.map(dt=>(
-                        <button key={dt.value} type="button" onClick={()=>setItemDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${itemDescuentoTipo===dt.value?C.gold:C.border}`, background:itemDescuentoTipo===dt.value?`${C.gold}22`:"transparent", color:itemDescuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
-                      ))}
+              {itemEsFlexipago ? (
+                <>
+                  <CurrencyField label="Valor total" value={itemValor} onChange={setItemValor}/>
+                  <div style={{ marginTop:6, marginBottom:4, fontFamily:font.body, fontSize:11, color:C.blue }}>📦 Flexipago no lleva descuento ni medio de pago aquí — se paga con abonos, se registran más abajo una vez guardada la venta.</div>
+                </>
+              ) : (
+                <>
+                  <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr", gap:10, marginBottom:4 }}>
+                    <CurrencyField label="Valor total" value={itemValor} onChange={setItemValor}/>
+                    <div>
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
+                        <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento</div>
+                        <div style={{ display:"flex", gap:4 }}>
+                          {VENTAS_DESCUENTO_TIPOS.map(dt=>(
+                            <button key={dt.value} type="button" onClick={()=>setItemDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${itemDescuentoTipo===dt.value?C.gold:C.border}`, background:itemDescuentoTipo===dt.value?`${C.gold}22`:"transparent", color:itemDescuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <CurrencyField value={itemDescuento} onChange={setItemDescuento}/>
                     </div>
                   </div>
-                  <CurrencyField value={itemDescuento} onChange={setItemDescuento}/>
-                </div>
-              </div>
 
-              <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Medios de pago</div>
-              <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:8 }}>
-                {itemMediosDisponibles.map(m=>{
-                  const activo = m.value in itemMedios;
-                  const deshabilitado = ("flexipago" in itemMedios) ? m.value!=="flexipago" : (m.value==="flexipago" && Object.keys(itemMedios).length>0);
-                  return (
-                    <div key={m.value} style={{ border:`1px solid ${activo?C.gold:C.border}`, borderRadius:8, padding:"9px 10px", background:activo?`${C.gold}0d`:"transparent", opacity:deshabilitado?0.4:1 }}>
-                      <label style={{ display:"flex", alignItems:"center", gap:8, cursor:deshabilitado?"not-allowed":"pointer", fontFamily:font.body, fontSize:13, color:C.text }}>
-                        <input type="checkbox" checked={activo} disabled={deshabilitado} onChange={()=>toggleItemMedio(m.value)}/>
-                        {m.label}
-                      </label>
-                      {activo && m.value!=="flexipago" && (
-                        <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(m.value)?"1fr 1fr":"1fr", gap:10, marginTop:8 }}>
-                          <CurrencyField label="Valor pagado" value={itemMedios[m.value]} onChange={v=>setItemMedioValor(m.value,v)}/>
-                          {VENTAS_MEDIOS_TARJETA.includes(m.value) && <Field label="N.º autorización" value={itemAutorizaciones[m.value]||""} onChange={v=>setItemAutorizacion(m.value,v)} placeholder="Ej: 056495"/>}
-                        </div>
-                      )}
-                      {activo && m.value==="flexipago" && (
-                        <div style={{ marginTop:8, fontFamily:font.body, fontSize:11, color:C.amber }}>
-                          📦 Cubre el neto de este renglón (${itemNeto.toLocaleString("es-CO")}) — no se puede combinar con otro medio. El abono inicial se registra más abajo.
-                        </div>
-                      )}
+                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Medios de pago</div>
+                  {Object.keys(itemMedios).length>0 && (
+                    <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:8 }}>
+                      {Object.keys(itemMedios).map(medio=>{
+                        const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===medio);
+                        return (
+                          <div key={medio} style={{ border:`1px solid ${C.gold}`, borderRadius:8, padding:"9px 10px", background:`${C.gold}0d` }}>
+                            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                              <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{m?.label}</span>
+                              <button onClick={()=>quitarMedioDeItem(medio)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
+                            </div>
+                            <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(medio)?"1fr 1fr":"1fr", gap:10 }}>
+                              <CurrencyField label="Valor pagado" value={itemMedios[medio]} onChange={v=>setItemMedioValor(medio,v)}/>
+                              {VENTAS_MEDIOS_TARJETA.includes(medio) && <Field label="N.º autorización" value={itemAutorizaciones[medio]||""} onChange={v=>setItemAutorizacion(medio,v)} placeholder="Ej: 056495"/>}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-              </div>
-              {Object.keys(itemMedios).length>0 && (
-                <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(itemFalta)<1?C.green:C.red }}>
-                  {Math.abs(itemFalta)<1 ? "✓ Los medios cuadran con el valor de este renglón" : itemFalta>0 ? `Faltan $${itemFalta.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(itemFalta).toLocaleString("es-CO")}`}
-                </div>
+                  )}
+                  {itemMediosDisponibles.length>0 && (
+                    <div style={{ display:"flex", gap:8, marginBottom:8, alignItems:"end" }}>
+                      <div style={{ flex:1 }}><Field label="Agregar medio de pago" value={itemMedioNuevo} onChange={setItemMedioNuevo} options={itemMediosDisponibles}/></div>
+                      <div style={{ marginBottom:14 }}><Btn onClick={agregarMedioAItem} variant="ghost" sm>+ Agregar medio</Btn></div>
+                    </div>
+                  )}
+                  {Object.keys(itemMedios).length>0 && (
+                    <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(itemFalta)<1?C.green:C.red }}>
+                      {Math.abs(itemFalta)<1 ? "✓ Los medios cuadran con el valor de este renglón" : itemFalta>0 ? `Faltan $${itemFalta.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(itemFalta).toLocaleString("es-CO")}`}
+                    </div>
+                  )}
+                </>
               )}
-              <Btn onClick={agregarItem} disabled={itemValorNum<=0 || Object.keys(itemMedios).length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT} sm full>+ Agregar</Btn>
+              <Btn onClick={agregarItem} disabled={itemEsFlexipago ? itemValorNum<=0 : (itemValorNum<=0 || Object.keys(itemMedios).length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT)} sm full>+ Agregar</Btn>
             </div>
           </SeccionVenta>
 
@@ -2064,6 +2066,14 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
           <SeccionVenta icon="📝" titulo="Notas (opcional)" subtitulo="Agrega alguna observación adicional">
             <Field value={observacion} onChange={setObservacion} placeholder="Escribe una nota o comentario..." multiline rows={3}/>
           </SeccionVenta>
+
+          <SeccionVenta icon="🧾" titulo="Facturación" subtitulo={esFlexipago ? "Flexipago factura después, al completar el pago" : "Número de factura de Siigo"}>
+            {esFlexipago ? (
+              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>📦 Flexipago no factura en Siigo hasta que se termine de pagar. El número de factura se agrega después, cuando se complete el abono, desde "Lista de ventas".</div>
+            ) : (
+              <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>
+            )}
+          </SeccionVenta>
         </div>
 
         <div style={{ position:isMobile?"static":"sticky", top:16 }}>
@@ -2079,7 +2089,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
                   <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Ventas y servicios</div>
                   {items.map((it,idx)=>(
                     <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:4 }}>
-                      <span>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label} · {it.pagos.map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label).join(" + ")}</span><span style={{fontFamily:font.mono}}>${it.valorTotal.toLocaleString("es-CO")}</span>
+                      <span>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label} · {it.tipo==="flexipago" ? "pago diferido" : it.pagos.map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label).join(" + ")}</span><span style={{fontFamily:font.mono}}>${it.valorTotal.toLocaleString("es-CO")}</span>
                     </div>
                   ))}
                   <Divider/>
@@ -2106,6 +2116,11 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
                       <span>{VENTAS_MEDIOS_PAGO.find(m=>m.value===medio)?.label}</span><span style={{fontFamily:font.mono}}>${v.toLocaleString("es-CO")}</span>
                     </div>
                   ))}
+                  {valorFlexipago>0 && (
+                    <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.blue, marginBottom:4 }}>
+                      <span>Flexipago (pago diferido)</span><span style={{fontFamily:font.mono}}>${valorFlexipago.toLocaleString("es-CO")}</span>
+                    </div>
+                  )}
                 </>
               )}
 
@@ -2167,6 +2182,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
   const [editItemDescuentoTipo, setEditItemDescuentoTipo] = useState("valor");
   const [editItemMedios, setEditItemMedios] = useState({});
   const [editItemAutorizaciones, setEditItemAutorizaciones] = useState({});
+  const [editItemMedioNuevo, setEditItemMedioNuevo] = useState("efectivo");
   const [editObservacion, setEditObservacion] = useState("");
   const [editNumeroFactura, setEditNumeroFactura] = useState("");
 
@@ -2222,8 +2238,8 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
     setEditNumeroFactura(venta.numero_factura||"");
   };
 
-  const editItemEsServicio = editItemTipo !== "producto";
-  const editItemMediosDisponibles = editItemEsServicio ? VENTAS_MEDIOS_PAGO.filter(m=>m.value!=="flexipago") : VENTAS_MEDIOS_PAGO;
+  const editItemEsFlexipago = editItemTipo === "flexipago";
+  const editItemMediosDisponibles = VENTAS_MEDIOS_PAGO.filter(m=>!(m.value in editItemMedios));
   const editItemValorNum = Number(editItemValor||0);
   const editItemDescuentoInput = Number(editItemDescuento||0);
   const editItemDescuentoNum = editItemDescuentoTipo==="porcentaje" ? Math.round(editItemValorNum*editItemDescuentoInput/100) : editItemDescuentoInput;
@@ -2232,34 +2248,29 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
   const editItemFalta = editItemNeto - editItemSumaMedios;
   const editItemFaltaAUT = VENTAS_MEDIOS_TARJETA.some(m=> m in editItemMedios && !(editItemAutorizaciones[m]||"").trim());
 
-  const toggleEditItemMedio = (value) => {
-    setEditItemMedios(prev=>{
-      if(value==="flexipago"){
-        if("flexipago" in prev) return {};
-        return { flexipago:String(editItemNeto) };
-      }
-      if("flexipago" in prev) return prev;
-      const c = {...prev};
-      if(value in c) delete c[value]; else c[value] = "";
-      return c;
-    });
+  useEffect(()=>{
+    if(editItemMediosDisponibles.length>0 && !editItemMediosDisponibles.some(m=>m.value===editItemMedioNuevo)) setEditItemMedioNuevo(editItemMediosDisponibles[0].value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editItemMedios]);
+
+  const agregarMedioAEditItem = () => {
+    if(!editItemMedioNuevo || editItemMedioNuevo in editItemMedios) return;
+    setEditItemMedios(prev=>({...prev, [editItemMedioNuevo]:""}));
+  };
+  const quitarMedioDeEditItem = (medio) => {
+    setEditItemMedios(prev=>{ const c={...prev}; delete c[medio]; return c; });
+    setEditItemAutorizaciones(prev=>{ const c={...prev}; delete c[medio]; return c; });
   };
   const setEditItemMedioValor = (value, v) => setEditItemMedios(prev=>({...prev, [value]:v}));
   const setEditItemAutorizacion = (value, v) => setEditItemAutorizaciones(prev=>({...prev, [value]:v}));
 
-  useEffect(()=>{
-    if("flexipago" in editItemMedios){
-      setEditItemMedios(prev => prev.flexipago===String(editItemNeto) ? prev : { flexipago:String(editItemNeto) });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editItemNeto]);
-
-  useEffect(()=>{
-    if(editItemEsServicio && "flexipago" in editItemMedios) setEditItemMedios({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editItemTipo]);
-
   const agregarEditItem = () => {
+    if(editItemEsFlexipago){
+      if(editItemValorNum<=0) return;
+      setEditItems(prev=>[...prev, { tipo:"flexipago", valorTotal:editItemValorNum, descuento:0, pagos:[] }]);
+      setEditItemValor("");
+      return;
+    }
     if(editItemValorNum<=0 || Object.keys(editItemMedios).length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT) return;
     const pagos = Object.entries(editItemMedios).map(([medio,v])=>({ medio_pago:medio, valor:Number(v||0), numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(medio)?(editItemAutorizaciones[medio]||"").trim():null }));
     setEditItems(prev=>[...prev, { tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos }]);
@@ -2273,7 +2284,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
     const bruto = editItems.reduce((a,i)=>a+i.valorTotal,0);
     const desc = editItems.reduce((a,i)=>a+i.descuento,0);
     const total = bruto - desc;
-    const esFlexipagoEdit = editItems.some(i=>i.pagos.some(p=>p.medio_pago==="flexipago"));
+    const esFlexipagoEdit = editItems.some(i=>i.tipo==="flexipago");
     const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), numero_factura:editNumeroFactura.trim()||null, valor_bruto:bruto, descuento_total:desc, total, es_flexipago:esFlexipagoEdit, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
     await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
     const filasItems = editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos }));
@@ -2308,10 +2319,10 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
 
   const imprimirVenta = (venta, d) => {
     const tienda = stores[venta.tienda_id]?.name || venta.tienda_id;
-    const itemsHtml = (d?.items||[]).map(i=>`<tr><td>${VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label||i.tipo}</td><td style="text-align:right">${fmtCOP(i.valor)}</td><td style="text-align:right">${Number(i.descuento)>0?fmtCOP(i.descuento):"—"}</td><td>${(i.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago).join(" + ")}</td></tr>`).join("");
+    const itemsHtml = (d?.items||[]).map(i=>`<tr><td>${VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label||i.tipo}</td><td style="text-align:right">${fmtCOP(i.valor)}</td><td style="text-align:right">${Number(i.descuento)>0?fmtCOP(i.descuento):"—"}</td><td>${i.tipo==="flexipago"?"Pago diferido":(i.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago).join(" + ")}</td></tr>`).join("");
     const abonosHtml = (d?.abonos||[]).map(a=>`<tr><td>${a.fecha}</td><td>${VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}</td><td style="text-align:right">${fmtCOP(a.valor)}</td></tr>`).join("");
     const totalAbonado = (d?.abonos||[]).reduce((a,x)=>a+Number(x.valor),0);
-    const valorFlex = (d?.items||[]).flatMap(i=>i.pagos||[]).filter(p=>p.medio_pago==="flexipago").reduce((a,p)=>a+Number(p.valor),0);
+    const valorFlex = (d?.items||[]).filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor),0);
     const saldo = valorFlex - totalAbonado;
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Venta ${venta.numero_factura||""}</title>
       <style>
@@ -2363,7 +2374,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
           const abiertoEdicion = editando===v.id;
           const puedeEditar = (d?.solicitudes||[]).some(s=>s.estado==="aprobada" && !s.aplicada_at);
           const totalAbonado = (d?.abonos||[]).reduce((a,x)=>a+Number(x.valor),0);
-          const valorFlexipago = (d?.items||[]).flatMap(i=>i.pagos||[]).filter(p=>p.medio_pago==="flexipago").reduce((a,p)=>a+Number(p.valor),0);
+          const valorFlexipago = (d?.items||[]).filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor),0);
           const saldoPendiente = valorFlexipago - totalAbonado;
           return (
             <Card key={v.id} p="0" style={{ overflow:"hidden" }}>
@@ -2373,7 +2384,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                   <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha} · {stores[v.tienda_id]?.name||v.tienda_id}</span></div>
                   {v.cliente_nombre && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, lineHeight:1.3 }}>{v.cliente_nombre}</div>}
                 </div>
-                {v.es_flexipago && <Badge color={C.amber} sm>Flexipago</Badge>}
+                {v.es_flexipago && <Badge color={C.blue} sm>Flexipago</Badge>}
                 <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight }}>${Number(v.total).toLocaleString("es-CO")}</div>
                 <span style={{ color:C.textMuted, fontSize:11 }}>{expandido===v.id?"▲":"▼"}</span>
               </button>
@@ -2393,12 +2404,14 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                           {(d?.items||[]).map(i=>(
                             <div key={i.id} style={{ display:"flex", flexDirection:"column", gap:2, padding:"3px 0" }}>
                               <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12, color:C.text, flexWrap:"wrap" }}>
-                                <Badge color={i.tipo==="producto"?C.green:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
+                                <Badge color={i.tipo==="producto"?C.green:i.tipo==="flexipago"?C.blue:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
                                 <span style={{ fontFamily:font.mono, marginLeft:"auto" }}>${Number(i.valor).toLocaleString("es-CO")}{Number(i.descuento)>0 && ` (desc $${Number(i.descuento).toLocaleString("es-CO")})`}</span>
                               </div>
                               <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                                {(i.pagos||[]).map((p,pidx)=>(
-                                  <Badge key={pidx} color={p.medio_pago==="flexipago"?C.amber:C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
+                                {i.tipo==="flexipago" ? (
+                                  <Badge color={C.blue} sm>📦 Pago diferido</Badge>
+                                ) : (i.pagos||[]).map((p,pidx)=>(
+                                  <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
                                 ))}
                               </div>
                             </div>
@@ -2411,13 +2424,15 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                             {editItems.map((i,idx)=>(
                               <div key={idx} style={{ display:"flex", flexDirection:"column", gap:4, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
                                 <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                                  <Badge color={i.tipo==="producto"?C.green:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
+                                  <Badge color={i.tipo==="producto"?C.green:i.tipo==="flexipago"?C.blue:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
                                   <div style={{ flex:1, fontFamily:font.mono, fontSize:12, color:C.text, textAlign:"right" }}>${i.valorTotal.toLocaleString("es-CO")}{i.descuento>0 && ` (desc $${i.descuento.toLocaleString("es-CO")})`}</div>
                                   <button onClick={()=>quitarEditItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
                                 </div>
                                 <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                                  {i.pagos.map((p,pidx)=>(
-                                    <Badge key={pidx} color={p.medio_pago==="flexipago"?C.amber:C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}</Badge>
+                                  {i.tipo==="flexipago" ? (
+                                    <Badge color={C.blue} sm>📦 Pago diferido</Badge>
+                                  ) : i.pagos.map((p,pidx)=>(
+                                    <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}</Badge>
                                   ))}
                                 </div>
                               </div>
@@ -2425,53 +2440,68 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                           </div>
                           <div style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"12px", marginBottom:10 }}>
                             <Field label="Tipo" value={editItemTipo} onChange={setEditItemTipo} options={VENTAS_TIPOS}/>
-                            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:4 }}>
-                              <CurrencyField label="Valor total" value={editItemValor} onChange={setEditItemValor}/>
-                              <div>
-                                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
-                                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento</div>
-                                  <div style={{ display:"flex", gap:4 }}>
-                                    {VENTAS_DESCUENTO_TIPOS.map(dt=>(
-                                      <button key={dt.value} type="button" onClick={()=>setEditItemDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${editItemDescuentoTipo===dt.value?C.gold:C.border}`, background:editItemDescuentoTipo===dt.value?`${C.gold}22`:"transparent", color:editItemDescuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
-                                    ))}
+                            {editItemEsFlexipago ? (
+                              <>
+                                <CurrencyField label="Valor total" value={editItemValor} onChange={setEditItemValor}/>
+                                <div style={{ marginTop:6, marginBottom:4, fontFamily:font.body, fontSize:11, color:C.blue }}>📦 Flexipago no lleva descuento ni medio de pago aquí — se paga con abonos.</div>
+                              </>
+                            ) : (
+                              <>
+                                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:4 }}>
+                                  <CurrencyField label="Valor total" value={editItemValor} onChange={setEditItemValor}/>
+                                  <div>
+                                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
+                                      <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento</div>
+                                      <div style={{ display:"flex", gap:4 }}>
+                                        {VENTAS_DESCUENTO_TIPOS.map(dt=>(
+                                          <button key={dt.value} type="button" onClick={()=>setEditItemDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${editItemDescuentoTipo===dt.value?C.gold:C.border}`, background:editItemDescuentoTipo===dt.value?`${C.gold}22`:"transparent", color:editItemDescuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    <CurrencyField value={editItemDescuento} onChange={setEditItemDescuento}/>
                                   </div>
                                 </div>
-                                <CurrencyField value={editItemDescuento} onChange={setEditItemDescuento}/>
-                              </div>
-                            </div>
-                            <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Medios de pago</div>
-                            <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:8 }}>
-                              {editItemMediosDisponibles.map(m=>{
-                                const activo = m.value in editItemMedios;
-                                const deshabilitado = ("flexipago" in editItemMedios) ? m.value!=="flexipago" : (m.value==="flexipago" && Object.keys(editItemMedios).length>0);
-                                return (
-                                  <div key={m.value} style={{ border:`1px solid ${activo?C.gold:C.border}`, borderRadius:8, padding:"9px 10px", background:activo?`${C.gold}0d`:"transparent", opacity:deshabilitado?0.4:1 }}>
-                                    <label style={{ display:"flex", alignItems:"center", gap:8, cursor:deshabilitado?"not-allowed":"pointer", fontFamily:font.body, fontSize:13, color:C.text }}>
-                                      <input type="checkbox" checked={activo} disabled={deshabilitado} onChange={()=>toggleEditItemMedio(m.value)}/>
-                                      {m.label}
-                                    </label>
-                                    {activo && m.value!=="flexipago" && (
-                                      <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(m.value)?"1fr 1fr":"1fr", gap:10, marginTop:8 }}>
-                                        <CurrencyField label="Valor pagado" value={editItemMedios[m.value]} onChange={v=>setEditItemMedioValor(m.value,v)}/>
-                                        {VENTAS_MEDIOS_TARJETA.includes(m.value) && <Field label="N.º autorización" value={editItemAutorizaciones[m.value]||""} onChange={v=>setEditItemAutorizacion(m.value,v)} placeholder="Ej: 056495"/>}
-                                      </div>
-                                    )}
-                                    {activo && m.value==="flexipago" && (
-                                      <div style={{ marginTop:8, fontFamily:font.body, fontSize:11, color:C.amber }}>📦 Cubre el neto de este renglón (${editItemNeto.toLocaleString("es-CO")}) — no se puede combinar con otro medio.</div>
-                                    )}
+                                <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Medios de pago</div>
+                                {Object.keys(editItemMedios).length>0 && (
+                                  <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:8 }}>
+                                    {Object.keys(editItemMedios).map(medio=>{
+                                      const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===medio);
+                                      return (
+                                        <div key={medio} style={{ border:`1px solid ${C.gold}`, borderRadius:8, padding:"9px 10px", background:`${C.gold}0d` }}>
+                                          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                                            <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{m?.label}</span>
+                                            <button onClick={()=>quitarMedioDeEditItem(medio)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
+                                          </div>
+                                          <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(medio)?"1fr 1fr":"1fr", gap:10 }}>
+                                            <CurrencyField label="Valor pagado" value={editItemMedios[medio]} onChange={v=>setEditItemMedioValor(medio,v)}/>
+                                            {VENTAS_MEDIOS_TARJETA.includes(medio) && <Field label="N.º autorización" value={editItemAutorizaciones[medio]||""} onChange={v=>setEditItemAutorizacion(medio,v)} placeholder="Ej: 056495"/>}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
-                                );
-                              })}
-                            </div>
-                            {Object.keys(editItemMedios).length>0 && (
-                              <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(editItemFalta)<1?C.green:C.red }}>
-                                {Math.abs(editItemFalta)<1 ? "✓ Los medios cuadran con el valor de este renglón" : editItemFalta>0 ? `Faltan $${editItemFalta.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(editItemFalta).toLocaleString("es-CO")}`}
-                              </div>
+                                )}
+                                {editItemMediosDisponibles.length>0 && (
+                                  <div style={{ display:"flex", gap:8, marginBottom:8, alignItems:"end" }}>
+                                    <div style={{ flex:1 }}><Field label="Agregar medio de pago" value={editItemMedioNuevo} onChange={setEditItemMedioNuevo} options={editItemMediosDisponibles}/></div>
+                                    <div style={{ marginBottom:14 }}><Btn onClick={agregarMedioAEditItem} variant="ghost" sm>+ Agregar medio</Btn></div>
+                                  </div>
+                                )}
+                                {Object.keys(editItemMedios).length>0 && (
+                                  <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(editItemFalta)<1?C.green:C.red }}>
+                                    {Math.abs(editItemFalta)<1 ? "✓ Los medios cuadran con el valor de este renglón" : editItemFalta>0 ? `Faltan $${editItemFalta.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(editItemFalta).toLocaleString("es-CO")}`}
+                                  </div>
+                                )}
+                              </>
                             )}
-                            <Btn onClick={agregarEditItem} disabled={editItemValorNum<=0 || Object.keys(editItemMedios).length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT} sm full>+ Agregar</Btn>
+                            <Btn onClick={agregarEditItem} disabled={editItemEsFlexipago ? editItemValorNum<=0 : (editItemValorNum<=0 || Object.keys(editItemMedios).length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT)} sm full>+ Agregar</Btn>
                           </div>
-                          <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
                           <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
+                          {editItems.some(i=>i.tipo==="flexipago") ? (
+                            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"6px 0 10px" }}>📦 Esta venta tiene un renglón Flexipago — no factura hasta completar el pago.</div>
+                          ) : (
+                            <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
+                          )}
                           <div style={{ display:"flex", gap:8 }}>
                             <Btn onClick={()=>guardarEdicion(v)} disabled={guardando} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
                             <Btn onClick={()=>setEditando(null)} variant="ghost" sm>Cancelar</Btn>
@@ -2626,7 +2656,9 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
   const ventasDelMes = ventas.filter(v => v.fecha && v.fecha.slice(0,7)===mesKey && (!tiendaSel || v.tienda_id===tiendaSel));
   const idsVentasDelMes = new Set(ventasDelMes.map(v=>v.id));
   const itemsDelMes = ventasItems.filter(i => idsVentasDelMes.has(i.venta_id));
-  const itemsDelMesProducto = itemsDelMes.filter(i=>i.tipo==="producto");
+  // Flexipago ahora es su propio Tipo, pero sigue siendo una Venta (producto), solo que pagada en abonos —
+  // por eso cuenta como "sin servicios" igual que Venta normal, para no perder esas ventas de las metas/IDC/MDA.
+  const itemsDelMesProducto = itemsDelMes.filter(i=>i.tipo==="producto"||i.tipo==="flexipago");
 
   const totalConServicios = ventasDelMes.reduce((a,v)=>a+Number(v.total||0),0);
   const totalSinServicios = itemsDelMesProducto.reduce((a,i)=>a+(Number(i.valor)-Number(i.descuento||0)),0);
