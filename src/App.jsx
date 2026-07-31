@@ -184,6 +184,26 @@ const Card = ({ children, style={}, glow, p="20px" }) => (
   <div style={{ background:C.surface, borderRadius:10, border:`1px solid ${glow?C.borderGold:C.border}`, padding:p, boxShadow:glow?`0 0 20px ${C.gold}15`:"0 1px 3px rgba(0,0,0,0.3)", ...style }}>{children}</div>
 );
 
+// Campo de valor en pesos colombianos: mientras se escribe muestra $000.000,
+// pero guarda (y entrega vía onChange) solo los dígitos, como los demás campos numéricos.
+const CurrencyField = ({ label, value, onChange, placeholder }) => {
+  const digits = String(value||"").replace(/[^\d]/g,"");
+  const mostrado = digits ? `$${Number(digits).toLocaleString("es-CO")}` : "";
+  return (
+    <div style={{ marginBottom:14 }}>
+      {label && <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>{label}</div>}
+      <input
+        type="text"
+        inputMode="numeric"
+        value={mostrado}
+        onChange={e=>onChange(e.target.value.replace(/[^\d]/g,""))}
+        placeholder={placeholder||"$0"}
+        style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}
+      />
+    </div>
+  );
+};
+
 const Field = ({ label, value, onChange, type="text", placeholder, options, disabled, multiline, rows=4, autoComplete }) => (
   <div style={{ marginBottom:14 }}>
     {label && <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>{label}</div>}
@@ -603,6 +623,7 @@ function UsuariosScreen({ users, setUsers }) {
     await supabase.from("usuarios").delete().eq("id",id); setUsers(prev=>prev.filter(u=>u.id!==id));
   };
   const guardarPassword=async(id)=>{ if(!nuevaPass.trim())return; const{data,error}=await supabase.from("usuarios").update({password:nuevaPass.trim(),password_updated_at:new Date().toISOString()}).eq("id",id).select().single(); if(!error&&data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setCambiandoPass(null);setNuevaPass("");alert("Contraseña actualizada.");} };
+  const liberarDispositivo=async(u)=>{ if(!window.confirm(`¿Liberar el dispositivo autorizado de "${u.name}"? El próximo dispositivo que ingrese con esta cuenta quedará autorizado.`))return; const{data}=await supabase.from("usuarios").update({device_token:null}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
   return (
     <div>
       <PageHeader title="Usuarios" subtitle={`${users.length} usuarios · solo visible para cuentas master · aquí se ve y controla la contraseña de todos`} action={
@@ -643,6 +664,7 @@ function UsuariosScreen({ users, setUsers }) {
                 <Badge color={ROLE_COLOR[u.role]||C.textMuted} sm>{ROLE_LABEL[u.role]||u.role}</Badge>
                 <Badge color={u.active?C.green:C.red} sm>{u.active?"Activo":"Inactivo"}</Badge>
                 <div style={{display:"flex",gap:4,flexShrink:0}}>
+                  {u.role==="tienda" && (u.device_token ? <Btn onClick={()=>liberarDispositivo(u)} variant="ghost" sm>📱 Liberar</Btn> : <Badge color={C.textMuted} sm>📱 Sin vincular</Badge>)}
                   <Btn onClick={()=>{setEditing(u.id);setEditVal({name:u.name,documento:u.documento,role:u.role});}} variant="ghost" sm>✏</Btn>
                   <Btn onClick={()=>{setCambiandoPass(u.id);setNuevaPass("");}} variant="ghost" sm>🔑</Btn>
                   <Btn onClick={()=>toggle(u)} variant={u.active?"danger":"success"} sm>{u.active?"✕":"✓"}</Btn>
@@ -1555,7 +1577,34 @@ function LoginScreen({ onLogin }) {
   // "autocompletar") y lo vacía de inmediato.
   const siAutocompletaLimpiar = (setValor) => () => setValor("");
 
-  const handle=async(e)=>{ if(e)e.preventDefault(); if(!documento.trim()||!pass){setErr("Completa todos los campos.");return;} setLoading(true);setErr(""); const{data}=await supabase.from("usuarios").select("*").eq("documento",documento.trim()).eq("password",pass).eq("active",true).single(); if(data)onLogin(data); else setErr("Documento o contraseña incorrecta, o cuenta inactiva."); setLoading(false); };
+  const handle=async(e)=>{
+    if(e)e.preventDefault();
+    if(!documento.trim()||!pass){setErr("Completa todos los campos.");return;}
+    setLoading(true);setErr("");
+    const{data}=await supabase.from("usuarios").select("*").eq("documento",documento.trim()).eq("password",pass).eq("active",true).single();
+    if(!data){ setErr("Documento o contraseña incorrecta, o cuenta inactiva."); setLoading(false); return; }
+    // Cuentas de tienda (login compartido): quedan autorizadas solo en el primer
+    // dispositivo/navegador donde se usen. Si alguien intenta entrar desde otro
+    // dispositivo, se bloquea hasta que un master la libere desde Usuarios.
+    if(data.role==="tienda"){
+      const storageKey = `ozen_device_${data.id}`;
+      const miToken = localStorage.getItem(storageKey);
+      if(data.device_token){
+        if(miToken !== data.device_token){
+          setErr("Esta cuenta de tienda ya está autorizada en otro dispositivo. Pide a un administrador que la libere desde Usuarios para poder entrar desde aquí.");
+          setLoading(false);
+          return;
+        }
+      } else {
+        const nuevoToken = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const { data:actualizado } = await supabase.from("usuarios").update({ device_token:nuevoToken }).eq("id",data.id).select().single();
+        localStorage.setItem(storageKey, nuevoToken);
+        if(actualizado) data.device_token = actualizado.device_token;
+      }
+    }
+    onLogin(data);
+    setLoading(false);
+  };
   return (
     <div style={{minHeight:"100vh",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <style>{`
@@ -1753,6 +1802,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const [tiendaId, setTiendaId] = useState(tiendaFija || Object.keys(stores)[0] || "");
   const [fecha, setFecha] = useState(todayStr);
+  const [numeroFactura, setNumeroFactura] = useState("");
   const [vendedorId, setVendedorId] = useState("");
   const [items, setItems] = useState([]); // [{tipo, valor, descuento, medio_pago, numero_autorizacion}]
   const [itemTipo, setItemTipo] = useState("producto");
@@ -1817,7 +1867,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   const saldoPendiente = esFlexipago ? valorFlexipago - Number(abonoInicialValor||0) : 0;
 
   const limpiarTodo = () => {
-    setVendedorId(""); setItems([]); setItemTipo("producto"); setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemMedio("efectivo"); setItemAutorizacion(""); setObservacion("");
+    setNumeroFactura(""); setVendedorId(""); setItems([]); setItemTipo("producto"); setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemMedio("efectivo"); setItemAutorizacion(""); setObservacion("");
     setAbonoInicialValor(""); setAbonoInicialMedio("efectivo");
     setClienteTipoDoc("CC"); setClienteDocumento(""); setClienteNombre(""); setClienteTelefono(""); setClienteEncontrado(false);
   };
@@ -1825,6 +1875,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   const guardar = async () => {
     setMsg("");
     if(!tiendaId){ setMsg("Falta elegir la tienda."); return; }
+    if(!numeroFactura.trim()){ setMsg("Falta el número de factura de Siigo."); return; }
     if(!vendedorId){ setMsg("Falta elegir quién hizo la venta."); return; }
     if(items.length===0 || valorBruto<=0){ setMsg("Agrega al menos una venta o servicio."); return; }
     if(esFlexipago){
@@ -1834,7 +1885,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
     setGuardando(true);
     const vendedor = users.find(u=>u.id===vendedorId);
     const { data:venta, error } = await supabase.from("ventas").insert({
-      fecha, tienda_id:tiendaId, vendedor_id:vendedorId, vendedor_nombre:vendedor?.name||"",
+      fecha, numero_factura:numeroFactura.trim(), tienda_id:tiendaId, vendedor_id:vendedorId, vendedor_nombre:vendedor?.name||"",
       registrado_por:user.name,
       cliente_tipo_doc:esFlexipago?clienteTipoDoc:null, cliente_documento:esFlexipago?clienteDocumento.trim():null,
       cliente_nombre:esFlexipago?clienteNombre.trim():null, cliente_telefono:esFlexipago?clienteTelefono.trim():null,
@@ -1849,7 +1900,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
     }
     setGuardando(false);
     setVentas(prev=>[venta, ...prev]);
-    const numeroMsg = venta.numero_factura ? ` #${String(venta.numero_factura).padStart(4,"0")}` : "";
+    const numeroMsg = venta.numero_factura ? ` #${venta.numero_factura}` : "";
     limpiarTodo();
     setMsg(`✓ Venta${numeroMsg} registrada`);
     setTimeout(()=>setMsg(""), 3000);
@@ -1874,6 +1925,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
               )}
               <Field label="Fecha" type="date" value={fecha} onChange={setFecha}/>
             </div>
+            <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>
             <Field label="¿Quién hizo la venta?" value={vendedorId} onChange={setVendedorId} options={[{value:"",label:"Selecciona un asesor"},...asesores.map(a=>({value:a.id,label:a.name}))]}/>
           </SeccionVenta>
 
@@ -1897,7 +1949,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
                 <Field label="Medio de pago" value={itemMedio} onChange={setItemMedio} options={VENTAS_MEDIOS_PAGO}/>
               </div>
               <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr", gap:10, marginBottom:10 }}>
-                <Field label="Valor" type="number" value={itemValor} onChange={setItemValor} placeholder="0"/>
+                <CurrencyField label="Valor" value={itemValor} onChange={setItemValor}/>
                 <div>
                   <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
                     <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento</div>
@@ -1907,7 +1959,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
                       ))}
                     </div>
                   </div>
-                  <Field value={itemDescuento} type="number" onChange={setItemDescuento} placeholder="0"/>
+                  <CurrencyField value={itemDescuento} onChange={setItemDescuento}/>
                 </div>
               </div>
               {itemMedioEsTarjeta && <Field label="N.º autorización" value={itemAutorizacion} onChange={setItemAutorizacion} placeholder="Ej: 056495"/>}
@@ -1935,7 +1987,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
               <Divider/>
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"10px 0 8px" }}>Abono inicial de Flexipago (opcional)</div>
               <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr", gap:10 }}>
-                <Field label="Valor del abono" type="number" value={abonoInicialValor} onChange={setAbonoInicialValor} placeholder="0"/>
+                <CurrencyField label="Valor del abono" value={abonoInicialValor} onChange={setAbonoInicialValor}/>
                 <Field label="Medio del abono" value={abonoInicialMedio} onChange={setAbonoInicialMedio} options={VENTAS_MEDIOS_REALES}/>
               </div>
             </SeccionVenta>
@@ -2014,7 +2066,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8 }}>
               <div>
                 <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>
-                  {v.numero_factura?`#${String(v.numero_factura).padStart(4,"0")} · `:""}{v.vendedor_nombre}
+                  {v.numero_factura?`#${v.numero_factura} · `:""}{v.vendedor_nombre}
                 </div>
                 <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{v.cliente_nombre ? `Cliente: ${v.cliente_nombre}` : "Sin cliente registrado"}</div>
               </div>
@@ -2048,6 +2100,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
   const [editItemMedio, setEditItemMedio] = useState("efectivo");
   const [editItemAutorizacion, setEditItemAutorizacion] = useState("");
   const [editObservacion, setEditObservacion] = useState("");
+  const [editNumeroFactura, setEditNumeroFactura] = useState("");
 
   const [abonoForm, setAbonoForm] = useState(null);
   const [abonoValor, setAbonoValor] = useState("");
@@ -2061,7 +2114,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
     .filter(v => (!filtroTienda || v.tienda_id===filtroTienda))
     .filter(v => (!filtroFecha || v.fecha===filtroFecha))
     .filter(v => (!filtroVendedor || v.vendedor_id===filtroVendedor))
-    .sort((a,b)=> (b.numero_factura||0)-(a.numero_factura||0));
+    .sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||"") || (b.created_at||"").localeCompare(a.created_at||""));
 
   const fetchDetalle = async (ventaId) => {
     setDetalle(prev=>({...prev, [ventaId]:{...(prev[ventaId]||{}), cargando:true}}));
@@ -2099,6 +2152,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
     setEditando(venta.id);
     setEditItems((detalle[venta.id]?.items||[]).map(i=>({...i})));
     setEditObservacion(venta.observacion||"");
+    setEditNumeroFactura(venta.numero_factura||"");
   };
   const agregarEditItem = () => {
     if(!editItemValor || Number(editItemValor)<=0) return;
@@ -2118,7 +2172,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
     const desc = editItems.reduce((a,i)=>a+i.descuento,0);
     const total = bruto - desc;
     const esFlexipagoEdit = editItems.some(i=>i.medio_pago==="flexipago");
-    const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), valor_bruto:bruto, descuento_total:desc, total, es_flexipago:esFlexipagoEdit, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
+    const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), numero_factura:editNumeroFactura.trim()||null, valor_bruto:bruto, descuento_total:desc, total, es_flexipago:esFlexipagoEdit, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
     await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
     const filasItems = editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valor, descuento:i.descuento, medio_pago:i.medio_pago, numero_autorizacion:i.numero_autorizacion||null }));
     const { data:itemsNuevos } = await supabase.from("ventas_items").insert(filasItems).select();
@@ -2141,6 +2195,43 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
       setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], abonos:[...(prev[venta.id]?.abonos||[]), data]}}));
       setAbonoForm(null); setAbonoValor(""); setAbonoMedio("efectivo");
     }
+  };
+
+  const imprimirVenta = (venta, d) => {
+    const tienda = stores[venta.tienda_id]?.name || venta.tienda_id;
+    const itemsHtml = (d?.items||[]).map(i=>`<tr><td>${VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label||i.tipo}</td><td style="text-align:right">${fmtCOP(i.valor)}</td><td style="text-align:right">${Number(i.descuento)>0?fmtCOP(i.descuento):"—"}</td><td>${VENTAS_MEDIOS_PAGO.find(m=>m.value===i.medio_pago)?.label||i.medio_pago}</td></tr>`).join("");
+    const abonosHtml = (d?.abonos||[]).map(a=>`<tr><td>${a.fecha}</td><td>${VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}</td><td style="text-align:right">${fmtCOP(a.valor)}</td></tr>`).join("");
+    const totalAbonado = (d?.abonos||[]).reduce((a,x)=>a+Number(x.valor),0);
+    const valorFlex = (d?.items||[]).filter(i=>i.medio_pago==="flexipago").reduce((a,i)=>a+(Number(i.valor)-Number(i.descuento||0)),0);
+    const saldo = valorFlex - totalAbonado;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Venta ${venta.numero_factura||""}</title>
+      <style>
+        body{font-family:Arial,Helvetica,sans-serif;padding:28px;color:#111;}
+        h1{font-size:18px;margin:0 0 4px;}
+        table{width:100%;border-collapse:collapse;margin-top:10px;}
+        th,td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:13px;text-align:left;}
+        .total{font-size:16px;font-weight:bold;margin-top:12px;}
+        .muted{color:#666;font-size:12px;}
+        hr{border:none;border-top:1px solid #ccc;margin:14px 0;}
+      </style></head><body>
+      <h1>OZEN — Comprobante Flexipago</h1>
+      <div class="muted">Factura Siigo: ${venta.numero_factura||"—"} · Tienda: ${tienda} · Fecha: ${venta.fecha}</div>
+      <div class="muted">Asesor: ${venta.vendedor_nombre||""}</div>
+      <hr/>
+      <div><strong>Cliente:</strong> ${venta.cliente_nombre||"—"} · ${venta.cliente_tipo_doc||""} ${venta.cliente_documento||""} · Tel: ${venta.cliente_telefono||""}</div>
+      <table><thead><tr><th>Producto/Servicio</th><th style="text-align:right">Valor</th><th style="text-align:right">Descuento</th><th>Medio</th></tr></thead><tbody>${itemsHtml}</tbody></table>
+      <div class="total">Total venta: ${fmtCOP(venta.total)}</div>
+      <h3 style="margin-top:20px;">Plan Flexipago — Abonos</h3>
+      <table><thead><tr><th>Fecha</th><th>Medio</th><th style="text-align:right">Valor</th></tr></thead><tbody>${abonosHtml || '<tr><td colspan="3">Sin abonos registrados</td></tr>'}</tbody></table>
+      <div class="total">Saldo pendiente: ${fmtCOP(saldo)}</div>
+      ${venta.observacion?`<div class="muted" style="margin-top:14px;">Nota: ${venta.observacion}</div>`:""}
+    </body></html>`;
+    const w = window.open("", "_blank", "width=720,height=900");
+    if(!w){ alert("El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes para este sitio e intenta de nuevo."); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(()=>{ w.print(); }, 300);
   };
 
   return (
@@ -2167,37 +2258,35 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
           const saldoPendiente = valorFlexipago - totalAbonado;
           return (
             <Card key={v.id} p="0" style={{ overflow:"hidden" }}>
-              <button onClick={()=>toggleExpand(v.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"12px 14px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", textAlign:"left" }}>
-                <Badge color={C.gold} sm>#{String(v.numero_factura||0).padStart(4,"0")}</Badge>
-                <div style={{ flex:1, minWidth:120 }}>
-                  <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{v.vendedor_nombre}</div>
-                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{v.fecha} · {stores[v.tienda_id]?.name||v.tienda_id}{v.cliente_nombre?` · ${v.cliente_nombre}`:""}</div>
+              <button onClick={()=>toggleExpand(v.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"9px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
+                <Badge color={C.gold} sm>#{v.numero_factura||"—"}</Badge>
+                <div style={{ flex:1, minWidth:140 }}>
+                  <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha} · {stores[v.tienda_id]?.name||v.tienda_id}</span></div>
+                  {v.cliente_nombre && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, lineHeight:1.3 }}>{v.cliente_nombre}</div>}
                 </div>
                 {v.es_flexipago && <Badge color={C.amber} sm>Flexipago</Badge>}
-                <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight }}>${Number(v.total).toLocaleString("es-CO")}</div>
-                <span style={{ color:C.textMuted, fontSize:12 }}>{expandido===v.id?"▲":"▼"}</span>
+                <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight }}>${Number(v.total).toLocaleString("es-CO")}</div>
+                <span style={{ color:C.textMuted, fontSize:11 }}>{expandido===v.id?"▲":"▼"}</span>
               </button>
 
               {expandido===v.id && (
-                <div style={{ padding:"0 14px 16px", borderTop:`1px solid ${C.border}` }}>
+                <div style={{ padding:"0 12px 12px", borderTop:`1px solid ${C.border}` }}>
                   {d?.cargando ? (
-                    <div style={{ padding:16, color:C.textMuted, fontFamily:font.body, fontSize:12 }}>Cargando...</div>
+                    <div style={{ padding:14, color:C.textMuted, fontFamily:font.body, fontSize:12 }}>Cargando...</div>
                   ) : (
                     <>
-                      <div style={{ display:"flex", gap:16, flexWrap:"wrap", margin:"12px 0 6px", fontFamily:font.body, fontSize:12, color:C.textMuted }}>
-                        <span>Valor bruto: <span style={{color:C.text,fontFamily:font.mono}}>${Number(v.valor_bruto).toLocaleString("es-CO")}</span></span>
-                        {Number(v.descuento_total)>0 && <span>Descuento: <span style={{color:C.text,fontFamily:font.mono}}>${Number(v.descuento_total).toLocaleString("es-CO")}</span></span>}
+                      <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", margin:"8px 0 3px" }}>
+                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>Ventas y servicios</div>
+                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Bruto ${Number(v.valor_bruto).toLocaleString("es-CO")}{Number(v.descuento_total)>0 && ` · Desc $${Number(v.descuento_total).toLocaleString("es-CO")}`}</div>
                       </div>
-
-                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"12px 0 6px" }}>Ventas y servicios</div>
                       {!abiertoEdicion ? (
-                        <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:10 }}>
+                        <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:6 }}>
                           {(d?.items||[]).map(i=>(
-                            <div key={i.id} style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:12, color:C.text, flexWrap:"wrap" }}>
+                            <div key={i.id} style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12, color:C.text, flexWrap:"wrap", padding:"3px 0" }}>
                               <Badge color={i.tipo==="producto"?C.green:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
                               <Badge color={i.medio_pago==="flexipago"?C.amber:C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===i.medio_pago)?.label}</Badge>
                               {i.numero_autorizacion && <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted }}>AUT #{i.numero_autorizacion}</span>}
-                              <span style={{ fontFamily:font.mono }}>${Number(i.valor).toLocaleString("es-CO")}{Number(i.descuento)>0 && ` (desc $${Number(i.descuento).toLocaleString("es-CO")})`}</span>
+                              <span style={{ fontFamily:font.mono, marginLeft:"auto" }}>${Number(i.valor).toLocaleString("es-CO")}{Number(i.descuento)>0 && ` (desc $${Number(i.descuento).toLocaleString("es-CO")})`}</span>
                             </div>
                           ))}
                           {(d?.items||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin ventas/servicios registrados.</div>}
@@ -2221,7 +2310,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                               <Field label="Medio de pago" value={editItemMedio} onChange={setEditItemMedio} options={VENTAS_MEDIOS_PAGO}/>
                             </div>
                             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-                              <Field label="Valor" type="number" value={editItemValor} onChange={setEditItemValor} placeholder="0"/>
+                              <CurrencyField label="Valor" value={editItemValor} onChange={setEditItemValor}/>
                               <div>
                                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
                                   <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento</div>
@@ -2231,12 +2320,13 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                                     ))}
                                   </div>
                                 </div>
-                                <Field value={editItemDescuento} type="number" onChange={setEditItemDescuento} placeholder="0"/>
+                                <CurrencyField value={editItemDescuento} onChange={setEditItemDescuento}/>
                               </div>
                             </div>
                             {editItemMedioEsTarjeta && <Field label="N.º autorización" value={editItemAutorizacion} onChange={setEditItemAutorizacion} placeholder="Ej: 056495"/>}
                             <Btn onClick={agregarEditItem} sm full>+ Agregar</Btn>
                           </div>
+                          <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
                           <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
                           <div style={{ display:"flex", gap:8 }}>
                             <Btn onClick={()=>guardarEdicion(v)} disabled={guardando} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
@@ -2247,23 +2337,23 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
 
                       {v.es_flexipago && (
                         <>
-                          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"14px 0 6px" }}>Abonos (plan separe)</div>
-                          <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:8 }}>
+                          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"8px 0 3px" }}>Abonos (plan separe)</div>
+                          <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:4 }}>
                             {(d?.abonos||[]).map(a=>(
-                              <div key={a.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text }}>
+                              <div key={a.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text, padding:"2px 0" }}>
                                 <span>{a.fecha} — {a.registrado_por} · {VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}</span>
                                 <span style={{fontFamily:font.mono}}>${Number(a.valor).toLocaleString("es-CO")}</span>
                               </div>
                             ))}
                             {(d?.abonos||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin abonos todavía.</div>}
                           </div>
-                          <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:13, fontWeight:700, color:saldoPendiente>0?C.amber:C.green, marginBottom:10 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:13, fontWeight:700, color:saldoPendiente>0?C.amber:C.green, marginBottom:6 }}>
                             <span>Saldo pendiente</span><span style={{fontFamily:font.mono}}>${saldoPendiente.toLocaleString("es-CO")}</span>
                           </div>
                           {saldoPendiente>0 && (
                             abonoForm===v.id ? (
-                              <div style={{ display:"flex", gap:8, marginBottom:10, alignItems:"end", flexWrap:"wrap" }}>
-                                <div style={{ flex:1, minWidth:120 }}><Field label="Valor del abono" type="number" value={abonoValor} onChange={setAbonoValor} placeholder="0"/></div>
+                              <div style={{ display:"flex", gap:8, marginBottom:6, alignItems:"end", flexWrap:"wrap" }}>
+                                <div style={{ flex:1, minWidth:120 }}><CurrencyField label="Valor del abono" value={abonoValor} onChange={setAbonoValor}/></div>
                                 <div style={{ minWidth:160 }}><Field label="Medio del abono" value={abonoMedio} onChange={setAbonoMedio} options={VENTAS_MEDIOS_REALES}/></div>
                                 <div style={{ marginBottom:14, display:"flex", gap:6 }}>
                                   <Btn onClick={()=>agregarAbono(v)} sm>Guardar</Btn>
@@ -2271,33 +2361,37 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                                 </div>
                               </div>
                             ) : (
-                              <Btn onClick={()=>setAbonoForm(v.id)} sm style={{ marginBottom:10 }}>+ Agregar abono</Btn>
+                              <Btn onClick={()=>setAbonoForm(v.id)} sm style={{ marginBottom:6 }}>+ Agregar abono</Btn>
                             )
                           )}
                         </>
                       )}
 
-                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"14px 0 6px" }}>Solicitudes de corrección</div>
-                      <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:10 }}>
-                        {(d?.solicitudes||[]).map(s=>(
-                          <div key={s.id} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
-                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                              <div style={{ fontFamily:font.body, fontSize:12, color:C.text }}>{s.motivo}</div>
-                              <Badge color={s.estado==="pendiente"?C.amber:s.estado==="aprobada"?C.green:C.red} sm>{s.estado}{s.aplicada_at?" · aplicada":""}</Badge>
-                            </div>
-                            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:3 }}>Pidió: {s.solicitado_por} · {fmtFechaHora(s.fecha_solicitud)}{s.resuelto_por?` · Resolvió: ${s.resuelto_por}`:""}</div>
-                            {esAdmin && s.estado==="pendiente" && (
-                              <div style={{ display:"flex", gap:6, marginTop:8 }}>
-                                <Btn onClick={()=>resolverSolicitud(s,"aprobada")} variant="success" sm>Aprobar</Btn>
-                                <Btn onClick={()=>resolverSolicitud(s,"rechazada")} variant="danger" sm>Rechazar</Btn>
+                      {(d?.solicitudes||[]).length>0 && (
+                        <>
+                          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"8px 0 3px" }}>Solicitudes de corrección</div>
+                          <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:6 }}>
+                            {(d.solicitudes).map(s=>(
+                              <div key={s.id} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"6px 8px" }}>
+                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                                  <div style={{ fontFamily:font.body, fontSize:12, color:C.text }}>{s.motivo}</div>
+                                  <Badge color={s.estado==="pendiente"?C.amber:s.estado==="aprobada"?C.green:C.red} sm>{s.estado}{s.aplicada_at?" · aplicada":""}</Badge>
+                                </div>
+                                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2 }}>Pidió: {s.solicitado_por} · {fmtFechaHora(s.fecha_solicitud)}{s.resuelto_por?` · Resolvió: ${s.resuelto_por}`:""}</div>
+                                {esAdmin && s.estado==="pendiente" && (
+                                  <div style={{ display:"flex", gap:6, marginTop:6 }}>
+                                    <Btn onClick={()=>resolverSolicitud(s,"aprobada")} variant="success" sm>Aprobar</Btn>
+                                    <Btn onClick={()=>resolverSolicitud(s,"rechazada")} variant="danger" sm>Rechazar</Btn>
+                                  </div>
+                                )}
                               </div>
-                            )}
+                            ))}
                           </div>
-                        ))}
-                        {(d?.solicitudes||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin solicitudes.</div>}
-                      </div>
+                        </>
+                      )}
 
-                      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:6 }}>
+                        {v.es_flexipago && <Btn onClick={()=>imprimirVenta(v,d)} variant="ghost" sm>🖨️ Imprimir</Btn>}
                         {puedeEditar && !abiertoEdicion && <Btn onClick={()=>iniciarEdicion(v)} sm>✏️ Hacer la corrección aprobada</Btn>}
                         {mostrarSolicitud===v.id ? (
                           <div style={{ display:"flex", gap:8, flex:1, minWidth:220, alignItems:"end" }}>
@@ -2335,6 +2429,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
   const [tiendaSel, setTiendaSel] = useState("");
   const [metaInputs, setMetaInputs] = useState({});
   const [guardandoMeta, setGuardandoMeta] = useState(null);
+  const [metaMsg, setMetaMsg] = useState("");
 
   const mesKey = `${anio}-${String(mesIdx+1).padStart(2,"0")}`;
   const esMesActual = anio===hoy.getFullYear() && mesIdx===hoy.getMonth();
@@ -2362,6 +2457,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
     const key = `${tipo}:${id}`;
     const valor = Number(metaInputs[key]||0);
     setGuardandoMeta(key);
+    setMetaMsg("");
     const existente = metas.find(m=>m.mes===mesKey && (tipo==="tienda" ? m.tienda_id===id : m.vendedor_id===id));
     let data, error;
     if(existente){
@@ -2372,6 +2468,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
     }
     if(data && !error){
       setMetas(prev => existente ? prev.map(m=>m.id===data.id?data:m) : [...prev, data]);
+    } else if(error){
+      setMetaMsg(`No se pudo guardar: ${error.message||"error desconocido"}`);
     }
     setGuardandoMeta(null);
   };
@@ -2458,12 +2556,13 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
 
       {puedeAsignarMetas && (
         <SeccionVenta icon="🎯" titulo="Metas del mes" subtitulo={`Asigna las metas para ${MESES_NOMBRE[mesIdx]} ${anio}`}>
+          {metaMsg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"9px 12px", color:C.red, fontSize:12, marginBottom:12, fontFamily:font.body }}>{metaMsg}</div>}
           <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Por tienda</div>
           <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
             {tiendasList.map(t=>(
               <div key={t.id} style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text }}>{t.name}</div>
-                <div style={{ width:160 }}><Field type="number" value={metaInputs[`tienda:${t.id}`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}`]:v}))} placeholder="0"/></div>
+                <div style={{ width:160 }}><CurrencyField value={metaInputs[`tienda:${t.id}`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}`]:v}))}/></div>
                 <Btn onClick={()=>guardarMeta("tienda",t.id)} disabled={guardandoMeta===`tienda:${t.id}`} sm>{guardandoMeta===`tienda:${t.id}`?"...":"Guardar"}</Btn>
               </div>
             ))}
@@ -2473,7 +2572,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
             {asesores.map(a=>(
               <div key={a.id} style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text }}>{a.name}</div>
-                <div style={{ width:160 }}><Field type="number" value={metaInputs[`asesor:${a.id}`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`asesor:${a.id}`]:v}))} placeholder="0"/></div>
+                <div style={{ width:160 }}><CurrencyField value={metaInputs[`asesor:${a.id}`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`asesor:${a.id}`]:v}))}/></div>
                 <Btn onClick={()=>guardarMeta("asesor",a.id)} disabled={guardandoMeta===`asesor:${a.id}`} sm>{guardandoMeta===`asesor:${a.id}`?"...":"Guardar"}</Btn>
               </div>
             ))}
