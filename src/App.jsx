@@ -724,6 +724,7 @@ function StoresScreen({ stores, setStores }) {
     await supabase.from("tiendas").delete().eq("id",id); setStores(prev=>{const c={...prev};delete c[id];return c;});
   };
   const saveEdit=async(id)=>{ if(!editVal.name.trim())return; const{data}=await supabase.from("tiendas").update({name:editVal.name.trim()}).eq("id",id).select().single(); if(data){setStores(prev=>({...prev,[id]:data}));setEditing(null);} };
+  const toggleVende=async(s)=>{ const{data}=await supabase.from("tiendas").update({vende:!(s.vende!==false)}).eq("id",s.id).select().single(); if(data)setStores(prev=>({...prev,[s.id]:data})); };
   const removeShift=async(sid,sh)=>{ const shifts=stores[sid].shifts.filter(x=>x!==sh); const{data}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data)setStores(prev=>({...prev,[sid]:data})); };
   const addShift=async(sid)=>{ const sh=(newShift[sid]||"").trim(); if(!sh||stores[sid].shifts.includes(sh))return; const shifts=[...stores[sid].shifts,sh]; const{data}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data){setStores(prev=>({...prev,[sid]:data}));setNewShift(p=>({...p,[sid]:""}));} };
   return (
@@ -738,6 +739,13 @@ function StoresScreen({ stores, setStores }) {
               {!soloLectura && <div style={{display:"flex",gap:6,marginLeft:10,flexShrink:0}}>
                 {editing===s.id?<><Btn onClick={()=>saveEdit(s.id)} sm>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm>✕</Btn></>:<><Btn onClick={()=>{setEditing(s.id);setEditVal({name:s.name});}} variant="ghost" sm>✏</Btn><Btn onClick={()=>deleteStore(s.id)} variant="danger" sm>🗑</Btn></>}
               </div>}
+            </div>
+            <div style={{marginBottom:10}}>
+              {soloLectura ? (
+                <Badge color={s.vende!==false?C.green:C.textMuted} sm>{s.vende!==false?"Vende":"No vende (no aparece en Ventas)"}</Badge>
+              ) : (
+                <Btn onClick={()=>toggleVende(s)} variant="ghost" sm>{s.vende!==false ? "✓ Vende — aparece en Ventas" : "✕ No vende — oculta en Ventas"}</Btn>
+              )}
             </div>
             <Divider />
             <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Turnos ({s.shifts.length})</div>
@@ -1786,6 +1794,9 @@ function CambiarPasswordForm({ user, onUpdated, onCancel, obligatorio }) {
 }
 
 // ── VENTAS ────────────────────────────────────────────────────────────────────
+// Tiendas que sí venden (excluye lugares como la oficina, que no procesan ventas).
+// Se controla con el switch "Vende" en la pantalla de Tiendas.
+const tiendasVenta = (stores) => Object.values(stores).filter(s=>s.vende!==false);
 const VENTAS_MEDIOS_PAGO = [
   { value:"efectivo", label:"Efectivo" },
   { value:"tarjeta", label:"Tarjeta (débito/crédito)" },
@@ -1835,8 +1846,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   const [itemValor, setItemValor] = useState("");
   const [itemDescuento, setItemDescuento] = useState("");
   const [itemDescuentoTipo, setItemDescuentoTipo] = useState("valor");
-  const [itemMedios, setItemMedios] = useState({}); // { efectivo: "50000" }
-  const [itemAutorizaciones, setItemAutorizaciones] = useState({});
+  const [itemPagos, setItemPagos] = useState([]); // [{medio_pago, valor, numero_autorizacion}] — permite repetir medio (ej. dos tarjetas)
   const [itemMedioNuevo, setItemMedioNuevo] = useState("efectivo");
   const [observacion, setObservacion] = useState("");
 
@@ -1875,34 +1885,24 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   }, [clienteDocumento]);
 
   const itemEsFlexipago = itemTipo === "flexipago";
-  const itemMediosDisponibles = VENTAS_MEDIOS_PAGO.filter(m=>!(m.value in itemMedios));
 
   const itemValorNum = Number(itemValor||0);
   const itemDescuentoInput = Number(itemDescuento||0);
   const itemDescuentoNum = itemDescuentoTipo==="porcentaje" ? Math.round(itemValorNum*itemDescuentoInput/100) : itemDescuentoInput;
   const itemNeto = itemValorNum - itemDescuentoNum;
-  const itemSumaMedios = Object.values(itemMedios).reduce((a,v)=>a+Number(v||0),0);
+  const itemSumaMedios = itemPagos.reduce((a,p)=>a+Number(p.valor||0),0);
   const itemFalta = itemNeto - itemSumaMedios;
-  const itemFaltaAUT = VENTAS_MEDIOS_TARJETA.some(m=> m in itemMedios && !(itemAutorizaciones[m]||"").trim());
+  const itemFaltaAUT = itemPagos.some(p=>VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && !(p.numero_autorizacion||"").trim());
   const itemFlexipagoRestante = itemValorNum - Number(abonoInicialValor||0);
   const itemFlexipagoValido = itemValorNum>0 && clienteDocumento.trim()!=="" && clienteNombre.trim()!=="" && abonoInicialValor.trim()!=="";
 
-  // Mantiene el selector de "agregar medio" apuntando a una opción que todavía no se ha añadido
-  useEffect(()=>{
-    if(itemMediosDisponibles.length>0 && !itemMediosDisponibles.some(m=>m.value===itemMedioNuevo)) setItemMedioNuevo(itemMediosDisponibles[0].value);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemMedios]);
-
   const agregarMedioAItem = () => {
-    if(!itemMedioNuevo || itemMedioNuevo in itemMedios) return;
-    setItemMedios(prev=>({...prev, [itemMedioNuevo]:""}));
+    if(!itemMedioNuevo) return;
+    setItemPagos(prev=>[...prev, { medio_pago:itemMedioNuevo, valor:"", numero_autorizacion:"" }]);
   };
-  const quitarMedioDeItem = (medio) => {
-    setItemMedios(prev=>{ const c={...prev}; delete c[medio]; return c; });
-    setItemAutorizaciones(prev=>{ const c={...prev}; delete c[medio]; return c; });
-  };
-  const setItemMedioValor = (value, v) => setItemMedios(prev=>({...prev, [value]:v}));
-  const setItemAutorizacion = (value, v) => setItemAutorizaciones(prev=>({...prev, [value]:v}));
+  const quitarMedioDeItem = (idx) => setItemPagos(prev=>prev.filter((_,i)=>i!==idx));
+  const setItemPagoValor = (idx, v) => setItemPagos(prev=>prev.map((p,i)=>i===idx?{...p,valor:v}:p));
+  const setItemPagoAutorizacion = (idx, v) => setItemPagos(prev=>prev.map((p,i)=>i===idx?{...p,numero_autorizacion:v}:p));
 
   const agregarItem = () => {
     if(itemEsFlexipago){
@@ -1911,10 +1911,10 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
       setItemValor("");
       return;
     }
-    if(itemValorNum<=0 || Object.keys(itemMedios).length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT) return;
-    const pagos = Object.entries(itemMedios).map(([medio,v])=>({ medio_pago:medio, valor:Number(v||0), numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(medio)?(itemAutorizaciones[medio]||"").trim():null }));
+    if(itemValorNum<=0 || itemPagos.length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT) return;
+    const pagos = itemPagos.map(p=>({ medio_pago:p.medio_pago, valor:Number(p.valor||0), numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?(p.numero_autorizacion||"").trim():null }));
     setItems(prev=>[...prev, { tipo:itemTipo, valorTotal:itemValorNum, descuento:itemDescuentoNum, pagos }]);
-    setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemMedios({}); setItemAutorizaciones({});
+    setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemPagos([]);
   };
   const quitarItem = (idx) => setItems(prev=>prev.filter((_,i)=>i!==idx));
 
@@ -1926,7 +1926,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   const saldoPendiente = esFlexipago ? valorFlexipago - Number(abonoInicialValor||0) : 0;
 
   const limpiarTodo = () => {
-    setNumeroFactura(""); setVendedorId(""); setItems([]); setItemTipo("producto"); setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemMedios({}); setItemAutorizaciones({}); setItemMedioNuevo("efectivo"); setObservacion("");
+    setNumeroFactura(""); setVendedorId(""); setItems([]); setItemTipo("producto"); setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemPagos([]); setItemMedioNuevo("efectivo"); setObservacion("");
     setAbonoInicialValor(""); setAbonoInicialMedio("efectivo");
     setClienteTipoDoc("CC"); setClienteDocumento(""); setClienteNombre(""); setClienteTelefono(""); setClienteEncontrado(false);
   };
@@ -1975,7 +1975,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
           <SeccionVenta icon="🏬" titulo="Información general">
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:12 }}>
               {!tiendaFija ? (
-                <Field label="Tienda" value={tiendaId} onChange={setTiendaId} options={Object.values(stores).map(s=>({value:s.id,label:s.name}))}/>
+                <Field label="Tienda" value={tiendaId} onChange={setTiendaId} options={tiendasVenta(stores).map(s=>({value:s.id,label:s.name}))}/>
               ) : (
                 <div>
                   <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Tienda</div>
@@ -2059,43 +2059,41 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
                   </div>
 
                   <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Medios de pago</div>
-                  {Object.keys(itemMedios).length>0 && (
+                  {itemPagos.length>0 && (
                     <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:8 }}>
-                      {Object.keys(itemMedios).map(medio=>{
-                        const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===medio);
+                      {itemPagos.map((p,idx)=>{
+                        const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===p.medio_pago);
                         return (
-                          <div key={medio} style={{ border:`1px solid ${C.gold}`, borderRadius:8, padding:"9px 10px", background:`${C.gold}0d` }}>
+                          <div key={idx} style={{ border:`1px solid ${C.gold}`, borderRadius:8, padding:"9px 10px", background:`${C.gold}0d` }}>
                             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
                               <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{m?.label}</span>
-                              <button onClick={()=>quitarMedioDeItem(medio)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
+                              <button onClick={()=>quitarMedioDeItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
                             </div>
-                            <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(medio)?"1fr 1fr":"1fr", gap:10 }}>
-                              <CurrencyField label="Valor pagado" value={itemMedios[medio]} onChange={v=>setItemMedioValor(medio,v)}/>
-                              {VENTAS_MEDIOS_TARJETA.includes(medio) && <Field label="N.º autorización" value={itemAutorizaciones[medio]||""} onChange={v=>setItemAutorizacion(medio,v)} placeholder="Ej: 056495"/>}
+                            <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?"1fr 1fr":"1fr", gap:10 }}>
+                              <CurrencyField label="Valor pagado" value={p.valor} onChange={v=>setItemPagoValor(idx,v)}/>
+                              {VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && <Field label="N.º autorización" value={p.numero_autorizacion||""} onChange={v=>setItemPagoAutorizacion(idx,v)} placeholder="Ej: 056495"/>}
                             </div>
                           </div>
                         );
                       })}
                     </div>
                   )}
-                  {itemMediosDisponibles.length>0 && (
-                    <div style={{ display:"flex", gap:8, marginBottom:8, alignItems:"end" }}>
-                      <div style={{ flex:1 }}><Field label="Agregar medio de pago" value={itemMedioNuevo} onChange={setItemMedioNuevo} options={itemMediosDisponibles}/></div>
-                      <div style={{ marginBottom:14 }}><Btn onClick={agregarMedioAItem} variant="ghost" sm>+ Agregar medio</Btn></div>
-                    </div>
-                  )}
-                  {Object.keys(itemMedios).length>0 && (
+                  <div style={{ display:"flex", gap:8, marginBottom:8, alignItems:"end" }}>
+                    <div style={{ flex:1 }}><Field label="Agregar medio de pago" value={itemMedioNuevo} onChange={setItemMedioNuevo} options={VENTAS_MEDIOS_PAGO}/></div>
+                    <div style={{ marginBottom:14 }}><Btn onClick={agregarMedioAItem} variant="ghost" sm>+ Agregar medio</Btn></div>
+                  </div>
+                  {itemPagos.length>0 && (
                     <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(itemFalta)<1?C.green:C.red }}>
                       {Math.abs(itemFalta)<1 ? "✓ Los medios cuadran con el valor de este renglón" : itemFalta>0 ? `Faltan $${itemFalta.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(itemFalta).toLocaleString("es-CO")}`}
                     </div>
                   )}
                 </>
               )}
-              <Btn onClick={agregarItem} disabled={itemEsFlexipago ? !itemFlexipagoValido : (itemValorNum<=0 || Object.keys(itemMedios).length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT)} sm full>+ Agregar</Btn>
+              <Btn onClick={agregarItem} disabled={itemEsFlexipago ? !itemFlexipagoValido : (itemValorNum<=0 || itemPagos.length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT)} sm full>+ Agregar</Btn>
             </div>
 
             <div style={{ marginTop:12 }}>
-              {esFlexipago ? (
+              {(esFlexipago || itemEsFlexipago) ? (
                 <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>📦 Flexipago no factura en Siigo hasta completar el pago — el número se agrega después, desde "Lista de ventas".</div>
               ) : (
                 <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>
@@ -2213,8 +2211,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
   const [editItemValor, setEditItemValor] = useState("");
   const [editItemDescuento, setEditItemDescuento] = useState("");
   const [editItemDescuentoTipo, setEditItemDescuentoTipo] = useState("valor");
-  const [editItemMedios, setEditItemMedios] = useState({});
-  const [editItemAutorizaciones, setEditItemAutorizaciones] = useState({});
+  const [editItemPagos, setEditItemPagos] = useState([]); // [{medio_pago, valor, numero_autorizacion}]
   const [editItemMedioNuevo, setEditItemMedioNuevo] = useState("efectivo");
   const [editObservacion, setEditObservacion] = useState("");
   const [editNumeroFactura, setEditNumeroFactura] = useState("");
@@ -2272,30 +2269,21 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
   };
 
   const editItemEsFlexipago = editItemTipo === "flexipago";
-  const editItemMediosDisponibles = VENTAS_MEDIOS_PAGO.filter(m=>!(m.value in editItemMedios));
   const editItemValorNum = Number(editItemValor||0);
   const editItemDescuentoInput = Number(editItemDescuento||0);
   const editItemDescuentoNum = editItemDescuentoTipo==="porcentaje" ? Math.round(editItemValorNum*editItemDescuentoInput/100) : editItemDescuentoInput;
   const editItemNeto = editItemValorNum - editItemDescuentoNum;
-  const editItemSumaMedios = Object.values(editItemMedios).reduce((a,v)=>a+Number(v||0),0);
+  const editItemSumaMedios = editItemPagos.reduce((a,p)=>a+Number(p.valor||0),0);
   const editItemFalta = editItemNeto - editItemSumaMedios;
-  const editItemFaltaAUT = VENTAS_MEDIOS_TARJETA.some(m=> m in editItemMedios && !(editItemAutorizaciones[m]||"").trim());
-
-  useEffect(()=>{
-    if(editItemMediosDisponibles.length>0 && !editItemMediosDisponibles.some(m=>m.value===editItemMedioNuevo)) setEditItemMedioNuevo(editItemMediosDisponibles[0].value);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editItemMedios]);
+  const editItemFaltaAUT = editItemPagos.some(p=>VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && !(p.numero_autorizacion||"").trim());
 
   const agregarMedioAEditItem = () => {
-    if(!editItemMedioNuevo || editItemMedioNuevo in editItemMedios) return;
-    setEditItemMedios(prev=>({...prev, [editItemMedioNuevo]:""}));
+    if(!editItemMedioNuevo) return;
+    setEditItemPagos(prev=>[...prev, { medio_pago:editItemMedioNuevo, valor:"", numero_autorizacion:"" }]);
   };
-  const quitarMedioDeEditItem = (medio) => {
-    setEditItemMedios(prev=>{ const c={...prev}; delete c[medio]; return c; });
-    setEditItemAutorizaciones(prev=>{ const c={...prev}; delete c[medio]; return c; });
-  };
-  const setEditItemMedioValor = (value, v) => setEditItemMedios(prev=>({...prev, [value]:v}));
-  const setEditItemAutorizacion = (value, v) => setEditItemAutorizaciones(prev=>({...prev, [value]:v}));
+  const quitarMedioDeEditItem = (idx) => setEditItemPagos(prev=>prev.filter((_,i)=>i!==idx));
+  const setEditItemPagoValor = (idx, v) => setEditItemPagos(prev=>prev.map((p,i)=>i===idx?{...p,valor:v}:p));
+  const setEditItemPagoAutorizacion = (idx, v) => setEditItemPagos(prev=>prev.map((p,i)=>i===idx?{...p,numero_autorizacion:v}:p));
 
   const agregarEditItem = () => {
     if(editItemEsFlexipago){
@@ -2304,10 +2292,10 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
       setEditItemValor("");
       return;
     }
-    if(editItemValorNum<=0 || Object.keys(editItemMedios).length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT) return;
-    const pagos = Object.entries(editItemMedios).map(([medio,v])=>({ medio_pago:medio, valor:Number(v||0), numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(medio)?(editItemAutorizaciones[medio]||"").trim():null }));
+    if(editItemValorNum<=0 || editItemPagos.length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT) return;
+    const pagos = editItemPagos.map(p=>({ medio_pago:p.medio_pago, valor:Number(p.valor||0), numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?(p.numero_autorizacion||"").trim():null }));
     setEditItems(prev=>[...prev, { tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos }]);
-    setEditItemValor(""); setEditItemDescuento(""); setEditItemDescuentoTipo("valor"); setEditItemMedios({}); setEditItemAutorizaciones({});
+    setEditItemValor(""); setEditItemDescuento(""); setEditItemDescuentoTipo("valor"); setEditItemPagos([]);
   };
   const quitarEditItem = (idx) => setEditItems(prev=>prev.filter((_,i)=>i!==idx));
 
@@ -2406,7 +2394,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"end" }}>
           {!tiendaFija && (
-            <div style={{ minWidth:160 }}><Field label="Tienda" value={filtroTienda} onChange={setFiltroTienda} options={[{value:"",label:"Todas"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/></div>
+            <div style={{ minWidth:160 }}><Field label="Tienda" value={filtroTienda} onChange={setFiltroTienda} options={[{value:"",label:"Todas"},...tiendasVenta(stores).map(s=>({value:s.id,label:s.name}))]}/></div>
           )}
           <div style={{ minWidth:160 }}><Field label="Vendedor" value={filtroVendedor} onChange={setFiltroVendedor} options={[{value:"",label:"Todos"},...asesores.map(a=>({value:a.id,label:a.name}))]}/></div>
           <div style={{ minWidth:150 }}><Field label="Fecha" type="date" value={filtroFecha} onChange={setFiltroFecha}/></div>
@@ -2508,39 +2496,37 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                                   </div>
                                 </div>
                                 <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Medios de pago</div>
-                                {Object.keys(editItemMedios).length>0 && (
+                                {editItemPagos.length>0 && (
                                   <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:8 }}>
-                                    {Object.keys(editItemMedios).map(medio=>{
-                                      const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===medio);
+                                    {editItemPagos.map((p,idx)=>{
+                                      const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===p.medio_pago);
                                       return (
-                                        <div key={medio} style={{ border:`1px solid ${C.gold}`, borderRadius:8, padding:"9px 10px", background:`${C.gold}0d` }}>
+                                        <div key={idx} style={{ border:`1px solid ${C.gold}`, borderRadius:8, padding:"9px 10px", background:`${C.gold}0d` }}>
                                           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
                                             <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{m?.label}</span>
-                                            <button onClick={()=>quitarMedioDeEditItem(medio)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
+                                            <button onClick={()=>quitarMedioDeEditItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
                                           </div>
-                                          <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(medio)?"1fr 1fr":"1fr", gap:10 }}>
-                                            <CurrencyField label="Valor pagado" value={editItemMedios[medio]} onChange={v=>setEditItemMedioValor(medio,v)}/>
-                                            {VENTAS_MEDIOS_TARJETA.includes(medio) && <Field label="N.º autorización" value={editItemAutorizaciones[medio]||""} onChange={v=>setEditItemAutorizacion(medio,v)} placeholder="Ej: 056495"/>}
+                                          <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?"1fr 1fr":"1fr", gap:10 }}>
+                                            <CurrencyField label="Valor pagado" value={p.valor} onChange={v=>setEditItemPagoValor(idx,v)}/>
+                                            {VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && <Field label="N.º autorización" value={p.numero_autorizacion||""} onChange={v=>setEditItemPagoAutorizacion(idx,v)} placeholder="Ej: 056495"/>}
                                           </div>
                                         </div>
                                       );
                                     })}
                                   </div>
                                 )}
-                                {editItemMediosDisponibles.length>0 && (
-                                  <div style={{ display:"flex", gap:8, marginBottom:8, alignItems:"end" }}>
-                                    <div style={{ flex:1 }}><Field label="Agregar medio de pago" value={editItemMedioNuevo} onChange={setEditItemMedioNuevo} options={editItemMediosDisponibles}/></div>
-                                    <div style={{ marginBottom:14 }}><Btn onClick={agregarMedioAEditItem} variant="ghost" sm>+ Agregar medio</Btn></div>
-                                  </div>
-                                )}
-                                {Object.keys(editItemMedios).length>0 && (
+                                <div style={{ display:"flex", gap:8, marginBottom:8, alignItems:"end" }}>
+                                  <div style={{ flex:1 }}><Field label="Agregar medio de pago" value={editItemMedioNuevo} onChange={setEditItemMedioNuevo} options={VENTAS_MEDIOS_PAGO}/></div>
+                                  <div style={{ marginBottom:14 }}><Btn onClick={agregarMedioAEditItem} variant="ghost" sm>+ Agregar medio</Btn></div>
+                                </div>
+                                {editItemPagos.length>0 && (
                                   <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(editItemFalta)<1?C.green:C.red }}>
                                     {Math.abs(editItemFalta)<1 ? "✓ Los medios cuadran con el valor de este renglón" : editItemFalta>0 ? `Faltan $${editItemFalta.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(editItemFalta).toLocaleString("es-CO")}`}
                                   </div>
                                 )}
                               </>
                             )}
-                            <Btn onClick={agregarEditItem} disabled={editItemEsFlexipago ? editItemValorNum<=0 : (editItemValorNum<=0 || Object.keys(editItemMedios).length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT)} sm full>+ Agregar</Btn>
+                            <Btn onClick={agregarEditItem} disabled={editItemEsFlexipago ? editItemValorNum<=0 : (editItemValorNum<=0 || editItemPagos.length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT)} sm full>+ Agregar</Btn>
                           </div>
                           <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
                           {editItems.some(i=>i.tipo==="flexipago") ? (
@@ -2648,7 +2634,7 @@ const MESES_NOMBRE = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","
 const diasDelMes = (anio, mesIdx) => new Date(anio, mesIdx+1, 0).getDate();
 const fmtCOP = (n) => `$${Math.round(n||0).toLocaleString("es-CO")}`;
 
-function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas, setMetas, esAdmin, puedeAsignarMetas, isMobile }) {
+function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile }) {
   const hoy = toColombiaDate();
   const [anio, setAnio] = useState(hoy.getFullYear());
   const [mesIdx, setMesIdx] = useState(hoy.getMonth());
@@ -2656,6 +2642,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
   const [metaInputs, setMetaInputs] = useState({});
   const [guardandoMeta, setGuardandoMeta] = useState(null);
   const [metaMsg, setMetaMsg] = useState("");
+  const [detalleInputs, setDetalleInputs] = useState({});
+  const [guardandoDetalle, setGuardandoDetalle] = useState(null);
 
   const mesKey = `${anio}-${String(mesIdx+1).padStart(2,"0")}`;
   const esMesActual = anio===hoy.getFullYear() && mesIdx===hoy.getMonth();
@@ -2665,32 +2653,48 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
   const irMesAnterior = () => { if(mesIdx===0){ setMesIdx(11); setAnio(a=>a-1); } else setMesIdx(m=>m-1); };
   const irMesSiguiente = () => { if(mesIdx===11){ setMesIdx(0); setAnio(a=>a+1); } else setMesIdx(m=>m+1); };
 
-  const tiendasList = Object.values(stores);
+  const tiendasList = tiendasVenta(stores);
   const asesores = users.filter(u=>u.role==="advisor" && u.active);
 
-  const metaTiendaValor = (tiendaId) => Number(metas.find(m=>m.mes===mesKey && m.tienda_id===tiendaId)?.valor || 0);
-  const metaAsesorValor = (asesorId) => Number(metas.find(m=>m.mes===mesKey && m.vendedor_id===asesorId)?.valor || 0);
+  const metaTiendaValor = (tiendaId, tipo="total") => Number(metas.find(m=>m.mes===mesKey && m.tienda_id===tiendaId && (m.tipo||"total")===tipo)?.valor || 0);
 
   useEffect(()=>{
     const obj = {};
-    tiendasList.forEach(t=>{ obj[`tienda:${t.id}`] = String(metaTiendaValor(t.id)||""); });
-    asesores.forEach(a=>{ obj[`asesor:${a.id}`] = String(metaAsesorValor(a.id)||""); });
+    tiendasList.forEach(t=>{
+      obj[`tienda:${t.id}:total`] = String(metaTiendaValor(t.id,"total")||"");
+      obj[`tienda:${t.id}:personal`] = String(metaTiendaValor(t.id,"personal")||"");
+    });
     setMetaInputs(obj);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesKey, metas.length]);
 
-  const guardarMeta = async (tipo, id) => {
-    const key = `${tipo}:${id}`;
+  useEffect(()=>{
+    const obj = {};
+    asesores.forEach(a=>{
+      const existente = metasAsesor.find(m=>m.mes===mesKey && m.vendedor_id===a.id);
+      obj[a.id] = {
+        mesCompleto: existente ? existente.mes_completo : true,
+        diasIngreso: String(existente?.dias_ingreso||""),
+        tipoNovedad: existente?.tipo_novedad||"",
+        diasNovedad: String(existente?.dias_novedad||""),
+        diasTienda: Object.fromEntries(tiendasList.map(t=>[t.id, String((existente?.dias_tienda||{})[t.id]||"")])),
+      };
+    });
+    setDetalleInputs(obj);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesKey, metasAsesor.length, asesores.length]);
+
+  const guardarMeta = async (tiendaId, tipo) => {
+    const key = `tienda:${tiendaId}:${tipo}`;
     const valor = Number(metaInputs[key]||0);
     setGuardandoMeta(key);
     setMetaMsg("");
-    const existente = metas.find(m=>m.mes===mesKey && (tipo==="tienda" ? m.tienda_id===id : m.vendedor_id===id));
+    const existente = metas.find(m=>m.mes===mesKey && m.tienda_id===tiendaId && (m.tipo||"total")===tipo);
     let data, error;
     if(existente){
       ({data,error} = await supabase.from("ventas_metas").update({ valor }).eq("id",existente.id).select().single());
     } else {
-      const payload = tipo==="tienda" ? { mes:mesKey, tienda_id:id, vendedor_id:null, valor } : { mes:mesKey, tienda_id:null, vendedor_id:id, valor };
-      ({data,error} = await supabase.from("ventas_metas").insert(payload).select().single());
+      ({data,error} = await supabase.from("ventas_metas").insert({ mes:mesKey, tienda_id:tiendaId, vendedor_id:null, valor, tipo }).select().single());
     }
     if(data && !error){
       setMetas(prev => existente ? prev.map(m=>m.id===data.id?data:m) : [...prev, data]);
@@ -2698,6 +2702,52 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
       setMetaMsg(`No se pudo guardar: ${error.message||"error desconocido"}`);
     }
     setGuardandoMeta(null);
+  };
+
+  const setDetalleField = (asesorId, field, value) => setDetalleInputs(prev=>({...prev, [asesorId]: {...prev[asesorId], [field]:value}}));
+  const setDetalleTienda = (asesorId, tiendaId, value) => setDetalleInputs(prev=>({...prev, [asesorId]: {...prev[asesorId], diasTienda:{...prev[asesorId]?.diasTienda, [tiendaId]:value}}}));
+
+  const guardarDetalleAsesor = async (asesorId) => {
+    const d = detalleInputs[asesorId];
+    if(!d) return;
+    setGuardandoDetalle(asesorId);
+    setMetaMsg("");
+    const payload = {
+      mes: mesKey, vendedor_id: asesorId,
+      mes_completo: d.mesCompleto,
+      dias_ingreso: d.mesCompleto ? null : Number(d.diasIngreso||0),
+      tipo_novedad: d.tipoNovedad || null,
+      dias_novedad: Number(d.diasNovedad||0),
+      dias_tienda: Object.fromEntries(Object.entries(d.diasTienda||{}).map(([k,v])=>[k, Number(v||0)])),
+      updated_at: new Date().toISOString(),
+    };
+    const existente = metasAsesor.find(m=>m.mes===mesKey && m.vendedor_id===asesorId);
+    let data, error;
+    if(existente){
+      ({data,error} = await supabase.from("ventas_metas_asesor").update(payload).eq("id",existente.id).select().single());
+    } else {
+      ({data,error} = await supabase.from("ventas_metas_asesor").insert(payload).select().single());
+    }
+    if(data && !error){
+      setMetasAsesor(prev => existente ? prev.map(m=>m.id===data.id?data:m) : [...prev, data]);
+    } else if(error){
+      setMetaMsg(`No se pudo guardar la meta de ${users.find(u=>u.id===asesorId)?.name||"asesor"}: ${error.message||"error desconocido"}`);
+    }
+    setGuardandoDetalle(null);
+  };
+
+  const metaAsesorCalculada = (asesorId) => {
+    const d = metasAsesor.find(m=>m.mes===mesKey && m.vendedor_id===asesorId);
+    if(!d) return 0;
+    const diasBase = (d.mes_completo ? diasTotalesMes : Number(d.dias_ingreso||0)) - Number(d.dias_novedad||0);
+    if(diasBase<=0) return 0;
+    let total = 0;
+    for(const t of tiendasList){
+      const diasEnTienda = Number((d.dias_tienda||{})[t.id]||0);
+      if(diasEnTienda<=0) continue;
+      total += (diasEnTienda/diasBase) * metaTiendaValor(t.id,"personal");
+    }
+    return Math.round(total);
   };
 
   const ventasDelMes = ventas.filter(v => v.fecha && v.fecha.slice(0,7)===mesKey && (!tiendaSel || v.tienda_id===tiendaSel));
@@ -2721,7 +2771,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
     const idsAsesor = new Set(ventasAsesor.map(v=>v.id));
     const sinServicios = itemsDelMesProducto.filter(i=>idsAsesor.has(i.venta_id)).reduce((s,i)=>s+(Number(i.valor)-Number(i.descuento||0)),0);
     const conServicios = ventasAsesor.reduce((s,v)=>s+Number(v.total||0),0);
-    const meta = metaAsesorValor(a.id);
+    const meta = metaAsesorCalculada(a.id);
     const idc = meta>0 ? Math.round((sinServicios/meta)*1000)/10 : null;
     const mda = esMesActual && diasRestantes>0 && meta>0 ? Math.round((meta-sinServicios)/diasRestantes) : null;
     return { asesor:a, sinServicios, conServicios, meta, idc, mda };
@@ -2786,24 +2836,54 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
         <SeccionVenta icon="🎯" titulo="Metas del mes" subtitulo={`Asigna las metas para ${MESES_NOMBRE[mesIdx]} ${anio}`}>
           {metaMsg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"9px 12px", color:C.red, fontSize:12, marginBottom:12, fontFamily:font.body }}>{metaMsg}</div>}
           <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Por tienda</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
             {tiendasList.map(t=>(
-              <div key={t.id} style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text }}>{t.name}</div>
-                <div style={{ width:160 }}><CurrencyField value={metaInputs[`tienda:${t.id}`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}`]:v}))}/></div>
-                <Btn onClick={()=>guardarMeta("tienda",t.id)} disabled={guardandoMeta===`tienda:${t.id}`} sm>{guardandoMeta===`tienda:${t.id}`?"...":"Guardar"}</Btn>
+              <div key={t.id} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
+                <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:8 }}>{t.name}</div>
+                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10 }}>
+                  <div style={{ display:"flex", alignItems:"end", gap:8 }}>
+                    <div style={{ flex:1 }}><CurrencyField label="Meta total" value={metaInputs[`tienda:${t.id}:total`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:total`]:v}))}/></div>
+                    <Btn onClick={()=>guardarMeta(t.id,"total")} disabled={guardandoMeta===`tienda:${t.id}:total`} sm style={{ marginBottom:14 }}>{guardandoMeta===`tienda:${t.id}:total`?"...":"Guardar"}</Btn>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"end", gap:8 }}>
+                    <div style={{ flex:1 }}><CurrencyField label="Meta personal (tiempo completo)" value={metaInputs[`tienda:${t.id}:personal`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:personal`]:v}))}/></div>
+                    <Btn onClick={()=>guardarMeta(t.id,"personal")} disabled={guardandoMeta===`tienda:${t.id}:personal`} sm style={{ marginBottom:14 }}>{guardandoMeta===`tienda:${t.id}:personal`?"...":"Guardar"}</Btn>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Por asesor</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-            {asesores.map(a=>(
-              <div key={a.id} style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text }}>{a.name}</div>
-                <div style={{ width:160 }}><CurrencyField value={metaInputs[`asesor:${a.id}`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`asesor:${a.id}`]:v}))}/></div>
-                <Btn onClick={()=>guardarMeta("asesor",a.id)} disabled={guardandoMeta===`asesor:${a.id}`} sm>{guardandoMeta===`asesor:${a.id}`?"...":"Guardar"}</Btn>
-              </div>
-            ))}
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:2 }}>Metas personales de asesores</div>
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:10 }}>Se calcula sola según en qué tienda(s) trabajó cada quien este mes.</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {asesores.map(a=>{
+              const d = detalleInputs[a.id] || { mesCompleto:true, diasIngreso:"", tipoNovedad:"", diasNovedad:"", diasTienda:{} };
+              return (
+                <div key={a.id} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
+                  <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:8 }}>
+                    {a.name} <span style={{ color:C.textMuted, fontWeight:400, fontFamily:font.mono, fontSize:12 }}>· meta calculada: {fmtCOP(metaAsesorCalculada(a.id))}</span>
+                  </div>
+                  <label style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:12, color:C.text, marginBottom:10, cursor:"pointer" }}>
+                    <input type="checkbox" checked={d.mesCompleto} onChange={e=>setDetalleField(a.id,"mesCompleto",e.target.checked)}/>
+                    Mes completo ({diasTotalesMes} días)
+                  </label>
+                  {!d.mesCompleto && (
+                    <Field label={`¿Cuántos días de este mes trabaja? (de ${diasTotalesMes})`} value={d.diasIngreso} onChange={v=>setDetalleField(a.id,"diasIngreso",v.replace(/[^\d]/g,""))} placeholder="Ej: 15"/>
+                  )}
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    <Field label="Novedad" value={d.tipoNovedad} onChange={v=>setDetalleField(a.id,"tipoNovedad",v)} options={[{value:"",label:"Ninguna"},{value:"incapacidad",label:"Incapacidad"},{value:"licencia",label:"Licencia"}]}/>
+                    {d.tipoNovedad && <Field label="Días de novedad (se restan)" value={d.diasNovedad} onChange={v=>setDetalleField(a.id,"diasNovedad",v.replace(/[^\d]/g,""))} placeholder="Ej: 3"/>}
+                  </div>
+                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"4px 0 6px" }}>Días trabajados en cada tienda</div>
+                  <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${Math.min(tiendasList.length||1,4)}, 1fr)`, gap:10 }}>
+                    {tiendasList.map(t=>(
+                      <Field key={t.id} label={t.name} value={d.diasTienda?.[t.id]||""} onChange={v=>setDetalleTienda(a.id,t.id,v.replace(/[^\d]/g,""))} placeholder="0"/>
+                    ))}
+                  </div>
+                  <Btn onClick={()=>guardarDetalleAsesor(a.id)} disabled={guardandoDetalle===a.id} sm>{guardandoDetalle===a.id?"Guardando...":"Guardar"}</Btn>
+                </div>
+              );
+            })}
             {asesores.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>No hay asesores activos.</div>}
           </div>
         </SeccionVenta>
@@ -2874,13 +2954,13 @@ export default function App() {
   const [user,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
   const [juntaLideres,setJuntaLideres]=useState([]),[juntaCompromisos,setJuntaCompromisos]=useState([]),[juntaAcuerdos,setJuntaAcuerdos]=useState([]);
   const [juntaAreas,setJuntaAreas]=useState([]),[juntaLiderAreas,setJuntaLiderAreas]=useState([]);
-  const [ventas,setVentas]=useState([]),[ventasItems,setVentasItems]=useState([]),[ventasMetas,setVentasMetas]=useState([]);
+  const [ventas,setVentas]=useState([]),[ventasItems,setVentasItems]=useState([]),[ventasMetas,setVentasMetas]=useState([]),[ventasMetasAsesor,setVentasMetasAsesor]=useState([]);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
   const isMobile=useIsMobile();
 
   const loadAll=async()=>{
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm}]=await Promise.all([
+    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
       supabase.from("registros").select("*").order("date",{ascending:false}),
@@ -2892,6 +2972,7 @@ export default function App() {
       supabase.from("ventas").select("*").order("fecha",{ascending:false}),
       supabase.from("ventas_items").select("*"),
       supabase.from("ventas_metas").select("*"),
+      supabase.from("ventas_metas_asesor").select("*"),
     ]);
     const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
     setStores(sm);setUsers(u||[]);setRecords(r||[]);
@@ -2903,6 +2984,7 @@ export default function App() {
     setVentas(v||[]);
     setVentasItems(vi||[]);
     setVentasMetas(vm||[]);
+    setVentasMetasAsesor(vma||[]);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
@@ -2941,7 +3023,7 @@ export default function App() {
       } else if(area==="ventas"){
         if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)}/>;
-        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} metas={ventasMetas} setMetas={setVentasMetas} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
+        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
@@ -2952,7 +3034,7 @@ export default function App() {
     } else if(esCuentaTienda(user)){
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false}/>;
-      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} metas={ventasMetas} setMetas={setVentasMetas} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
+      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores}/>;
