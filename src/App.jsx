@@ -2633,6 +2633,8 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
 const MESES_NOMBRE = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const diasDelMes = (anio, mesIdx) => new Date(anio, mesIdx+1, 0).getDate();
 const fmtCOP = (n) => `$${Math.round(n||0).toLocaleString("es-CO")}`;
+// La meta personal siempre se calcula sobre 30 días, sin importar si el mes tiene 28-31.
+const DIAS_META = 30;
 
 function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile }) {
   const hoy = toColombiaDate();
@@ -2644,6 +2646,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
   const [metaMsg, setMetaMsg] = useState("");
   const [detalleInputs, setDetalleInputs] = useState({});
   const [guardandoDetalle, setGuardandoDetalle] = useState(null);
+  const [asesorExpandido, setAsesorExpandido] = useState(null);
 
   const mesKey = `${anio}-${String(mesIdx+1).padStart(2,"0")}`;
   const esMesActual = anio===hoy.getFullYear() && mesIdx===hoy.getMonth();
@@ -2684,22 +2687,24 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesKey, metasAsesor.length, asesores.length]);
 
-  const guardarMeta = async (tiendaId, tipo) => {
-    const key = `tienda:${tiendaId}:${tipo}`;
-    const valor = Number(metaInputs[key]||0);
-    setGuardandoMeta(key);
+  const guardarMetaTienda = async (tiendaId) => {
+    setGuardandoMeta(tiendaId);
     setMetaMsg("");
-    const existente = metas.find(m=>m.mes===mesKey && m.tienda_id===tiendaId && (m.tipo||"total")===tipo);
-    let data, error;
-    if(existente){
-      ({data,error} = await supabase.from("ventas_metas").update({ valor }).eq("id",existente.id).select().single());
-    } else {
-      ({data,error} = await supabase.from("ventas_metas").insert({ mes:mesKey, tienda_id:tiendaId, vendedor_id:null, valor, tipo }).select().single());
-    }
-    if(data && !error){
-      setMetas(prev => existente ? prev.map(m=>m.id===data.id?data:m) : [...prev, data]);
-    } else if(error){
-      setMetaMsg(`No se pudo guardar: ${error.message||"error desconocido"}`);
+    for(const tipo of ["total","personal"]){
+      const key = `tienda:${tiendaId}:${tipo}`;
+      const valor = Number(metaInputs[key]||0);
+      const existente = metas.find(m=>m.mes===mesKey && m.tienda_id===tiendaId && (m.tipo||"total")===tipo);
+      let data, error;
+      if(existente){
+        ({data,error} = await supabase.from("ventas_metas").update({ valor }).eq("id",existente.id).select().single());
+      } else {
+        ({data,error} = await supabase.from("ventas_metas").insert({ mes:mesKey, tienda_id:tiendaId, vendedor_id:null, valor, tipo }).select().single());
+      }
+      if(data && !error){
+        setMetas(prev => existente ? prev.map(m=>m.id===data.id?data:m) : [...prev, data]);
+      } else if(error){
+        setMetaMsg(`No se pudo guardar: ${error.message||"error desconocido"}`);
+      }
     }
     setGuardandoMeta(null);
   };
@@ -2739,7 +2744,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
   const metaAsesorCalculada = (asesorId) => {
     const d = metasAsesor.find(m=>m.mes===mesKey && m.vendedor_id===asesorId);
     if(!d) return 0;
-    const diasBase = (d.mes_completo ? diasTotalesMes : Number(d.dias_ingreso||0)) - Number(d.dias_novedad||0);
+    const diasBase = (d.mes_completo ? DIAS_META : Number(d.dias_ingreso||0)) - Number(d.dias_novedad||0);
     if(diasBase<=0) return 0;
     let total = 0;
     for(const t of tiendasList){
@@ -2778,6 +2783,16 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
   });
 
   const ranking = [...dataAsesores].filter(d=>d.idc!==null).sort((a,b)=>b.idc-a.idc);
+
+  const dataTiendas = tiendasList.map(t=>{
+    const ventasTienda = ventas.filter(v => v.fecha && v.fecha.slice(0,7)===mesKey && v.tienda_id===t.id);
+    const idsT = new Set(ventasTienda.map(v=>v.id));
+    const sinServicios = ventasItems.filter(i=>idsT.has(i.venta_id) && (i.tipo==="producto"||i.tipo==="flexipago")).reduce((s,i)=>s+(Number(i.valor)-Number(i.descuento||0)),0);
+    const meta = metaTiendaValor(t.id,"total");
+    const idc = meta>0 ? Math.round((sinServicios/meta)*1000)/10 : null;
+    return { tienda:t, sinServicios, meta, idc };
+  });
+  const rankingTiendas = [...dataTiendas].filter(d=>d.idc!==null).sort((a,b)=>b.idc-a.idc);
 
   const porDia = {};
   ventasDelMes.forEach(v=>{ porDia[v.fecha] = porDia[v.fecha] || { con:0, sin:0, count:0 }; porDia[v.fecha].con += Number(v.total||0); porDia[v.fecha].count += 1; });
@@ -2833,54 +2848,53 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
       </div>
 
       {puedeAsignarMetas && (
-        <SeccionVenta icon="🎯" titulo="Metas del mes" subtitulo={`Asigna las metas para ${MESES_NOMBRE[mesIdx]} ${anio}`}>
-          {metaMsg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"9px 12px", color:C.red, fontSize:12, marginBottom:12, fontFamily:font.body }}>{metaMsg}</div>}
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Por tienda</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
+        <SeccionVenta icon="🎯" titulo="Metas del mes">
+          {metaMsg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"9px 12px", color:C.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{metaMsg}</div>}
+          <div style={{ display:"flex", flexDirection:"column", marginBottom:16 }}>
             {tiendasList.map(t=>(
-              <div key={t.id} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
-                <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:8 }}>{t.name}</div>
-                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10 }}>
-                  <div style={{ display:"flex", alignItems:"end", gap:8 }}>
-                    <div style={{ flex:1 }}><CurrencyField label="Meta total" value={metaInputs[`tienda:${t.id}:total`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:total`]:v}))}/></div>
-                    <Btn onClick={()=>guardarMeta(t.id,"total")} disabled={guardandoMeta===`tienda:${t.id}:total`} sm style={{ marginBottom:14 }}>{guardandoMeta===`tienda:${t.id}:total`?"...":"Guardar"}</Btn>
-                  </div>
-                  <div style={{ display:"flex", alignItems:"end", gap:8 }}>
-                    <div style={{ flex:1 }}><CurrencyField label="Meta personal (tiempo completo)" value={metaInputs[`tienda:${t.id}:personal`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:personal`]:v}))}/></div>
-                    <Btn onClick={()=>guardarMeta(t.id,"personal")} disabled={guardandoMeta===`tienda:${t.id}:personal`} sm style={{ marginBottom:14 }}>{guardandoMeta===`tienda:${t.id}:personal`?"...":"Guardar"}</Btn>
-                  </div>
-                </div>
+              <div key={t.id} style={{ display:"flex", alignItems:"end", gap:8, padding:"6px 0", borderBottom:`1px solid ${C.border}` }}>
+                <div style={{ width:isMobile?70:110, flexShrink:0, marginBottom:14, fontFamily:font.body, fontSize:12, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.name}</div>
+                <div style={{ flex:1 }}><CurrencyField placeholder="Meta total" value={metaInputs[`tienda:${t.id}:total`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:total`]:v}))}/></div>
+                <div style={{ flex:1 }}><CurrencyField placeholder="Meta personal" value={metaInputs[`tienda:${t.id}:personal`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:personal`]:v}))}/></div>
+                <div style={{ marginBottom:14 }}><Btn onClick={()=>guardarMetaTienda(t.id)} disabled={guardandoMeta===t.id} sm>{guardandoMeta===t.id?"...":"Guardar"}</Btn></div>
               </div>
             ))}
           </div>
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:2 }}>Metas personales de asesores</div>
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:10 }}>Se calcula sola según en qué tienda(s) trabajó cada quien este mes.</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Metas personales de asesores</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
             {asesores.map(a=>{
               const d = detalleInputs[a.id] || { mesCompleto:true, diasIngreso:"", tipoNovedad:"", diasNovedad:"", diasTienda:{} };
+              const abierto = asesorExpandido===a.id;
               return (
-                <div key={a.id} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
-                  <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:8 }}>
-                    {a.name} <span style={{ color:C.textMuted, fontWeight:400, fontFamily:font.mono, fontSize:12 }}>· meta calculada: {fmtCOP(metaAsesorCalculada(a.id))}</span>
-                  </div>
-                  <label style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:12, color:C.text, marginBottom:10, cursor:"pointer" }}>
-                    <input type="checkbox" checked={d.mesCompleto} onChange={e=>setDetalleField(a.id,"mesCompleto",e.target.checked)}/>
-                    Mes completo ({diasTotalesMes} días)
-                  </label>
-                  {!d.mesCompleto && (
-                    <Field label={`¿Cuántos días de este mes trabaja? (de ${diasTotalesMes})`} value={d.diasIngreso} onChange={v=>setDetalleField(a.id,"diasIngreso",v.replace(/[^\d]/g,""))} placeholder="Ej: 15"/>
+                <div key={a.id} style={{ border:`1px solid ${abierto?C.gold:C.border}`, borderRadius:7, overflow:"hidden" }}>
+                  <button onClick={()=>setAsesorExpandido(abierto?null:a.id)} style={{ width:"100%", display:"flex", alignItems:"center", gap:8, padding:"7px 10px", background:"none", border:"none", cursor:"pointer", textAlign:"left" }}>
+                    <span style={{ flex:1, fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600 }}>{a.name}</span>
+                    <span style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{fmtCOP(metaAsesorCalculada(a.id))}</span>
+                    <span style={{ color:C.textMuted, fontSize:10 }}>{abierto?"▲":"▼"}</span>
+                  </button>
+                  {abierto && (
+                    <div style={{ padding:"0 10px 10px" }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8, flexWrap:"wrap" }}>
+                        <label style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12, color:C.text, cursor:"pointer" }}>
+                          <input type="checkbox" checked={d.mesCompleto} onChange={e=>setDetalleField(a.id,"mesCompleto",e.target.checked)}/>
+                          Mes completo ({DIAS_META} días)
+                        </label>
+                        {!d.mesCompleto && (
+                          <div style={{ width:140 }}><Field value={d.diasIngreso} onChange={v=>setDetalleField(a.id,"diasIngreso",v.replace(/[^\d]/g,""))} placeholder={`días (de ${DIAS_META})`}/></div>
+                        )}
+                      </div>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                        <Field value={d.tipoNovedad} onChange={v=>setDetalleField(a.id,"tipoNovedad",v)} options={[{value:"",label:"Sin novedad"},{value:"incapacidad",label:"Incapacidad"},{value:"licencia",label:"Licencia"}]}/>
+                        {d.tipoNovedad && <Field value={d.diasNovedad} onChange={v=>setDetalleField(a.id,"diasNovedad",v.replace(/[^\d]/g,""))} placeholder="días a restar"/>}
+                      </div>
+                      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${Math.min(tiendasList.length||1,4)}, 1fr)`, gap:8, marginTop:8 }}>
+                        {tiendasList.map(t=>(
+                          <Field key={t.id} label={t.name} value={d.diasTienda?.[t.id]||""} onChange={v=>setDetalleTienda(a.id,t.id,v.replace(/[^\d]/g,""))} placeholder="días"/>
+                        ))}
+                      </div>
+                      <Btn onClick={()=>guardarDetalleAsesor(a.id)} disabled={guardandoDetalle===a.id} sm>{guardandoDetalle===a.id?"Guardando...":"Guardar"}</Btn>
+                    </div>
                   )}
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-                    <Field label="Novedad" value={d.tipoNovedad} onChange={v=>setDetalleField(a.id,"tipoNovedad",v)} options={[{value:"",label:"Ninguna"},{value:"incapacidad",label:"Incapacidad"},{value:"licencia",label:"Licencia"}]}/>
-                    {d.tipoNovedad && <Field label="Días de novedad (se restan)" value={d.diasNovedad} onChange={v=>setDetalleField(a.id,"diasNovedad",v.replace(/[^\d]/g,""))} placeholder="Ej: 3"/>}
-                  </div>
-                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"4px 0 6px" }}>Días trabajados en cada tienda</div>
-                  <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${Math.min(tiendasList.length||1,4)}, 1fr)`, gap:10 }}>
-                    {tiendasList.map(t=>(
-                      <Field key={t.id} label={t.name} value={d.diasTienda?.[t.id]||""} onChange={v=>setDetalleTienda(a.id,t.id,v.replace(/[^\d]/g,""))} placeholder="0"/>
-                    ))}
-                  </div>
-                  <Btn onClick={()=>guardarDetalleAsesor(a.id)} disabled={guardandoDetalle===a.id} sm>{guardandoDetalle===a.id?"Guardando...":"Guardar"}</Btn>
                 </div>
               );
             })}
@@ -2889,7 +2903,21 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
         </SeccionVenta>
       )}
 
-      <SeccionVenta icon="🏆" titulo="Top asesores por cumplimiento" subtitulo="Ordenado por IDC, de mayor a menor">
+      <SeccionVenta icon="🏬" titulo="Top tiendas por cumplimiento">
+        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+          {rankingTiendas.map((d,idx)=>(
+            <div key={d.tienda.id} style={{ display:"flex", alignItems:"center", gap:10, background:idx<3?`${C.gold}0d`:C.surfaceAlt, border:`1px solid ${idx<3?C.gold:C.border}`, borderRadius:8, padding:"9px 12px" }}>
+              <div style={{ fontFamily:font.body, fontSize:idx<3?16:13, width:28, textAlign:"center" }}>{medalla(idx)}</div>
+              <div style={{ flex:1, fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{d.tienda.name}</div>
+              <div style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{fmtCOP(d.sinServicios)} / {fmtCOP(d.meta)}</div>
+              <Badge color={d.idc>=100?C.green:d.idc>=70?C.amber:C.red} sm>{d.idc}%</Badge>
+            </div>
+          ))}
+          {rankingTiendas.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
+        </div>
+      </SeccionVenta>
+
+      <SeccionVenta icon="🏆" titulo="Top asesores por cumplimiento">
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
           {ranking.map((d,idx)=>(
             <div key={d.asesor.id} style={{ display:"flex", alignItems:"center", gap:10, background:idx<3?`${C.gold}0d`:C.surfaceAlt, border:`1px solid ${idx<3?C.gold:C.border}`, borderRadius:8, padding:"9px 12px" }}>
@@ -2903,7 +2931,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
         </div>
       </SeccionVenta>
 
-      <SeccionVenta icon="👤" titulo="Ventas por asesor" subtitulo="Con y sin servicios, del mes seleccionado">
+      <SeccionVenta icon="👤" titulo="Ventas por asesor">
         <div style={{ overflowX:"auto" }}>
           <table style={{ width:"100%", borderCollapse:"collapse", fontFamily:font.body, fontSize:12 }}>
             <thead>
@@ -2933,7 +2961,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
         </div>
       </SeccionVenta>
 
-      <SeccionVenta icon="📅" titulo="Ventas por día" subtitulo={tiendaSel ? stores[tiendaSel]?.name : "Todas las tiendas"}>
+      <SeccionVenta icon="📅" titulo={`Ventas por día — ${tiendaSel ? stores[tiendaSel]?.name : "Todas las tiendas"}`}>
         <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
           {diasList.map(([fecha,d])=>(
             <div key={fecha} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, padding:"6px 4px", borderBottom:`1px solid ${C.border}` }}>
