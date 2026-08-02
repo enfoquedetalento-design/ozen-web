@@ -330,7 +330,7 @@ const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id
 // master, y se abre aparte con un ícono discreto en el pie del menú (ver Sidebar/MobileHeader).
 const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
 const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
-const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar venta" },{ id:"lista",icon:"📋",label:"Lista de ventas" },{ id:"metricas",icon:"📊",label:"Métricas" }];
+const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar venta" },{ id:"lista",icon:"📋",label:"Lista de ventas" },{ id:"metricas",icon:"📊",label:"Métricas" },{ id:"caja",icon:"💰",label:"Caja" }];
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_turnos" || user.role==="admin_finanzas";
 // Quién puede elegir el área "Ventas" desde el selector (no todos los que puedeUsarAreas)
 const puedeUsarVentasArea = (user) => user.role==="master" || user.role==="admin_turnos" || user.role==="admin_finanzas";
@@ -343,6 +343,8 @@ const esAdminFinanzas = (user) => user.role==="admin_finanzas";
 const esAdminDeVentas = (user) => user.role==="master" || user.role==="admin_turnos";
 // Quién puede asignar las metas mensuales en Métricas
 const puedeAsignarMetas = (user) => user.role==="master" || user.role==="admin_turnos" || user.role==="admin_finanzas";
+// Quién puede registrar una recolección de efectivo (retiro físico de dinero de la tienda)
+const puedeHacerRecoleccion = (user) => user.role==="master" || user.role==="admin_finanzas";
 // Qué pestañas le corresponden a cada quien, según su rol y el área elegida
 const tabsPara = (user, area) => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? ADMIN_TABS_VENTAS : ADVISOR_TABS)
@@ -2977,18 +2979,312 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
   );
 }
 
+// ── Caja: apertura de turno, cierre de turno, recolección de efectivo ─────────
+// No hay tabla de "turno" en Ventas — cada acción queda con fecha y hora exactas
+// (created_at), y todos los cálculos de dinero se sacan en vivo de ventas/abonos,
+// nunca se guardan como número fijo (así siempre reflejan la info real).
+const CAJA_MEDIOS = ["efectivo","tarjeta","transferencia","addi"];
+const CAJA_MEDIO_LABEL = { efectivo:"Efectivo", tarjeta:"Tarjeta", transferencia:"Transferencia", addi:"ADDI" };
+const cajaZeros = () => ({ efectivo:0, tarjeta:0, transferencia:0, addi:0 });
+const cajaTotal = (o) => CAJA_MEDIOS.reduce((s,k)=>s+(o[k]||0),0);
+
+function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, puedeRecoleccion, isMobile }) {
+  const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
+  const tiendasList = tiendasVenta(stores);
+  const [tiendaId, setTiendaId] = useState(tiendaFija || tiendasList[0]?.id || "");
+  const asesores = users.filter(u=>u.role==="advisor" && u.active);
+  const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin_finanzas") && u.active);
+
+  const [apAsesorId, setApAsesorId] = useState("");
+  const [apBaseCaja, setApBaseCaja] = useState("");
+  const [apNovedades, setApNovedades] = useState("");
+  const [guardandoAp, setGuardandoAp] = useState(false);
+
+  const [ciAsesorId, setCiAsesorId] = useState("");
+  const [ciTipo, setCiTipo] = useState("definitivo");
+  const [ciBaseCaja, setCiBaseCaja] = useState("");
+  const [ciNovedades, setCiNovedades] = useState("");
+  const [guardandoCi, setGuardandoCi] = useState(false);
+
+  const [reEntregaId, setReEntregaId] = useState("");
+  const [reRecibeId, setReRecibeId] = useState("");
+  const [reValor, setReValor] = useState("");
+  const [reBaseCaja, setReBaseCaja] = useState("");
+  const [reComentarios, setReComentarios] = useState("");
+  const [guardandoRe, setGuardandoRe] = useState(false);
+
+  const [msg, setMsg] = useState("");
+
+  const recoleccionesTienda = recolecciones.filter(r=>r.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
+  const ultimaRecoleccion = recoleccionesTienda[0] || null;
+
+  // Prellena la base de caja con lo que dejó la última recolección (o vacío si nunca ha habido una)
+  useEffect(()=>{
+    const base = String(ultimaRecoleccion?.base_caja ?? "");
+    setApBaseCaja(base); setCiBaseCaja(base); setReBaseCaja(base);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tiendaId, ultimaRecoleccion?.id]);
+
+  const ventasTiendaMap = {};
+  ventas.forEach(v=>{ if(v.tienda_id===tiendaId) ventasTiendaMap[v.id]=v; });
+
+  // Efectivo acumulado (ventas + abonos en efectivo) desde la última recolección, o desde siempre si no ha habido ninguna
+  const desdeTS = ultimaRecoleccion ? new Date(ultimaRecoleccion.created_at).getTime() : 0;
+  let efectivoAcumulado = 0;
+  ventasItems.forEach(i=>{
+    const v = ventasTiendaMap[i.venta_id];
+    if(!v || i.tipo==="flexipago") return;
+    if(new Date(v.created_at).getTime() <= desdeTS) return;
+    (i.pagos||[]).forEach(p=>{ if(p.medio_pago==="efectivo") efectivoAcumulado += Number(p.valor||0); });
+  });
+  ventasAbonos.forEach(a=>{
+    const v = ventasTiendaMap[a.venta_id];
+    if(!v) return;
+    const ts = new Date(a.created_at || a.fecha).getTime();
+    if(ts <= desdeTS) return;
+    if(a.medio_pago==="efectivo") efectivoAcumulado += Number(a.valor||0);
+  });
+  const totalEnCajaAhora = Number(apBaseCaja||0) + efectivoAcumulado;
+
+  // Resumen de ventas del día para el Cierre: ingreso neto, servicios, y flexipagos del día (informativo)
+  const resumenDia = (fecha) => {
+    const ventasTienda = Object.values(ventasTiendaMap);
+    const idsFecha = new Set(ventasTienda.filter(v=>v.fecha===fecha).map(v=>v.id));
+    const ingresoNeto = cajaZeros();
+    const servicios = cajaZeros();
+    const flexipagoDia = cajaZeros();
+    let flexipagoCerradoHoy = 0;
+
+    ventasItems.forEach(i=>{
+      if(!idsFecha.has(i.venta_id)) return;
+      if(i.tipo==="producto"){
+        (i.pagos||[]).forEach(p=>{ if(CAJA_MEDIOS.includes(p.medio_pago)) ingresoNeto[p.medio_pago]+=Number(p.valor||0); });
+      } else if(i.tipo==="arreglo"||i.tipo==="marcacion"||i.tipo==="grabado"){
+        (i.pagos||[]).forEach(p=>{ if(CAJA_MEDIOS.includes(p.medio_pago)) servicios[p.medio_pago]+=Number(p.valor||0); });
+      }
+    });
+
+    // Flexipagos: se revisan TODAS las ventas flexipago de la tienda (sin importar el día de venta),
+    // para saber si alguna se terminó de pagar justo hoy.
+    const ventasFlexipago = ventasTienda.filter(v=>v.es_flexipago);
+    ventasFlexipago.forEach(v=>{
+      const valorTotal = ventasItems.filter(i=>i.venta_id===v.id && i.tipo==="flexipago").reduce((s,i)=>s+(Number(i.valor||0)-Number(i.descuento||0)),0);
+      const abonos = ventasAbonos.filter(a=>a.venta_id===v.id).sort((a,b)=> new Date(a.created_at||a.fecha) - new Date(b.created_at||b.fecha));
+      let acumulado = 0;
+      abonos.forEach(ab=>{
+        const antes = acumulado;
+        acumulado += Number(ab.valor||0);
+        // Cualquier abono de hoy se muestra aquí (informativo), no suma al ingreso neto.
+        if(ab.fecha===fecha && CAJA_MEDIOS.includes(ab.medio_pago)){
+          flexipagoDia[ab.medio_pago] += Number(ab.valor||0);
+        }
+        // Si el abono de HOY es el que completa el pago, el valor TOTAL del flexipago sí
+        // entra al ingreso neto de hoy, agrupado según el medio de ESE abono que lo cerró.
+        const completaHoy = antes < valorTotal && acumulado >= valorTotal && ab.fecha===fecha;
+        if(completaHoy && CAJA_MEDIOS.includes(ab.medio_pago)){
+          ingresoNeto[ab.medio_pago] += valorTotal;
+          flexipagoCerradoHoy += valorTotal;
+        }
+      });
+    });
+
+    return { ingresoNeto, servicios, flexipagoDia, flexipagoCerradoHoy, totalIngresoNeto:cajaTotal(ingresoNeto), totalServicios:cajaTotal(servicios), totalFlexipagoDia:cajaTotal(flexipagoDia) };
+  };
+
+  const resumenHoy = resumenDia(todayStr);
+
+  const guardarApertura = async () => {
+    if(!tiendaId || !apAsesorId){ setMsg("Falta elegir tienda y quién abre."); return; }
+    setGuardandoAp(true); setMsg("");
+    const asesor = users.find(u=>u.id===apAsesorId);
+    const { data, error } = await supabase.from("ventas_caja_aperturas").insert({
+      tienda_id:tiendaId, fecha:todayStr, asesor_id:apAsesorId, asesor_nombre:asesor?.name||"",
+      base_caja:Number(apBaseCaja||0), novedades:apNovedades.trim()||null, registrado_por:user.name,
+    }).select().single();
+    setGuardandoAp(false);
+    if(data){ setAperturas(prev=>[data,...prev]); setApNovedades(""); }
+    else if(error){ setMsg(`No se pudo guardar la apertura: ${error.message||"error desconocido"}`); }
+  };
+
+  const guardarCierre = async () => {
+    if(!tiendaId || !ciAsesorId){ setMsg("Falta elegir tienda y quién cierra."); return; }
+    setGuardandoCi(true); setMsg("");
+    const asesor = users.find(u=>u.id===ciAsesorId);
+    const { data, error } = await supabase.from("ventas_caja_cierres").insert({
+      tienda_id:tiendaId, fecha:todayStr, tipo:ciTipo, asesor_id:ciAsesorId, asesor_nombre:asesor?.name||"",
+      base_caja:Number(ciBaseCaja||0), novedades:ciNovedades.trim()||null, registrado_por:user.name,
+    }).select().single();
+    setGuardandoCi(false);
+    if(data){ setCierres(prev=>[data,...prev]); setCiNovedades(""); }
+    else if(error){ setMsg(`No se pudo guardar el cierre: ${error.message||"error desconocido"}`); }
+  };
+
+  const guardarRecoleccion = async () => {
+    if(!tiendaId || !reEntregaId || !reRecibeId || !reValor){ setMsg("Falta elegir tienda, quién entrega, quién recibe y el valor."); return; }
+    setGuardandoRe(true); setMsg("");
+    const entrega = users.find(u=>u.id===reEntregaId);
+    const recibe = users.find(u=>u.id===reRecibeId);
+    const { data, error } = await supabase.from("ventas_caja_recolecciones").insert({
+      tienda_id:tiendaId, fecha:todayStr, entrega_usuario_id:reEntregaId, entrega_nombre:entrega?.name||"",
+      recibe_usuario_id:reRecibeId, recibe_nombre:recibe?.name||"", valor:Number(reValor||0),
+      base_caja:Number(reBaseCaja||0), comentarios:reComentarios.trim()||null, registrado_por:user.name,
+    }).select().single();
+    setGuardandoRe(false);
+    if(data){ setRecolecciones(prev=>[data,...prev]); setReValor(""); setReComentarios(""); }
+    else if(error){ setMsg(`No se pudo guardar la recolección: ${error.message||"error desconocido"}`); }
+  };
+
+  const fmtFechaHora = (iso) => new Date(iso).toLocaleString("es-CO",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+
+  const aperturasTienda = aperturas.filter(a=>a.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
+  const cierresTienda = cierres.filter(c=>c.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
+
+  return (
+    <div>
+      {!tiendaFija && (
+        <div style={{ marginBottom:16, maxWidth:320 }}>
+          <Field label="Tienda" value={tiendaId} onChange={setTiendaId} options={tiendasList.map(t=>({value:t.id,label:t.name}))}/>
+        </div>
+      )}
+      {msg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"9px 12px", color:C.red, fontSize:12, marginBottom:12, fontFamily:font.body }}>{msg}</div>}
+
+      <SeccionVenta icon="🔓" titulo="Apertura de turno">
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr", gap:10, alignItems:"end" }}>
+          <Field label="Quién abre" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+          <CurrencyField label="Base de caja" value={apBaseCaja} onChange={setApBaseCaja}/>
+          <div style={{ marginBottom:14 }}><Btn onClick={guardarApertura} disabled={guardandoAp} full>{guardandoAp?"Guardando...":"Registrar apertura"}</Btn></div>
+        </div>
+        <Field label="Novedades (opcional)" value={apNovedades} onChange={setApNovedades} multiline rows={2} placeholder="Ej: se resta efectivo entregado para completar base..."/>
+
+        <div style={{ border:`1px solid ${C.borderGold}`, borderRadius:8, padding:"12px 14px", marginTop:6 }}>
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Cuadro de apertura — {tiendaId?stores[tiendaId]?.name:""}, hoy</div>
+          <div style={{ fontFamily:font.body, fontSize:13, color:C.text, marginBottom:8 }}>
+            <span style={{ color:C.textMuted }}>Última recolección: </span>{ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · recibió ${ultimaRecoleccion.recibe_nombre||"—"}` : "Sin registro previo"}
+          </div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:20 }}>
+            <div><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body }}>Base de caja</div><div style={{ fontFamily:font.mono, fontSize:15, color:C.text }}>{fmtCOP(Number(apBaseCaja||0))}</div></div>
+            <div><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body }}>Efectivo acumulado desde la última recolección</div><div style={{ fontFamily:font.mono, fontSize:15, color:C.text }}>{fmtCOP(efectivoAcumulado)}</div></div>
+            <div><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body }}>Total en caja ahora</div><div style={{ fontFamily:font.mono, fontSize:17, fontWeight:700, color:C.goldLight }}>{fmtCOP(totalEnCajaAhora)}</div></div>
+          </div>
+        </div>
+
+        {aperturasTienda.length>0 && (
+          <div style={{ marginTop:14 }}>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Historial</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              {aperturasTienda.slice(0,8).map(a=>(
+                <div key={a.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text, padding:"5px 4px", borderBottom:`1px solid ${C.border}` }}>
+                  <span>{fmtFechaHora(a.created_at)} · {a.asesor_nombre}</span>
+                  <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base: {fmtCOP(a.base_caja)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </SeccionVenta>
+
+      <SeccionVenta icon="🔒" titulo="Cierre de turno">
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr 1fr", gap:10, alignItems:"end" }}>
+          <Field label="Quién cierra" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+          <Field label="Tipo de cierre" value={ciTipo} onChange={setCiTipo} options={[{value:"parcial",label:"Parcial (se va quien abrió)"},{value:"definitivo",label:"Definitivo (cierra la tienda)"}]}/>
+          <CurrencyField label="Base de caja" value={ciBaseCaja} onChange={setCiBaseCaja}/>
+          <div style={{ marginBottom:14 }}><Btn onClick={guardarCierre} disabled={guardandoCi} full>{guardandoCi?"Guardando...":"Registrar cierre"}</Btn></div>
+        </div>
+        <Field label="Novedades (opcional)" value={ciNovedades} onChange={setCiNovedades} multiline rows={2}/>
+
+        <div style={{ border:`1px solid ${C.borderGold}`, borderRadius:8, padding:"12px 14px", marginTop:6, overflowX:"auto" }}>
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>Resumen de ventas de hoy — {tiendaId?stores[tiendaId]?.name:""}</div>
+          <table style={{ width:"100%", borderCollapse:"collapse", minWidth:480 }}>
+            <thead>
+              <tr style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>
+                <td style={{ padding:"4px 6px" }}></td>
+                {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"4px 6px", textAlign:"right" }}>{CAJA_MEDIO_LABEL[m]}</td>)}
+                <td style={{ padding:"4px 6px", textAlign:"right" }}>Total</td>
+              </tr>
+            </thead>
+            <tbody style={{ fontFamily:font.mono, fontSize:12.5, color:C.text }}>
+              <tr>
+                <td style={{ padding:"4px 6px", fontFamily:font.body }}>Ingreso neto (ventas + flexipagos cerrados hoy)</td>
+                {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"4px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.ingresoNeto[m])}</td>)}
+                <td style={{ padding:"4px 6px", textAlign:"right", fontWeight:700, color:C.goldLight }}>{fmtCOP(resumenHoy.totalIngresoNeto)}</td>
+              </tr>
+              <tr>
+                <td style={{ padding:"4px 6px", fontFamily:font.body }}>Servicios (arreglo, marcación, grabado)</td>
+                {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"4px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.servicios[m])}</td>)}
+                <td style={{ padding:"4px 6px", textAlign:"right", fontWeight:700 }}>{fmtCOP(resumenHoy.totalServicios)}</td>
+              </tr>
+              <tr>
+                <td style={{ padding:"4px 6px", fontFamily:font.body, color:C.textMuted }}>Flexipagos de hoy (no suma al ingreso neto)</td>
+                {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"4px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.flexipagoDia[m])}</td>)}
+                <td style={{ padding:"4px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.totalFlexipagoDia)}</td>
+              </tr>
+            </tbody>
+          </table>
+          {resumenHoy.flexipagoCerradoHoy>0 && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:6 }}>Incluye {fmtCOP(resumenHoy.flexipagoCerradoHoy)} de flexipagos que se terminaron de pagar hoy.</div>}
+        </div>
+
+        {cierresTienda.length>0 && (
+          <div style={{ marginTop:14 }}>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Historial</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              {cierresTienda.slice(0,8).map(c=>(
+                <div key={c.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text, padding:"5px 4px", borderBottom:`1px solid ${C.border}` }}>
+                  <span>{fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}</span>
+                  <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base: {fmtCOP(c.base_caja)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </SeccionVenta>
+
+      <SeccionVenta icon="🚚" titulo="Recolección de efectivo">
+        {!puedeRecoleccion ? (
+          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>Solo master o admin finanzas pueden registrar una recolección. Aquí puedes ver el historial.</div>
+        ) : (
+          <>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr 1fr", gap:10, alignItems:"end" }}>
+              <Field label="Entrega" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+              <Field label="Recibe" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
+              <CurrencyField label="Valor entregado" value={reValor} onChange={setReValor} placeholder={fmtCOP(totalEnCajaAhora)}/>
+              <CurrencyField label="Base de caja que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
+            </div>
+            <Field label="Comentarios (opcional)" value={reComentarios} onChange={setReComentarios} multiline rows={2}/>
+            <Btn onClick={guardarRecoleccion} disabled={guardandoRe}>{guardandoRe?"Guardando...":"Registrar recolección"}</Btn>
+          </>
+        )}
+
+        {recoleccionesTienda.length>0 && (
+          <div style={{ marginTop:14 }}>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Historial</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              {recoleccionesTienda.slice(0,8).map(r=>(
+                <div key={r.id} style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:12, color:C.text, padding:"5px 4px", borderBottom:`1px solid ${C.border}` }}>
+                  <span>{fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}</span>
+                  <span style={{ fontFamily:font.mono }}>{fmtCOP(r.valor)} <span style={{ color:C.textMuted }}>(queda base {fmtCOP(r.base_caja)})</span></span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </SeccionVenta>
+    </div>
+  );
+}
+
 // ── APP SHELL ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
   const [juntaLideres,setJuntaLideres]=useState([]),[juntaCompromisos,setJuntaCompromisos]=useState([]),[juntaAcuerdos,setJuntaAcuerdos]=useState([]);
   const [juntaAreas,setJuntaAreas]=useState([]),[juntaLiderAreas,setJuntaLiderAreas]=useState([]);
   const [ventas,setVentas]=useState([]),[ventasItems,setVentasItems]=useState([]),[ventasMetas,setVentasMetas]=useState([]),[ventasMetasAsesor,setVentasMetasAsesor]=useState([]);
+  const [ventasAbonos,setVentasAbonos]=useState([]),[cajaAperturas,setCajaAperturas]=useState([]),[cajaCierres,setCajaCierres]=useState([]),[cajaRecolecciones,setCajaRecolecciones]=useState([]);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
   const isMobile=useIsMobile();
 
   const loadAll=async()=>{
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma}]=await Promise.all([
+    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
       supabase.from("registros").select("*").order("date",{ascending:false}),
@@ -3001,6 +3297,10 @@ export default function App() {
       supabase.from("ventas_items").select("*"),
       supabase.from("ventas_metas").select("*"),
       supabase.from("ventas_metas_asesor").select("*"),
+      supabase.from("ventas_abonos").select("*"),
+      supabase.from("ventas_caja_aperturas").select("*").order("created_at",{ascending:false}),
+      supabase.from("ventas_caja_cierres").select("*").order("created_at",{ascending:false}),
+      supabase.from("ventas_caja_recolecciones").select("*").order("created_at",{ascending:false}),
     ]);
     const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
     setStores(sm);setUsers(u||[]);setRecords(r||[]);
@@ -3013,6 +3313,10 @@ export default function App() {
     setVentasItems(vi||[]);
     setVentasMetas(vm||[]);
     setVentasMetasAsesor(vma||[]);
+    setVentasAbonos(vab||[]);
+    setCajaAperturas(ca||[]);
+    setCajaCierres(cc||[]);
+    setCajaRecolecciones(cr||[]);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
@@ -3052,6 +3356,7 @@ export default function App() {
         if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
+        if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
@@ -3063,6 +3368,7 @@ export default function App() {
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
+      if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores}/>;
