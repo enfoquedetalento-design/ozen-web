@@ -2997,11 +2997,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const tiendasList = tiendasVenta(stores);
   const [tiendaId, setTiendaId] = useState(tiendaFija || tiendasList[0]?.id || "");
+  const [cajaVista, setCajaVista] = useState("registrar"); // 'registrar' | 'historial'
   const asesores = users.filter(u=>u.role==="advisor" && u.active);
   const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin_finanzas") && u.active);
 
   const [apAsesorId, setApAsesorId] = useState("");
-  const [apNovedades, setApNovedades] = useState("");
+  const [apBaseCaja, setApBaseCaja] = useState(String(BASE_CAJA_FIJA));
   const [guardandoAp, setGuardandoAp] = useState(false);
 
   const [gaValor, setGaValor] = useState("");
@@ -3023,14 +3024,18 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
   const [msg, setMsg] = useState("");
 
+  const aperturasTienda = aperturas.filter(a=>a.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
+  const cierresTienda = cierres.filter(c=>c.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
   const recoleccionesTienda = recolecciones.filter(r=>r.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
   const ultimaRecoleccion = recoleccionesTienda[0] || null;
 
+  // La base casi siempre es $100.000, pero se puede ajustar — se recuerda el último valor usado.
   useEffect(()=>{
+    setApBaseCaja(String(aperturasTienda[0]?.base_caja ?? ultimaRecoleccion?.base_caja ?? BASE_CAJA_FIJA));
     setReBaseCaja(String(ultimaRecoleccion?.base_caja ?? BASE_CAJA_FIJA));
     setReValorTocado(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tiendaId, ultimaRecoleccion?.id]);
+  }, [tiendaId, aperturasTienda[0]?.id, ultimaRecoleccion?.id]);
 
   const ventasTiendaMap = {};
   ventas.forEach(v=>{ if(v.tienda_id===tiendaId) ventasTiendaMap[v.id]=v; });
@@ -3058,7 +3063,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const gastosAcumulados = gastosTienda.filter(g=> new Date(g.created_at).getTime() > desdeTS).reduce((s,g)=>s+Number(g.valor||0),0);
 
   const efectivoARecolectar = Math.max(0, efectivoAcumulado - gastosAcumulados);
-  const totalEnCajaAhora = BASE_CAJA_FIJA + efectivoAcumulado - gastosAcumulados;
+  const totalEnCajaAhora = Number(apBaseCaja||0) + efectivoAcumulado - gastosAcumulados;
 
   useEffect(()=>{
     if(!reValorTocado) setReValor(String(efectivoARecolectar||""));
@@ -3118,10 +3123,10 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     const asesor = users.find(u=>u.id===apAsesorId);
     const { data, error } = await supabase.from("ventas_caja_aperturas").insert({
       tienda_id:tiendaId, fecha:todayStr, asesor_id:apAsesorId, asesor_nombre:asesor?.name||"",
-      base_caja:BASE_CAJA_FIJA, novedades:apNovedades.trim()||null, registrado_por:user.name,
+      base_caja:Number(apBaseCaja||0), novedades:null, registrado_por:user.name,
     }).select().single();
     setGuardandoAp(false);
-    if(data){ setAperturas(prev=>[data,...prev]); setApNovedades(""); }
+    if(data){ setAperturas(prev=>[data,...prev]); }
     else if(error){ setMsg(`No se pudo guardar la apertura: ${error.message||"error desconocido"}`); }
   };
 
@@ -3142,7 +3147,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     const asesor = users.find(u=>u.id===ciAsesorId);
     const { data, error } = await supabase.from("ventas_caja_cierres").insert({
       tienda_id:tiendaId, fecha:todayStr, tipo:ciTipo, asesor_id:ciAsesorId, asesor_nombre:asesor?.name||"",
-      base_caja:BASE_CAJA_FIJA, novedades:ciNovedades.trim()||null, registrado_por:user.name,
+      base_caja:Number(apBaseCaja||0), novedades:ciNovedades.trim()||null, registrado_por:user.name,
     }).select().single();
     setGuardandoCi(false);
     if(data){ setCierres(prev=>[data,...prev]); setCiNovedades(""); }
@@ -3166,162 +3171,159 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
   const fmtFechaHora = (iso) => new Date(iso).toLocaleString("es-CO",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
 
-  const aperturasTienda = aperturas.filter(a=>a.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
-  const cierresTienda = cierres.filter(c=>c.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
-
   return (
     <div>
-      {!tiendaFija && (
-        <div style={{ marginBottom:16, maxWidth:320 }}>
-          <Field label="Tienda" value={tiendaId} onChange={setTiendaId} options={tiendasList.map(t=>({value:t.id,label:t.name}))}/>
+      <div style={{ display:"flex", flexWrap:"wrap", gap:10, alignItems:"end", marginBottom:14 }}>
+        {!tiendaFija && (
+          <div style={{ maxWidth:260, flex:isMobile?"1 1 100%":undefined }}>
+            <Field label="Tienda" value={tiendaId} onChange={setTiendaId} options={tiendasList.map(t=>({value:t.id,label:t.name}))}/>
+          </div>
+        )}
+        <div style={{ display:"flex", gap:6, marginBottom:14 }}>
+          <Btn variant={cajaVista==="registrar"?"primary":"ghost"} sm onClick={()=>setCajaVista("registrar")}>Registrar</Btn>
+          <Btn variant={cajaVista==="historial"?"primary":"ghost"} sm onClick={()=>setCajaVista("historial")}>Historial</Btn>
         </div>
-      )}
+      </div>
       {msg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"9px 12px", color:C.red, fontSize:12, marginBottom:12, fontFamily:font.body }}>{msg}</div>}
 
-      <SeccionVenta icon="🔓" titulo="Apertura de turno">
-        <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginBottom:12 }}>
-          Hoy: <span style={{ color:C.text, fontWeight:600 }}>{new Date(todayStr+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</span>
-        </div>
-        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, alignItems:"end" }}>
-          <Field label="Quién abre" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-          <div style={{ marginBottom:14 }}><Btn onClick={guardarApertura} disabled={guardandoAp} full>{guardandoAp?"Guardando...":"Registrar apertura"}</Btn></div>
-        </div>
-        <Field label="Novedades (opcional)" value={apNovedades} onChange={setApNovedades} multiline rows={2} placeholder="Notas del turno (no afecta el cálculo de dinero)"/>
+      {cajaVista==="registrar" ? (
+        <>
+          <SeccionVenta icon="🔓" titulo="Apertura de turno">
+            <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>
+              {new Date(todayStr+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}{tiendaId && stores[tiendaId] ? ` · ${stores[tiendaId].name}` : ""}
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1.5fr 1fr auto", gap:8, alignItems:"end", marginBottom:10 }}>
+              <Field label="Quién abre" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+              <CurrencyField label="Base de caja" value={apBaseCaja} onChange={setApBaseCaja}/>
+              <div style={{ marginBottom:14 }}><Btn onClick={guardarApertura} disabled={guardandoAp} sm>{guardandoAp?"...":"Registrar"}</Btn></div>
+            </div>
 
-        <div style={{ border:`1px solid ${C.borderGold}`, borderRadius:8, padding:"12px 14px", marginTop:6 }}>
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Cuadro de apertura — {tiendaId?stores[tiendaId]?.name:""}</div>
-          <div style={{ fontFamily:font.body, fontSize:13, color:C.text, marginBottom:8 }}>
-            <span style={{ color:C.textMuted }}>Última recolección: </span>{ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · recibió ${ultimaRecoleccion.recibe_nombre||"—"}` : "Sin registro previo"}
-          </div>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:20 }}>
-            <div><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body }}>Base de caja (fija)</div><div style={{ fontFamily:font.mono, fontSize:15, color:C.text }}>{fmtCOP(BASE_CAJA_FIJA)}</div></div>
-            <div><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body }}>Efectivo de ventas desde la última recolección</div><div style={{ fontFamily:font.mono, fontSize:15, color:C.text }}>{fmtCOP(efectivoAcumulado)}</div></div>
-            {gastosAcumulados>0 && <div><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body }}>Gastos de caja desde entonces</div><div style={{ fontFamily:font.mono, fontSize:15, color:C.red }}>−{fmtCOP(gastosAcumulados)}</div></div>}
-            <div><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body }}>Total en caja ahora</div><div style={{ fontFamily:font.mono, fontSize:17, fontWeight:700, color:C.goldLight }}>{fmtCOP(totalEnCajaAhora)}</div></div>
-          </div>
-        </div>
+            <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, padding:"8px 0", borderTop:`1px solid ${C.border}`, display:"flex", flexWrap:"wrap", rowGap:4, columnGap:18 }}>
+              <span><span style={{ color:C.textMuted }}>Última recolección: </span>{ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · ${ultimaRecoleccion.recibe_nombre||"—"}` : "sin registro previo"}</span>
+              <span><span style={{ color:C.textMuted }}>Efectivo desde entonces: </span><b style={{ fontFamily:font.mono }}>{fmtCOP(efectivoAcumulado)}</b></span>
+              {gastosAcumulados>0 && <span><span style={{ color:C.textMuted }}>Novedades: </span><b style={{ fontFamily:font.mono, color:C.red }}>−{fmtCOP(gastosAcumulados)}</b></span>}
+              <span><span style={{ color:C.textMuted }}>Total en caja: </span><b style={{ fontFamily:font.mono, color:C.goldLight }}>{fmtCOP(totalEnCajaAhora)}</b></span>
+            </div>
 
-        {aperturasTienda.length>0 && (
-          <div style={{ marginTop:14 }}>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Historial</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-              {aperturasTienda.slice(0,8).map(a=>(
+            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"10px 0 6px" }}>Novedades</div>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 2fr auto", gap:8, alignItems:"center" }}>
+              <CurrencyField placeholder="Valor" value={gaValor} onChange={setGaValor}/>
+              <Field placeholder="Motivo (ej: se usó para un limpiavidrios)" value={gaMotivo} onChange={setGaMotivo}/>
+              <Btn onClick={guardarGasto} disabled={guardandoGa} sm>{guardandoGa?"...":"Agregar"}</Btn>
+            </div>
+            {gastosTienda.length>0 && (
+              <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:2 }}>
+                {gastosTienda.slice(0,4).map(g=>(
+                  <div key={g.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>
+                    <span>{fmtFechaHora(g.created_at)} · {g.motivo}</span>
+                    <span style={{ fontFamily:font.mono, color:C.red }}>−{fmtCOP(g.valor)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SeccionVenta>
+
+          <SeccionVenta icon="🔒" titulo="Cierre de turno">
+            <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>
+              {new Date(todayStr+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}{tiendaId && stores[tiendaId] ? ` · ${stores[tiendaId].name}` : ""}
+            </div>
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", minWidth:440 }}>
+                <thead>
+                  <tr style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>
+                    <td style={{ padding:"3px 6px" }}></td>
+                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"3px 6px", textAlign:"right" }}>{CAJA_MEDIO_LABEL[m]}</td>)}
+                    <td style={{ padding:"3px 6px", textAlign:"right" }}>Total</td>
+                  </tr>
+                </thead>
+                <tbody style={{ fontFamily:font.mono, fontSize:12, color:C.text }}>
+                  <tr>
+                    <td style={{ padding:"3px 6px", fontFamily:font.body }}>Ingreso neto (ventas + flexipagos cerrados hoy)</td>
+                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"3px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.ingresoNeto[m])}</td>)}
+                    <td style={{ padding:"3px 6px", textAlign:"right", fontWeight:700, color:C.goldLight }}>{fmtCOP(resumenHoy.totalIngresoNeto)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding:"3px 6px", fontFamily:font.body }}>Servicios (arreglo, marcación, grabado)</td>
+                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"3px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.servicios[m])}</td>)}
+                    <td style={{ padding:"3px 6px", textAlign:"right", fontWeight:700 }}>{fmtCOP(resumenHoy.totalServicios)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding:"3px 6px", fontFamily:font.body, color:C.textMuted }}>Flexipagos de hoy (no suma al ingreso neto)</td>
+                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"3px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.flexipagoDia[m])}</td>)}
+                    <td style={{ padding:"3px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.totalFlexipagoDia)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            {resumenHoy.flexipagoCerradoHoy>0 && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:4 }}>Incluye {fmtCOP(resumenHoy.flexipagoCerradoHoy)} de flexipagos que se terminaron de pagar hoy.</div>}
+
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr auto", gap:8, alignItems:"end", marginTop:12 }}>
+              <Field label="Quién cierra" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+              <Field label="Tipo" value={ciTipo} onChange={setCiTipo} options={[{value:"parcial",label:"Parcial"},{value:"definitivo",label:"Definitivo"}]}/>
+              <div style={{ marginBottom:14 }}><Btn onClick={guardarCierre} disabled={guardandoCi} sm>{guardandoCi?"...":"Registrar"}</Btn></div>
+            </div>
+            <Field label="Novedades (opcional)" value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta del cierre"/>
+          </SeccionVenta>
+
+          <SeccionVenta icon="🚚" titulo="Recolección de efectivo">
+            {!puedeRecoleccion ? (
+              <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>No tienes permiso para registrar una recolección. Puedes verlas en Historial.</div>
+            ) : (
+              <>
+                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:8 }}>Sugerido: {fmtCOP(efectivoAcumulado)} de ventas en efectivo − {fmtCOP(gastosAcumulados)} de novedades = {fmtCOP(efectivoARecolectar)}. Ajusta si al contar sale distinto.</div>
+                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr", gap:8, alignItems:"end" }}>
+                  <Field label="Entrega" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+                  <Field label="Recibe" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
+                  <CurrencyField label="Valor a recoger" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
+                  <CurrencyField label="Base que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"2fr auto", gap:8, alignItems:"end" }}>
+                  <Field label="Comentarios (opcional)" value={reComentarios} onChange={setReComentarios}/>
+                  <div style={{ marginBottom:14 }}><Btn onClick={guardarRecoleccion} disabled={guardandoRe} sm>{guardandoRe?"...":"Registrar"}</Btn></div>
+                </div>
+              </>
+            )}
+          </SeccionVenta>
+        </>
+      ) : (
+        <>
+          <SeccionVenta icon="🔓" titulo="Historial de apertura">
+            <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+              {aperturasTienda.slice(0,30).map(a=>(
                 <div key={a.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text, padding:"5px 4px", borderBottom:`1px solid ${C.border}` }}>
                   <span>{fmtFechaHora(a.created_at)} · {a.asesor_nombre}</span>
                   <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base: {fmtCOP(a.base_caja)}</span>
                 </div>
               ))}
+              {aperturasTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:8 }}>Sin registros todavía.</div>}
             </div>
-          </div>
-        )}
-      </SeccionVenta>
+          </SeccionVenta>
 
-      <SeccionVenta icon="💸" titulo="Gasto de caja (novedades)">
-        <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>Cuando se usa la base para algo (ej: comprar un limpiavidrios), regístralo aquí para que se reste solo del efectivo a recolectar.</div>
-        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 2fr 1fr", gap:10, alignItems:"end" }}>
-          <CurrencyField label="Valor" value={gaValor} onChange={setGaValor}/>
-          <Field label="Motivo" value={gaMotivo} onChange={setGaMotivo} placeholder="Ej: limpiavidrios"/>
-          <div style={{ marginBottom:14 }}><Btn onClick={guardarGasto} disabled={guardandoGa} full>{guardandoGa?"Guardando...":"Registrar gasto"}</Btn></div>
-        </div>
-        {gastosTienda.length>0 && (
-          <div style={{ marginTop:6 }}>
-            <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-              {gastosTienda.slice(0,8).map(g=>(
-                <div key={g.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text, padding:"5px 4px", borderBottom:`1px solid ${C.border}` }}>
-                  <span>{fmtFechaHora(g.created_at)} · {g.motivo}</span>
-                  <span style={{ fontFamily:font.mono, color:C.red }}>−{fmtCOP(g.valor)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </SeccionVenta>
-
-      <SeccionVenta icon="🔒" titulo="Cierre de turno">
-        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr", gap:10, alignItems:"end" }}>
-          <Field label="Quién cierra" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-          <Field label="Tipo de cierre" value={ciTipo} onChange={setCiTipo} options={[{value:"parcial",label:"Parcial (se va quien abrió)"},{value:"definitivo",label:"Definitivo (cierra la tienda)"}]}/>
-          <div style={{ marginBottom:14 }}><Btn onClick={guardarCierre} disabled={guardandoCi} full>{guardandoCi?"Guardando...":"Registrar cierre"}</Btn></div>
-        </div>
-        <Field label="Novedades (opcional)" value={ciNovedades} onChange={setCiNovedades} multiline rows={2}/>
-
-        <div style={{ border:`1px solid ${C.borderGold}`, borderRadius:8, padding:"12px 14px", marginTop:6, overflowX:"auto" }}>
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>Resumen de ventas de hoy — {tiendaId?stores[tiendaId]?.name:""} · Base de caja: {fmtCOP(BASE_CAJA_FIJA)}</div>
-          <table style={{ width:"100%", borderCollapse:"collapse", minWidth:480 }}>
-            <thead>
-              <tr style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>
-                <td style={{ padding:"4px 6px" }}></td>
-                {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"4px 6px", textAlign:"right" }}>{CAJA_MEDIO_LABEL[m]}</td>)}
-                <td style={{ padding:"4px 6px", textAlign:"right" }}>Total</td>
-              </tr>
-            </thead>
-            <tbody style={{ fontFamily:font.mono, fontSize:12.5, color:C.text }}>
-              <tr>
-                <td style={{ padding:"4px 6px", fontFamily:font.body }}>Ingreso neto (ventas + flexipagos cerrados hoy)</td>
-                {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"4px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.ingresoNeto[m])}</td>)}
-                <td style={{ padding:"4px 6px", textAlign:"right", fontWeight:700, color:C.goldLight }}>{fmtCOP(resumenHoy.totalIngresoNeto)}</td>
-              </tr>
-              <tr>
-                <td style={{ padding:"4px 6px", fontFamily:font.body }}>Servicios (arreglo, marcación, grabado)</td>
-                {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"4px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.servicios[m])}</td>)}
-                <td style={{ padding:"4px 6px", textAlign:"right", fontWeight:700 }}>{fmtCOP(resumenHoy.totalServicios)}</td>
-              </tr>
-              <tr>
-                <td style={{ padding:"4px 6px", fontFamily:font.body, color:C.textMuted }}>Flexipagos de hoy (no suma al ingreso neto)</td>
-                {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"4px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.flexipagoDia[m])}</td>)}
-                <td style={{ padding:"4px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.totalFlexipagoDia)}</td>
-              </tr>
-            </tbody>
-          </table>
-          {resumenHoy.flexipagoCerradoHoy>0 && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:6 }}>Incluye {fmtCOP(resumenHoy.flexipagoCerradoHoy)} de flexipagos que se terminaron de pagar hoy.</div>}
-        </div>
-
-        {cierresTienda.length>0 && (
-          <div style={{ marginTop:14 }}>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Historial</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-              {cierresTienda.slice(0,8).map(c=>(
-                <div key={c.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text, padding:"5px 4px", borderBottom:`1px solid ${C.border}` }}>
-                  <span>{fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}</span>
+          <SeccionVenta icon="🔒" titulo="Historial de cierre">
+            <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+              {cierresTienda.slice(0,30).map(c=>(
+                <div key={c.id} style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:12, color:C.text, padding:"5px 4px", borderBottom:`1px solid ${C.border}` }}>
+                  <span>{fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}{c.novedades?` · ${c.novedades}`:""}</span>
                   <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base: {fmtCOP(c.base_caja)}</span>
                 </div>
               ))}
+              {cierresTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:8 }}>Sin registros todavía.</div>}
             </div>
-          </div>
-        )}
-      </SeccionVenta>
+          </SeccionVenta>
 
-      <SeccionVenta icon="🚚" titulo="Recolección de efectivo">
-        {!puedeRecoleccion ? (
-          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>No tienes permiso para registrar una recolección. Aquí puedes ver el historial.</div>
-        ) : (
-          <>
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr 1fr", gap:10, alignItems:"end" }}>
-              <Field label="Entrega" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-              <Field label="Recibe" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
-              <CurrencyField label="Valor a recoger (sugerido, editable)" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
-              <CurrencyField label="Base de caja que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
-            </div>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:-6, marginBottom:10 }}>Sugerido: {fmtCOP(efectivoAcumulado)} de ventas en efectivo − {fmtCOP(gastosAcumulados)} de gastos = {fmtCOP(efectivoARecolectar)}. Ajusta si al contar sale distinto.</div>
-            <Field label="Comentarios (opcional)" value={reComentarios} onChange={setReComentarios} multiline rows={2}/>
-            <Btn onClick={guardarRecoleccion} disabled={guardandoRe}>{guardandoRe?"Guardando...":"Registrar recolección"}</Btn>
-          </>
-        )}
-
-        {recoleccionesTienda.length>0 && (
-          <div style={{ marginTop:14 }}>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Historial</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-              {recoleccionesTienda.slice(0,8).map(r=>(
+          <SeccionVenta icon="🚚" titulo="Historial de recolección">
+            <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+              {recoleccionesTienda.slice(0,30).map(r=>(
                 <div key={r.id} style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:12, color:C.text, padding:"5px 4px", borderBottom:`1px solid ${C.border}` }}>
-                  <span>{fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}</span>
+                  <span>{fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}{r.comentarios?` · ${r.comentarios}`:""}</span>
                   <span style={{ fontFamily:font.mono }}>{fmtCOP(r.valor)} <span style={{ color:C.textMuted }}>(queda base {fmtCOP(r.base_caja)})</span></span>
                 </div>
               ))}
+              {recoleccionesTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:8 }}>Sin registros todavía.</div>}
             </div>
-          </div>
-        )}
-      </SeccionVenta>
+          </SeccionVenta>
+        </>
+      )}
     </div>
   );
 }
