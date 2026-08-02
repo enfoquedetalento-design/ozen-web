@@ -343,8 +343,10 @@ const esAdminFinanzas = (user) => user.role==="admin_finanzas";
 const esAdminDeVentas = (user) => user.role==="master" || user.role==="admin_turnos";
 // Quién puede asignar las metas mensuales en Métricas
 const puedeAsignarMetas = (user) => user.role==="master" || user.role==="admin_turnos" || user.role==="admin_finanzas";
-// Quién puede registrar una recolección de efectivo (retiro físico de dinero de la tienda)
-const puedeHacerRecoleccion = (user) => user.role==="master" || user.role==="admin_finanzas";
+// Quién puede registrar una recolección de efectivo: master/admin finanzas, y la cuenta de la
+// tienda (porque son quienes ven la caja físicamente y confirman si estaba completa o no).
+// Ojo: NO incluye a los usuarios individuales de "advisor" (esos son solo para Asistencia).
+const puedeHacerRecoleccion = (user) => user.role==="master" || user.role==="admin_finanzas" || user.role==="tienda";
 // Qué pestañas le corresponden a cada quien, según su rol y el área elegida
 const tabsPara = (user, area) => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? ADMIN_TABS_VENTAS : ADVISOR_TABS)
@@ -2987,8 +2989,11 @@ const CAJA_MEDIOS = ["efectivo","tarjeta","transferencia","addi"];
 const CAJA_MEDIO_LABEL = { efectivo:"Efectivo", tarjeta:"Tarjeta", transferencia:"Transferencia", addi:"ADDI" };
 const cajaZeros = () => ({ efectivo:0, tarjeta:0, transferencia:0, addi:0 });
 const cajaTotal = (o) => CAJA_MEDIOS.reduce((s,k)=>s+(o[k]||0),0);
+// La base de caja es un monto FIJO que siempre debe quedar disponible en la tienda para
+// vueltos o gastos menores — no se acumula día tras día, siempre es este mismo valor.
+const BASE_CAJA_FIJA = 100000;
 
-function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, puedeRecoleccion, isMobile }) {
+function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, puedeRecoleccion, isMobile }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const tiendasList = tiendasVenta(stores);
   const [tiendaId, setTiendaId] = useState(tiendaFija || tiendasList[0]?.id || "");
@@ -2996,32 +3001,34 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin_finanzas") && u.active);
 
   const [apAsesorId, setApAsesorId] = useState("");
-  const [apBaseCaja, setApBaseCaja] = useState("");
   const [apNovedades, setApNovedades] = useState("");
   const [guardandoAp, setGuardandoAp] = useState(false);
 
+  const [gaValor, setGaValor] = useState("");
+  const [gaMotivo, setGaMotivo] = useState("");
+  const [guardandoGa, setGuardandoGa] = useState(false);
+
   const [ciAsesorId, setCiAsesorId] = useState("");
   const [ciTipo, setCiTipo] = useState("definitivo");
-  const [ciBaseCaja, setCiBaseCaja] = useState("");
   const [ciNovedades, setCiNovedades] = useState("");
   const [guardandoCi, setGuardandoCi] = useState(false);
 
   const [reEntregaId, setReEntregaId] = useState("");
   const [reRecibeId, setReRecibeId] = useState("");
   const [reValor, setReValor] = useState("");
-  const [reBaseCaja, setReBaseCaja] = useState("");
+  const [reBaseCaja, setReBaseCaja] = useState(String(BASE_CAJA_FIJA));
   const [reComentarios, setReComentarios] = useState("");
   const [guardandoRe, setGuardandoRe] = useState(false);
+  const [reValorTocado, setReValorTocado] = useState(false);
 
   const [msg, setMsg] = useState("");
 
   const recoleccionesTienda = recolecciones.filter(r=>r.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
   const ultimaRecoleccion = recoleccionesTienda[0] || null;
 
-  // Prellena la base de caja con lo que dejó la última recolección (o vacío si nunca ha habido una)
   useEffect(()=>{
-    const base = String(ultimaRecoleccion?.base_caja ?? "");
-    setApBaseCaja(base); setCiBaseCaja(base); setReBaseCaja(base);
+    setReBaseCaja(String(ultimaRecoleccion?.base_caja ?? BASE_CAJA_FIJA));
+    setReValorTocado(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tiendaId, ultimaRecoleccion?.id]);
 
@@ -3044,7 +3051,19 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     if(ts <= desdeTS) return;
     if(a.medio_pago==="efectivo") efectivoAcumulado += Number(a.valor||0);
   });
-  const totalEnCajaAhora = Number(apBaseCaja||0) + efectivoAcumulado;
+
+  // Gastos de caja (novedades con valor, ej. comprar un limpiavidrios) desde la última recolección —
+  // se pagan con la base, así que se restan de lo que hay para recolectar.
+  const gastosTienda = gastos.filter(g=>g.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
+  const gastosAcumulados = gastosTienda.filter(g=> new Date(g.created_at).getTime() > desdeTS).reduce((s,g)=>s+Number(g.valor||0),0);
+
+  const efectivoARecolectar = Math.max(0, efectivoAcumulado - gastosAcumulados);
+  const totalEnCajaAhora = BASE_CAJA_FIJA + efectivoAcumulado - gastosAcumulados;
+
+  useEffect(()=>{
+    if(!reValorTocado) setReValor(String(efectivoARecolectar||""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [efectivoARecolectar, tiendaId]);
 
   // Resumen de ventas del día para el Cierre: ingreso neto, servicios, y flexipagos del día (informativo)
   const resumenDia = (fecha) => {
@@ -3099,11 +3118,22 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     const asesor = users.find(u=>u.id===apAsesorId);
     const { data, error } = await supabase.from("ventas_caja_aperturas").insert({
       tienda_id:tiendaId, fecha:todayStr, asesor_id:apAsesorId, asesor_nombre:asesor?.name||"",
-      base_caja:Number(apBaseCaja||0), novedades:apNovedades.trim()||null, registrado_por:user.name,
+      base_caja:BASE_CAJA_FIJA, novedades:apNovedades.trim()||null, registrado_por:user.name,
     }).select().single();
     setGuardandoAp(false);
     if(data){ setAperturas(prev=>[data,...prev]); setApNovedades(""); }
     else if(error){ setMsg(`No se pudo guardar la apertura: ${error.message||"error desconocido"}`); }
+  };
+
+  const guardarGasto = async () => {
+    if(!tiendaId || !gaValor || !gaMotivo.trim()){ setMsg("Falta el valor y el motivo del gasto."); return; }
+    setGuardandoGa(true); setMsg("");
+    const { data, error } = await supabase.from("ventas_caja_gastos").insert({
+      tienda_id:tiendaId, fecha:todayStr, valor:Number(gaValor||0), motivo:gaMotivo.trim(), registrado_por:user.name,
+    }).select().single();
+    setGuardandoGa(false);
+    if(data){ setGastos(prev=>[data,...prev]); setGaValor(""); setGaMotivo(""); }
+    else if(error){ setMsg(`No se pudo guardar el gasto: ${error.message||"error desconocido"}`); }
   };
 
   const guardarCierre = async () => {
@@ -3112,7 +3142,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     const asesor = users.find(u=>u.id===ciAsesorId);
     const { data, error } = await supabase.from("ventas_caja_cierres").insert({
       tienda_id:tiendaId, fecha:todayStr, tipo:ciTipo, asesor_id:ciAsesorId, asesor_nombre:asesor?.name||"",
-      base_caja:Number(ciBaseCaja||0), novedades:ciNovedades.trim()||null, registrado_por:user.name,
+      base_caja:BASE_CAJA_FIJA, novedades:ciNovedades.trim()||null, registrado_por:user.name,
     }).select().single();
     setGuardandoCi(false);
     if(data){ setCierres(prev=>[data,...prev]); setCiNovedades(""); }
@@ -3149,21 +3179,24 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       {msg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"9px 12px", color:C.red, fontSize:12, marginBottom:12, fontFamily:font.body }}>{msg}</div>}
 
       <SeccionVenta icon="🔓" titulo="Apertura de turno">
-        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr", gap:10, alignItems:"end" }}>
+        <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginBottom:12 }}>
+          Hoy: <span style={{ color:C.text, fontWeight:600 }}>{new Date(todayStr+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</span>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, alignItems:"end" }}>
           <Field label="Quién abre" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-          <CurrencyField label="Base de caja" value={apBaseCaja} onChange={setApBaseCaja}/>
           <div style={{ marginBottom:14 }}><Btn onClick={guardarApertura} disabled={guardandoAp} full>{guardandoAp?"Guardando...":"Registrar apertura"}</Btn></div>
         </div>
-        <Field label="Novedades (opcional)" value={apNovedades} onChange={setApNovedades} multiline rows={2} placeholder="Ej: se resta efectivo entregado para completar base..."/>
+        <Field label="Novedades (opcional)" value={apNovedades} onChange={setApNovedades} multiline rows={2} placeholder="Notas del turno (no afecta el cálculo de dinero)"/>
 
         <div style={{ border:`1px solid ${C.borderGold}`, borderRadius:8, padding:"12px 14px", marginTop:6 }}>
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Cuadro de apertura — {tiendaId?stores[tiendaId]?.name:""}, hoy</div>
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Cuadro de apertura — {tiendaId?stores[tiendaId]?.name:""}</div>
           <div style={{ fontFamily:font.body, fontSize:13, color:C.text, marginBottom:8 }}>
             <span style={{ color:C.textMuted }}>Última recolección: </span>{ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · recibió ${ultimaRecoleccion.recibe_nombre||"—"}` : "Sin registro previo"}
           </div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:20 }}>
-            <div><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body }}>Base de caja</div><div style={{ fontFamily:font.mono, fontSize:15, color:C.text }}>{fmtCOP(Number(apBaseCaja||0))}</div></div>
-            <div><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body }}>Efectivo acumulado desde la última recolección</div><div style={{ fontFamily:font.mono, fontSize:15, color:C.text }}>{fmtCOP(efectivoAcumulado)}</div></div>
+            <div><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body }}>Base de caja (fija)</div><div style={{ fontFamily:font.mono, fontSize:15, color:C.text }}>{fmtCOP(BASE_CAJA_FIJA)}</div></div>
+            <div><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body }}>Efectivo de ventas desde la última recolección</div><div style={{ fontFamily:font.mono, fontSize:15, color:C.text }}>{fmtCOP(efectivoAcumulado)}</div></div>
+            {gastosAcumulados>0 && <div><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body }}>Gastos de caja desde entonces</div><div style={{ fontFamily:font.mono, fontSize:15, color:C.red }}>−{fmtCOP(gastosAcumulados)}</div></div>}
             <div><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body }}>Total en caja ahora</div><div style={{ fontFamily:font.mono, fontSize:17, fontWeight:700, color:C.goldLight }}>{fmtCOP(totalEnCajaAhora)}</div></div>
           </div>
         </div>
@@ -3183,17 +3216,37 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
         )}
       </SeccionVenta>
 
+      <SeccionVenta icon="💸" titulo="Gasto de caja (novedades)">
+        <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>Cuando se usa la base para algo (ej: comprar un limpiavidrios), regístralo aquí para que se reste solo del efectivo a recolectar.</div>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 2fr 1fr", gap:10, alignItems:"end" }}>
+          <CurrencyField label="Valor" value={gaValor} onChange={setGaValor}/>
+          <Field label="Motivo" value={gaMotivo} onChange={setGaMotivo} placeholder="Ej: limpiavidrios"/>
+          <div style={{ marginBottom:14 }}><Btn onClick={guardarGasto} disabled={guardandoGa} full>{guardandoGa?"Guardando...":"Registrar gasto"}</Btn></div>
+        </div>
+        {gastosTienda.length>0 && (
+          <div style={{ marginTop:6 }}>
+            <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              {gastosTienda.slice(0,8).map(g=>(
+                <div key={g.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text, padding:"5px 4px", borderBottom:`1px solid ${C.border}` }}>
+                  <span>{fmtFechaHora(g.created_at)} · {g.motivo}</span>
+                  <span style={{ fontFamily:font.mono, color:C.red }}>−{fmtCOP(g.valor)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </SeccionVenta>
+
       <SeccionVenta icon="🔒" titulo="Cierre de turno">
-        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr 1fr", gap:10, alignItems:"end" }}>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr", gap:10, alignItems:"end" }}>
           <Field label="Quién cierra" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
           <Field label="Tipo de cierre" value={ciTipo} onChange={setCiTipo} options={[{value:"parcial",label:"Parcial (se va quien abrió)"},{value:"definitivo",label:"Definitivo (cierra la tienda)"}]}/>
-          <CurrencyField label="Base de caja" value={ciBaseCaja} onChange={setCiBaseCaja}/>
           <div style={{ marginBottom:14 }}><Btn onClick={guardarCierre} disabled={guardandoCi} full>{guardandoCi?"Guardando...":"Registrar cierre"}</Btn></div>
         </div>
         <Field label="Novedades (opcional)" value={ciNovedades} onChange={setCiNovedades} multiline rows={2}/>
 
         <div style={{ border:`1px solid ${C.borderGold}`, borderRadius:8, padding:"12px 14px", marginTop:6, overflowX:"auto" }}>
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>Resumen de ventas de hoy — {tiendaId?stores[tiendaId]?.name:""}</div>
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>Resumen de ventas de hoy — {tiendaId?stores[tiendaId]?.name:""} · Base de caja: {fmtCOP(BASE_CAJA_FIJA)}</div>
           <table style={{ width:"100%", borderCollapse:"collapse", minWidth:480 }}>
             <thead>
               <tr style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>
@@ -3240,15 +3293,16 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
       <SeccionVenta icon="🚚" titulo="Recolección de efectivo">
         {!puedeRecoleccion ? (
-          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>Solo master o admin finanzas pueden registrar una recolección. Aquí puedes ver el historial.</div>
+          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>No tienes permiso para registrar una recolección. Aquí puedes ver el historial.</div>
         ) : (
           <>
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr 1fr", gap:10, alignItems:"end" }}>
               <Field label="Entrega" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
               <Field label="Recibe" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
-              <CurrencyField label="Valor entregado" value={reValor} onChange={setReValor} placeholder={fmtCOP(totalEnCajaAhora)}/>
+              <CurrencyField label="Valor a recoger (sugerido, editable)" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
               <CurrencyField label="Base de caja que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
             </div>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:-6, marginBottom:10 }}>Sugerido: {fmtCOP(efectivoAcumulado)} de ventas en efectivo − {fmtCOP(gastosAcumulados)} de gastos = {fmtCOP(efectivoARecolectar)}. Ajusta si al contar sale distinto.</div>
             <Field label="Comentarios (opcional)" value={reComentarios} onChange={setReComentarios} multiline rows={2}/>
             <Btn onClick={guardarRecoleccion} disabled={guardandoRe}>{guardandoRe?"Guardando...":"Registrar recolección"}</Btn>
           </>
@@ -3278,13 +3332,13 @@ export default function App() {
   const [juntaLideres,setJuntaLideres]=useState([]),[juntaCompromisos,setJuntaCompromisos]=useState([]),[juntaAcuerdos,setJuntaAcuerdos]=useState([]);
   const [juntaAreas,setJuntaAreas]=useState([]),[juntaLiderAreas,setJuntaLiderAreas]=useState([]);
   const [ventas,setVentas]=useState([]),[ventasItems,setVentasItems]=useState([]),[ventasMetas,setVentasMetas]=useState([]),[ventasMetasAsesor,setVentasMetasAsesor]=useState([]);
-  const [ventasAbonos,setVentasAbonos]=useState([]),[cajaAperturas,setCajaAperturas]=useState([]),[cajaCierres,setCajaCierres]=useState([]),[cajaRecolecciones,setCajaRecolecciones]=useState([]);
+  const [ventasAbonos,setVentasAbonos]=useState([]),[cajaAperturas,setCajaAperturas]=useState([]),[cajaCierres,setCajaCierres]=useState([]),[cajaRecolecciones,setCajaRecolecciones]=useState([]),[cajaGastos,setCajaGastos]=useState([]);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
   const isMobile=useIsMobile();
 
   const loadAll=async()=>{
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr}]=await Promise.all([
+    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
       supabase.from("registros").select("*").order("date",{ascending:false}),
@@ -3301,6 +3355,7 @@ export default function App() {
       supabase.from("ventas_caja_aperturas").select("*").order("created_at",{ascending:false}),
       supabase.from("ventas_caja_cierres").select("*").order("created_at",{ascending:false}),
       supabase.from("ventas_caja_recolecciones").select("*").order("created_at",{ascending:false}),
+      supabase.from("ventas_caja_gastos").select("*").order("created_at",{ascending:false}),
     ]);
     const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
     setStores(sm);setUsers(u||[]);setRecords(r||[]);
@@ -3317,6 +3372,7 @@ export default function App() {
     setCajaAperturas(ca||[]);
     setCajaCierres(cc||[]);
     setCajaRecolecciones(cr||[]);
+    setCajaGastos(cg||[]);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
@@ -3356,7 +3412,7 @@ export default function App() {
         if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
-        if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
+        if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
@@ -3368,7 +3424,7 @@ export default function App() {
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
-      if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
+      if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores}/>;
