@@ -174,8 +174,8 @@ function useIsMobile() {
 }
 
 // ── UI Primitives ─────────────────────────────────────────────────────────────
-const Badge = ({ color, children, sm }) => (
-  <span style={{ display:"inline-flex", alignItems:"center", padding: sm?"2px 8px":"3px 10px", borderRadius:99, fontSize:sm?10:11, fontWeight:600, background:`${color}20`, color, border:`1px solid ${color}40`, fontFamily:font.body, letterSpacing:"0.04em", textTransform:"uppercase", whiteSpace:"nowrap" }}>{children}</span>
+const Badge = ({ color, children, sm, title }) => (
+  <span title={title} style={{ display:"inline-flex", alignItems:"center", padding: sm?"2px 8px":"3px 10px", borderRadius:99, fontSize:sm?10:11, fontWeight:600, background:`${color}20`, color, border:`1px solid ${color}40`, fontFamily:font.body, letterSpacing:"0.04em", textTransform:"uppercase", whiteSpace:"nowrap", cursor:title?"help":"default" }}>{children}</span>
 );
 
 const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={} }) => {
@@ -326,7 +326,8 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id:"records",icon:"📋",label:"Registros" },{ id:"users",icon:"👥",label:"Asesores" },{ id:"stores",icon:"🏬",label:"Tiendas" },{ id:"reports",icon:"📈",label:"Informes" }];
-const ADMIN_TABS_ASISTENCIA_MASTER = ADMIN_TABS_ASISTENCIA.map(t => t.id==="users" ? { id:"usuarios", icon:"🗝️", label:"Usuarios" } : t);
+// Usuarios (control total de contraseñas) ya no va en esta lista de pestañas — es solo para
+// master, y se abre aparte con un ícono discreto en el pie del menú (ver Sidebar/MobileHeader).
 const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
 const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
 const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar venta" },{ id:"lista",icon:"📋",label:"Lista de ventas" },{ id:"metricas",icon:"📊",label:"Métricas" }];
@@ -345,7 +346,7 @@ const puedeAsignarMetas = (user) => user.role==="master" || user.role==="admin_t
 // Qué pestañas le corresponden a cada quien, según su rol y el área elegida
 const tabsPara = (user, area) => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? ADMIN_TABS_VENTAS : ADVISOR_TABS)
-  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? ADMIN_TABS_VENTAS : (user.role==="master" ? ADMIN_TABS_ASISTENCIA_MASTER : ADMIN_TABS_ASISTENCIA));
+  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? ADMIN_TABS_VENTAS : ADMIN_TABS_ASISTENCIA);
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -355,7 +356,7 @@ const passwordVencida = (u) => {
   return dias >= DIAS_EXPIRACION_PASSWORD;
 };
 
-function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword }) {
+function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios }) {
   const tabs = tabsPara(user, area);
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
@@ -373,13 +374,14 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
           <div style={{ width:32, height:32, borderRadius:8, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:13, fontWeight:700, color:"#fff", flexShrink:0 }}>{user.name[0]}</div>
           <div>
-            <div style={{ fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{user.name.split(" ")[0]}</div>
-            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>{ROLE_LABEL[user.role] || "Asesor"}</div>
+            <div style={{ fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
+            {!esCuentaTienda(user) && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>{ROLE_LABEL[user.role] || "Asesor"}</div>}
           </div>
           <button onClick={onRefresh} disabled={refreshing} title="Actualizar" style={{ marginLeft:"auto", background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:16, opacity:refreshing?0.4:1, transition:"transform 0.4s", transform:refreshing?"rotate(180deg)":"rotate(0deg)" }}>🔄</button>
         </div>
         {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
         {user.role!=="master" && <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8 }}>🔑 Mi contraseña</Btn>}
+        {user.role==="master" && <Btn onClick={onAbrirUsuarios} variant="ghost" full sm style={{ marginBottom:8 }}>🗝️ Usuarios</Btn>}
         <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
       </div>
     </div>
@@ -401,15 +403,16 @@ function BottomNav({ tab, setTab, user, area }) {
   );
 }
 
-function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword }) {
+function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword, onAbrirUsuarios }) {
   return (
     <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
       <img src="/logo-icon.png" alt="OZEN" style={{ width:34, height:34, borderRadius:"50%" }} />
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         {puedeUsarAreas(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
         {user.role!=="master" && <button onClick={onCambiarPassword} title="Mi contraseña" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔑</button>}
+        {user.role==="master" && <button onClick={onAbrirUsuarios} title="Usuarios" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🗝️</button>}
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
-        <div style={{ fontFamily:font.body, fontSize:12, color:C.text }}>{user.name.split(" ")[0]}</div>
+        <div style={{ fontFamily:font.body, fontSize:12, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
         <button onClick={onLogout} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 10px", color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:font.body }}>Salir</button>
       </div>
     </div>
@@ -613,6 +616,15 @@ function UsersScreen({ users, setUsers }) {
 // ── SCREEN: Usuarios (solo master) ─────────────────────────────────────────────
 const ROLE_LABEL = { master:"Master", admin:"Administrador", admin_turnos:"Admin Turnos", admin_finanzas:"Admin Finanzas", visualizador:"Visualizador", advisor:"Asesor", tienda:"Cuenta de tienda" };
 const ROLE_COLOR = { master:C.red, admin:C.gold, admin_turnos:C.green, admin_finanzas:C.blue, visualizador:C.amber, advisor:C.blue, tienda:C.textMuted };
+const ROLE_PERMISOS = {
+  master: "Acceso total: Asistencia, Junta, Ventas y el módulo de Usuarios (ve y cambia todas las contraseñas).",
+  admin: "Asistencia y Junta completos (panel, registros, asesores, tiendas, informes). No entra a Ventas ni ve la lista de Usuarios/contraseñas.",
+  admin_turnos: "Todo lo de un Administrador, más Ventas: registrar, lista, métricas, aprobar notas crédito y asignar metas.",
+  admin_finanzas: "Todo lo de un Administrador (Asistencia y Junta), más Ventas: registrar, lista, métricas y asignar metas. No aprueba notas crédito.",
+  visualizador: "Solo puede ver Asistencia y Junta, sin poder editar nada.",
+  advisor: "Marca su propia asistencia y ve su historial/malla. Si se usa para vender, aparece para elegir como quién hizo la venta.",
+  tienda: "Login compartido de una tienda: solo entra a Ventas (Registrar, Lista, Métricas) de esa tienda, con la fecha fija en hoy.",
+};
 function UsuariosScreen({ users, setUsers }) {
   const [showForm,setShowForm]=useState(false),[form,setForm]=useState({name:"",documento:"",role:"advisor"}),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[cambiandoPass,setCambiandoPass]=useState(null),[nuevaPass,setNuevaPass]=useState(""),[loading,setLoading]=useState(false);
   const [passVisible,setPassVisible]=useState({});
@@ -649,6 +661,7 @@ function UsuariosScreen({ users, setUsers }) {
           <Field label="Nombre completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nombre Apellido" />
           <Field label="N.º de documento" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Número de documento" />
           <Field label="Tipo de usuario" value={form.role} onChange={v=>setForm(f=>({...f,role:v}))} options={roleOptions} />
+          <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginTop:-10,marginBottom:12}}>🔎 {ROLE_PERMISOS[form.role]}</div>
           <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 La contraseña inicial será el número de documento.</div>
           <Btn onClick={add} disabled={loading} full>{loading?"Guardando...":"Crear usuario"}</Btn>
         </Card>
@@ -661,6 +674,7 @@ function UsuariosScreen({ users, setUsers }) {
                 <Field label="Nombre" value={editVal.name} onChange={v=>setEditVal(p=>({...p,name:v}))} />
                 <Field label="Documento" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} />
                 <Field label="Tipo de usuario" value={editVal.role} onChange={v=>setEditVal(p=>({...p,role:v}))} options={roleOptions} />
+                <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginTop:-10,marginBottom:12}}>🔎 {ROLE_PERMISOS[editVal.role]}</div>
                 <div style={{display:"flex",gap:8}}><Btn onClick={()=>saveEdit(u.id)} variant="success" sm full>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm full>Cancelar</Btn></div>
               </div>
             ):cambiandoPass===u.id?(
@@ -672,7 +686,7 @@ function UsuariosScreen({ users, setUsers }) {
               <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                 <div style={{width:36,height:36,borderRadius:8,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,fontWeight:700,color:"#fff",flexShrink:0}}>{u.name[0]}</div>
                 <div style={{flex:1,minWidth:120}}><div style={{fontFamily:font.body,fontSize:13,color:C.text,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div><div style={{fontFamily:font.mono,fontSize:11,color:C.textMuted}}>{u.documento}</div></div>
-                <Badge color={ROLE_COLOR[u.role]||C.textMuted} sm>{ROLE_LABEL[u.role]||u.role}</Badge>
+                <Badge color={ROLE_COLOR[u.role]||C.textMuted} sm title={ROLE_PERMISOS[u.role]}>{ROLE_LABEL[u.role]||u.role}</Badge>
                 <Badge color={u.active?C.green:C.red} sm>{u.active?"Activo":"Inactivo"}</Badge>
                 <div style={{display:"flex",gap:4,flexShrink:0}}>
                   {u.role==="tienda" && (u.device_token ? <Btn onClick={()=>liberarDispositivo(u)} variant="ghost" sm>📱 Liberar</Btn> : <Badge color={C.textMuted} sm>📱 Sin vincular</Badge>)}
@@ -1788,7 +1802,7 @@ const VENTAS_TIPOS = [
   { value:"arreglo", label:"Arreglo" },
   { value:"marcacion", label:"Marcación" },
   { value:"grabado", label:"Grabado" },
-  { value:"flexipago", label:"Flexipago (plan separe)" },
+  { value:"flexipago", label:"Flexipago" },
 ];
 const VENTAS_DESCUENTO_TIPOS = [
   { value:"valor", label:"$" },
@@ -1870,6 +1884,8 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   const itemSumaMedios = Object.values(itemMedios).reduce((a,v)=>a+Number(v||0),0);
   const itemFalta = itemNeto - itemSumaMedios;
   const itemFaltaAUT = VENTAS_MEDIOS_TARJETA.some(m=> m in itemMedios && !(itemAutorizaciones[m]||"").trim());
+  const itemFlexipagoRestante = itemValorNum - Number(abonoInicialValor||0);
+  const itemFlexipagoValido = itemValorNum>0 && clienteDocumento.trim()!=="" && clienteNombre.trim()!=="" && abonoInicialValor.trim()!=="";
 
   // Mantiene el selector de "agregar medio" apuntando a una opción que todavía no se ha añadido
   useEffect(()=>{
@@ -1890,7 +1906,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
 
   const agregarItem = () => {
     if(itemEsFlexipago){
-      if(itemValorNum<=0) return;
+      if(!itemFlexipagoValido) return;
       setItems(prev=>[...prev, { tipo:"flexipago", valorTotal:itemValorNum, descuento:0, pagos:[] }]);
       setItemValor("");
       return;
@@ -1956,7 +1972,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
       <PageHeader title="Registrar venta" subtitle={stores[tiendaId]?.name ? `Tienda: ${stores[tiendaId].name}` : "Elige la tienda"} />
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 380px", gap:16, alignItems:"start" }}>
         <div>
-          <SeccionVenta icon="🏬" titulo="Información general" subtitulo="Datos básicos de la venta">
+          <SeccionVenta icon="🏬" titulo="Información general">
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:12 }}>
               {!tiendaFija ? (
                 <Field label="Tienda" value={tiendaId} onChange={setTiendaId} options={Object.values(stores).map(s=>({value:s.id,label:s.name}))}/>
@@ -1966,12 +1982,19 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
                   <div style={{ fontFamily:font.body, fontSize:13, color:C.text, padding:"9px 0" }}>{stores[tiendaId]?.name || "—"}</div>
                 </div>
               )}
-              <Field label="Fecha" type="date" value={fecha} onChange={setFecha}/>
+              {user.role==="master" ? (
+                <Field label="Fecha" type="date" value={fecha} onChange={setFecha}/>
+              ) : (
+                <div>
+                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Fecha</div>
+                  <div style={{ fontFamily:font.body, fontSize:13, color:C.text, padding:"9px 0" }}>{fecha} (hoy)</div>
+                </div>
+              )}
             </div>
             <Field label="¿Quién hizo la venta?" value={vendedorId} onChange={setVendedorId} options={[{value:"",label:"Selecciona un asesor"},...asesores.map(a=>({value:a.id,label:a.name}))]}/>
           </SeccionVenta>
 
-          <SeccionVenta icon="🛍️" titulo="Ventas y servicios" subtitulo="Valor total, descuento y con qué medios se pagó">
+          <SeccionVenta icon="🛍️" titulo="Ventas y servicios">
             <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:14 }}>
               {items.map((it,idx)=>(
                 <div key={idx} style={{ display:"flex", flexDirection:"column", gap:4, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
@@ -1997,7 +2020,26 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
               {itemEsFlexipago ? (
                 <>
                   <CurrencyField label="Valor total" value={itemValor} onChange={setItemValor}/>
-                  <div style={{ marginTop:6, marginBottom:4, fontFamily:font.body, fontSize:11, color:C.blue }}>📦 Flexipago no lleva descuento ni medio de pago aquí — se paga con abonos, se registran más abajo una vez guardada la venta.</div>
+                  <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr", gap:10, marginBottom:4 }}>
+                    <CurrencyField label="Valor del abono" value={abonoInicialValor} onChange={setAbonoInicialValor}/>
+                    <Field label="Medio del abono" value={abonoInicialMedio} onChange={setAbonoInicialMedio} options={VENTAS_MEDIOS_REALES}/>
+                  </div>
+                  {itemValorNum>0 && abonoInicialValor.trim()!=="" && (
+                    <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:itemFlexipagoRestante>0?C.amber:C.green }}>
+                      {itemFlexipagoRestante>0 ? `Queda pendiente: $${itemFlexipagoRestante.toLocaleString("es-CO")}` : "✓ Queda saldado con este abono"}
+                    </div>
+                  )}
+                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Datos del cliente — para poder contactarlo</div>
+                  <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1.3fr", gap:10 }}>
+                    <Field label="Tipo de documento" value={clienteTipoDoc} onChange={setClienteTipoDoc} options={VENTAS_TIPOS_DOC}/>
+                    <div>
+                      <Field label="N.º de documento" value={clienteDocumento} onChange={setClienteDocumento} placeholder="Número de documento"/>
+                      {buscandoCliente && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:-10, marginBottom:10 }}>Buscando...</div>}
+                      {clienteEncontrado && <div style={{ fontFamily:font.body, fontSize:10, color:C.green, marginTop:-10, marginBottom:10 }}>✓ Cliente encontrado, datos autocompletados</div>}
+                    </div>
+                  </div>
+                  <Field label="Nombre" value={clienteNombre} onChange={setClienteNombre} placeholder="Nombre completo"/>
+                  <Field label="Teléfono" value={clienteTelefono} onChange={setClienteTelefono} placeholder="Para poder contactarlo"/>
                 </>
               ) : (
                 <>
@@ -2049,42 +2091,22 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
                   )}
                 </>
               )}
-              <Btn onClick={agregarItem} disabled={itemEsFlexipago ? itemValorNum<=0 : (itemValorNum<=0 || Object.keys(itemMedios).length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT)} sm full>+ Agregar</Btn>
+              <Btn onClick={agregarItem} disabled={itemEsFlexipago ? !itemFlexipagoValido : (itemValorNum<=0 || Object.keys(itemMedios).length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT)} sm full>+ Agregar</Btn>
+            </div>
+
+            <div style={{ marginTop:12 }}>
+              {esFlexipago ? (
+                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>📦 Flexipago no factura en Siigo hasta completar el pago — el número se agrega después, desde "Lista de ventas".</div>
+              ) : (
+                <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>
+              )}
             </div>
           </SeccionVenta>
 
-          {esFlexipago && (
-            <SeccionVenta icon="🧾" titulo="Cliente" subtitulo="Obligatorio en Flexipago, para poder contactarlo">
-              <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1.3fr", gap:12 }}>
-                <Field label="Tipo de documento" value={clienteTipoDoc} onChange={setClienteTipoDoc} options={VENTAS_TIPOS_DOC}/>
-                <div>
-                  <Field label="N.º de documento" value={clienteDocumento} onChange={setClienteDocumento} placeholder="Número de documento"/>
-                  {buscandoCliente && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:-10, marginBottom:10 }}>Buscando...</div>}
-                  {clienteEncontrado && <div style={{ fontFamily:font.body, fontSize:10, color:C.green, marginTop:-10, marginBottom:10 }}>✓ Cliente encontrado, datos autocompletados</div>}
-                </div>
-              </div>
-              <Field label="Nombre" value={clienteNombre} onChange={setClienteNombre} placeholder="Nombre completo"/>
-              <Field label="Teléfono" value={clienteTelefono} onChange={setClienteTelefono} placeholder="Para poder contactarlo"/>
-              <Divider/>
-              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"10px 0 8px" }}>Abono inicial de Flexipago (opcional)</div>
-              <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr", gap:10 }}>
-                <CurrencyField label="Valor del abono" value={abonoInicialValor} onChange={setAbonoInicialValor}/>
-                <Field label="Medio del abono" value={abonoInicialMedio} onChange={setAbonoInicialMedio} options={VENTAS_MEDIOS_REALES}/>
-              </div>
-            </SeccionVenta>
-          )}
-
-          <SeccionVenta icon="📝" titulo="Notas (opcional)" subtitulo="Agrega alguna observación adicional">
-            <Field value={observacion} onChange={setObservacion} placeholder="Escribe una nota o comentario..." multiline rows={3}/>
-          </SeccionVenta>
-
-          <SeccionVenta icon="🧾" titulo="Facturación" subtitulo={esFlexipago ? "Flexipago factura después, al completar el pago" : "Número de factura de Siigo"}>
-            {esFlexipago ? (
-              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>📦 Flexipago no factura en Siigo hasta que se termine de pagar. El número de factura se agrega después, cuando se complete el abono, desde "Lista de ventas".</div>
-            ) : (
-              <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>
-            )}
-          </SeccionVenta>
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.06em" }}>Notas (opcional)</div>
+            <Field value={observacion} onChange={setObservacion} placeholder="Nota o comentario..." multiline rows={2}/>
+          </div>
         </div>
 
         <div style={{ position:isMobile?"static":"sticky", top:16 }}>
@@ -2312,6 +2334,19 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
     setEditando(null);
   };
 
+  const eliminarVenta = async (venta) => {
+    const confirmacion = window.prompt(`Esto borra para siempre la venta #${venta.numero_factura||"—"} (${venta.vendedor_nombre}, $${Number(venta.total).toLocaleString("es-CO")}) y todo lo que tenga: renglones, abonos y solicitudes. No se puede deshacer.\n\nEscribe BORRAR para confirmar.`);
+    if(confirmacion!=="BORRAR") return;
+    await supabase.from("ventas_solicitudes_correccion").delete().eq("venta_id",venta.id);
+    await supabase.from("ventas_abonos").delete().eq("venta_id",venta.id);
+    await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
+    const { error } = await supabase.from("ventas").delete().eq("id",venta.id);
+    if(!error){
+      setVentas(prev=>prev.filter(v=>v.id!==venta.id));
+      setDetalle(prev=>{ const c={...prev}; delete c[venta.id]; return c; });
+    }
+  };
+
   const [abonoNumeroFactura, setAbonoNumeroFactura] = useState("");
   const agregarAbono = async (venta, valorFlexipagoVenta, totalAbonadoActual) => {
     if(!abonoValor || Number(abonoValor)<=0) return;
@@ -2522,7 +2557,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
 
                       {v.es_flexipago && (
                         <>
-                          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"8px 0 3px" }}>Abonos (plan separe)</div>
+                          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"8px 0 3px" }}>Abonos</div>
                           <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:4 }}>
                             {(d?.abonos||[]).map(a=>(
                               <div key={a.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text, padding:"2px 0" }}>
@@ -2583,6 +2618,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                       <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:6 }}>
                         {v.es_flexipago && <Btn onClick={()=>imprimirVenta(v,d)} variant="ghost" sm>🖨️ Imprimir</Btn>}
                         {puedeEditar && !abiertoEdicion && <Btn onClick={()=>iniciarEdicion(v)} sm>✏️ Hacer la corrección aprobada</Btn>}
+                        {user.role==="master" && <Btn onClick={()=>eliminarVenta(v)} variant="ghost" sm style={{ color:C.red }}>🗑️ Eliminar venta</Btn>}
                         {mostrarSolicitud===v.id ? (
                           <div style={{ display:"flex", gap:8, flex:1, minWidth:220, alignItems:"end" }}>
                             <div style={{ flex:1 }}><Field label="¿Qué hay que corregir y por qué?" value={motivoSolicitud} onChange={setMotivoSolicitud} multiline rows={2}/></div>
@@ -2840,6 +2876,7 @@ export default function App() {
   const [juntaAreas,setJuntaAreas]=useState([]),[juntaLiderAreas,setJuntaLiderAreas]=useState([]);
   const [ventas,setVentas]=useState([]),[ventasItems,setVentasItems]=useState([]),[ventasMetas,setVentasMetas]=useState([]);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
+  const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
   const isMobile=useIsMobile();
 
   const loadAll=async()=>{
@@ -2909,7 +2946,6 @@ export default function App() {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
         if(tab==="users")     return <UsersScreen users={users} setUsers={setUsers}/>;
-        if(tab==="usuarios")  return <UsuariosScreen users={users} setUsers={setUsers}/>;
         if(tab==="stores")    return <StoresScreen stores={stores} setStores={setStores}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
@@ -2933,13 +2969,23 @@ export default function App() {
     </div>
   );
 
+  const modalUsuarios = mostrarUsuarios && (
+    <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}}>
+      <div style={{maxWidth:900,margin:"0 auto"}}>
+        <Btn onClick={()=>setMostrarUsuarios(false)} variant="ghost" sm style={{marginBottom:14}}>← Volver</Btn>
+        <UsuariosScreen users={users} setUsers={setUsers}/>
+      </div>
+    </div>
+  );
+
   if(isMobile) return (
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden"}}>
-        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas} onCambiarPassword={()=>setMostrarCambiarPassword(true)}/>
+        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)}/>
         <main style={{flex:1,overflowY:"auto",padding:16}}>{renderScreen()}</main>
         <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
         {modalCambiarPassword}
+        {modalUsuarios}
       </div>
     </ReadOnlyContext.Provider>
   );
@@ -2947,9 +2993,10 @@ export default function App() {
   return (
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
-        <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onCambiarPassword={()=>setMostrarCambiarPassword(true)}/>
+        <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)}/>
         <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}>{renderScreen()}</main>
         {modalCambiarPassword}
+        {modalUsuarios}
       </div>
     </ReadOnlyContext.Provider>
   );
