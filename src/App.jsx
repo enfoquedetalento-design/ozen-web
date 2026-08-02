@@ -330,12 +330,13 @@ const ADMIN_TABS_ASISTENCIA_MASTER = ADMIN_TABS_ASISTENCIA.map(t => t.id==="user
 const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
 const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
 const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar venta" },{ id:"lista",icon:"📋",label:"Lista de ventas" },{ id:"metricas",icon:"📊",label:"Métricas" }];
-const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_turnos";
+const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_turnos" || user.role==="admin_finanzas";
 // Quién puede elegir el área "Ventas" desde el selector (no todos los que puedeUsarAreas)
-const puedeUsarVentasArea = (user) => user.role==="master" || user.role==="admin_turnos";
+const puedeUsarVentasArea = (user) => user.role==="master" || user.role==="admin_turnos" || user.role==="admin_finanzas";
 // Cuentas de tienda: login compartido, van directo a Ventas sin selector de área
 const esCuentaTienda = (user) => user.role==="tienda";
-// Admin Finanzas: rol angosto solo para Ventas (métricas y metas), sin Junta/Asistencia ni notas crédito. Va directo a Ventas, como las cuentas de tienda.
+// Admin Finanzas: hace todo lo que hace un Administrador normal (Asistencia/Junta), más lo de Ventas
+// (métricas y metas). No aprueba notas crédito (igual que un admin normal tampoco lo hace).
 const esAdminFinanzas = (user) => user.role==="admin_finanzas";
 // Quién puede aprobar/rechazar notas crédito dentro de Ventas
 const esAdminDeVentas = (user) => user.role==="master" || user.role==="admin_turnos";
@@ -343,7 +344,7 @@ const esAdminDeVentas = (user) => user.role==="master" || user.role==="admin_tur
 const puedeAsignarMetas = (user) => user.role==="master" || user.role==="admin_turnos" || user.role==="admin_finanzas";
 // Qué pestañas le corresponden a cada quien, según su rol y el área elegida
 const tabsPara = (user, area) => !puedeUsarAreas(user)
-  ? ((esCuentaTienda(user) || esAdminFinanzas(user)) ? ADMIN_TABS_VENTAS : ADVISOR_TABS)
+  ? (esCuentaTienda(user) ? ADMIN_TABS_VENTAS : ADVISOR_TABS)
   : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? ADMIN_TABS_VENTAS : (user.role==="master" ? ADMIN_TABS_ASISTENCIA_MASTER : ADMIN_TABS_ASISTENCIA));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
@@ -2869,7 +2870,7 @@ export default function App() {
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
 
-  const login=(u)=>{setUser(u);setArea(null);setTab((esCuentaTienda(u)||esAdminFinanzas(u))?"registrar":puedeUsarAreas(u)?null:"checkin");};
+  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":puedeUsarAreas(u)?null:"checkin");};
   const logout=()=>{setUser(null);setArea(null);setTab(null);};
   const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?"registrar":"dashboard");};
   const backToAreas=()=>{setArea(null);setTab(null);};
@@ -2912,7 +2913,7 @@ export default function App() {
         if(tab==="stores")    return <StoresScreen stores={stores} setStores={setStores}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
-    } else if(esCuentaTienda(user) || esAdminFinanzas(user)){
+    } else if(esCuentaTienda(user)){
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} metas={ventasMetas} setMetas={setVentasMetas} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
