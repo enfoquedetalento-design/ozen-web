@@ -1839,6 +1839,18 @@ const SeccionVenta = ({ icon, titulo, subtitulo, children }) => (
 
 const VENTAS_TIPOS_DOC = [{value:"CC",label:"Cédula de ciudadanía"},{value:"CE",label:"Cédula de extranjería"},{value:"TI",label:"Tarjeta de identidad"},{value:"NIT",label:"NIT"},{value:"PA",label:"Pasaporte"}];
 
+// Reglas del plan Flexipago — se muestran tal cual al crear la venta y en el recibo para imprimir.
+const FLEXIPAGO_AVISO_TITULO = "AVISO LEGAL – PLAN FLEXIPAGO";
+const FLEXIPAGO_AVISO_PARRAFOS = [
+  "El presente documento corresponde a un acuerdo de separación o reserva de producto. Al realizar el pago inicial, el cliente declara haber leído y aceptado las condiciones aquí establecidas.",
+  "Plazo: El cliente dispone de un plazo máximo de sesenta (60) días calendario contados a partir de la fecha del primer abono para cancelar la totalidad del valor del producto.",
+  "Pago total: El producto será entregado únicamente una vez se haya efectuado el pago completo del valor acordado.",
+  "Incumplimiento: En caso de no completarse el pago dentro del plazo establecido, el establecimiento podrá dar por terminado el acuerdo y disponer libremente del producto. Los valores abonados podrán ser retenidos total o parcialmente a título de compensación por gastos administrativos y perjuicios.",
+  "Cambios y devoluciones: Aplican las políticas del establecimiento y lo dispuesto en la Ley 1480 de 2011 (Estatuto del Consumidor).",
+  "Aceptación: El pago realizado constituye aceptación expresa de las condiciones del presente acuerdo.",
+  "Este acuerdo se rige por las normas comerciales y civiles vigentes en Colombia.",
+];
+
 function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobile }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const [tiendaId, setTiendaId] = useState(tiendaFija || Object.keys(stores)[0] || "");
@@ -1902,7 +1914,10 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
 
   const agregarMedioAItem = () => {
     if(!itemMedioNuevo) return;
-    setItemPagos(prev=>[...prev, { medio_pago:itemMedioNuevo, valor:"", numero_autorizacion:"" }]);
+    // La mayoría de las veces se paga todo con un solo medio, así que se sugiere lo que falta
+    // (la primera vez, el valor total del item). Si pagan con varios medios, el asesor lo corrige.
+    const sugerido = Math.max(0, itemFalta);
+    setItemPagos(prev=>[...prev, { medio_pago:itemMedioNuevo, valor: sugerido>0?String(sugerido):"", numero_autorizacion:"" }]);
   };
   const quitarMedioDeItem = (idx) => setItemPagos(prev=>prev.filter((_,i)=>i!==idx));
   const setItemPagoValor = (idx, v) => setItemPagos(prev=>prev.map((p,i)=>i===idx?{...p,valor:v}:p));
@@ -2044,6 +2059,14 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
                   </div>
                   <Field label="Nombre" value={clienteNombre} onChange={setClienteNombre} placeholder="Nombre completo"/>
                   <Field label="Teléfono" value={clienteTelefono} onChange={setClienteTelefono} placeholder="Para poder contactarlo"/>
+
+                  <div style={{ border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px", maxHeight:110, overflowY:"auto", background:C.surfaceAlt, marginTop:2 }}>
+                    <div style={{ fontFamily:font.body, fontSize:10.5, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:4 }}>{FLEXIPAGO_AVISO_TITULO}</div>
+                    {FLEXIPAGO_AVISO_PARRAFOS.map((p,i)=>(
+                      <div key={i} style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, lineHeight:1.4, marginBottom:4 }}>{p}</div>
+                    ))}
+                  </div>
+                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:4 }}>Al registrar el abono, el cliente acepta estas condiciones. Quedan impresas en el recibo.</div>
                 </>
               ) : (
                 <>
@@ -2186,7 +2209,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
                 <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>
                   {v.numero_factura?`#${v.numero_factura} · `:""}{v.vendedor_nombre}
                 </div>
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{v.cliente_nombre ? `Cliente: ${v.cliente_nombre}` : "Sin cliente registrado"}</div>
+                {v.cliente_nombre && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Cliente: {v.cliente_nombre}</div>}
               </div>
               <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight }}>${Number(v.total).toLocaleString("es-CO")}</div>
             </div>
@@ -2362,6 +2385,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
     const totalAbonado = (d?.abonos||[]).reduce((a,x)=>a+Number(x.valor),0);
     const valorFlex = (d?.items||[]).filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor),0);
     const saldo = valorFlex - totalAbonado;
+    const avisoHtml = FLEXIPAGO_AVISO_PARRAFOS.map(p=>`<p style="margin:3px 0;">${p}</p>`).join("");
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Venta ${venta.numero_factura||""}</title>
       <style>
         body{font-family:Arial,Helvetica,sans-serif;padding:28px;color:#111;}
@@ -2371,8 +2395,12 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
         .total{font-size:16px;font-weight:bold;margin-top:12px;}
         .muted{color:#666;font-size:12px;}
         hr{border:none;border-top:1px solid #ccc;margin:14px 0;}
+        .aviso{margin-top:22px;border:1px solid #ccc;border-radius:6px;padding:10px 14px;background:#fafafa;}
+        .aviso-titulo{font-size:12px;font-weight:bold;margin-bottom:6px;}
+        .aviso p{font-size:10.5px;color:#333;line-height:1.4;}
       </style></head><body>
-      <h1>OZEN — Comprobante Flexipago</h1>
+      <img src="/logo.png" alt="OZEN" style="height:50px;margin-bottom:8px;"/>
+      <h1>Comprobante Flexipago</h1>
       <div class="muted">Factura Siigo: ${venta.numero_factura||"—"} · Tienda: ${tienda} · Fecha: ${venta.fecha}</div>
       <div class="muted">Asesor: ${venta.vendedor_nombre||""}</div>
       <hr/>
@@ -2383,6 +2411,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
       <table><thead><tr><th>Fecha</th><th>Medio</th><th style="text-align:right">Valor</th></tr></thead><tbody>${abonosHtml || '<tr><td colspan="3">Sin abonos registrados</td></tr>'}</tbody></table>
       <div class="total">Saldo pendiente: ${fmtCOP(saldo)}</div>
       ${venta.observacion?`<div class="muted" style="margin-top:14px;">Nota: ${venta.observacion}</div>`:""}
+      <div class="aviso"><div class="aviso-titulo">${FLEXIPAGO_AVISO_TITULO}</div>${avisoHtml}</div>
     </body></html>`;
     const w = window.open("", "_blank", "width=720,height=900");
     if(!w){ alert("El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes para este sitio e intenta de nuevo."); return; }
@@ -2989,9 +3018,45 @@ const CAJA_MEDIOS = ["efectivo","tarjeta","transferencia","addi"];
 const CAJA_MEDIO_LABEL = { efectivo:"Efectivo", tarjeta:"Tarjeta", transferencia:"Transferencia", addi:"ADDI" };
 const cajaZeros = () => ({ efectivo:0, tarjeta:0, transferencia:0, addi:0 });
 const cajaTotal = (o) => CAJA_MEDIOS.reduce((s,k)=>s+(o[k]||0),0);
-// La base de caja es un monto FIJO que siempre debe quedar disponible en la tienda para
-// vueltos o gastos menores — no se acumula día tras día, siempre es este mismo valor.
+// La base de caja casi siempre es este valor (dinero fijo que debe quedar disponible en la
+// tienda para vueltos o gastos menores) — se puede ajustar, y se recuerda el último valor usado.
 const BASE_CAJA_FIJA = 100000;
+
+// Versiones compactas de Card/Field/CurrencyField, solo para Caja: la pantalla se usa muchas
+// veces al día y necesita mucha más densidad que el resto de la app (menos relleno, menos alto por campo).
+const CajaCard = ({ icon, titulo, children }) => (
+  <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", marginBottom:10 }}>
+    <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, textTransform:"uppercase", letterSpacing:"0.04em", marginBottom:8 }}>{icon} {titulo}</div>
+    {children}
+  </div>
+);
+const cajaInputStyle = { width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:5, padding:"5px 8px", color:C.text, fontSize:12.5, fontFamily:font.body, outline:"none", boxSizing:"border-box" };
+const cajaLabelStyle = { fontSize:9.5, color:C.textMuted, fontFamily:font.body, marginBottom:2, textTransform:"uppercase", letterSpacing:"0.05em" };
+const CajaField = ({ label, value, onChange, options, placeholder }) => (
+  <div style={{ marginBottom:0 }}>
+    {label && <div style={cajaLabelStyle}>{label}</div>}
+    {options ? (
+      <select value={value} onChange={e=>onChange(e.target.value)} style={cajaInputStyle}>
+        {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    ) : (
+      <input type="text" value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={cajaInputStyle}/>
+    )}
+  </div>
+);
+const CajaMoney = ({ label, value, onChange, placeholder }) => {
+  const digits = String(value||"").replace(/[^\d]/g,"");
+  const mostrado = digits ? `$${Number(digits).toLocaleString("es-CO")}` : "";
+  return (
+    <div style={{ marginBottom:0 }}>
+      {label && <div style={cajaLabelStyle}>{label}</div>}
+      <input type="text" inputMode="numeric" value={mostrado} onChange={e=>onChange(e.target.value.replace(/[^\d]/g,""))} placeholder={placeholder||"$0"} style={cajaInputStyle}/>
+    </div>
+  );
+};
+const CajaBtn = ({ onClick, children, disabled }) => (
+  <button onClick={disabled?undefined:onClick} style={{ padding:"5px 12px", borderRadius:5, border:"none", background:C.gold, color:"#fff", fontSize:12, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.5:1, whiteSpace:"nowrap" }}>{children}</button>
+);
 
 function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, puedeRecoleccion, isMobile }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
@@ -3173,155 +3238,149 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
   return (
     <div>
-      <div style={{ display:"flex", flexWrap:"wrap", gap:10, alignItems:"end", marginBottom:14 }}>
+      <div style={{ display:"flex", flexWrap:"wrap", gap:10, alignItems:"center", marginBottom:10 }}>
         {!tiendaFija && (
-          <div style={{ maxWidth:260, flex:isMobile?"1 1 100%":undefined }}>
-            <Field label="Tienda" value={tiendaId} onChange={setTiendaId} options={tiendasList.map(t=>({value:t.id,label:t.name}))}/>
+          <div style={{ width:200 }}>
+            <CajaField value={tiendaId} onChange={setTiendaId} options={tiendasList.map(t=>({value:t.id,label:t.name}))}/>
           </div>
         )}
-        <div style={{ display:"flex", gap:6, marginBottom:14 }}>
+        <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>{new Date(todayStr+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}</span>
+        <div style={{ display:"flex", gap:6, marginLeft:"auto" }}>
           <Btn variant={cajaVista==="registrar"?"primary":"ghost"} sm onClick={()=>setCajaVista("registrar")}>Registrar</Btn>
           <Btn variant={cajaVista==="historial"?"primary":"ghost"} sm onClick={()=>setCajaVista("historial")}>Historial</Btn>
         </div>
       </div>
-      {msg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"9px 12px", color:C.red, fontSize:12, marginBottom:12, fontFamily:font.body }}>{msg}</div>}
+      {msg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"7px 10px", color:C.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{msg}</div>}
 
       {cajaVista==="registrar" ? (
         <>
-          <SeccionVenta icon="🔓" titulo="Apertura de turno">
-            <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>
-              {new Date(todayStr+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}{tiendaId && stores[tiendaId] ? ` · ${stores[tiendaId].name}` : ""}
-            </div>
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1.5fr 1fr auto", gap:8, alignItems:"end", marginBottom:10 }}>
-              <Field label="Quién abre" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-              <CurrencyField label="Base de caja" value={apBaseCaja} onChange={setApBaseCaja}/>
-              <div style={{ marginBottom:14 }}><Btn onClick={guardarApertura} disabled={guardandoAp} sm>{guardandoAp?"...":"Registrar"}</Btn></div>
+          <CajaCard icon="🔓" titulo="Apertura de turno">
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1.6fr 1fr auto", gap:8, alignItems:"end" }}>
+              <CajaField label="Quién abre" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+              <CajaMoney label="Base de caja" value={apBaseCaja} onChange={setApBaseCaja}/>
+              <CajaBtn onClick={guardarApertura} disabled={guardandoAp}>{guardandoAp?"...":"Registrar"}</CajaBtn>
             </div>
 
-            <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, padding:"8px 0", borderTop:`1px solid ${C.border}`, display:"flex", flexWrap:"wrap", rowGap:4, columnGap:18 }}>
+            <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, padding:"6px 0", marginTop:8, borderTop:`1px solid ${C.border}`, display:"flex", flexWrap:"wrap", rowGap:2, columnGap:14 }}>
               <span><span style={{ color:C.textMuted }}>Última recolección: </span>{ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · ${ultimaRecoleccion.recibe_nombre||"—"}` : "sin registro previo"}</span>
               <span><span style={{ color:C.textMuted }}>Efectivo desde entonces: </span><b style={{ fontFamily:font.mono }}>{fmtCOP(efectivoAcumulado)}</b></span>
               {gastosAcumulados>0 && <span><span style={{ color:C.textMuted }}>Novedades: </span><b style={{ fontFamily:font.mono, color:C.red }}>−{fmtCOP(gastosAcumulados)}</b></span>}
               <span><span style={{ color:C.textMuted }}>Total en caja: </span><b style={{ fontFamily:font.mono, color:C.goldLight }}>{fmtCOP(totalEnCajaAhora)}</b></span>
             </div>
 
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"10px 0 6px" }}>Novedades</div>
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 2fr auto", gap:8, alignItems:"center" }}>
-              <CurrencyField placeholder="Valor" value={gaValor} onChange={setGaValor}/>
-              <Field placeholder="Motivo (ej: se usó para un limpiavidrios)" value={gaMotivo} onChange={setGaMotivo}/>
-              <Btn onClick={guardarGasto} disabled={guardandoGa} sm>{guardandoGa?"...":"Agregar"}</Btn>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 2fr auto", gap:8, alignItems:"end", marginTop:6 }}>
+              <CajaMoney label="Novedad — valor" value={gaValor} onChange={setGaValor}/>
+              <CajaField label="Motivo" placeholder="Ej: se usó para un limpiavidrios" value={gaMotivo} onChange={setGaMotivo}/>
+              <CajaBtn onClick={guardarGasto} disabled={guardandoGa}>{guardandoGa?"...":"Agregar"}</CajaBtn>
             </div>
             {gastosTienda.length>0 && (
-              <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:2 }}>
+              <div style={{ marginTop:6, display:"flex", flexDirection:"column", gap:1 }}>
                 {gastosTienda.slice(0,4).map(g=>(
-                  <div key={g.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>
+                  <div key={g.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, color:C.textMuted }}>
                     <span>{fmtFechaHora(g.created_at)} · {g.motivo}</span>
                     <span style={{ fontFamily:font.mono, color:C.red }}>−{fmtCOP(g.valor)}</span>
                   </div>
                 ))}
               </div>
             )}
-          </SeccionVenta>
+          </CajaCard>
 
-          <SeccionVenta icon="🔒" titulo="Cierre de turno">
-            <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>
-              {new Date(todayStr+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}{tiendaId && stores[tiendaId] ? ` · ${stores[tiendaId].name}` : ""}
-            </div>
+          <CajaCard icon="🔒" titulo="Cierre de turno">
             <div style={{ overflowX:"auto" }}>
-              <table style={{ width:"100%", borderCollapse:"collapse", minWidth:440 }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", minWidth:420 }}>
                 <thead>
-                  <tr style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>
-                    <td style={{ padding:"3px 6px" }}></td>
-                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"3px 6px", textAlign:"right" }}>{CAJA_MEDIO_LABEL[m]}</td>)}
-                    <td style={{ padding:"3px 6px", textAlign:"right" }}>Total</td>
+                  <tr style={{ fontFamily:font.body, fontSize:9.5, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.04em" }}>
+                    <td style={{ padding:"2px 6px" }}></td>
+                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right" }}>{CAJA_MEDIO_LABEL[m]}</td>)}
+                    <td style={{ padding:"2px 6px", textAlign:"right" }}>Total</td>
                   </tr>
                 </thead>
-                <tbody style={{ fontFamily:font.mono, fontSize:12, color:C.text }}>
+                <tbody style={{ fontFamily:font.mono, fontSize:11.5, color:C.text }}>
                   <tr>
-                    <td style={{ padding:"3px 6px", fontFamily:font.body }}>Ingreso neto (ventas + flexipagos cerrados hoy)</td>
-                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"3px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.ingresoNeto[m])}</td>)}
-                    <td style={{ padding:"3px 6px", textAlign:"right", fontWeight:700, color:C.goldLight }}>{fmtCOP(resumenHoy.totalIngresoNeto)}</td>
+                    <td style={{ padding:"2px 6px", fontFamily:font.body }}>Ingreso neto (ventas + flexipagos cerrados hoy)</td>
+                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.ingresoNeto[m])}</td>)}
+                    <td style={{ padding:"2px 6px", textAlign:"right", fontWeight:700, color:C.goldLight }}>{fmtCOP(resumenHoy.totalIngresoNeto)}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding:"3px 6px", fontFamily:font.body }}>Servicios (arreglo, marcación, grabado)</td>
-                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"3px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.servicios[m])}</td>)}
-                    <td style={{ padding:"3px 6px", textAlign:"right", fontWeight:700 }}>{fmtCOP(resumenHoy.totalServicios)}</td>
+                    <td style={{ padding:"2px 6px", fontFamily:font.body }}>Servicios (arreglo, marcación, grabado)</td>
+                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.servicios[m])}</td>)}
+                    <td style={{ padding:"2px 6px", textAlign:"right", fontWeight:700 }}>{fmtCOP(resumenHoy.totalServicios)}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding:"3px 6px", fontFamily:font.body, color:C.textMuted }}>Flexipagos de hoy (no suma al ingreso neto)</td>
-                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"3px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.flexipagoDia[m])}</td>)}
-                    <td style={{ padding:"3px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.totalFlexipagoDia)}</td>
+                    <td style={{ padding:"2px 6px", fontFamily:font.body, color:C.textMuted }}>Flexipagos de hoy (no suma al ingreso neto)</td>
+                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.flexipagoDia[m])}</td>)}
+                    <td style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.totalFlexipagoDia)}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
-            {resumenHoy.flexipagoCerradoHoy>0 && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:4 }}>Incluye {fmtCOP(resumenHoy.flexipagoCerradoHoy)} de flexipagos que se terminaron de pagar hoy.</div>}
+            {resumenHoy.flexipagoCerradoHoy>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:3 }}>Incluye {fmtCOP(resumenHoy.flexipagoCerradoHoy)} de flexipagos que se terminaron de pagar hoy.</div>}
 
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr auto", gap:8, alignItems:"end", marginTop:12 }}>
-              <Field label="Quién cierra" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-              <Field label="Tipo" value={ciTipo} onChange={setCiTipo} options={[{value:"parcial",label:"Parcial"},{value:"definitivo",label:"Definitivo"}]}/>
-              <div style={{ marginBottom:14 }}><Btn onClick={guardarCierre} disabled={guardandoCi} sm>{guardandoCi?"...":"Registrar"}</Btn></div>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1.4fr auto", gap:8, alignItems:"end", marginTop:8 }}>
+              <CajaField label="Quién cierra" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+              <CajaField label="Tipo" value={ciTipo} onChange={setCiTipo} options={[{value:"parcial",label:"Parcial"},{value:"definitivo",label:"Definitivo"}]}/>
+              <CajaField label="Novedades" value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta (opcional)"/>
+              <CajaBtn onClick={guardarCierre} disabled={guardandoCi}>{guardandoCi?"...":"Registrar"}</CajaBtn>
             </div>
-            <Field label="Novedades (opcional)" value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta del cierre"/>
-          </SeccionVenta>
+          </CajaCard>
 
-          <SeccionVenta icon="🚚" titulo="Recolección de efectivo">
+          <CajaCard icon="🚚" titulo="Recolección de efectivo">
             {!puedeRecoleccion ? (
               <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>No tienes permiso para registrar una recolección. Puedes verlas en Historial.</div>
             ) : (
               <>
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:8 }}>Sugerido: {fmtCOP(efectivoAcumulado)} de ventas en efectivo − {fmtCOP(gastosAcumulados)} de novedades = {fmtCOP(efectivoARecolectar)}. Ajusta si al contar sale distinto.</div>
+                <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginBottom:6 }}>Sugerido: {fmtCOP(efectivoAcumulado)} ventas en efectivo − {fmtCOP(gastosAcumulados)} novedades = {fmtCOP(efectivoARecolectar)}. Ajusta si al contar sale distinto.</div>
                 <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr", gap:8, alignItems:"end" }}>
-                  <Field label="Entrega" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-                  <Field label="Recibe" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
-                  <CurrencyField label="Valor a recoger" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
-                  <CurrencyField label="Base que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
+                  <CajaField label="Entrega" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+                  <CajaField label="Recibe" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
+                  <CajaMoney label="Valor a recoger" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
+                  <CajaMoney label="Base que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
                 </div>
-                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"2fr auto", gap:8, alignItems:"end" }}>
-                  <Field label="Comentarios (opcional)" value={reComentarios} onChange={setReComentarios}/>
-                  <div style={{ marginBottom:14 }}><Btn onClick={guardarRecoleccion} disabled={guardandoRe} sm>{guardandoRe?"...":"Registrar"}</Btn></div>
+                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"2fr auto", gap:8, alignItems:"end", marginTop:8 }}>
+                  <CajaField label="Comentarios" value={reComentarios} onChange={setReComentarios} placeholder="Opcional"/>
+                  <CajaBtn onClick={guardarRecoleccion} disabled={guardandoRe}>{guardandoRe?"...":"Registrar"}</CajaBtn>
                 </div>
               </>
             )}
-          </SeccionVenta>
+          </CajaCard>
         </>
       ) : (
         <>
-          <SeccionVenta icon="🔓" titulo="Historial de apertura">
-            <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+          <CajaCard icon="🔓" titulo="Historial de apertura">
+            <div style={{ display:"flex", flexDirection:"column" }}>
               {aperturasTienda.slice(0,30).map(a=>(
-                <div key={a.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text, padding:"5px 4px", borderBottom:`1px solid ${C.border}` }}>
+                <div key={a.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
                   <span>{fmtFechaHora(a.created_at)} · {a.asesor_nombre}</span>
                   <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base: {fmtCOP(a.base_caja)}</span>
                 </div>
               ))}
-              {aperturasTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:8 }}>Sin registros todavía.</div>}
+              {aperturasTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
             </div>
-          </SeccionVenta>
+          </CajaCard>
 
-          <SeccionVenta icon="🔒" titulo="Historial de cierre">
-            <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+          <CajaCard icon="🔒" titulo="Historial de cierre">
+            <div style={{ display:"flex", flexDirection:"column" }}>
               {cierresTienda.slice(0,30).map(c=>(
-                <div key={c.id} style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:12, color:C.text, padding:"5px 4px", borderBottom:`1px solid ${C.border}` }}>
+                <div key={c.id} style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
                   <span>{fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}{c.novedades?` · ${c.novedades}`:""}</span>
                   <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base: {fmtCOP(c.base_caja)}</span>
                 </div>
               ))}
-              {cierresTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:8 }}>Sin registros todavía.</div>}
+              {cierresTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
             </div>
-          </SeccionVenta>
+          </CajaCard>
 
-          <SeccionVenta icon="🚚" titulo="Historial de recolección">
-            <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+          <CajaCard icon="🚚" titulo="Historial de recolección">
+            <div style={{ display:"flex", flexDirection:"column" }}>
               {recoleccionesTienda.slice(0,30).map(r=>(
-                <div key={r.id} style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:12, color:C.text, padding:"5px 4px", borderBottom:`1px solid ${C.border}` }}>
+                <div key={r.id} style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
                   <span>{fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}{r.comentarios?` · ${r.comentarios}`:""}</span>
                   <span style={{ fontFamily:font.mono }}>{fmtCOP(r.valor)} <span style={{ color:C.textMuted }}>(queda base {fmtCOP(r.base_caja)})</span></span>
                 </div>
               ))}
-              {recoleccionesTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:8 }}>Sin registros todavía.</div>}
+              {recoleccionesTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
             </div>
-          </SeccionVenta>
+          </CajaCard>
         </>
       )}
     </div>
