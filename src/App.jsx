@@ -198,7 +198,7 @@ const Card = ({ children, style={}, glow, p="20px" }) => (
 
 // Campo de valor en pesos colombianos: mientras se escribe muestra $000.000,
 // pero guarda (y entrega vía onChange) solo los dígitos, como los demás campos numéricos.
-const CurrencyField = ({ label, value, onChange, placeholder }) => {
+const CurrencyField = ({ label, value, onChange, placeholder, disabled }) => {
   const digits = String(value||"").replace(/[^\d]/g,"");
   const mostrado = digits ? `$${Number(digits).toLocaleString("es-CO")}` : "";
   return (
@@ -210,7 +210,8 @@ const CurrencyField = ({ label, value, onChange, placeholder }) => {
         value={mostrado}
         onChange={e=>onChange(e.target.value.replace(/[^\d]/g,""))}
         placeholder={placeholder||"$0"}
-        style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}
+        disabled={disabled}
+        style={{ width:"100%", background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box", cursor:disabled?"not-allowed":"text" }}
       />
     </div>
   );
@@ -1876,7 +1877,7 @@ const FLEXIPAGO_AVISO_ITEMS = [
   { texto:"Este acuerdo se rige por las normas comerciales y civiles vigentes en Colombia." },
 ];
 
-function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobile }) {
+function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, isMobile }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const [tiendaId, setTiendaId] = useState(tiendaFija || Object.keys(stores)[0] || "");
   const [fecha, setFecha] = useState(todayStr);
@@ -2012,9 +2013,27 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
 
   const ventasHoy = ventas.filter(v=>v.fecha===fecha && v.tienda_id===tiendaId);
 
+  // Meta del día de hoy para la tienda seleccionada (si ya se asignó por día en Métricas) y
+  // cuánto falta para completarla — el dato que se quiere ver de primeras al registrar ventas.
+  const todayDiaNum = Number(todayStr.slice(8,10));
+  const todayMesKey = todayStr.slice(0,7);
+  const metaHoyTienda = tiendaId ? Number(metas?.find(m=>m.mes===todayMesKey && m.tienda_id===tiendaId && (m.tipo||"total")==="total")?.valores_dia?.[todayDiaNum] || 0) : 0;
+  const vendidoHoyTienda = tiendaId ? ventas.filter(v=>v.fecha===todayStr && v.tienda_id===tiendaId && !v.es_flexipago).reduce((s,v)=>s+Number(v.total||0),0) : 0;
+  const faltaHoyTienda = Math.max(0, metaHoyTienda - vendidoHoyTienda);
+
   return (
     <div>
-      <PageHeader title="Registrar venta" subtitle={stores[tiendaId]?.name ? `Tienda: ${stores[tiendaId].name}` : "Elige la tienda"} />
+      <PageHeader
+        title="Registrar venta"
+        subtitle={stores[tiendaId]?.name ? `Tienda: ${stores[tiendaId].name}` : "Elige la tienda"}
+        action={tiendaId && metaHoyTienda>0 && (
+          <div style={{ textAlign:"right" }}>
+            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>Meta de hoy</div>
+            <div style={{ fontFamily:font.mono, fontSize:17, fontWeight:700, color:C.goldLight }}>{fmtCOP(metaHoyTienda)}</div>
+            <div style={{ fontFamily:font.body, fontSize:11, color: faltaHoyTienda>0?C.amber:C.green }}>{faltaHoyTienda>0 ? `Faltan ${fmtCOP(faltaHoyTienda)}` : "✓ Meta cumplida"}</div>
+          </div>
+        )}
+      />
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 380px", gap:16, alignItems:"start" }}>
         <div>
           <SeccionVenta icon="🏬" titulo="Información general">
@@ -2797,6 +2816,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const [guardandoMeta, setGuardandoMeta] = useState(null);
   const [metaMsg, setMetaMsg] = useState("");
   const [detalleInputs, setDetalleInputs] = useState({});
+  const [metaDiasInputs, setMetaDiasInputs] = useState({}); // { [tiendaId]: { "1": "50000", "2": "45000", ... } }
+  const [metaDiaAbierto, setMetaDiaAbierto] = useState(null); // tiendaId con la lista de días desplegada
   const [guardandoDetalle, setGuardandoDetalle] = useState(null);
   const [asesorExpandido, setAsesorExpandido] = useState(null);
 
@@ -2816,6 +2837,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const tiendasOrdenadas = tiendaPropia ? [tiendaPropia, ...tiendasList.filter(t=>t.id!==tiendaPropia.id)] : tiendasList;
 
   const metaTiendaValor = (tiendaId, tipo="total") => Number(metas.find(m=>m.mes===mesKey && m.tienda_id===tiendaId && (m.tipo||"total")===tipo)?.valor || 0);
+  const metaTiendaValoresDia = (tiendaId) => metas.find(m=>m.mes===mesKey && m.tienda_id===tiendaId && (m.tipo||"total")==="total")?.valores_dia || {};
 
   // Una cuenta de tienda entra viendo su propia tienda de una vez, no "Todas".
   useEffect(()=>{
@@ -2825,11 +2847,17 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
 
   useEffect(()=>{
     const obj = {};
+    const objDias = {};
     tiendasList.forEach(t=>{
       obj[`tienda:${t.id}:total`] = String(metaTiendaValor(t.id,"total")||"");
       obj[`tienda:${t.id}:personal`] = String(metaTiendaValor(t.id,"personal")||"");
+      const vd = metaTiendaValoresDia(t.id);
+      const diasObj = {};
+      for(let dNum=1; dNum<=diasDelMes(anio,mesIdx); dNum++){ diasObj[dNum] = String(vd[dNum]||""); }
+      objDias[t.id] = diasObj;
     });
     setMetaInputs(obj);
+    setMetaDiasInputs(objDias);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesKey, metas.length]);
 
@@ -2837,11 +2865,15 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     const obj = {};
     asesores.forEach(a=>{
       const existente = metasAsesor.find(m=>m.mes===mesKey && m.vendedor_id===a.id);
+      // Novedades múltiples: si el registro es viejo y solo tiene el campo único de antes,
+      // se migra automáticamente a una lista de una sola novedad.
+      const novedadesExistentes = (existente?.novedades && existente.novedades.length>0)
+        ? existente.novedades
+        : (existente?.tipo_novedad ? [{ tipo:existente.tipo_novedad, dias:existente.dias_novedad||0 }] : []);
       obj[a.id] = {
         mesCompleto: existente ? existente.mes_completo : true,
         diasIngreso: String(existente?.dias_ingreso||""),
-        tipoNovedad: existente?.tipo_novedad||"",
-        diasNovedad: String(existente?.dias_novedad||""),
+        novedades: novedadesExistentes.map(n=>({ tipo:n.tipo, dias:String(n.dias||"") })),
         diasTienda: Object.fromEntries(tiendasList.map(t=>[t.id, String((existente?.dias_tienda||{})[t.id]||"")])),
       };
     });
@@ -2849,18 +2881,27 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesKey, metasAsesor.length, asesores.length]);
 
+  const setMetaDiaValor = (tiendaId, diaNum, value) => setMetaDiasInputs(prev=>({...prev, [tiendaId]: {...prev[tiendaId], [diaNum]:value}}));
+  const sumaMetaDias = (tiendaId) => Object.values(metaDiasInputs[tiendaId]||{}).reduce((s,v)=>s+Number(v||0),0);
+  const tieneMetaPorDia = (tiendaId) => Object.values(metaDiasInputs[tiendaId]||{}).some(v=>Number(v||0)>0);
+
   const guardarMetaTienda = async (tiendaId) => {
     setGuardandoMeta(tiendaId);
     setMetaMsg("");
     for(const tipo of ["total","personal"]){
       const key = `tienda:${tiendaId}:${tipo}`;
-      const valor = Number(metaInputs[key]||0);
+      // Para la meta "total", si se llenó la lista de días, el total sale de sumar esos días
+      // en vez de escribirse a mano.
+      const usaMetaPorDia = tipo==="total" && tieneMetaPorDia(tiendaId);
+      const valor = usaMetaPorDia ? sumaMetaDias(tiendaId) : Number(metaInputs[key]||0);
+      const valoresDia = usaMetaPorDia ? Object.fromEntries(Object.entries(metaDiasInputs[tiendaId]||{}).filter(([,v])=>Number(v||0)>0).map(([k,v])=>[k,Number(v)])) : {};
       const existente = metas.find(m=>m.mes===mesKey && m.tienda_id===tiendaId && (m.tipo||"total")===tipo);
       let data, error;
+      const payloadTienda = tipo==="total" ? { valor, valores_dia:valoresDia } : { valor };
       if(existente){
-        ({data,error} = await supabase.from("ventas_metas").update({ valor }).eq("id",existente.id).select().single());
+        ({data,error} = await supabase.from("ventas_metas").update(payloadTienda).eq("id",existente.id).select().single());
       } else {
-        ({data,error} = await supabase.from("ventas_metas").insert({ mes:mesKey, tienda_id:tiendaId, vendedor_id:null, valor, tipo }).select().single());
+        ({data,error} = await supabase.from("ventas_metas").insert({ mes:mesKey, tienda_id:tiendaId, vendedor_id:null, tipo, ...payloadTienda }).select().single());
       }
       if(data && !error){
         setMetas(prev => existente ? prev.map(m=>m.id===data.id?data:m) : [...prev, data]);
@@ -2873,18 +2914,28 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
 
   const setDetalleField = (asesorId, field, value) => setDetalleInputs(prev=>({...prev, [asesorId]: {...prev[asesorId], [field]:value}}));
   const setDetalleTienda = (asesorId, tiendaId, value) => setDetalleInputs(prev=>({...prev, [asesorId]: {...prev[asesorId], diasTienda:{...prev[asesorId]?.diasTienda, [tiendaId]:value}}}));
+  const agregarNovedadAsesor = (asesorId) => setDetalleInputs(prev=>({...prev, [asesorId]: {...prev[asesorId], novedades:[...(prev[asesorId]?.novedades||[]), {tipo:"incapacidad", dias:""}]}}));
+  const quitarNovedadAsesor = (asesorId, idx) => setDetalleInputs(prev=>({...prev, [asesorId]: {...prev[asesorId], novedades:(prev[asesorId]?.novedades||[]).filter((_,i)=>i!==idx)}}));
+  const setNovedadAsesorCampo = (asesorId, idx, campo, value) => setDetalleInputs(prev=>({...prev, [asesorId]: {...prev[asesorId], novedades:(prev[asesorId]?.novedades||[]).map((n,i)=>i===idx?{...n,[campo]:value}:n)}}));
 
   const guardarDetalleAsesor = async (asesorId) => {
     const d = detalleInputs[asesorId];
     if(!d) return;
+    const sumaDiasTienda = Object.values(d.diasTienda||{}).reduce((s,v)=>s+Number(v||0),0);
+    if(sumaDiasTienda > DIAS_META){
+      setMetaMsg(`Los días por tienda de ${users.find(u=>u.id===asesorId)?.name||"este asesor"} suman ${sumaDiasTienda}, no pueden ser más de ${DIAS_META}.`);
+      return;
+    }
     setGuardandoDetalle(asesorId);
     setMetaMsg("");
+    const novedadesLimpias = (d.novedades||[]).filter(n=>n.tipo && Number(n.dias)>0).map(n=>({ tipo:n.tipo, dias:Number(n.dias) }));
     const payload = {
       mes: mesKey, vendedor_id: asesorId,
       mes_completo: d.mesCompleto,
       dias_ingreso: d.mesCompleto ? null : Number(d.diasIngreso||0),
-      tipo_novedad: d.tipoNovedad || null,
-      dias_novedad: Number(d.diasNovedad||0),
+      tipo_novedad: null,
+      dias_novedad: novedadesLimpias.reduce((s,n)=>s+n.dias,0),
+      novedades: novedadesLimpias,
       dias_tienda: Object.fromEntries(Object.entries(d.diasTienda||{}).map(([k,v])=>[k, Number(v||0)])),
       updated_at: new Date().toISOString(),
     };
@@ -3061,20 +3112,44 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
         <SeccionVenta icon="🎯" titulo="Metas del mes">
           {metaMsg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"9px 12px", color:C.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{metaMsg}</div>}
           <div style={{ display:"flex", flexDirection:"column", marginBottom:16 }}>
-            {tiendasList.map(t=>(
-              <div key={t.id} style={{ display:"flex", alignItems:"end", gap:8, padding:"6px 0", borderBottom:`1px solid ${C.border}` }}>
-                <div style={{ width:isMobile?70:110, flexShrink:0, marginBottom:14, fontFamily:font.body, fontSize:12, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.name}</div>
-                <div style={{ flex:1 }}><CurrencyField placeholder="Meta total" value={metaInputs[`tienda:${t.id}:total`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:total`]:v}))}/></div>
-                <div style={{ flex:1 }}><CurrencyField placeholder="Meta personal" value={metaInputs[`tienda:${t.id}:personal`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:personal`]:v}))}/></div>
-                <div style={{ marginBottom:14 }}><Btn onClick={()=>guardarMetaTienda(t.id)} disabled={guardandoMeta===t.id} sm>{guardandoMeta===t.id?"...":"Guardar"}</Btn></div>
-              </div>
-            ))}
+            {tiendasList.map(t=>{
+              const usaDias = tieneMetaPorDia(t.id);
+              const diaAbierto = metaDiaAbierto===t.id;
+              return (
+                <div key={t.id} style={{ padding:"6px 0", borderBottom:`1px solid ${C.border}` }}>
+                  <div style={{ display:"flex", alignItems:"end", gap:8, flexWrap:"wrap" }}>
+                    <div style={{ width:isMobile?70:110, flexShrink:0, marginBottom:14, fontFamily:font.body, fontSize:12, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.name}</div>
+                    <div style={{ flex:1, minWidth:100 }}><CurrencyField placeholder="Meta total" value={usaDias?String(sumaMetaDias(t.id)):(metaInputs[`tienda:${t.id}:total`]||"")} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:total`]:v}))} disabled={usaDias}/></div>
+                    <div style={{ marginBottom:14 }}><Btn onClick={()=>setMetaDiaAbierto(diaAbierto?null:t.id)} variant="ghost" sm>{diaAbierto?"▲ por día":"📅 por día"}</Btn></div>
+                    <div style={{ flex:1, minWidth:100 }}><CurrencyField placeholder="Meta personal" value={metaInputs[`tienda:${t.id}:personal`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:personal`]:v}))}/></div>
+                    <div style={{ marginBottom:14 }}><Btn onClick={()=>guardarMetaTienda(t.id)} disabled={guardandoMeta===t.id} sm>{guardandoMeta===t.id?"...":"Guardar"}</Btn></div>
+                  </div>
+                  {diaAbierto && (
+                    <div style={{ marginTop:6, marginBottom:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
+                      <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginBottom:6 }}>Meta de cada día del mes — la meta total de la tienda queda como la suma de estos valores. Deja en blanco los días sin meta puntual.</div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:3, maxHeight:260, overflowY:"auto" }}>
+                        {Array.from({length:diasDelMes(anio,mesIdx)}, (_,i)=>i+1).map(diaNum=>(
+                          <div key={diaNum} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                            <div style={{ width:26, flexShrink:0, fontFamily:font.body, fontSize:11, color:C.textMuted, textAlign:"right" }}>{diaNum}</div>
+                            <input value={metaDiasInputs[t.id]?.[diaNum]||""} onChange={e=>setMetaDiaValor(t.id,diaNum,e.target.value.replace(/[^\d]/g,""))} placeholder="0" style={cajaInputStyle}/>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ fontFamily:font.body, fontSize:12, color:C.text, marginTop:8, fontWeight:700 }}>Total del mes: {fmtCOP(sumaMetaDias(t.id))}</div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Metas personales de asesores</div>
           <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
             {asesores.map(a=>{
-              const d = detalleInputs[a.id] || { mesCompleto:true, diasIngreso:"", tipoNovedad:"", diasNovedad:"", diasTienda:{} };
+              const d = detalleInputs[a.id] || { mesCompleto:true, diasIngreso:"", novedades:[], diasTienda:{} };
               const abierto = asesorExpandido===a.id;
+              const diasNovedadTotal = (d.novedades||[]).reduce((s,n)=>s+Number(n.dias||0),0);
+              const diasBase = (d.mesCompleto ? DIAS_META : Number(d.diasIngreso||0)) - diasNovedadTotal;
+              const sumaDiasTienda = Object.values(d.diasTienda||{}).reduce((s,v)=>s+Number(v||0),0);
               return (
                 <div key={a.id} style={{ border:`1px solid ${abierto?C.gold:C.border}`, borderRadius:7, overflow:"hidden" }}>
                   <button onClick={()=>setAsesorExpandido(abierto?null:a.id)} style={{ width:"100%", display:"flex", alignItems:"center", gap:8, padding:"7px 10px", background:"none", border:"none", cursor:"pointer", textAlign:"left" }}>
@@ -3086,23 +3161,32 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                     <div style={{ padding:"0 10px 10px" }}>
                       <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8, flexWrap:"wrap" }}>
                         <label style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12, color:C.text, cursor:"pointer" }}>
-                          <input type="checkbox" checked={d.mesCompleto} onChange={e=>setDetalleField(a.id,"mesCompleto",e.target.checked)}/>
-                          Mes completo ({DIAS_META} días)
+                          <input type="checkbox" checked={!d.mesCompleto} onChange={e=>setDetalleField(a.id,"mesCompleto",!e.target.checked)}/>
+                          ¿Ingresa nuevo?
                         </label>
                         {!d.mesCompleto && (
-                          <div style={{ width:140 }}><Field value={d.diasIngreso} onChange={v=>setDetalleField(a.id,"diasIngreso",v.replace(/[^\d]/g,""))} placeholder={`días (de ${DIAS_META})`}/></div>
+                          <div style={{ width:140 }}><Field value={d.diasIngreso} onChange={v=>setDetalleField(a.id,"diasIngreso",v.replace(/[^\d]/g,""))} placeholder={`días trabajados (de ${DIAS_META})`}/></div>
                         )}
+                        <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginLeft:"auto" }}>Días base: <b style={{ fontFamily:font.mono, color:diasBase>0?C.text:C.red }}>{diasBase}</b></span>
                       </div>
-                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                        <Field value={d.tipoNovedad} onChange={v=>setDetalleField(a.id,"tipoNovedad",v)} options={[{value:"",label:"Sin novedad"},{value:"incapacidad",label:"Incapacidad"},{value:"licencia",label:"Licencia"}]}/>
-                        {d.tipoNovedad && <Field value={d.diasNovedad} onChange={v=>setDetalleField(a.id,"diasNovedad",v.replace(/[^\d]/g,""))} placeholder="días a restar"/>}
-                      </div>
-                      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${Math.min(tiendasList.length||1,4)}, 1fr)`, gap:8, marginTop:8 }}>
+
+                      <div style={{ fontSize:10.5, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:4 }}>Novedades (incapacidad / licencia)</div>
+                      {(d.novedades||[]).map((n,idx)=>(
+                        <div key={idx} style={{ display:"grid", gridTemplateColumns:"1fr 100px auto", gap:8, marginBottom:6 }}>
+                          <Field value={n.tipo} onChange={v=>setNovedadAsesorCampo(a.id,idx,"tipo",v)} options={[{value:"incapacidad",label:"Incapacidad"},{value:"licencia",label:"Licencia"}]}/>
+                          <Field value={n.dias} onChange={v=>setNovedadAsesorCampo(a.id,idx,"dias",v.replace(/[^\d]/g,""))} placeholder="días"/>
+                          <Btn onClick={()=>quitarNovedadAsesor(a.id,idx)} variant="ghost" sm>✕</Btn>
+                        </div>
+                      ))}
+                      <Btn onClick={()=>agregarNovedadAsesor(a.id)} variant="ghost" sm>+ Agregar novedad</Btn>
+
+                      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${Math.min(tiendasList.length||1,4)}, 1fr)`, gap:8, marginTop:10 }}>
                         {tiendasList.map(t=>(
                           <Field key={t.id} label={t.name} value={d.diasTienda?.[t.id]||""} onChange={v=>setDetalleTienda(a.id,t.id,v.replace(/[^\d]/g,""))} placeholder="días"/>
                         ))}
                       </div>
-                      <Btn onClick={()=>guardarDetalleAsesor(a.id)} disabled={guardandoDetalle===a.id} sm>{guardandoDetalle===a.id?"Guardando...":"Guardar"}</Btn>
+                      {sumaDiasTienda>DIAS_META && <div style={{ fontFamily:font.body, fontSize:11, color:C.red, marginTop:4 }}>Los días por tienda suman {sumaDiasTienda}, no pueden ser más de {DIAS_META}.</div>}
+                      <div style={{ marginTop:8 }}><Btn onClick={()=>guardarDetalleAsesor(a.id)} disabled={guardandoDetalle===a.id || sumaDiasTienda>DIAS_META} sm>{guardandoDetalle===a.id?"Guardando...":"Guardar"}</Btn></div>
                     </div>
                   )}
                 </div>
@@ -3251,6 +3335,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
   const [gaValor, setGaValor] = useState("");
   const [gaMotivo, setGaMotivo] = useState("");
+  const [gaTipo, setGaTipo] = useState("costo");
+  const puedeAprobarNovedad = user.role==="master" || user.role==="admin_finanzas";
   const [guardandoGa, setGuardandoGa] = useState(false);
 
   const [ciAsesorId, setCiAsesorId] = useState("");
@@ -3315,10 +3401,15 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // Gastos de caja (novedades con valor, ej. comprar un limpiavidrios) desde la última recolección —
   // se pagan con la base, así que se restan de lo que hay para recolectar.
   const gastosTienda = gastos.filter(g=>g.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
-  const gastosAcumulados = gastosTienda.filter(g=> new Date(g.created_at).getTime() > desdeTS).reduce((s,g)=>s+Number(g.valor||0),0);
+  // Una novedad de tipo "costo" resta (se pagó algo con la base) y una de tipo "ingreso" suma
+  // (por ejemplo, vueltas que un cliente no reclamó). Las novedades viejas sin tipo se tratan como costo.
+  const gastosDesdeRecoleccion = gastosTienda.filter(g=> new Date(g.created_at).getTime() > desdeTS);
+  const gastosNetoAcumulado = gastosDesdeRecoleccion.reduce((s,g)=> (g.tipo==="ingreso" ? s+Number(g.valor||0) : s-Number(g.valor||0)), 0);
+  const costosAcumulados = gastosDesdeRecoleccion.filter(g=>g.tipo!=="ingreso").reduce((s,g)=>s+Number(g.valor||0),0);
+  const ingresosAcumulados = gastosDesdeRecoleccion.filter(g=>g.tipo==="ingreso").reduce((s,g)=>s+Number(g.valor||0),0);
 
-  const efectivoARecolectar = Math.max(0, efectivoAcumulado - gastosAcumulados);
-  const totalEnCajaAhora = Number(apBaseCaja||0) + efectivoAcumulado - gastosAcumulados;
+  const efectivoARecolectar = Math.max(0, efectivoAcumulado + gastosNetoAcumulado);
+  const totalEnCajaAhora = Number(apBaseCaja||0) + efectivoAcumulado + gastosNetoAcumulado;
 
   useEffect(()=>{
     if(!reValorTocado) setReValor(String(efectivoARecolectar||""));
@@ -3389,12 +3480,20 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const guardarGasto = async () => {
     if(!tiendaId || !gaValor || !gaMotivo.trim()){ setMsg("Falta el valor y el motivo del gasto."); return; }
     setGuardandoGa(true); setMsg("");
+    // La novedad afecta el cálculo de recolección de inmediato, pero queda "pendiente" hasta que
+    // master/admin_finanzas la revise y apruebe — son movimientos de dinero, así que quedan a la vista.
     const { data, error } = await supabase.from("ventas_caja_gastos").insert({
-      tienda_id:tiendaId, fecha:apFecha, valor:Number(gaValor||0), motivo:gaMotivo.trim(), registrado_por:user.name,
+      tienda_id:tiendaId, fecha:apFecha, valor:Number(gaValor||0), motivo:gaMotivo.trim(), tipo:gaTipo, estado:"pendiente", registrado_por:user.name,
     }).select().single();
     setGuardandoGa(false);
     if(data){ setGastos(prev=>[data,...prev]); setGaValor(""); setGaMotivo(""); }
-    else if(error){ setMsg(`No se pudo guardar el gasto: ${error.message||"error desconocido"}`); }
+    else if(error){ setMsg(`No se pudo guardar la novedad: ${error.message||"error desconocido"}`); }
+  };
+
+  const aprobarGasto = async (g) => {
+    const { data, error } = await supabase.from("ventas_caja_gastos").update({ estado:"aprobado", aprobado_por:user.name, aprobado_at:new Date().toISOString() }).eq("id", g.id).select().single();
+    if(data){ setGastos(prev=>prev.map(x=>x.id===data.id?data:x)); }
+    else if(error){ setMsg(`No se pudo aprobar: ${error.message||"error desconocido"}`); }
   };
 
   const guardarCierre = async () => {
@@ -3458,21 +3557,26 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, padding:"6px 0", marginTop:8, borderTop:`1px solid ${C.border}`, display:"flex", flexWrap:"wrap", rowGap:2, columnGap:14 }}>
               <span><span style={{ color:C.textMuted }}>Última recolección: </span>{ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · ${ultimaRecoleccion.recibe_nombre||"—"}` : "sin registro previo"}</span>
               <span><span style={{ color:C.textMuted }}>Efectivo desde entonces: </span><b style={{ fontFamily:font.mono }}>{fmtCOP(efectivoAcumulado)}</b></span>
-              {gastosAcumulados>0 && <span><span style={{ color:C.textMuted }}>Novedades: </span><b style={{ fontFamily:font.mono, color:C.red }}>−{fmtCOP(gastosAcumulados)}</b></span>}
+              {costosAcumulados>0 && <span><span style={{ color:C.textMuted }}>Costos: </span><b style={{ fontFamily:font.mono, color:C.red }}>−{fmtCOP(costosAcumulados)}</b></span>}
+              {ingresosAcumulados>0 && <span><span style={{ color:C.textMuted }}>Ingresos: </span><b style={{ fontFamily:font.mono, color:C.green }}>+{fmtCOP(ingresosAcumulados)}</b></span>}
               <span><span style={{ color:C.textMuted }}>Total en caja: </span><b style={{ fontFamily:font.mono, color:C.goldLight }}>{fmtCOP(totalEnCajaAhora)}</b></span>
             </div>
 
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 2fr auto", gap:8, alignItems:"end", marginTop:6 }}>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 2fr auto", gap:8, alignItems:"end", marginTop:6 }}>
               <CajaMoney label="Novedad — valor" value={gaValor} onChange={setGaValor}/>
-              <CajaField label="Motivo" placeholder="Ej: se usó para un limpiavidrios" value={gaMotivo} onChange={setGaMotivo}/>
+              <CajaField label="Tipo" value={gaTipo} onChange={setGaTipo} options={[{value:"costo",label:"Costo (resta)"},{value:"ingreso",label:"Ingreso (suma)"}]}/>
+              <CajaField label="Motivo" placeholder="Ej: se usó para un limpiavidrios / vueltas no reclamadas" value={gaMotivo} onChange={setGaMotivo}/>
               <CajaBtn onClick={guardarGasto} disabled={guardandoGa}>{guardandoGa?"...":"Agregar"}</CajaBtn>
             </div>
             {gastosTienda.length>0 && (
-              <div style={{ marginTop:6, display:"flex", flexDirection:"column", gap:1 }}>
+              <div style={{ marginTop:6, display:"flex", flexDirection:"column", gap:2 }}>
                 {gastosTienda.slice(0,4).map(g=>(
-                  <div key={g.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, color:C.textMuted }}>
-                    <span>{fmtFechaHora(g.created_at)} · {g.motivo}</span>
-                    <span style={{ fontFamily:font.mono, color:C.red }}>−{fmtCOP(g.valor)}</span>
+                  <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:11, color:C.textMuted, gap:6 }}>
+                    <span>{fmtFechaHora(g.created_at)} · {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}</span>
+                    <span style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+                      {puedeAprobarNovedad && g.estado!=="aprobado" && <button onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Aprobar</button>}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -3533,7 +3637,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
               <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>No tienes permiso para registrar una recolección. Puedes verlas en Historial.</div>
             ) : (
               <>
-                <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginBottom:6 }}>Sugerido: {fmtCOP(efectivoAcumulado)} ventas en efectivo − {fmtCOP(gastosAcumulados)} novedades = {fmtCOP(efectivoARecolectar)}. Ajusta si al contar sale distinto.</div>
+                <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginBottom:6 }}>Sugerido: {fmtCOP(efectivoAcumulado)} ventas en efectivo {gastosNetoAcumulado>=0?"+":"−"} {fmtCOP(Math.abs(gastosNetoAcumulado))} novedades = {fmtCOP(efectivoARecolectar)}. Ajusta si al contar sale distinto.</div>
                 <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr 1fr", gap:8, alignItems:"end" }}>
                   <CajaField label="Fecha" type="date" value={reFecha} onChange={setReFecha}/>
                   <CajaField label="Entrega" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
@@ -3685,7 +3789,7 @@ export default function App() {
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
-        if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)} isMobile={isMobile}/>;
+        if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
         if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
@@ -3697,7 +3801,7 @@ export default function App() {
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
     } else if(esCuentaTienda(user)){
-      if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false} isMobile={isMobile}/>;
+      if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
       if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
