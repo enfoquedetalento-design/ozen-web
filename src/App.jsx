@@ -30,6 +30,8 @@ const fmt = (d) => { const c = toColombiaDate(d); return `${c.getFullYear()}-${S
 const fmtTime = (d) => { const c = toColombiaDate(d); return `${String(c.getHours()).padStart(2,"0")}:${String(c.getMinutes()).padStart(2,"0")}`; };
 const todayStr = fmt(new Date());
 const fmtFechaHora = (iso) => iso ? new Date(iso).toLocaleString("es-CO", { day:"numeric", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" }) : "—";
+// Días de calendario entre dos fechas "YYYY-MM-DD" (fechaFin - fechaIni)
+const diasEntre = (fechaIni, fechaFin) => Math.round((new Date(fechaFin+"T00:00:00") - new Date(fechaIni+"T00:00:00")) / 86400000);
 
 // ── Puntualidad ───────────────────────────────────────────────────────────────
 // Fechas de corte: desde cada fecha (inclusive) rigen los horarios de esa fila.
@@ -228,6 +230,27 @@ const Field = ({ label, value, onChange, type="text", placeholder, options, disa
     )}
   </div>
 );
+
+// Texto que aparece al pasar el mouse (o al tocar, en celular) sobre una etiqueta — para
+// explicaciones cortas (IDC, MDA) o avisos largos (términos del Flexipago) sin ocupar espacio fijo.
+const HoverTooltip = ({ label, labelStyle={}, width=280, children }) => {
+  const [show, setShow] = useState(false);
+  return (
+    <span style={{ position:"relative", display:"inline-block" }}>
+      <span
+        onMouseEnter={()=>setShow(true)}
+        onMouseLeave={()=>setShow(false)}
+        onClick={()=>setShow(s=>!s)}
+        style={{ textDecoration:"underline dotted", textUnderlineOffset:3, cursor:"help", fontFamily:font.body, ...labelStyle }}
+      >{label}</span>
+      {show && (
+        <div style={{ position:"absolute", zIndex:80, top:"130%", left:0, width, maxWidth:"80vw", background:C.dark, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", boxShadow:"0 6px 24px rgba(0,0,0,0.5)", textAlign:"left" }}>
+          {children}
+        </div>
+      )}
+    </span>
+  );
+};
 
 const StatCard = ({ label, value, icon, color }) => (
   <Card style={{ display:"flex", alignItems:"center", gap:16 }}>
@@ -1841,14 +1864,16 @@ const VENTAS_TIPOS_DOC = [{value:"CC",label:"Cédula de ciudadanía"},{value:"CE
 
 // Reglas del plan Flexipago — se muestran tal cual al crear la venta y en el recibo para imprimir.
 const FLEXIPAGO_AVISO_TITULO = "AVISO LEGAL – PLAN FLEXIPAGO";
-const FLEXIPAGO_AVISO_PARRAFOS = [
-  "El presente documento corresponde a un acuerdo de separación o reserva de producto. Al realizar el pago inicial, el cliente declara haber leído y aceptado las condiciones aquí establecidas.",
-  "Plazo: El cliente dispone de un plazo máximo de sesenta (60) días calendario contados a partir de la fecha del primer abono para cancelar la totalidad del valor del producto.",
-  "Pago total: El producto será entregado únicamente una vez se haya efectuado el pago completo del valor acordado.",
-  "Incumplimiento: En caso de no completarse el pago dentro del plazo establecido, el establecimiento podrá dar por terminado el acuerdo y disponer libremente del producto. Los valores abonados podrán ser retenidos total o parcialmente a título de compensación por gastos administrativos y perjuicios.",
-  "Cambios y devoluciones: Aplican las políticas del establecimiento y lo dispuesto en la Ley 1480 de 2011 (Estatuto del Consumidor).",
-  "Aceptación: El pago realizado constituye aceptación expresa de las condiciones del presente acuerdo.",
-  "Este acuerdo se rige por las normas comerciales y civiles vigentes en Colombia.",
+const FLEXIPAGO_PLAZO_DIAS = 60;
+// El texto es tal cual el aviso legal — el título/número en negrilla es solo para que se lea más fácil.
+const FLEXIPAGO_AVISO_ITEMS = [
+  { texto:"El presente documento corresponde a un acuerdo de separación o reserva de producto. Al realizar el pago inicial, el cliente declara haber leído y aceptado las condiciones aquí establecidas." },
+  { n:1, titulo:"Plazo", texto:`El cliente dispone de un plazo máximo de sesenta (${FLEXIPAGO_PLAZO_DIAS}) días calendario contados a partir de la fecha del primer abono para cancelar la totalidad del valor del producto.` },
+  { n:2, titulo:"Pago total", texto:"El producto será entregado únicamente una vez se haya efectuado el pago completo del valor acordado." },
+  { n:3, titulo:"Incumplimiento", texto:"En caso de no completarse el pago dentro del plazo establecido, el establecimiento podrá dar por terminado el acuerdo y disponer libremente del producto. Los valores abonados podrán ser retenidos total o parcialmente a título de compensación por gastos administrativos y perjuicios." },
+  { n:4, titulo:"Cambios y devoluciones", texto:"Aplican las políticas del establecimiento y lo dispuesto en la Ley 1480 de 2011 (Estatuto del Consumidor)." },
+  { n:5, titulo:"Aceptación", texto:"El pago realizado constituye aceptación expresa de las condiciones del presente acuerdo." },
+  { texto:"Este acuerdo se rige por las normas comerciales y civiles vigentes en Colombia." },
 ];
 
 function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobile }) {
@@ -2060,13 +2085,16 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
                   <Field label="Nombre" value={clienteNombre} onChange={setClienteNombre} placeholder="Nombre completo"/>
                   <Field label="Teléfono" value={clienteTelefono} onChange={setClienteTelefono} placeholder="Para poder contactarlo"/>
 
-                  <div style={{ border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px", maxHeight:110, overflowY:"auto", background:C.surfaceAlt, marginTop:2 }}>
-                    <div style={{ fontFamily:font.body, fontSize:10.5, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:4 }}>{FLEXIPAGO_AVISO_TITULO}</div>
-                    {FLEXIPAGO_AVISO_PARRAFOS.map((p,i)=>(
-                      <div key={i} style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, lineHeight:1.4, marginBottom:4 }}>{p}</div>
-                    ))}
+                  <div style={{ marginTop:6 }}>
+                    <HoverTooltip label={`ⓘ ${FLEXIPAGO_AVISO_TITULO}`} labelStyle={{ fontSize:11, fontWeight:700, color:C.textMuted }} width={340}>
+                      {FLEXIPAGO_AVISO_ITEMS.map((it,i)=>(
+                        <div key={i} style={{ fontFamily:font.body, fontSize:11, color:C.text, lineHeight:1.45, marginBottom:6, textAlign:"left" }}>
+                          {it.n ? <><b>{it.n}. {it.titulo}:</b> {it.texto}</> : it.texto}
+                        </div>
+                      ))}
+                    </HoverTooltip>
+                    <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginLeft:6 }}>el cliente acepta estas condiciones al pagar — quedan impresas en el recibo</span>
                   </div>
-                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:4 }}>Al registrar el abono, el cliente acepta estas condiciones. Quedan impresas en el recibo.</div>
                 </>
               ) : (
                 <>
@@ -2120,9 +2148,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
             </div>
 
             <div style={{ marginTop:12 }}>
-              {(esFlexipago || itemEsFlexipago) ? (
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>📦 Flexipago no factura en Siigo hasta completar el pago — el número se agrega después, desde "Lista de ventas".</div>
-              ) : (
+              {(esFlexipago || itemEsFlexipago) ? null : (
                 <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>
               )}
             </div>
@@ -2226,6 +2252,8 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
   const [filtroTienda, setFiltroTienda] = useState("");
   const [filtroFecha, setFiltroFecha] = useState("");
   const [filtroVendedor, setFiltroVendedor] = useState("");
+  const [filtroFlexipago, setFiltroFlexipago] = useState(false);
+  const [busqueda, setBusqueda] = useState("");
   const [expandido, setExpandido] = useState(null);
   const [detalle, setDetalle] = useState({});
 
@@ -2255,6 +2283,12 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
     .filter(v => (!filtroTienda || v.tienda_id===filtroTienda))
     .filter(v => (!filtroFecha || v.fecha===filtroFecha))
     .filter(v => (!filtroVendedor || v.vendedor_id===filtroVendedor))
+    .filter(v => (!filtroFlexipago || v.es_flexipago))
+    .filter(v => {
+      const q = busqueda.trim().toLowerCase();
+      if(!q) return true;
+      return (v.cliente_nombre||"").toLowerCase().includes(q) || (v.cliente_documento||"").toLowerCase().includes(q);
+    })
     .sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||"") || (b.created_at||"").localeCompare(a.created_at||""));
 
   const fetchDetalle = async (ventaId) => {
@@ -2385,7 +2419,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
     const totalAbonado = (d?.abonos||[]).reduce((a,x)=>a+Number(x.valor),0);
     const valorFlex = (d?.items||[]).filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor),0);
     const saldo = valorFlex - totalAbonado;
-    const avisoHtml = FLEXIPAGO_AVISO_PARRAFOS.map(p=>`<p style="margin:3px 0;">${p}</p>`).join("");
+    const avisoHtml = FLEXIPAGO_AVISO_ITEMS.map(it=>`<p style="margin:3px 0;text-align:left;">${it.n?`<b>${it.n}. ${it.titulo}:</b> `:""}${it.texto}</p>`).join("");
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Venta ${venta.numero_factura||""}</title>
       <style>
         body{font-family:Arial,Helvetica,sans-serif;padding:28px;color:#111;}
@@ -2431,7 +2465,11 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
           )}
           <div style={{ minWidth:160 }}><Field label="Vendedor" value={filtroVendedor} onChange={setFiltroVendedor} options={[{value:"",label:"Todos"},...asesores.map(a=>({value:a.id,label:a.name}))]}/></div>
           <div style={{ minWidth:150 }}><Field label="Fecha" type="date" value={filtroFecha} onChange={setFiltroFecha}/></div>
-          {(filtroTienda||filtroFecha||filtroVendedor) && <Btn onClick={()=>{setFiltroTienda("");setFiltroFecha("");setFiltroVendedor("");}} variant="ghost" sm>Limpiar filtros</Btn>}
+          <div style={{ minWidth:200, flex:1 }}><Field label="Buscar cliente (nombre o documento)" value={busqueda} onChange={setBusqueda} placeholder="Ej: Juan Pérez o 1234567"/></div>
+          <div style={{ marginBottom:14 }}>
+            <Btn variant={filtroFlexipago?"primary":"ghost"} sm onClick={()=>setFiltroFlexipago(f=>!f)}>📦 Solo Flexipago</Btn>
+          </div>
+          {(filtroTienda||filtroFecha||filtroVendedor||filtroFlexipago||busqueda) && <Btn onClick={()=>{setFiltroTienda("");setFiltroFecha("");setFiltroVendedor("");setFiltroFlexipago(false);setBusqueda("");}} variant="ghost" sm>Limpiar filtros</Btn>}
         </div>
       </Card>
 
@@ -2443,6 +2481,10 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
           const totalAbonado = (d?.abonos||[]).reduce((a,x)=>a+Number(x.valor),0);
           const valorFlexipago = (d?.items||[]).filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor),0);
           const saldoPendiente = valorFlexipago - totalAbonado;
+          // Regla del aviso legal: 60 días calendario desde el primer abono para completar el pago.
+          const primerAbonoFecha = (d?.abonos && d.abonos.length>0) ? d.abonos[0].fecha : null;
+          const diasDesdeAbono = primerAbonoFecha ? diasEntre(primerAbonoFecha, todayStr) : null;
+          const flexipagoVencido = v.es_flexipago && saldoPendiente>0 && diasDesdeAbono!==null && diasDesdeAbono>FLEXIPAGO_PLAZO_DIAS;
           return (
             <Card key={v.id} p="0" style={{ overflow:"hidden" }}>
               <button onClick={()=>toggleExpand(v.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"9px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
@@ -2452,6 +2494,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                   {v.cliente_nombre && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, lineHeight:1.3 }}>{v.cliente_nombre}</div>}
                 </div>
                 {v.es_flexipago && <Badge color={C.blue} sm>Flexipago</Badge>}
+                {flexipagoVencido && <Badge color={C.red} sm title={`Pasaron ${diasDesdeAbono} días desde el primer abono (máximo ${FLEXIPAGO_PLAZO_DIAS}). No se puede abonar ni editar.`}>⛔ Vencido</Badge>}
                 <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight }}>${Number(v.total).toLocaleString("es-CO")}</div>
                 <span style={{ color:C.textMuted, fontSize:11 }}>{expandido===v.id?"▲":"▼"}</span>
               </button>
@@ -2590,7 +2633,11 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                             <span>Saldo pendiente</span><span style={{fontFamily:font.mono}}>${saldoPendiente.toLocaleString("es-CO")}</span>
                           </div>
                           {saldoPendiente>0 && (
-                            abonoForm===v.id ? (
+                            flexipagoVencido ? (
+                              <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"8px 10px", fontFamily:font.body, fontSize:12, color:C.red }}>
+                                ⛔ Pasaron {diasDesdeAbono} días desde el primer abono (máximo {FLEXIPAGO_PLAZO_DIAS}, según el aviso legal). No se puede abonar más ni completar esta venta — el cliente pierde lo abonado y el separado.
+                              </div>
+                            ) : abonoForm===v.id ? (
                               <div style={{ marginBottom:6 }}>
                                 <div style={{ display:"flex", gap:8, alignItems:"end", flexWrap:"wrap" }}>
                                   <div style={{ flex:1, minWidth:120 }}><CurrencyField label="Valor del abono" value={abonoValor} onChange={setAbonoValor}/></div>
@@ -2636,7 +2683,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
 
                       <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:6 }}>
                         {v.es_flexipago && <Btn onClick={()=>imprimirVenta(v,d)} variant="ghost" sm>🖨️ Imprimir</Btn>}
-                        {puedeEditar && !abiertoEdicion && <Btn onClick={()=>iniciarEdicion(v)} sm>✏️ Hacer la corrección aprobada</Btn>}
+                        {puedeEditar && !abiertoEdicion && !flexipagoVencido && <Btn onClick={()=>iniciarEdicion(v)} sm>✏️ Hacer la corrección aprobada</Btn>}
                         {user.role==="master" && <Btn onClick={()=>eliminarVenta(v)} variant="ghost" sm style={{ color:C.red }}>🗑️ Eliminar venta</Btn>}
                         {mostrarSolicitud===v.id ? (
                           <div style={{ display:"flex", gap:8, flex:1, minWidth:220, alignItems:"end" }}>
@@ -2691,8 +2738,18 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
 
   const tiendasList = tiendasVenta(stores);
   const asesores = users.filter(u=>u.role==="advisor" && u.active);
+  const vistaAsesor = esCuentaTienda(user);
+  // La tienda del usuario (si es cuenta de tienda) va primera, luego el resto, y "Todas" de última.
+  const tiendaPropia = vistaAsesor ? tiendasList.find(t=>t.id===user.tienda_id) : null;
+  const tiendasOrdenadas = tiendaPropia ? [tiendaPropia, ...tiendasList.filter(t=>t.id!==tiendaPropia.id)] : tiendasList;
 
   const metaTiendaValor = (tiendaId, tipo="total") => Number(metas.find(m=>m.mes===mesKey && m.tienda_id===tiendaId && (m.tipo||"total")===tipo)?.valor || 0);
+
+  // Una cuenta de tienda entra viendo su propia tienda de una vez, no "Todas".
+  useEffect(()=>{
+    if(vistaAsesor && user.tienda_id && !tiendaSel) setTiendaSel(user.tienda_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vistaAsesor, user.tienda_id]);
 
   useEffect(()=>{
     const obj = {};
@@ -2848,34 +2905,40 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
           {esMesActual && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{diasRestantes} días restantes del mes</div>}
         </div>
         <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-          <button onClick={()=>setTiendaSel("")} style={{ padding:"6px 12px", borderRadius:20, border:`1px solid ${!tiendaSel?C.gold:C.border}`, background:!tiendaSel?`${C.gold}22`:"transparent", color:!tiendaSel?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12, cursor:"pointer" }}>Todas las tiendas</button>
-          {tiendasList.map(t=>(
+          {tiendasOrdenadas.map(t=>(
             <button key={t.id} onClick={()=>setTiendaSel(t.id)} style={{ padding:"6px 12px", borderRadius:20, border:`1px solid ${tiendaSel===t.id?C.gold:C.border}`, background:tiendaSel===t.id?`${C.gold}22`:"transparent", color:tiendaSel===t.id?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12, cursor:"pointer" }}>{t.name}</button>
           ))}
+          <button onClick={()=>setTiendaSel("")} style={{ padding:"6px 12px", borderRadius:20, border:`1px solid ${!tiendaSel?C.gold:C.border}`, background:!tiendaSel?`${C.gold}22`:"transparent", color:!tiendaSel?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12, cursor:"pointer" }}>Todas las tiendas</button>
         </div>
       </Card>
 
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5, 1fr)", gap:10, marginBottom:16 }}>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${vistaAsesor?4:5}, 1fr)`, gap:10, marginBottom:16 }}>
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
-          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingresos (con servicios)</div>
-          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(totalConServicios)}</div>
-        </div>
-        <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
-          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingresos (sin servicios)</div>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingresos</div>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(totalSinServicios)}</div>
         </div>
+        {!vistaAsesor && (
+          <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingresos con servicios</div>
+            <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(totalConServicios)}</div>
+            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2 }}>+{fmtCOP(totalConServicios-totalSinServicios)} en servicios</div>
+          </div>
+        )}
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
           <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Meta {tiendaSel?"de la tienda":"total"}</div>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{metaTiendaTotal>0?fmtCOP(metaTiendaTotal):"—"}</div>
         </div>
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
-          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>IDC</div>
-          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:idcTienda===null?C.textMuted:idcTienda>=100?C.green:C.amber }}>{idcTienda===null?"—":`${idcTienda}%`}</div>
-          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2 }}>sin servicios</div>
+          <HoverTooltip label="IDC" labelStyle={{ fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 }} width={240}>
+            <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, lineHeight:1.4 }}><b>IDC — Índice de Cumplimiento.</b> Qué porcentaje de la meta del mes ya se alcanzó: (ingresos ÷ meta) × 100.</div>
+          </HoverTooltip>
+          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:idcTienda===null?C.textMuted:idcTienda>=100?C.green:C.amber, marginTop:6 }}>{idcTienda===null?"—":`${idcTienda}%`}</div>
         </div>
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
-          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>MDA</div>
-          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{mdaTienda===null?"—":fmtCOP(mdaTienda)}</div>
+          <HoverTooltip label="MDA" labelStyle={{ fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 }} width={240}>
+            <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, lineHeight:1.4 }}><b>MDA — Meta Diaria.</b> Cuánto falta vender en promedio cada día para llegar a la meta: (meta − ingresos) ÷ días que quedan del mes.</div>
+          </HoverTooltip>
+          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text, marginTop:6 }}>{mdaTienda===null?"—":fmtCOP(mdaTienda)}</div>
           <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2 }}>por día, sin servicios</div>
         </div>
       </div>
@@ -3032,7 +3095,7 @@ const CajaCard = ({ icon, titulo, children }) => (
 );
 const cajaInputStyle = { width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:5, padding:"5px 8px", color:C.text, fontSize:12.5, fontFamily:font.body, outline:"none", boxSizing:"border-box" };
 const cajaLabelStyle = { fontSize:9.5, color:C.textMuted, fontFamily:font.body, marginBottom:2, textTransform:"uppercase", letterSpacing:"0.05em" };
-const CajaField = ({ label, value, onChange, options, placeholder }) => (
+const CajaField = ({ label, value, onChange, options, placeholder, type="text" }) => (
   <div style={{ marginBottom:0 }}>
     {label && <div style={cajaLabelStyle}>{label}</div>}
     {options ? (
@@ -3040,7 +3103,7 @@ const CajaField = ({ label, value, onChange, options, placeholder }) => (
         {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     ) : (
-      <input type="text" value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={cajaInputStyle}/>
+      <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={cajaInputStyle}/>
     )}
   </div>
 );
@@ -3066,8 +3129,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const asesores = users.filter(u=>u.role==="advisor" && u.active);
   const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin_finanzas") && u.active);
 
+  // Solo master puede registrar con una fecha distinta a hoy (para poner al día algo atrasado).
+  const puedeFechaLibre = user.role==="master";
+
   const [apAsesorId, setApAsesorId] = useState("");
   const [apBaseCaja, setApBaseCaja] = useState(String(BASE_CAJA_FIJA));
+  const [apFecha, setApFecha] = useState(todayStr);
   const [guardandoAp, setGuardandoAp] = useState(false);
 
   const [gaValor, setGaValor] = useState("");
@@ -3077,6 +3144,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const [ciAsesorId, setCiAsesorId] = useState("");
   const [ciTipo, setCiTipo] = useState("definitivo");
   const [ciNovedades, setCiNovedades] = useState("");
+  const [ciFecha, setCiFecha] = useState(todayStr);
   const [guardandoCi, setGuardandoCi] = useState(false);
 
   const [reEntregaId, setReEntregaId] = useState("");
@@ -3084,6 +3152,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const [reValor, setReValor] = useState("");
   const [reBaseCaja, setReBaseCaja] = useState(String(BASE_CAJA_FIJA));
   const [reComentarios, setReComentarios] = useState("");
+  const [reFecha, setReFecha] = useState(todayStr);
   const [guardandoRe, setGuardandoRe] = useState(false);
   const [reValorTocado, setReValorTocado] = useState(false);
 
@@ -3180,14 +3249,15 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     return { ingresoNeto, servicios, flexipagoDia, flexipagoCerradoHoy, totalIngresoNeto:cajaTotal(ingresoNeto), totalServicios:cajaTotal(servicios), totalFlexipagoDia:cajaTotal(flexipagoDia) };
   };
 
-  const resumenHoy = resumenDia(todayStr);
+  const resumenHoy = resumenDia(ciFecha);
 
   const guardarApertura = async () => {
     if(!tiendaId || !apAsesorId){ setMsg("Falta elegir tienda y quién abre."); return; }
+    if(apFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master puede registrar una apertura con fecha distinta a hoy. Pide autorización."); return; }
     setGuardandoAp(true); setMsg("");
     const asesor = users.find(u=>u.id===apAsesorId);
     const { data, error } = await supabase.from("ventas_caja_aperturas").insert({
-      tienda_id:tiendaId, fecha:todayStr, asesor_id:apAsesorId, asesor_nombre:asesor?.name||"",
+      tienda_id:tiendaId, fecha:apFecha, asesor_id:apAsesorId, asesor_nombre:asesor?.name||"",
       base_caja:Number(apBaseCaja||0), novedades:null, registrado_por:user.name,
     }).select().single();
     setGuardandoAp(false);
@@ -3199,7 +3269,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     if(!tiendaId || !gaValor || !gaMotivo.trim()){ setMsg("Falta el valor y el motivo del gasto."); return; }
     setGuardandoGa(true); setMsg("");
     const { data, error } = await supabase.from("ventas_caja_gastos").insert({
-      tienda_id:tiendaId, fecha:todayStr, valor:Number(gaValor||0), motivo:gaMotivo.trim(), registrado_por:user.name,
+      tienda_id:tiendaId, fecha:apFecha, valor:Number(gaValor||0), motivo:gaMotivo.trim(), registrado_por:user.name,
     }).select().single();
     setGuardandoGa(false);
     if(data){ setGastos(prev=>[data,...prev]); setGaValor(""); setGaMotivo(""); }
@@ -3208,10 +3278,11 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
   const guardarCierre = async () => {
     if(!tiendaId || !ciAsesorId){ setMsg("Falta elegir tienda y quién cierra."); return; }
+    if(ciFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master puede registrar un cierre con fecha distinta a hoy. Pide autorización."); return; }
     setGuardandoCi(true); setMsg("");
     const asesor = users.find(u=>u.id===ciAsesorId);
     const { data, error } = await supabase.from("ventas_caja_cierres").insert({
-      tienda_id:tiendaId, fecha:todayStr, tipo:ciTipo, asesor_id:ciAsesorId, asesor_nombre:asesor?.name||"",
+      tienda_id:tiendaId, fecha:ciFecha, tipo:ciTipo, asesor_id:ciAsesorId, asesor_nombre:asesor?.name||"",
       base_caja:Number(apBaseCaja||0), novedades:ciNovedades.trim()||null, registrado_por:user.name,
     }).select().single();
     setGuardandoCi(false);
@@ -3221,11 +3292,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
   const guardarRecoleccion = async () => {
     if(!tiendaId || !reEntregaId || !reRecibeId || !reValor){ setMsg("Falta elegir tienda, quién entrega, quién recibe y el valor."); return; }
+    if(reFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master puede registrar una recolección con fecha distinta a hoy. Pide autorización."); return; }
     setGuardandoRe(true); setMsg("");
     const entrega = users.find(u=>u.id===reEntregaId);
     const recibe = users.find(u=>u.id===reRecibeId);
     const { data, error } = await supabase.from("ventas_caja_recolecciones").insert({
-      tienda_id:tiendaId, fecha:todayStr, entrega_usuario_id:reEntregaId, entrega_nombre:entrega?.name||"",
+      tienda_id:tiendaId, fecha:reFecha, entrega_usuario_id:reEntregaId, entrega_nombre:entrega?.name||"",
       recibe_usuario_id:reRecibeId, recibe_nombre:recibe?.name||"", valor:Number(reValor||0),
       base_caja:Number(reBaseCaja||0), comentarios:reComentarios.trim()||null, registrado_por:user.name,
     }).select().single();
@@ -3244,7 +3316,6 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             <CajaField value={tiendaId} onChange={setTiendaId} options={tiendasList.map(t=>({value:t.id,label:t.name}))}/>
           </div>
         )}
-        <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>{new Date(todayStr+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}</span>
         <div style={{ display:"flex", gap:6, marginLeft:"auto" }}>
           <Btn variant={cajaVista==="registrar"?"primary":"ghost"} sm onClick={()=>setCajaVista("registrar")}>Registrar</Btn>
           <Btn variant={cajaVista==="historial"?"primary":"ghost"} sm onClick={()=>setCajaVista("historial")}>Historial</Btn>
@@ -3255,11 +3326,13 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       {cajaVista==="registrar" ? (
         <>
           <CajaCard icon="🔓" titulo="Apertura de turno">
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1.6fr 1fr auto", gap:8, alignItems:"end" }}>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1.3fr 1fr auto", gap:8, alignItems:"end" }}>
+              <CajaField label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
               <CajaField label="Quién abre" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
               <CajaMoney label="Base de caja" value={apBaseCaja} onChange={setApBaseCaja}/>
               <CajaBtn onClick={guardarApertura} disabled={guardandoAp}>{guardandoAp?"...":"Registrar"}</CajaBtn>
             </div>
+            {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
 
             <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, padding:"6px 0", marginTop:8, borderTop:`1px solid ${C.border}`, display:"flex", flexWrap:"wrap", rowGap:2, columnGap:14 }}>
               <span><span style={{ color:C.textMuted }}>Última recolección: </span>{ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · ${ultimaRecoleccion.recibe_nombre||"—"}` : "sin registro previo"}</span>
@@ -3286,6 +3359,10 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
           </CajaCard>
 
           <CajaCard icon="🔒" titulo="Cierre de turno">
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"200px 1fr", gap:8, alignItems:"end", marginBottom:8 }}>
+              <CajaField label="Fecha" type="date" value={ciFecha} onChange={setCiFecha}/>
+              {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
+            </div>
             <div style={{ overflowX:"auto" }}>
               <table style={{ width:"100%", borderCollapse:"collapse", minWidth:420 }}>
                 <thead>
@@ -3297,7 +3374,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 </thead>
                 <tbody style={{ fontFamily:font.mono, fontSize:11.5, color:C.text }}>
                   <tr>
-                    <td style={{ padding:"2px 6px", fontFamily:font.body }}>Ingreso neto (ventas + flexipagos cerrados hoy)</td>
+                    <td style={{ padding:"2px 6px", fontFamily:font.body }}>Ingreso neto (ventas + flexipagos cerrados ese día)</td>
                     {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.ingresoNeto[m])}</td>)}
                     <td style={{ padding:"2px 6px", textAlign:"right", fontWeight:700, color:C.goldLight }}>{fmtCOP(resumenHoy.totalIngresoNeto)}</td>
                   </tr>
@@ -3307,7 +3384,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     <td style={{ padding:"2px 6px", textAlign:"right", fontWeight:700 }}>{fmtCOP(resumenHoy.totalServicios)}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding:"2px 6px", fontFamily:font.body, color:C.textMuted }}>Flexipagos de hoy (no suma al ingreso neto)</td>
+                    <td style={{ padding:"2px 6px", fontFamily:font.body, color:C.textMuted }}>Flexipagos de ese día (no suma al ingreso neto)</td>
                     {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.flexipagoDia[m])}</td>)}
                     <td style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.totalFlexipagoDia)}</td>
                   </tr>
@@ -3330,12 +3407,14 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             ) : (
               <>
                 <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginBottom:6 }}>Sugerido: {fmtCOP(efectivoAcumulado)} ventas en efectivo − {fmtCOP(gastosAcumulados)} novedades = {fmtCOP(efectivoARecolectar)}. Ajusta si al contar sale distinto.</div>
-                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr", gap:8, alignItems:"end" }}>
+                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr 1fr", gap:8, alignItems:"end" }}>
+                  <CajaField label="Fecha" type="date" value={reFecha} onChange={setReFecha}/>
                   <CajaField label="Entrega" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                   <CajaField label="Recibe" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
                   <CajaMoney label="Valor a recoger" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
                   <CajaMoney label="Base que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
                 </div>
+                {reFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
                 <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"2fr auto", gap:8, alignItems:"end", marginTop:8 }}>
                   <CajaField label="Comentarios" value={reComentarios} onChange={setReComentarios} placeholder="Opcional"/>
                   <CajaBtn onClick={guardarRecoleccion} disabled={guardandoRe}>{guardandoRe?"...":"Registrar"}</CajaBtn>
