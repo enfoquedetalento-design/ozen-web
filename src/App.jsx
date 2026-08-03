@@ -1885,6 +1885,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   const [items, setItems] = useState([]); // [{tipo, valorTotal, descuento, pagos:[{medio_pago,valor,numero_autorizacion}]}]
   const [itemTipo, setItemTipo] = useState("producto");
   const [itemValor, setItemValor] = useState("");
+  const [itemCodigoProducto, setItemCodigoProducto] = useState("");
   const [itemDescuento, setItemDescuento] = useState("");
   const [itemDescuentoTipo, setItemDescuentoTipo] = useState("valor");
   const [itemPagos, setItemPagos] = useState([]); // [{medio_pago, valor, numero_autorizacion}] — permite repetir medio (ej. dos tarjetas)
@@ -1951,8 +1952,8 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
   const agregarItem = () => {
     if(itemEsFlexipago){
       if(!itemFlexipagoValido) return;
-      setItems(prev=>[...prev, { tipo:"flexipago", valorTotal:itemValorNum, descuento:0, pagos:[] }]);
-      setItemValor("");
+      setItems(prev=>[...prev, { tipo:"flexipago", valorTotal:itemValorNum, descuento:0, pagos:[], codigoProducto:itemCodigoProducto.trim()||null }]);
+      setItemValor(""); setItemCodigoProducto("");
       return;
     }
     if(itemValorNum<=0 || itemPagos.length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT) return;
@@ -1995,7 +1996,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
       observacion:observacion.trim(), valor_bruto:valorBruto, descuento_total:descuentoNum, total, es_flexipago:esFlexipago,
     }).select().single();
     if(error || !venta){ setGuardando(false); setMsg("No se pudo guardar. Intenta de nuevo."); return; }
-    const filasItems = items.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos }));
+    const filasItems = items.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, codigo_producto:i.codigoProducto||null }));
     const { error:errorItems } = await supabase.from("ventas_items").insert(filasItems);
     if(errorItems){ setGuardando(false); setMsg("La venta se guardó, pero hubo un problema guardando las ventas/servicios."); return; }
     if(esFlexipago && Number(abonoInicialValor||0) > 0){
@@ -2064,6 +2065,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, isMobil
               {itemEsFlexipago ? (
                 <>
                   <CurrencyField label="Valor total" value={itemValor} onChange={setItemValor}/>
+                  <Field label="Código del producto separado" value={itemCodigoProducto} onChange={setItemCodigoProducto} placeholder="Código del producto (para saber qué se separó)"/>
                   <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr", gap:10, marginBottom:4 }}>
                     <CurrencyField label="Valor del abono" value={abonoInicialValor} onChange={setAbonoInicialValor}/>
                     <Field label="Medio del abono" value={abonoInicialMedio} onChange={setAbonoInicialMedio} options={VENTAS_MEDIOS_REALES}/>
@@ -2276,6 +2278,26 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
   const [abonoMedio, setAbonoMedio] = useState("efectivo");
   const [guardando, setGuardando] = useState(false);
 
+  // Corrección directa de un abono ya registrado (solo master) — para cuando quedó con la fecha,
+  // el valor o el medio de pago equivocado y no hay forma de arreglarlo desde el flujo normal.
+  const [editandoAbonoId, setEditandoAbonoId] = useState(null);
+  const [eaFecha, setEaFecha] = useState("");
+  const [eaValor, setEaValor] = useState("");
+  const [eaMedio, setEaMedio] = useState("efectivo");
+  const [guardandoEa, setGuardandoEa] = useState(false);
+
+  const iniciarEdicionAbono = (a) => { setEditandoAbonoId(a.id); setEaFecha(a.fecha); setEaValor(String(a.valor)); setEaMedio(a.medio_pago); };
+  const guardarEdicionAbono = async (ventaId) => {
+    if(!eaFecha || !eaValor){ return; }
+    setGuardandoEa(true);
+    const { data, error } = await supabase.from("ventas_abonos").update({ fecha:eaFecha, valor:Number(eaValor), medio_pago:eaMedio }).eq("id", editandoAbonoId).select().single();
+    setGuardandoEa(false);
+    if(data){
+      setDetalle(prev=>({...prev, [ventaId]: { ...prev[ventaId], abonos:(prev[ventaId]?.abonos||[]).map(x=>x.id===data.id?data:x) }}));
+      setEditandoAbonoId(null);
+    }
+  };
+
   const asesores = users.filter(u=>u.role==="advisor");
 
   const ventasFiltradas = ventas
@@ -2414,7 +2436,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
 
   const imprimirVenta = (venta, d) => {
     const tienda = stores[venta.tienda_id]?.name || venta.tienda_id;
-    const itemsHtml = (d?.items||[]).map(i=>`<tr><td>${VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label||i.tipo}</td><td style="text-align:right">${fmtCOP(i.valor)}</td><td style="text-align:right">${Number(i.descuento)>0?fmtCOP(i.descuento):"—"}</td><td>${i.tipo==="flexipago"?"Pago diferido":(i.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago).join(" + ")}</td></tr>`).join("");
+    const itemsHtml = (d?.items||[]).map(i=>`<tr><td>${VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label||i.tipo}${i.tipo==="flexipago"&&i.codigo_producto?` (código ${i.codigo_producto})`:""}</td><td style="text-align:right">${fmtCOP(i.valor)}</td><td style="text-align:right">${Number(i.descuento)>0?fmtCOP(i.descuento):"—"}</td><td>${i.tipo==="flexipago"?"Pago diferido":(i.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago).join(" + ")}</td></tr>`).join("");
     const abonosHtml = (d?.abonos||[]).map(a=>`<tr><td>${a.fecha}</td><td>${VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}</td><td style="text-align:right">${fmtCOP(a.valor)}</td></tr>`).join("");
     const totalAbonado = (d?.abonos||[]).reduce((a,x)=>a+Number(x.valor),0);
     const valorFlex = (d?.items||[]).filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor),0);
@@ -2485,6 +2507,11 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
           const primerAbonoFecha = (d?.abonos && d.abonos.length>0) ? d.abonos[0].fecha : null;
           const diasDesdeAbono = primerAbonoFecha ? diasEntre(primerAbonoFecha, todayStr) : null;
           const flexipagoVencido = v.es_flexipago && saldoPendiente>0 && diasDesdeAbono!==null && diasDesdeAbono>FLEXIPAGO_PLAZO_DIAS;
+          const diasRestantes60 = diasDesdeAbono!==null ? FLEXIPAGO_PLAZO_DIAS - diasDesdeAbono : null;
+          // Avisos previos al vencimiento: a los 30 días (mitad del plazo) y en los últimos 5 días, para
+          // que el asesor le recuerde al cliente que venga por su pedido antes de perderlo.
+          const flexipagoUrgente = v.es_flexipago && saldoPendiente>0 && !flexipagoVencido && diasRestantes60!==null && diasRestantes60<=5;
+          const flexipagoAviso30 = v.es_flexipago && saldoPendiente>0 && !flexipagoVencido && !flexipagoUrgente && diasDesdeAbono!==null && diasDesdeAbono>=30;
           return (
             <Card key={v.id} p="0" style={{ overflow:"hidden" }}>
               <button onClick={()=>toggleExpand(v.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"9px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
@@ -2492,9 +2519,16 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                 <div style={{ flex:1, minWidth:140 }}>
                   <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha} · {stores[v.tienda_id]?.name||v.tienda_id}</span></div>
                   {v.cliente_nombre && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, lineHeight:1.3 }}>{v.cliente_nombre}</div>}
+                  {(v.cliente_documento || v.cliente_telefono) && (
+                    <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, lineHeight:1.3 }}>
+                      {v.cliente_tipo_doc||""} {v.cliente_documento||""}{v.cliente_documento && v.cliente_telefono ? " · " : ""}{v.cliente_telefono ? `Tel: ${v.cliente_telefono}` : ""}
+                    </div>
+                  )}
                 </div>
                 {v.es_flexipago && <Badge color={C.blue} sm>Flexipago</Badge>}
                 {flexipagoVencido && <Badge color={C.red} sm title={`Pasaron ${diasDesdeAbono} días desde el primer abono (máximo ${FLEXIPAGO_PLAZO_DIAS}). No se puede abonar ni editar.`}>⛔ Vencido</Badge>}
+                {flexipagoUrgente && <Badge color={C.red} sm title={`Quedan ${diasRestantes60} días para que se cumplan los ${FLEXIPAGO_PLAZO_DIAS} días. Recuérdale al cliente que venga por su pedido.`}>🔔 Vence en {diasRestantes60}d</Badge>}
+                {flexipagoAviso30 && <Badge color={C.amber} sm title="Ya pasaron 30 días desde el primer abono. Buen momento para recordarle al cliente.">⚠️ 30 días</Badge>}
                 <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight }}>${Number(v.total).toLocaleString("es-CO")}</div>
                 <span style={{ color:C.textMuted, fontSize:11 }}>{expandido===v.id?"▲":"▼"}</span>
               </button>
@@ -2519,7 +2553,10 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                               </div>
                               <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                                 {i.tipo==="flexipago" ? (
-                                  <Badge color={C.blue} sm>📦 Pago diferido</Badge>
+                                  <>
+                                    <Badge color={C.blue} sm>📦 Pago diferido</Badge>
+                                    {i.codigo_producto && <Badge color={C.textMuted} sm>Código: {i.codigo_producto}</Badge>}
+                                  </>
                                 ) : (i.pagos||[]).map((p,pidx)=>(
                                   <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
                                 ))}
@@ -2622,10 +2659,23 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                           <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"8px 0 3px" }}>Abonos</div>
                           <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:4 }}>
                             {(d?.abonos||[]).map(a=>(
-                              <div key={a.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text, padding:"2px 0" }}>
-                                <span>{a.fecha} — {a.registrado_por} · {VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}</span>
-                                <span style={{fontFamily:font.mono}}>${Number(a.valor).toLocaleString("es-CO")}</span>
-                              </div>
+                              editandoAbonoId===a.id ? (
+                                <div key={a.id} style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"end", padding:"4px 0", background:C.dark, borderRadius:6, marginBottom:2 }}>
+                                  <div style={{ width:130 }}><Field label="Fecha" type="date" value={eaFecha} onChange={setEaFecha}/></div>
+                                  <div style={{ width:110 }}><Field label="Valor" value={eaValor} onChange={v=>setEaValor(v.replace(/[^\d]/g,""))}/></div>
+                                  <div style={{ width:130 }}><Field label="Medio" value={eaMedio} onChange={setEaMedio} options={VENTAS_MEDIOS_PAGO}/></div>
+                                  <Btn onClick={()=>guardarEdicionAbono(v.id)} disabled={guardandoEa} sm>{guardandoEa?"...":"Guardar"}</Btn>
+                                  <Btn onClick={()=>setEditandoAbonoId(null)} variant="ghost" sm>Cancelar</Btn>
+                                </div>
+                              ) : (
+                                <div key={a.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, padding:"2px 0" }}>
+                                  <span>{a.fecha} — Abono · {VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}</span>
+                                  <span style={{ display:"flex", alignItems:"center", gap:8 }}>
+                                    <span style={{fontFamily:font.mono}}>${Number(a.valor).toLocaleString("es-CO")}</span>
+                                    {user.role==="master" && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
+                                  </span>
+                                </div>
+                              )
                             ))}
                             {(d?.abonos||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin abonos todavía.</div>}
                           </div>
@@ -3096,26 +3146,24 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
           <table style={{ width:"100%", borderCollapse:"collapse", fontFamily:font.body, fontSize:12 }}>
             <thead>
               <tr style={{ borderBottom:`1px solid ${C.border}`, color:C.textMuted, textAlign:"left" }}>
-                <th style={{ padding:"6px 8px", fontWeight:500 }}>Asesor</th>
-                <th style={{ padding:"6px 8px", fontWeight:500 }}>Sin servicios</th>
-                <th style={{ padding:"6px 8px", fontWeight:500 }}>Con servicios</th>
-                <th style={{ padding:"6px 8px", fontWeight:500 }}>Meta</th>
-                <th style={{ padding:"6px 8px", fontWeight:500 }}>IDC</th>
-                <th style={{ padding:"6px 8px", fontWeight:500 }}>MDA</th>
+                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Asesor</th>
+                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Venta total</th>
+                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Meta</th>
+                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>IDC</th>
+                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>MDA</th>
               </tr>
             </thead>
             <tbody>
-              {dataAsesores.map(d=>(
+              {[...dataAsesores].sort((a,b)=>a.asesor.name.localeCompare(b.asesor.name)).map(d=>(
                 <tr key={d.asesor.id} style={{ borderBottom:`1px solid ${C.border}` }}>
-                  <td style={{ padding:"7px 8px", color:C.text }}>{d.asesor.name}</td>
-                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.text }}>{fmtCOP(d.sinServicios)}</td>
-                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted }}>{fmtCOP(d.conServicios)}</td>
-                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted }}>{d.meta>0?fmtCOP(d.meta):"—"}</td>
-                  <td style={{ padding:"7px 8px" }}>{d.idc===null?"—":<Badge color={d.idc>=100?C.green:d.idc>=70?C.amber:C.red} sm>{d.idc}%</Badge>}</td>
-                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted }}>{d.mda===null?"—":fmtCOP(d.mda)}</td>
+                  <td style={{ padding:"7px 8px", color:C.text, textAlign:"left" }}>{d.asesor.name}</td>
+                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.text, textAlign:"left" }}>{fmtCOP(d.sinServicios)}</td>
+                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted, textAlign:"left" }}>{d.meta>0?fmtCOP(d.meta):"—"}</td>
+                  <td style={{ padding:"7px 8px", textAlign:"left" }}>{d.idc===null?"—":<Badge color={d.idc>=100?C.green:d.idc>=70?C.amber:C.red} sm>{d.idc}%</Badge>}</td>
+                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted, textAlign:"left" }}>{d.mda===null?"—":fmtCOP(d.mda)}</td>
                 </tr>
               ))}
-              {dataAsesores.length===0 && <tr><td colSpan={6} style={{ padding:16, textAlign:"center", color:C.textMuted }}>No hay asesores activos.</td></tr>}
+              {dataAsesores.length===0 && <tr><td colSpan={5} style={{ padding:16, textAlign:"center", color:C.textMuted }}>No hay asesores activos.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -3208,6 +3256,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const [ciAsesorId, setCiAsesorId] = useState("");
   const [ciTipo, setCiTipo] = useState("definitivo");
   const [ciNovedades, setCiNovedades] = useState("");
+  const [ciBaseCaja, setCiBaseCaja] = useState(String(BASE_CAJA_FIJA));
+  const [ciBaseCajaTocado, setCiBaseCajaTocado] = useState(false);
   const [ciFecha, setCiFecha] = useState(todayStr);
   const [guardandoCi, setGuardandoCi] = useState(false);
 
@@ -3232,8 +3282,15 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     setApBaseCaja(String(aperturasTienda[0]?.base_caja ?? ultimaRecoleccion?.base_caja ?? BASE_CAJA_FIJA));
     setReBaseCaja(String(ultimaRecoleccion?.base_caja ?? BASE_CAJA_FIJA));
     setReValorTocado(false);
+    setCiBaseCajaTocado(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tiendaId, aperturasTienda[0]?.id, ultimaRecoleccion?.id]);
+
+  // La base al cierre por defecto es la misma con la que se abrió, salvo que el usuario la edite.
+  useEffect(()=>{
+    if(!ciBaseCajaTocado) setCiBaseCaja(String(apBaseCaja||BASE_CAJA_FIJA));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apBaseCaja, tiendaId]);
 
   const ventasTiendaMap = {};
   ventas.forEach(v=>{ if(v.tienda_id===tiendaId) ventasTiendaMap[v.id]=v; });
@@ -3347,10 +3404,10 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     const asesor = users.find(u=>u.id===ciAsesorId);
     const { data, error } = await supabase.from("ventas_caja_cierres").insert({
       tienda_id:tiendaId, fecha:ciFecha, tipo:ciTipo, asesor_id:ciAsesorId, asesor_nombre:asesor?.name||"",
-      base_caja:Number(apBaseCaja||0), novedades:ciNovedades.trim()||null, registrado_por:user.name,
+      base_caja:Number(ciBaseCaja||0), novedades:ciNovedades.trim()||null, registrado_por:user.name,
     }).select().single();
     setGuardandoCi(false);
-    if(data){ setCierres(prev=>[data,...prev]); setCiNovedades(""); }
+    if(data){ setCierres(prev=>[data,...prev]); setCiNovedades(""); setCiBaseCajaTocado(false); }
     else if(error){ setMsg(`No se pudo guardar el cierre: ${error.message||"error desconocido"}`); }
   };
 
@@ -3438,7 +3495,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 </thead>
                 <tbody style={{ fontFamily:font.mono, fontSize:11.5, color:C.text }}>
                   <tr>
-                    <td style={{ padding:"2px 6px", fontFamily:font.body }}>Ingreso neto (ventas + flexipagos cerrados ese día)</td>
+                    <td style={{ padding:"2px 6px", fontFamily:font.body }}>Ventas (productos + flexipagos cerrados ese día)</td>
                     {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.ingresoNeto[m])}</td>)}
                     <td style={{ padding:"2px 6px", textAlign:"right", fontWeight:700, color:C.goldLight }}>{fmtCOP(resumenHoy.totalIngresoNeto)}</td>
                   </tr>
@@ -3447,8 +3504,13 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.servicios[m])}</td>)}
                     <td style={{ padding:"2px 6px", textAlign:"right", fontWeight:700 }}>{fmtCOP(resumenHoy.totalServicios)}</td>
                   </tr>
+                  <tr style={{ borderTop:`1px solid ${C.border}` }}>
+                    <td style={{ padding:"3px 6px", fontFamily:font.body, fontWeight:700, color:C.text }}>Total (Ventas + Servicios)</td>
+                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"3px 6px", textAlign:"right", fontWeight:700 }}>{fmtCOP(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m])}</td>)}
+                    <td style={{ padding:"3px 6px", textAlign:"right", fontWeight:700, color:C.goldLight }}>{fmtCOP(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios)}</td>
+                  </tr>
                   <tr>
-                    <td style={{ padding:"2px 6px", fontFamily:font.body, color:C.textMuted }}>Flexipagos de ese día (no suma al ingreso neto)</td>
+                    <td style={{ padding:"2px 6px", fontFamily:font.body, color:C.textMuted }}>Flexipagos de ese día (no suma al total)</td>
                     {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.flexipagoDia[m])}</td>)}
                     <td style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.totalFlexipagoDia)}</td>
                   </tr>
@@ -3457,9 +3519,10 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             </div>
             {resumenHoy.flexipagoCerradoHoy>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:3 }}>Incluye {fmtCOP(resumenHoy.flexipagoCerradoHoy)} de flexipagos que se terminaron de pagar hoy.</div>}
 
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1.4fr auto", gap:8, alignItems:"end", marginTop:8 }}>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1.2fr auto", gap:8, alignItems:"end", marginTop:8 }}>
               <CajaField label="Quién cierra" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
               <CajaField label="Tipo" value={ciTipo} onChange={setCiTipo} options={[{value:"parcial",label:"Parcial"},{value:"definitivo",label:"Definitivo"}]}/>
+              <CajaMoney label="Base de caja al cierre" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
               <CajaField label="Novedades" value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta (opcional)"/>
               <CajaBtn onClick={guardarCierre} disabled={guardandoCi}>{guardandoCi?"...":"Registrar"}</CajaBtn>
             </div>
@@ -3503,12 +3566,21 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
           <CajaCard icon="🔒" titulo="Historial de cierre">
             <div style={{ display:"flex", flexDirection:"column" }}>
-              {cierresTienda.slice(0,30).map(c=>(
-                <div key={c.id} style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
-                  <span>{fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}{c.novedades?` · ${c.novedades}`:""}</span>
-                  <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base: {fmtCOP(c.base_caja)}</span>
-                </div>
-              ))}
+              {cierresTienda.slice(0,30).map(c=>{
+                const rd = resumenDia(c.fecha);
+                const totalDia = rd.totalIngresoNeto + rd.totalServicios;
+                return (
+                  <div key={c.id} style={{ display:"flex", flexDirection:"column", gap:1, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"4px 2px", borderBottom:`1px solid ${C.border}` }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4 }}>
+                      <span>{fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}{c.novedades?` · ${c.novedades}`:""}</span>
+                      <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base al cierre: {fmtCOP(c.base_caja)}</span>
+                    </div>
+                    <div style={{ fontFamily:font.mono, fontSize:10.5, color:C.textMuted }}>
+                      Ventas {fmtCOP(rd.totalIngresoNeto)} · Servicios {fmtCOP(rd.totalServicios)} · <span style={{ color:C.goldLight, fontWeight:700 }}>Total {fmtCOP(totalDia)}</span>
+                    </div>
+                  </div>
+                );
+              })}
               {cierresTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
             </div>
           </CajaCard>
