@@ -2876,19 +2876,24 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   // Solo "producto": el flexipago NO cuenta aquí por fecha de creación — cuenta como ingreso
   // el día que se termina de pagar (ver cierresDelMes), con su valor completo.
   const itemsDelMesProducto = itemsDelMes.filter(i=>i.tipo==="producto");
-  const itemsDelMesProductoYServicios = itemsDelMes.filter(i=>i.tipo==="producto"||i.tipo==="arreglo"||i.tipo==="marcacion"||i.tipo==="grabado");
+  const itemsDelMesServicios = itemsDelMes.filter(i=>i.tipo==="arreglo"||i.tipo==="marcacion"||i.tipo==="grabado");
   const cierresDelMes = cierresFlexipago.filter(c => c.fechaCierre && c.fechaCierre.slice(0,7)===mesKey && (!tiendaSel || c.tiendaId===tiendaSel));
-  // Abonos reales de flexipago que entraron este mes (esté o no completo el flexipago) — para "con servicios",
-  // que a diferencia de "Ingresos" sí quiere reflejar la plata que físicamente entró, no la venta reconocida.
-  const abonosFlexipagoDelMes = ventasAbonos.filter(ab=>{
+  // Un flexipago que YA terminó de pagarse (en cualquier mes) cuenta su valor completo como venta
+  // (bucket "Ingresos", vía cierresDelMes) — no debe volver a sumarse abono por abono en "con servicios".
+  // Solo los flexipagos que TODAVÍA están abiertos (aún no se terminan de pagar) aportan a "con servicios"
+  // por lo realmente abonado este mes: es plata que ya entró pero que todavía no se reconoce como venta.
+  const idsVentasFlexipagoCerradas = new Set(cierresFlexipago.map(c=>c.ventaId));
+  const abonosFlexipagoAbiertoDelMes = ventasAbonos.filter(ab=>{
     if(!ab.fecha || ab.fecha.slice(0,7)!==mesKey) return false;
     const v = ventaByIdGlobal[ab.venta_id];
-    return v && v.es_flexipago && (!tiendaSel || v.tienda_id===tiendaSel);
+    if(!v || !v.es_flexipago) return false;
+    if(idsVentasFlexipagoCerradas.has(v.id)) return false;
+    return !tiendaSel || v.tienda_id===tiendaSel;
   });
   const sumaPagos = (items) => items.reduce((a,i)=>a+(i.pagos||[]).reduce((s,p)=>s+Number(p.valor||0),0), 0);
 
-  const totalConServicios = sumaPagos(itemsDelMesProductoYServicios) + abonosFlexipagoDelMes.reduce((a,ab)=>a+Number(ab.valor||0),0);
   const totalSinServicios = itemsDelMesProducto.reduce((a,i)=>a+(Number(i.valor)-Number(i.descuento||0)),0) + cierresDelMes.reduce((a,c)=>a+c.valorNeto,0);
+  const totalConServicios = totalSinServicios + sumaPagos(itemsDelMesServicios) + abonosFlexipagoAbiertoDelMes.reduce((a,ab)=>a+Number(ab.valor||0),0);
 
   const metaTiendaTotal = tiendaSel ? metaTiendaValor(tiendaSel) : tiendasList.reduce((a,t)=>a+metaTiendaValor(t.id),0);
   const idcTienda = metaTiendaTotal>0 ? Math.round((totalSinServicios/metaTiendaTotal)*1000)/10 : null;
@@ -2904,9 +2909,9 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     // solo importa que se haya terminado de pagar este mes.
     const sinServiciosFlexipago = cierresDelMes.filter(c=>c.vendedorId===a.id).reduce((s,c)=>s+c.valorNeto,0);
     const sinServicios = sinServiciosProducto + sinServiciosFlexipago;
-    const conServiciosDirecto = sumaPagos(itemsDelMesProductoYServicios.filter(i=>idsAsesor.has(i.venta_id)));
-    const conServiciosFlexipago = abonosFlexipagoDelMes.filter(ab=>ventaByIdGlobal[ab.venta_id]?.vendedor_id===a.id).reduce((s,ab)=>s+Number(ab.valor||0),0);
-    const conServicios = conServiciosDirecto + conServiciosFlexipago;
+    const serviciosDirecto = sumaPagos(itemsDelMesServicios.filter(i=>idsAsesor.has(i.venta_id)));
+    const flexipagoAbierto = abonosFlexipagoAbiertoDelMes.filter(ab=>ventaByIdGlobal[ab.venta_id]?.vendedor_id===a.id).reduce((s,ab)=>s+Number(ab.valor||0),0);
+    const conServicios = sinServicios + serviciosDirecto + flexipagoAbierto;
     const meta = metaAsesorCalculada(a.id);
     const idc = meta>0 ? Math.round((sinServicios/meta)*1000)/10 : null;
     const mda = esMesActual && diasRestantes>0 && meta>0 ? Math.round((meta-sinServicios)/diasRestantes) : null;
@@ -2929,16 +2934,20 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
 
   const porDia = {};
   ventasDelMes.forEach(v=>{ porDia[v.fecha] = porDia[v.fecha] || { con:0, sin:0, count:0 }; porDia[v.fecha].count += 1; });
-  itemsDelMesProducto.forEach(i=>{ const f=fechaPorVenta[i.venta_id]; if(f){ porDia[f].sin += (Number(i.valor)-Number(i.descuento||0)); } });
+  itemsDelMesProducto.forEach(i=>{
+    const f=fechaPorVenta[i.venta_id];
+    if(f){ const val=(Number(i.valor)-Number(i.descuento||0)); porDia[f].sin += val; porDia[f].con += val; }
+  });
   cierresDelMes.forEach(c=>{
     porDia[c.fechaCierre] = porDia[c.fechaCierre] || { con:0, sin:0, count:0 };
     porDia[c.fechaCierre].sin += c.valorNeto;
+    porDia[c.fechaCierre].con += c.valorNeto;
   });
-  itemsDelMesProductoYServicios.forEach(i=>{
+  itemsDelMesServicios.forEach(i=>{
     const f=fechaPorVenta[i.venta_id];
     if(f){ porDia[f]=porDia[f]||{con:0,sin:0,count:0}; porDia[f].con += (i.pagos||[]).reduce((s,p)=>s+Number(p.valor||0),0); }
   });
-  abonosFlexipagoDelMes.forEach(ab=>{
+  abonosFlexipagoAbiertoDelMes.forEach(ab=>{
     porDia[ab.fecha] = porDia[ab.fecha] || { con:0, sin:0, count:0 };
     porDia[ab.fecha].con += Number(ab.valor||0);
   });
