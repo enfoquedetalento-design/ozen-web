@@ -233,7 +233,7 @@ const Field = ({ label, value, onChange, type="text", placeholder, options, disa
 
 // Texto que aparece al pasar el mouse (o al tocar, en celular) sobre una etiqueta — para
 // explicaciones cortas (IDC, MDA) o avisos largos (términos del Flexipago) sin ocupar espacio fijo.
-const HoverTooltip = ({ label, labelStyle={}, width=280, children }) => {
+const HoverTooltip = ({ label, labelStyle={}, width=280, align="left", children }) => {
   const [show, setShow] = useState(false);
   return (
     <span style={{ position:"relative", display:"inline-block" }}>
@@ -244,7 +244,7 @@ const HoverTooltip = ({ label, labelStyle={}, width=280, children }) => {
         style={{ textDecoration:"underline dotted", textUnderlineOffset:3, cursor:"help", fontFamily:font.body, ...labelStyle }}
       >{label}</span>
       {show && (
-        <div style={{ position:"absolute", zIndex:80, top:"130%", left:0, width, maxWidth:"80vw", background:C.dark, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", boxShadow:"0 6px 24px rgba(0,0,0,0.5)", textAlign:"left" }}>
+        <div style={{ position:"absolute", zIndex:80, top:"130%", [align]:0, width, maxWidth:"80vw", background:C.dark, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", boxShadow:"0 6px 24px rgba(0,0,0,0.5)", textAlign:"left" }}>
           {children}
         </div>
       )}
@@ -2868,6 +2868,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   };
 
   const cierresFlexipago = calcularCierresFlexipago(ventas, ventasItems, ventasAbonos);
+  const ventaByIdGlobal = {}; ventas.forEach(v=>{ ventaByIdGlobal[v.id]=v; });
 
   const ventasDelMes = ventas.filter(v => v.fecha && v.fecha.slice(0,7)===mesKey && (!tiendaSel || v.tienda_id===tiendaSel));
   const idsVentasDelMes = new Set(ventasDelMes.map(v=>v.id));
@@ -2875,9 +2876,18 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   // Solo "producto": el flexipago NO cuenta aquí por fecha de creación — cuenta como ingreso
   // el día que se termina de pagar (ver cierresDelMes), con su valor completo.
   const itemsDelMesProducto = itemsDelMes.filter(i=>i.tipo==="producto");
+  const itemsDelMesProductoYServicios = itemsDelMes.filter(i=>i.tipo==="producto"||i.tipo==="arreglo"||i.tipo==="marcacion"||i.tipo==="grabado");
   const cierresDelMes = cierresFlexipago.filter(c => c.fechaCierre && c.fechaCierre.slice(0,7)===mesKey && (!tiendaSel || c.tiendaId===tiendaSel));
+  // Abonos reales de flexipago que entraron este mes (esté o no completo el flexipago) — para "con servicios",
+  // que a diferencia de "Ingresos" sí quiere reflejar la plata que físicamente entró, no la venta reconocida.
+  const abonosFlexipagoDelMes = ventasAbonos.filter(ab=>{
+    if(!ab.fecha || ab.fecha.slice(0,7)!==mesKey) return false;
+    const v = ventaByIdGlobal[ab.venta_id];
+    return v && v.es_flexipago && (!tiendaSel || v.tienda_id===tiendaSel);
+  });
+  const sumaPagos = (items) => items.reduce((a,i)=>a+(i.pagos||[]).reduce((s,p)=>s+Number(p.valor||0),0), 0);
 
-  const totalConServicios = ventasDelMes.reduce((a,v)=>a+Number(v.total||0),0);
+  const totalConServicios = sumaPagos(itemsDelMesProductoYServicios) + abonosFlexipagoDelMes.reduce((a,ab)=>a+Number(ab.valor||0),0);
   const totalSinServicios = itemsDelMesProducto.reduce((a,i)=>a+(Number(i.valor)-Number(i.descuento||0)),0) + cierresDelMes.reduce((a,c)=>a+c.valorNeto,0);
 
   const metaTiendaTotal = tiendaSel ? metaTiendaValor(tiendaSel) : tiendasList.reduce((a,t)=>a+metaTiendaValor(t.id),0);
@@ -2894,7 +2904,9 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     // solo importa que se haya terminado de pagar este mes.
     const sinServiciosFlexipago = cierresDelMes.filter(c=>c.vendedorId===a.id).reduce((s,c)=>s+c.valorNeto,0);
     const sinServicios = sinServiciosProducto + sinServiciosFlexipago;
-    const conServicios = ventasAsesor.reduce((s,v)=>s+Number(v.total||0),0);
+    const conServiciosDirecto = sumaPagos(itemsDelMesProductoYServicios.filter(i=>idsAsesor.has(i.venta_id)));
+    const conServiciosFlexipago = abonosFlexipagoDelMes.filter(ab=>ventaByIdGlobal[ab.venta_id]?.vendedor_id===a.id).reduce((s,ab)=>s+Number(ab.valor||0),0);
+    const conServicios = conServiciosDirecto + conServiciosFlexipago;
     const meta = metaAsesorCalculada(a.id);
     const idc = meta>0 ? Math.round((sinServicios/meta)*1000)/10 : null;
     const mda = esMesActual && diasRestantes>0 && meta>0 ? Math.round((meta-sinServicios)/diasRestantes) : null;
@@ -2916,11 +2928,19 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const rankingTiendas = [...dataTiendas].filter(d=>d.idc!==null).sort((a,b)=>b.idc-a.idc);
 
   const porDia = {};
-  ventasDelMes.forEach(v=>{ porDia[v.fecha] = porDia[v.fecha] || { con:0, sin:0, count:0 }; porDia[v.fecha].con += Number(v.total||0); porDia[v.fecha].count += 1; });
+  ventasDelMes.forEach(v=>{ porDia[v.fecha] = porDia[v.fecha] || { con:0, sin:0, count:0 }; porDia[v.fecha].count += 1; });
   itemsDelMesProducto.forEach(i=>{ const f=fechaPorVenta[i.venta_id]; if(f){ porDia[f].sin += (Number(i.valor)-Number(i.descuento||0)); } });
   cierresDelMes.forEach(c=>{
     porDia[c.fechaCierre] = porDia[c.fechaCierre] || { con:0, sin:0, count:0 };
     porDia[c.fechaCierre].sin += c.valorNeto;
+  });
+  itemsDelMesProductoYServicios.forEach(i=>{
+    const f=fechaPorVenta[i.venta_id];
+    if(f){ porDia[f]=porDia[f]||{con:0,sin:0,count:0}; porDia[f].con += (i.pagos||[]).reduce((s,p)=>s+Number(p.valor||0),0); }
+  });
+  abonosFlexipagoDelMes.forEach(ab=>{
+    porDia[ab.fecha] = porDia[ab.fecha] || { con:0, sin:0, count:0 };
+    porDia[ab.fecha].con += Number(ab.valor||0);
   });
   const diasList = Object.entries(porDia).sort((a,b)=>b[0].localeCompare(a[0]));
 
@@ -2964,13 +2984,13 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{metaTiendaTotal>0?fmtCOP(metaTiendaTotal):"—"}</div>
         </div>
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
-          <HoverTooltip label="IDC" labelStyle={{ fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 }} width={240}>
+          <HoverTooltip label="IDC" labelStyle={{ fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 }} width={240} align="right">
             <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, lineHeight:1.4 }}><b>IDC — Índice de Cumplimiento.</b> Qué porcentaje de la meta del mes ya se alcanzó: (ingresos ÷ meta) × 100.</div>
           </HoverTooltip>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:idcTienda===null?C.textMuted:idcTienda>=100?C.green:C.amber, marginTop:6 }}>{idcTienda===null?"—":`${idcTienda}%`}</div>
         </div>
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
-          <HoverTooltip label="MDA" labelStyle={{ fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 }} width={240}>
+          <HoverTooltip label="MDA" labelStyle={{ fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 }} width={240} align="right">
             <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, lineHeight:1.4 }}><b>MDA — Meta Diaria.</b> Cuánto falta vender en promedio cada día para llegar a la meta: (meta − ingresos) ÷ días que quedan del mes.</div>
           </HoverTooltip>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text, marginTop:6 }}>{mdaTienda===null?"—":fmtCOP(mdaTienda)}</div>
