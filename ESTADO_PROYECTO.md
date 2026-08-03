@@ -1,4 +1,4 @@
-# Ozen · Control de Personal — estado del proyecto
+# Ozen · Centro de Control — estado del proyecto
 
 Última actualización: 23 de julio de 2026. **La app ya está en producción (`main`)
 con todo lo del rol master, visualizador, La Junta Administrativa y seguridad de

@@ -1674,8 +1674,8 @@ function LoginScreen({ onLogin }) {
       `}</style>
       <div style={{width:"100%",maxWidth:380}}>
         <div style={{textAlign:"center",marginBottom:28}}>
-          <img src="/logo.png" alt="OZEN" style={{width:140,height:"auto",marginBottom:12}}/>
-          <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,letterSpacing:"0.2em"}}>CONTROL DE PERSONAL</div>
+          <img src="/logo-horizontal.png" alt="OZEN" style={{width:220,height:"auto",marginBottom:12}}/>
+          <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,letterSpacing:"0.2em"}}>CENTRO DE CONTROL</div>
         </div>
         <Card glow>
           <form onSubmit={handle} autoComplete="off">
@@ -1726,6 +1726,7 @@ function LoginScreen({ onLogin }) {
             <Btn disabled={loading} full style={{marginTop:4}}>{loading?"Verificando...":"Ingresar"}</Btn>
           </form>
         </Card>
+        <div style={{textAlign:"center",marginTop:18,fontFamily:font.body,fontSize:10.5,color:C.textMuted,opacity:0.6}}>Creado por Santiago Rodríguez</div>
       </div>
     </div>
   );
@@ -1737,7 +1738,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
     <div style={{ minHeight:"100vh", background:C.dark, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
       <div style={{ width:"100%", maxWidth:520 }}>
         <div style={{ textAlign:"center", marginBottom:28 }}>
-          <img src="/logo.png" alt="OZEN" style={{ width:120, height:"auto", marginBottom:10 }} />
+          <img src="/logo-horizontal.png" alt="OZEN" style={{ width:200, height:"auto", marginBottom:10 }} />
           <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>Hola, {user.name.split(" ")[0]} — ¿qué quieres abrir?</div>
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
@@ -3806,7 +3807,7 @@ export default function App() {
 
   if(passwordVencida(user)) return (
     <div style={{minHeight:"100vh",background:C.dark,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:16,gap:20}}>
-      <img src="/logo.png" alt="OZEN" style={{width:120,height:"auto"}}/>
+      <img src="/logo-horizontal.png" alt="OZEN" style={{width:200,height:"auto"}}/>
       <CambiarPasswordForm user={user} obligatorio onUpdated={setUser}/>
       <Btn onClick={logout} variant="ghost" sm>Cerrar sesión</Btn>
     </div>

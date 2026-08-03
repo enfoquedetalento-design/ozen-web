@@ -1,7 +1,7 @@
 {
-  "name": "Ozen Control de Personal",
+  "name": "Ozen Centro de Control",
   "short_name": "Ozen",
-  "description": "Sistema de registro de asistencia Ozen",
+  "description": "Gestion de personal, ventas, caja y metricas para Ozen",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
