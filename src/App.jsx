@@ -2716,7 +2716,29 @@ const fmtCOP = (n) => `$${Math.round(n||0).toLocaleString("es-CO")}`;
 // La meta personal siempre se calcula sobre 30 días, sin importar si el mes tiene 28-31.
 const DIAS_META = 30;
 
-function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile }) {
+// Un flexipago suma como ingreso el día que se TERMINA de pagar (con su valor completo),
+// sin importar cuándo se creó la venta ni en cuántos días/medios se fue abonando.
+// Mientras no esté completo, no suma nada a ingresos (aunque ya tenga abonos).
+const calcularCierresFlexipago = (ventas, ventasItems, ventasAbonos) => {
+  const cierres = []; // {ventaId, tiendaId, vendedorId, valorNeto, fechaCierre}
+  ventas.filter(v=>v.es_flexipago).forEach(v=>{
+    const valorNeto = ventasItems.filter(i=>i.venta_id===v.id && i.tipo==="flexipago").reduce((s,i)=>s+(Number(i.valor||0)-Number(i.descuento||0)),0);
+    if(valorNeto<=0) return;
+    const abonos = ventasAbonos.filter(a=>a.venta_id===v.id).sort((a,b)=> new Date(a.created_at||a.fecha) - new Date(b.created_at||b.fecha));
+    let acumulado = 0;
+    for(const ab of abonos){
+      const antes = acumulado;
+      acumulado += Number(ab.valor||0);
+      if(antes<valorNeto && acumulado>=valorNeto){
+        cierres.push({ ventaId:v.id, tiendaId:v.tienda_id, vendedorId:v.vendedor_id, valorNeto, fechaCierre:ab.fecha });
+        break;
+      }
+    }
+  });
+  return cierres;
+};
+
+function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile }) {
   const hoy = toColombiaDate();
   const [anio, setAnio] = useState(hoy.getFullYear());
   const [mesIdx, setMesIdx] = useState(hoy.getMonth());
@@ -2845,15 +2867,18 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
     return Math.round(total);
   };
 
+  const cierresFlexipago = calcularCierresFlexipago(ventas, ventasItems, ventasAbonos);
+
   const ventasDelMes = ventas.filter(v => v.fecha && v.fecha.slice(0,7)===mesKey && (!tiendaSel || v.tienda_id===tiendaSel));
   const idsVentasDelMes = new Set(ventasDelMes.map(v=>v.id));
   const itemsDelMes = ventasItems.filter(i => idsVentasDelMes.has(i.venta_id));
-  // Flexipago ahora es su propio Tipo, pero sigue siendo una Venta (producto), solo que pagada en abonos —
-  // por eso cuenta como "sin servicios" igual que Venta normal, para no perder esas ventas de las metas/IDC/MDA.
-  const itemsDelMesProducto = itemsDelMes.filter(i=>i.tipo==="producto"||i.tipo==="flexipago");
+  // Solo "producto": el flexipago NO cuenta aquí por fecha de creación — cuenta como ingreso
+  // el día que se termina de pagar (ver cierresDelMes), con su valor completo.
+  const itemsDelMesProducto = itemsDelMes.filter(i=>i.tipo==="producto");
+  const cierresDelMes = cierresFlexipago.filter(c => c.fechaCierre && c.fechaCierre.slice(0,7)===mesKey && (!tiendaSel || c.tiendaId===tiendaSel));
 
   const totalConServicios = ventasDelMes.reduce((a,v)=>a+Number(v.total||0),0);
-  const totalSinServicios = itemsDelMesProducto.reduce((a,i)=>a+(Number(i.valor)-Number(i.descuento||0)),0);
+  const totalSinServicios = itemsDelMesProducto.reduce((a,i)=>a+(Number(i.valor)-Number(i.descuento||0)),0) + cierresDelMes.reduce((a,c)=>a+c.valorNeto,0);
 
   const metaTiendaTotal = tiendaSel ? metaTiendaValor(tiendaSel) : tiendasList.reduce((a,t)=>a+metaTiendaValor(t.id),0);
   const idcTienda = metaTiendaTotal>0 ? Math.round((totalSinServicios/metaTiendaTotal)*1000)/10 : null;
@@ -2864,7 +2889,11 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
   const dataAsesores = asesores.map(a=>{
     const ventasAsesor = ventasDelMes.filter(v=>v.vendedor_id===a.id);
     const idsAsesor = new Set(ventasAsesor.map(v=>v.id));
-    const sinServicios = itemsDelMesProducto.filter(i=>idsAsesor.has(i.venta_id)).reduce((s,i)=>s+(Number(i.valor)-Number(i.descuento||0)),0);
+    const sinServiciosProducto = itemsDelMesProducto.filter(i=>idsAsesor.has(i.venta_id)).reduce((s,i)=>s+(Number(i.valor)-Number(i.descuento||0)),0);
+    // El flexipago se le atribuye a quien hizo la venta original, sin importar en qué mes se creó —
+    // solo importa que se haya terminado de pagar este mes.
+    const sinServiciosFlexipago = cierresDelMes.filter(c=>c.vendedorId===a.id).reduce((s,c)=>s+c.valorNeto,0);
+    const sinServicios = sinServiciosProducto + sinServiciosFlexipago;
     const conServicios = ventasAsesor.reduce((s,v)=>s+Number(v.total||0),0);
     const meta = metaAsesorCalculada(a.id);
     const idc = meta>0 ? Math.round((sinServicios/meta)*1000)/10 : null;
@@ -2877,7 +2906,9 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
   const dataTiendas = tiendasList.map(t=>{
     const ventasTienda = ventas.filter(v => v.fecha && v.fecha.slice(0,7)===mesKey && v.tienda_id===t.id);
     const idsT = new Set(ventasTienda.map(v=>v.id));
-    const sinServicios = ventasItems.filter(i=>idsT.has(i.venta_id) && (i.tipo==="producto"||i.tipo==="flexipago")).reduce((s,i)=>s+(Number(i.valor)-Number(i.descuento||0)),0);
+    const sinServiciosProducto = ventasItems.filter(i=>idsT.has(i.venta_id) && i.tipo==="producto").reduce((s,i)=>s+(Number(i.valor)-Number(i.descuento||0)),0);
+    const sinServiciosFlexipago = cierresFlexipago.filter(c=>c.tiendaId===t.id && c.fechaCierre && c.fechaCierre.slice(0,7)===mesKey).reduce((s,c)=>s+c.valorNeto,0);
+    const sinServicios = sinServiciosProducto + sinServiciosFlexipago;
     const meta = metaTiendaValor(t.id,"total");
     const idc = meta>0 ? Math.round((sinServicios/meta)*1000)/10 : null;
     return { tienda:t, sinServicios, meta, idc };
@@ -2887,6 +2918,10 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, metas,
   const porDia = {};
   ventasDelMes.forEach(v=>{ porDia[v.fecha] = porDia[v.fecha] || { con:0, sin:0, count:0 }; porDia[v.fecha].con += Number(v.total||0); porDia[v.fecha].count += 1; });
   itemsDelMesProducto.forEach(i=>{ const f=fechaPorVenta[i.venta_id]; if(f){ porDia[f].sin += (Number(i.valor)-Number(i.descuento||0)); } });
+  cierresDelMes.forEach(c=>{
+    porDia[c.fechaCierre] = porDia[c.fechaCierre] || { con:0, sin:0, count:0 };
+    porDia[c.fechaCierre].sin += c.valorNeto;
+  });
   const diasList = Object.entries(porDia).sort((a,b)=>b[0].localeCompare(a[0]));
 
   const medalla = (idx) => idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.`;
@@ -3551,7 +3586,7 @@ export default function App() {
       } else if(area==="ventas"){
         if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)}/>;
-        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
+        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
         if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
@@ -3563,7 +3598,7 @@ export default function App() {
     } else if(esCuentaTienda(user)){
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false}/>;
-      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
+      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
       if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores}/>;
