@@ -2027,10 +2027,19 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
         title="Registrar venta"
         subtitle={stores[tiendaId]?.name ? `Tienda: ${stores[tiendaId].name}` : "Elige la tienda"}
         action={tiendaId && metaHoyTienda>0 && (
-          <div style={{ textAlign:"right" }}>
-            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>Meta de hoy</div>
-            <div style={{ fontFamily:font.mono, fontSize:17, fontWeight:700, color:C.goldLight }}>{fmtCOP(metaHoyTienda)}</div>
-            <div style={{ fontFamily:font.body, fontSize:11, color: faltaHoyTienda>0?C.amber:C.green }}>{faltaHoyTienda>0 ? `Faltan ${fmtCOP(faltaHoyTienda)}` : "✓ Meta cumplida"}</div>
+          <div style={{
+            background: faltaHoyTienda<=0 ? `linear-gradient(135deg, ${C.green}26, ${C.green}08)` : `linear-gradient(135deg, ${C.gold}26, ${C.gold}08)`,
+            border:`1.5px solid ${faltaHoyTienda<=0?C.green:C.gold}`, borderRadius:14, padding:"10px 18px", minWidth:220, textAlign:"center",
+            boxShadow:`0 3px 14px ${faltaHoyTienda<=0?C.green:C.gold}22`,
+          }}>
+            <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:3 }}>🎯 Meta de hoy</div>
+            <div style={{ fontFamily:font.mono, fontSize:21, fontWeight:800, color:C.goldLight }}>{fmtCOP(metaHoyTienda)}</div>
+            <div style={{ height:8, borderRadius:5, background:C.border, marginTop:7, marginBottom:7, overflow:"hidden" }}>
+              <div style={{ height:"100%", width:`${Math.min(100, Math.round((vendidoHoyTienda/metaHoyTienda)*100))}%`, background: faltaHoyTienda<=0?C.green:C.gold, transition:"width 0.4s ease" }}/>
+            </div>
+            <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color: faltaHoyTienda<=0?C.green:C.amber }}>
+              {faltaHoyTienda<=0 ? "🎉 ¡Meta cumplida!" : `Faltan ${fmtCOP(faltaHoyTienda)}`}
+            </div>
           </div>
         )}
       />
@@ -2921,14 +2930,17 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const guardarDetalleAsesor = async (asesorId) => {
     const d = detalleInputs[asesorId];
     if(!d) return;
+    const novedadesLimpias = (d.novedades||[]).filter(n=>n.tipo && Number(n.dias)>0).map(n=>({ tipo:n.tipo, dias:Number(n.dias) }));
+    // Los días disponibles para repartir entre tiendas son los del mes (o los de ingreso, si es
+    // nuevo) menos los de las novedades — así una incapacidad sí reduce lo que se puede asignar.
+    const diasDisponibles = (d.mesCompleto ? DIAS_META : Number(d.diasIngreso||0)) - novedadesLimpias.reduce((s,n)=>s+n.dias,0);
     const sumaDiasTienda = Object.values(d.diasTienda||{}).reduce((s,v)=>s+Number(v||0),0);
-    if(sumaDiasTienda > DIAS_META){
-      setMetaMsg(`Los días por tienda de ${users.find(u=>u.id===asesorId)?.name||"este asesor"} suman ${sumaDiasTienda}, no pueden ser más de ${DIAS_META}.`);
+    if(sumaDiasTienda > diasDisponibles){
+      setMetaMsg(`Los días por tienda de ${users.find(u=>u.id===asesorId)?.name||"este asesor"} suman ${sumaDiasTienda}, pero solo tiene ${diasDisponibles} días disponibles este mes.`);
       return;
     }
     setGuardandoDetalle(asesorId);
     setMetaMsg("");
-    const novedadesLimpias = (d.novedades||[]).filter(n=>n.tipo && Number(n.dias)>0).map(n=>({ tipo:n.tipo, dias:Number(n.dias) }));
     const payload = {
       mes: mesKey, vendedor_id: asesorId,
       mes_completo: d.mesCompleto,
@@ -2957,13 +2969,16 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const metaAsesorCalculada = (asesorId) => {
     const d = metasAsesor.find(m=>m.mes===mesKey && m.vendedor_id===asesorId);
     if(!d) return 0;
-    const diasBase = (d.mes_completo ? DIAS_META : Number(d.dias_ingreso||0)) - Number(d.dias_novedad||0);
-    if(diasBase<=0) return 0;
+    // La meta de cada tienda ya es "la meta de alguien que trabaja los 30 días ahí", así que
+    // cada día asignado en dias_tienda vale 1/30 de esa meta — no se divide entre los días
+    // disponibles del asesor, porque eso inflaba la meta cuando había novedades (menos días
+    // disponibles con los mismos días de tienda sin ajustar). Los días de incapacidad/licencia
+    // simplemente significan menos días para repartir entre tiendas, y por lo tanto una meta menor.
     let total = 0;
     for(const t of tiendasList){
       const diasEnTienda = Number((d.dias_tienda||{})[t.id]||0);
       if(diasEnTienda<=0) continue;
-      total += (diasEnTienda/diasBase) * metaTiendaValor(t.id,"personal");
+      total += (diasEnTienda/DIAS_META) * metaTiendaValor(t.id,"personal");
     }
     return Math.round(total);
   };
@@ -3148,7 +3163,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
               const d = detalleInputs[a.id] || { mesCompleto:true, diasIngreso:"", novedades:[], diasTienda:{} };
               const abierto = asesorExpandido===a.id;
               const diasNovedadTotal = (d.novedades||[]).reduce((s,n)=>s+Number(n.dias||0),0);
-              const diasBase = (d.mesCompleto ? DIAS_META : Number(d.diasIngreso||0)) - diasNovedadTotal;
+              const diasDisponibles = (d.mesCompleto ? DIAS_META : Number(d.diasIngreso||0)) - diasNovedadTotal;
               const sumaDiasTienda = Object.values(d.diasTienda||{}).reduce((s,v)=>s+Number(v||0),0);
               return (
                 <div key={a.id} style={{ border:`1px solid ${abierto?C.gold:C.border}`, borderRadius:7, overflow:"hidden" }}>
@@ -3167,7 +3182,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                         {!d.mesCompleto && (
                           <div style={{ width:140 }}><Field value={d.diasIngreso} onChange={v=>setDetalleField(a.id,"diasIngreso",v.replace(/[^\d]/g,""))} placeholder={`días trabajados (de ${DIAS_META})`}/></div>
                         )}
-                        <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginLeft:"auto" }}>Días base: <b style={{ fontFamily:font.mono, color:diasBase>0?C.text:C.red }}>{diasBase}</b></span>
+                        <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginLeft:"auto" }}>Días disponibles: <b style={{ fontFamily:font.mono, color:diasDisponibles>0?C.text:C.red }}>{diasDisponibles}</b></span>
                       </div>
 
                       <div style={{ fontSize:10.5, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:4 }}>Novedades (incapacidad / licencia)</div>
@@ -3185,8 +3200,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                           <Field key={t.id} label={t.name} value={d.diasTienda?.[t.id]||""} onChange={v=>setDetalleTienda(a.id,t.id,v.replace(/[^\d]/g,""))} placeholder="días"/>
                         ))}
                       </div>
-                      {sumaDiasTienda>DIAS_META && <div style={{ fontFamily:font.body, fontSize:11, color:C.red, marginTop:4 }}>Los días por tienda suman {sumaDiasTienda}, no pueden ser más de {DIAS_META}.</div>}
-                      <div style={{ marginTop:8 }}><Btn onClick={()=>guardarDetalleAsesor(a.id)} disabled={guardandoDetalle===a.id || sumaDiasTienda>DIAS_META} sm>{guardandoDetalle===a.id?"Guardando...":"Guardar"}</Btn></div>
+                      {sumaDiasTienda>diasDisponibles && <div style={{ fontFamily:font.body, fontSize:11, color:C.red, marginTop:4 }}>Los días por tienda suman {sumaDiasTienda}, pero solo hay {diasDisponibles} días disponibles.</div>}
+                      <div style={{ marginTop:8 }}><Btn onClick={()=>guardarDetalleAsesor(a.id)} disabled={guardandoDetalle===a.id || sumaDiasTienda>diasDisponibles} sm>{guardandoDetalle===a.id?"Guardando...":"Guardar"}</Btn></div>
                     </div>
                   )}
                 </div>
@@ -3444,16 +3459,18 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       abonos.forEach(ab=>{
         const antes = acumulado;
         acumulado += Number(ab.valor||0);
-        // Cualquier abono de hoy se muestra aquí (informativo), no suma al ingreso neto.
-        if(ab.fecha===fecha && CAJA_MEDIOS.includes(ab.medio_pago)){
-          flexipagoDia[ab.medio_pago] += Number(ab.valor||0);
-        }
-        // Si el abono de HOY es el que completa el pago, el valor TOTAL del flexipago sí
-        // entra al ingreso neto de hoy, agrupado según el medio de ESE abono que lo cerró.
         const completaHoy = antes < valorTotal && acumulado >= valorTotal && ab.fecha===fecha;
         if(completaHoy && CAJA_MEDIOS.includes(ab.medio_pago)){
+          // Este es el abono que cierra el flexipago: su valor TOTAL ya entra al ingreso neto de
+          // hoy (agrupado según el medio de ESE abono). No se muestra también en "Flexipagos de
+          // ese día" — mostrarlo ahí además del ingreso neto hacía parecer que esa plata no
+          // contaba, cuando en realidad es justo la que cerró la venta.
           ingresoNeto[ab.medio_pago] += valorTotal;
           flexipagoCerradoHoy += valorTotal;
+        } else if(ab.fecha===fecha && CAJA_MEDIOS.includes(ab.medio_pago)){
+          // Abono de hoy que NO cierra el flexipago: es plata que entró pero la venta todavía no
+          // se reconoce como completa, así que se muestra aparte y no suma al ingreso neto.
+          flexipagoDia[ab.medio_pago] += Number(ab.valor||0);
         }
       });
     });
@@ -3463,8 +3480,15 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
   const resumenHoy = resumenDia(ciFecha);
 
+  // Arma un mensaje "Falta elegir X, Y y Z" con solo lo que de verdad falta, en vez de nombrar
+  // campos que ya están llenos.
+  const listarFaltantes = (arr) => arr.length<=1 ? (arr[0]||"") : `${arr.slice(0,-1).join(", ")} y ${arr[arr.length-1]}`;
+
   const guardarApertura = async () => {
-    if(!tiendaId || !apAsesorId){ setMsg("Falta elegir tienda y quién abre."); return; }
+    if(!tiendaId || !apAsesorId){
+      const falt = []; if(!tiendaId) falt.push("la tienda"); if(!apAsesorId) falt.push("quién abre");
+      setMsg(`Falta elegir ${listarFaltantes(falt)}.`); return;
+    }
     if(apFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master puede registrar una apertura con fecha distinta a hoy. Pide autorización."); return; }
     setGuardandoAp(true); setMsg("");
     const asesor = users.find(u=>u.id===apAsesorId);
@@ -3497,7 +3521,10 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   };
 
   const guardarCierre = async () => {
-    if(!tiendaId || !ciAsesorId){ setMsg("Falta elegir tienda y quién cierra."); return; }
+    if(!tiendaId || !ciAsesorId){
+      const falt = []; if(!tiendaId) falt.push("la tienda"); if(!ciAsesorId) falt.push("quién cierra");
+      setMsg(`Falta elegir ${listarFaltantes(falt)}.`); return;
+    }
     if(ciFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master puede registrar un cierre con fecha distinta a hoy. Pide autorización."); return; }
     setGuardandoCi(true); setMsg("");
     const asesor = users.find(u=>u.id===ciAsesorId);
@@ -3511,7 +3538,14 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   };
 
   const guardarRecoleccion = async () => {
-    if(!tiendaId || !reEntregaId || !reRecibeId || !reValor){ setMsg("Falta elegir tienda, quién entrega, quién recibe y el valor."); return; }
+    if(!tiendaId || !reEntregaId || !reRecibeId || !reValor){
+      const falt = [];
+      if(!tiendaId) falt.push("la tienda");
+      if(!reEntregaId) falt.push("quién entrega");
+      if(!reRecibeId) falt.push("quién recibe");
+      if(!reValor) falt.push("el valor");
+      setMsg(`Falta elegir ${listarFaltantes(falt)}.`); return;
+    }
     if(reFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master puede registrar una recolección con fecha distinta a hoy. Pide autorización."); return; }
     setGuardandoRe(true); setMsg("");
     const entrega = users.find(u=>u.id===reEntregaId);
@@ -3614,7 +3648,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     <td style={{ padding:"3px 6px", textAlign:"right", fontWeight:700, color:C.goldLight }}>{fmtCOP(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios)}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding:"2px 6px", fontFamily:font.body, color:C.textMuted }}>Flexipagos de ese día (no suma al total)</td>
+                    <td style={{ padding:"2px 6px", fontFamily:font.body, color:C.textMuted }}>Flexipagos abonados hoy que siguen pendientes (no suma al total)</td>
                     {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.flexipagoDia[m])}</td>)}
                     <td style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.totalFlexipagoDia)}</td>
                   </tr>
