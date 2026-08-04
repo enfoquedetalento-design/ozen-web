@@ -1994,7 +1994,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
       registrado_por:user.name,
       cliente_tipo_doc:esFlexipago?clienteTipoDoc:null, cliente_documento:esFlexipago?clienteDocumento.trim():null,
       cliente_nombre:esFlexipago?clienteNombre.trim():null, cliente_telefono:esFlexipago?clienteTelefono.trim():null,
-      observacion:observacion.trim(), valor_bruto:valorBruto, descuento_total:descuentoNum, total, es_flexipago:esFlexipago,
+      observacion:observacion.trim(), valor_bruto:valorBruto, descuento_total:descuentoNum, total, valor_original:total, es_flexipago:esFlexipago,
     }).select().single();
     if(error || !venta){ setGuardando(false); setMsg("No se pudo guardar. Intenta de nuevo."); return; }
     const filasItems = items.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, codigo_producto:i.codigoProducto||null }));
@@ -2277,7 +2277,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
   );
 }
 
-function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) {
+function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, setAjustes, esAdmin }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const [filtroTienda, setFiltroTienda] = useState("");
   const [filtroFecha, setFiltroFecha] = useState("");
@@ -2305,6 +2305,13 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
   const [abonoValor, setAbonoValor] = useState("");
   const [abonoMedio, setAbonoMedio] = useState("efectivo");
   const [guardando, setGuardando] = useState(false);
+  const [editErrorMsg, setEditErrorMsg] = useState("");
+
+  // "Corregir por error": solo para master/admin/admin_finanzas, sin necesitar solicitud aprobada.
+  // A diferencia de agregar excedente, aquí sí se puede subir O bajar el valor libremente — es
+  // solo para cuando el número se digitó mal desde el principio, no para cambios reales de venta.
+  const puedeCorregirError = ["master","admin","admin_finanzas"].includes(user.role);
+  const [modoErrorId, setModoErrorId] = useState(null);
 
   // Corrección directa de un abono ya registrado (solo master) — para cuando quedó con la fecha,
   // el valor o el medio de pago equivocado y no hay forma de arreglarlo desde el flujo normal.
@@ -2313,6 +2320,40 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
   const [eaValor, setEaValor] = useState("");
   const [eaMedio, setEaMedio] = useState("efectivo");
   const [guardandoEa, setGuardandoEa] = useState(false);
+
+  // Corregir SOLO el medio de pago de un renglón ya registrado (ej: el asesor marcó tarjeta
+  // pero fue efectivo) — el valor no se toca nunca aquí, solo cómo se pagó. Requiere la misma
+  // solicitud de corrección aprobada que el resto de correcciones.
+  const [corrigiendoPago, setCorrigiendoPago] = useState(null); // {itemId, pagoIdx}
+  const [cpMedio, setCpMedio] = useState("efectivo");
+  const [cpAutorizacion, setCpAutorizacion] = useState("");
+  const [guardandoCp, setGuardandoCp] = useState(false);
+  const iniciarCorreccionMedio = (item, pagoIdx) => {
+    const p = (item.pagos||[])[pagoIdx];
+    setCorrigiendoPago({ itemId:item.id, pagoIdx });
+    setCpMedio(p?.medio_pago||"efectivo");
+    setCpAutorizacion(p?.numero_autorizacion||"");
+  };
+  const guardarCorreccionMedio = async (venta) => {
+    if(!corrigiendoPago) return;
+    const item = (detalle[venta.id]?.items||[]).find(i=>i.id===corrigiendoPago.itemId);
+    if(!item) return;
+    setGuardandoCp(true);
+    const nuevosPagos = (item.pagos||[]).map((p,idx)=> idx===corrigiendoPago.pagoIdx ? { ...p, medio_pago:cpMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(cpMedio)?(cpAutorizacion||"").trim():null } : p);
+    const { data } = await supabase.from("ventas_items").update({ pagos:nuevosPagos }).eq("id",item.id).select().single();
+    if(data){
+      setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], items:(prev[venta.id]?.items||[]).map(i=>i.id===data.id?data:i)}}));
+      const aprobadasSinAplicar = (detalle[venta.id]?.solicitudes||[]).filter(s=>s.estado==="aprobada" && !s.aplicada_at);
+      for(const s of aprobadasSinAplicar){
+        await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
+      }
+      if(aprobadasSinAplicar.length>0){
+        setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], solicitudes:(prev[venta.id]?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s) }}));
+      }
+    }
+    setGuardandoCp(false);
+    setCorrigiendoPago(null);
+  };
 
   const iniciarEdicionAbono = (a) => { setEditandoAbonoId(a.id); setEaFecha(a.fecha); setEaValor(String(a.valor)); setEaMedio(a.medio_pago); };
   const guardarEdicionAbono = async (ventaId) => {
@@ -2374,9 +2415,35 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
 
   const iniciarEdicion = (venta) => {
     setEditando(venta.id);
+    // Flexipago se sigue editando completo (como antes). Las ventas normales ya no permiten
+    // tocar lo que ya está registrado — solo se puede agregar el excedente como renglón nuevo.
+    setEditItems(venta.es_flexipago ? (detalle[venta.id]?.items||[]).map(i=>({ tipo:i.tipo, valorTotal:Number(i.valor), descuento:Number(i.descuento||0), pagos:i.pagos||[] })) : []);
+    setEditObservacion(venta.observacion||"");
+    setEditNumeroFactura(venta.numero_factura||"");
+    setEditErrorMsg("");
+    setEditItemTipo("producto");
+    setEditItemValor("");
+    setEditItemDescuento("");
+    setEditItemDescuentoTipo("valor");
+    setEditItemPagos([]);
+    setEditItemMedioNuevo("efectivo");
+  };
+
+  const iniciarCorreccionError = (venta) => {
+    const confirmacion = window.prompt(`Vas a CORREGIR POR ERROR la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nA diferencia de "Agregar excedente", aquí el valor puede subir o bajar libremente. Úsalo SOLO si el número se digitó mal desde el principio — no para un cambio real de producto (para eso usa "Agregar excedente").\n\nEscribe CORREGIR para confirmar.`);
+    if(confirmacion!=="CORREGIR") return;
+    setModoErrorId(venta.id);
+    setEditando(venta.id);
     setEditItems((detalle[venta.id]?.items||[]).map(i=>({ tipo:i.tipo, valorTotal:Number(i.valor), descuento:Number(i.descuento||0), pagos:i.pagos||[] })));
     setEditObservacion(venta.observacion||"");
     setEditNumeroFactura(venta.numero_factura||"");
+    setEditErrorMsg("");
+    setEditItemTipo("producto");
+    setEditItemValor("");
+    setEditItemDescuento("");
+    setEditItemDescuentoTipo("valor");
+    setEditItemPagos([]);
+    setEditItemMedioNuevo("efectivo");
   };
 
   const editItemEsFlexipago = editItemTipo === "flexipago";
@@ -2411,24 +2478,80 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
   const quitarEditItem = (idx) => setEditItems(prev=>prev.filter((_,i)=>i!==idx));
 
   const guardarEdicion = async (venta) => {
-    if(editItems.length===0) return;
+    const esModoError = modoErrorId===venta.id;
+    // Flexipago (edición normal) y "corregir por error" se editan completo, como antes
+    // (se reemplazan todos los renglones). Solo el modo error puede subir O bajar el valor.
+    if(venta.es_flexipago || esModoError){
+      if(editItems.length===0) return;
+      setGuardando(true);
+      const bruto = editItems.reduce((a,i)=>a+i.valorTotal,0);
+      const desc = editItems.reduce((a,i)=>a+i.descuento,0);
+      const total = bruto - desc;
+      const esFlexipagoEdit = editItems.some(i=>i.tipo==="flexipago");
+      const valorAnterior = Number(venta.total);
+      const payload = { observacion:editObservacion.trim(), numero_factura:editNumeroFactura.trim()||null, valor_bruto:bruto, descuento_total:desc, total, es_flexipago:esFlexipagoEdit, updated_at:new Date().toISOString() };
+      // En modo error se resetea el piso: el valor corregido queda como si siempre hubiera sido
+      // el original, para no dejar un "excedente" fantasma en Métricas.
+      if(esModoError) payload.valor_original = total;
+      const { data:ventaAct } = await supabase.from("ventas").update(payload).eq("id",venta.id).select().single();
+      await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
+      const filasItems = editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos }));
+      const { data:itemsNuevos } = await supabase.from("ventas_items").insert(filasItems).select();
+      const aprobadasSinAplicar = (detalle[venta.id]?.solicitudes||[]).filter(s=>s.estado==="aprobada" && !s.aplicada_at);
+      for(const s of aprobadasSinAplicar){
+        await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
+      }
+      // Se deja un rastro en el historial de ajustes, marcado como corrección por error para que
+      // Métricas no lo cuente como un excedente real (eso ya quedó reflejado arriba en valor_original).
+      if(esModoError && total!==valorAnterior){
+        const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:todayStr, valor_anterior:valorAnterior, valor_nuevo:total, diferencia:total-valorAnterior, motivo:`Corrección por error${editObservacion.trim()?": "+editObservacion.trim():""}`, aplicado_por:user.name, es_correccion_error:true }).select().single();
+        if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
+      }
+      setGuardando(false);
+      if(ventaAct){
+        setVentas(prev=>prev.map(v=>v.id===venta.id?ventaAct:v));
+        setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], items:itemsNuevos||[], solicitudes:(prev[venta.id]?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s) }}));
+      }
+      setEditando(null);
+      setModoErrorId(null);
+      return;
+    }
+
+    // Ventas normales: lo ya registrado (valor y medio de pago) NO se toca aquí. Solo se agrega
+    // el excedente como renglón(es) nuevo(s) — por eso el total nunca puede bajar: no hay forma
+    // de borrar ni modificar lo que ya está guardado desde esta pantalla.
+    const nuevoBruto = editItems.reduce((a,i)=>a+i.valorTotal,0);
+    const nuevoDesc = editItems.reduce((a,i)=>a+i.descuento,0);
+    const excedente = nuevoBruto - nuevoDesc;
+    if(excedente < 0){
+      setEditErrorMsg("El descuento del renglón nuevo no puede ser mayor a su valor.");
+      return;
+    }
+    setEditErrorMsg("");
     setGuardando(true);
-    const bruto = editItems.reduce((a,i)=>a+i.valorTotal,0);
-    const desc = editItems.reduce((a,i)=>a+i.descuento,0);
-    const total = bruto - desc;
-    const esFlexipagoEdit = editItems.some(i=>i.tipo==="flexipago");
-    const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), numero_factura:editNumeroFactura.trim()||null, valor_bruto:bruto, descuento_total:desc, total, es_flexipago:esFlexipagoEdit, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
-    await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
-    const filasItems = editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos }));
-    const { data:itemsNuevos } = await supabase.from("ventas_items").insert(filasItems).select();
+    const valorActual = Number(venta.total);
+    const nuevoTotal = valorActual + excedente;
+    const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), numero_factura:editNumeroFactura.trim()||null, valor_bruto:Number(venta.valor_bruto)+nuevoBruto, descuento_total:Number(venta.descuento_total)+nuevoDesc, total:nuevoTotal, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
+    let itemsActualizados = detalle[venta.id]?.items || [];
+    if(editItems.length>0){
+      const filasItems = editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos }));
+      const { data:itemsInsertados } = await supabase.from("ventas_items").insert(filasItems).select();
+      itemsActualizados = [...itemsActualizados, ...(itemsInsertados||[])];
+    }
     const aprobadasSinAplicar = (detalle[venta.id]?.solicitudes||[]).filter(s=>s.estado==="aprobada" && !s.aplicada_at);
     for(const s of aprobadasSinAplicar){
       await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
     }
+    // El excedente queda registrado con la fecha de HOY (el mes de la corrección); el valor
+    // original se queda en su mes de venta (no se toca acá).
+    if(excedente > 0){
+      const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:todayStr, valor_anterior:valorActual, valor_nuevo:nuevoTotal, diferencia:excedente, motivo:editObservacion.trim()||null, aplicado_por:user.name }).select().single();
+      if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
+    }
     setGuardando(false);
     if(ventaAct){
       setVentas(prev=>prev.map(v=>v.id===venta.id?ventaAct:v));
-      setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], items:itemsNuevos||[], solicitudes:(prev[venta.id]?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s) }}));
+      setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], items:itemsActualizados, solicitudes:(prev[venta.id]?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s) }}));
     }
     setEditando(null);
   };
@@ -2586,15 +2709,32 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                                     {i.codigo_producto && <Badge color={C.textMuted} sm>Código: {i.codigo_producto}</Badge>}
                                   </>
                                 ) : (i.pagos||[]).map((p,pidx)=>(
-                                  <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
+                                  corrigiendoPago && corrigiendoPago.itemId===i.id && corrigiendoPago.pagoIdx===pidx ? (
+                                    <div key={pidx} style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"end", padding:"4px 0", background:C.dark, borderRadius:6 }}>
+                                      <div style={{ width:150 }}><Field label="Medio correcto" value={cpMedio} onChange={setCpMedio} options={VENTAS_MEDIOS_PAGO}/></div>
+                                      {VENTAS_MEDIOS_TARJETA.includes(cpMedio) && <div style={{ width:130 }}><Field label="N.º autorización" value={cpAutorizacion} onChange={setCpAutorizacion}/></div>}
+                                      <Btn onClick={()=>guardarCorreccionMedio(v)} disabled={guardandoCp} sm>{guardandoCp?"...":"Guardar"}</Btn>
+                                      <Btn onClick={()=>setCorrigiendoPago(null)} variant="ghost" sm>Cancelar</Btn>
+                                    </div>
+                                  ) : (
+                                    <Badge key={pidx} color={C.gold} sm>
+                                      {VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}
+                                      {puedeEditar && !abiertoEdicion && <button onClick={()=>iniciarCorreccionMedio(i,pidx)} title="Corregir solo el medio de pago (el valor no cambia)" style={{ background:"none", border:"none", cursor:"pointer", color:"inherit", marginLeft:6, padding:0 }}>✏️</button>}
+                                    </Badge>
+                                  )
                                 ))}
                               </div>
                             </div>
                           ))}
                           {(d?.items||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin ventas/servicios registrados.</div>}
                         </div>
-                      ) : (
+                      ) : (v.es_flexipago || modoErrorId===v.id) ? (
                         <div style={{ marginBottom:10 }}>
+                          {modoErrorId===v.id && (
+                            <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.red}18`, border:`1px solid ${C.red}` }}>
+                              ⚠️ Modo corrección por error: aquí el valor puede subir o bajar libremente. Úsalo solo si el número se digitó mal — para un cambio real de producto usa "Agregar excedente".
+                            </div>
+                          )}
                           <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:10 }}>
                             {editItems.map((i,idx)=>(
                               <div key={idx} style={{ display:"flex", flexDirection:"column", gap:4, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
@@ -2677,8 +2817,124 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
                           )}
                           <div style={{ display:"flex", gap:8 }}>
                             <Btn onClick={()=>guardarEdicion(v)} disabled={guardando} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
-                            <Btn onClick={()=>setEditando(null)} variant="ghost" sm>Cancelar</Btn>
+                            <Btn onClick={()=>{ setEditando(null); setEditErrorMsg(""); setModoErrorId(null); }} variant="ghost" sm>Cancelar</Btn>
                           </div>
+                        </div>
+                      ) : (
+                        <div style={{ marginBottom:10 }}>
+                          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:6 }}>Ya registrado — no se puede modificar desde aquí:</div>
+                          <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:12, opacity:0.7 }}>
+                            {(d?.items||[]).map(i=>(
+                              <div key={i.id} style={{ display:"flex", flexDirection:"column", gap:2, padding:"3px 0" }}>
+                                <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12, color:C.text, flexWrap:"wrap" }}>
+                                  <Badge color={i.tipo==="producto"?C.green:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
+                                  <span style={{ fontFamily:font.mono, marginLeft:"auto" }}>${Number(i.valor).toLocaleString("es-CO")}{Number(i.descuento)>0 && ` (desc $${Number(i.descuento).toLocaleString("es-CO")})`}</span>
+                                </div>
+                                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                                  {(i.pagos||[]).map((p,pidx)=>(
+                                    <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {editItems.length>0 && (
+                            <>
+                              <div style={{ fontFamily:font.body, fontSize:11, color:C.green, marginBottom:6 }}>Excedente nuevo (esto sí se va a agregar):</div>
+                              <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:10 }}>
+                                {editItems.map((i,idx)=>(
+                                  <div key={idx} style={{ display:"flex", flexDirection:"column", gap:4, background:C.surfaceAlt, border:`1px solid ${C.green}55`, borderRadius:7, padding:"8px 10px" }}>
+                                    <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                                      <Badge color={i.tipo==="producto"?C.green:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
+                                      <div style={{ flex:1, fontFamily:font.mono, fontSize:12, color:C.text, textAlign:"right" }}>${i.valorTotal.toLocaleString("es-CO")}{i.descuento>0 && ` (desc $${i.descuento.toLocaleString("es-CO")})`}</div>
+                                      <button onClick={()=>quitarEditItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
+                                    </div>
+                                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                                      {i.pagos.map((p,pidx)=>(
+                                        <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}</Badge>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
+
+                          <div style={{ border:`1px solid ${C.green}55`, borderRadius:8, padding:"12px", marginBottom:10 }}>
+                            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Agregar excedente</div>
+                            <Field label="Tipo" value={editItemTipo} onChange={setEditItemTipo} options={VENTAS_TIPOS.filter(t=>t.value!=="flexipago")}/>
+                            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:4 }}>
+                              <CurrencyField label="Valor del excedente" value={editItemValor} onChange={setEditItemValor}/>
+                              <div>
+                                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
+                                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento</div>
+                                  <div style={{ display:"flex", gap:4 }}>
+                                    {VENTAS_DESCUENTO_TIPOS.map(dt=>(
+                                      <button key={dt.value} type="button" onClick={()=>setEditItemDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${editItemDescuentoTipo===dt.value?C.gold:C.border}`, background:editItemDescuentoTipo===dt.value?`${C.gold}22`:"transparent", color:editItemDescuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
+                                    ))}
+                                  </div>
+                                </div>
+                                <CurrencyField value={editItemDescuento} onChange={setEditItemDescuento}/>
+                              </div>
+                            </div>
+                            <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Medios de pago del excedente</div>
+                            {editItemPagos.length>0 && (
+                              <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:8 }}>
+                                {editItemPagos.map((p,idx)=>{
+                                  const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===p.medio_pago);
+                                  return (
+                                    <div key={idx} style={{ border:`1px solid ${C.gold}`, borderRadius:8, padding:"9px 10px", background:`${C.gold}0d` }}>
+                                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                                        <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{m?.label}</span>
+                                        <button onClick={()=>quitarMedioDeEditItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
+                                      </div>
+                                      <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?"1fr 1fr":"1fr", gap:10 }}>
+                                        <CurrencyField label="Valor pagado" value={p.valor} onChange={v=>setEditItemPagoValor(idx,v)}/>
+                                        {VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && <Field label="N.º autorización" value={p.numero_autorizacion||""} onChange={v=>setEditItemPagoAutorizacion(idx,v)} placeholder="Ej: 056495"/>}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            <div style={{ display:"flex", gap:8, marginBottom:8, alignItems:"end" }}>
+                              <div style={{ flex:1 }}><Field label="Agregar medio de pago" value={editItemMedioNuevo} onChange={setEditItemMedioNuevo} options={VENTAS_MEDIOS_PAGO}/></div>
+                              <div style={{ marginBottom:14 }}><Btn onClick={agregarMedioAEditItem} variant="ghost" sm>+ Agregar medio</Btn></div>
+                            </div>
+                            {editItemPagos.length>0 && (
+                              <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(editItemFalta)<1?C.green:C.red }}>
+                                {Math.abs(editItemFalta)<1 ? "✓ Los medios cuadran con el valor de este renglón" : editItemFalta>0 ? `Faltan $${editItemFalta.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(editItemFalta).toLocaleString("es-CO")}`}
+                              </div>
+                            )}
+                            <Btn onClick={agregarEditItem} disabled={editItemValorNum<=0 || editItemPagos.length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT} sm full>+ Agregar excedente</Btn>
+                          </div>
+
+                          <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
+                          <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
+
+                          {(() => {
+                            const editBruto = editItems.reduce((a,i)=>a+i.valorTotal,0);
+                            const editDesc = editItems.reduce((a,i)=>a+i.descuento,0);
+                            const excedente = editBruto - editDesc;
+                            const nuevoTotal = Number(v.total) + excedente;
+                            return (
+                              <>
+                                <div style={{ fontFamily:font.body, fontSize:12, margin:"2px 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.gold}11`, border:`1px solid ${C.gold}55`, color:C.text }}>
+                                  Valor ya registrado: <strong>${Number(v.total).toLocaleString("es-CO")}</strong> (no cambia) · Excedente: <strong>${excedente.toLocaleString("es-CO")}</strong> · Nuevo total: <strong>${nuevoTotal.toLocaleString("es-CO")}</strong>
+                                </div>
+                                {editErrorMsg && (
+                                  <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.red}18`, border:`1px solid ${C.red}`, color:C.red }}>
+                                    {editErrorMsg}
+                                  </div>
+                                )}
+                                <div style={{ display:"flex", gap:8 }}>
+                                  <Btn onClick={()=>guardarEdicion(v)} disabled={guardando} sm>{guardando?"Guardando...":"Guardar"}</Btn>
+                                  <Btn onClick={()=>{ setEditando(null); setEditErrorMsg(""); }} variant="ghost" sm>Cancelar</Btn>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
 
@@ -2761,7 +3017,8 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, esAdmin }) 
 
                       <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:6 }}>
                         {v.es_flexipago && <Btn onClick={()=>imprimirVenta(v,d)} variant="ghost" sm>🖨️ Imprimir</Btn>}
-                        {puedeEditar && !abiertoEdicion && !flexipagoVencido && <Btn onClick={()=>iniciarEdicion(v)} sm>✏️ Hacer la corrección aprobada</Btn>}
+                        {puedeEditar && !abiertoEdicion && !flexipagoVencido && <Btn onClick={()=>iniciarEdicion(v)} sm>{v.es_flexipago?"✏️ Hacer la corrección aprobada":"➕ Agregar excedente"}</Btn>}
+                        {puedeCorregirError && !abiertoEdicion && <Btn onClick={()=>iniciarCorreccionError(v)} variant="ghost" sm style={{ color:C.amber }}>🛠️ Corregir por error</Btn>}
                         {user.role==="master" && <Btn onClick={()=>eliminarVenta(v)} variant="ghost" sm style={{ color:C.red }}>🗑️ Eliminar venta</Btn>}
                         {mostrarSolicitud===v.id ? (
                           <div style={{ display:"flex", gap:8, flex:1, minWidth:220, alignItems:"end" }}>
@@ -2816,7 +3073,7 @@ const calcularCierresFlexipago = (ventas, ventasItems, ventasAbonos) => {
   return cierres;
 };
 
-function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile }) {
+function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile }) {
   const hoy = toColombiaDate();
   const [anio, setAnio] = useState(hoy.getFullYear());
   const [mesIdx, setMesIdx] = useState(hoy.getMonth());
@@ -2986,6 +3243,37 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const cierresFlexipago = calcularCierresFlexipago(ventas, ventasItems, ventasAbonos);
   const ventaByIdGlobal = {}; ventas.forEach(v=>{ ventaByIdGlobal[v.id]=v; });
 
+  // Corrección de facturas (solo ventas normales, no flexipago): si una venta se corrigió después
+  // hacia un valor mayor, el valor original se queda en su mes de venta y el excedente cuenta en el
+  // mes en que se hizo la corrección (ver ventas_ajustes). recortePorVenta es cuánto hay que restarle
+  // al mes/día original de cada venta corregida para no contar el excedente dos veces.
+  const recortePorVenta = {};
+  ventas.forEach(v=>{
+    if(v.es_flexipago) return;
+    const totalOriginal = Number(v.valor_original ?? v.total);
+    const totalActual = Number(v.total);
+    if(totalActual > totalOriginal) recortePorVenta[v.id] = totalActual - totalOriginal;
+  });
+  const netoProductoAjustadoPorVenta = (items) => {
+    const m = {};
+    items.forEach(i=>{ m[i.venta_id] = (m[i.venta_id]||0) + (Number(i.valor)-Number(i.descuento||0)); });
+    const out = {};
+    for(const [ventaId, neto] of Object.entries(m)){
+      const recorte = Math.min(recortePorVenta[ventaId]||0, neto);
+      out[ventaId] = neto - recorte;
+    }
+    return out;
+  };
+  const sumaProductoConRecorte = (items) => Object.values(netoProductoAjustadoPorVenta(items)).reduce((a,b)=>a+b,0);
+  // Ajustes cuya fecha (día de la corrección) cae en el mes que se está viendo.
+  // Las correcciones "por error" no son un excedente real de venta (ya quedaron reflejadas
+  // reseteando valor_original), así que no deben sumar aparte aquí.
+  const ajustesDelMesTodasTiendas = ventasAjustes.filter(aj=>aj.fecha && aj.fecha.slice(0,7)===mesKey && !aj.es_correccion_error);
+  const ajustesDelMes = ajustesDelMesTodasTiendas.filter(aj=>{
+    const v = ventaByIdGlobal[aj.venta_id];
+    return v && (!tiendaSel || v.tienda_id===tiendaSel);
+  });
+
   const ventasDelMes = ventas.filter(v => v.fecha && v.fecha.slice(0,7)===mesKey && (!tiendaSel || v.tienda_id===tiendaSel));
   const idsVentasDelMes = new Set(ventasDelMes.map(v=>v.id));
   const itemsDelMes = ventasItems.filter(i => idsVentasDelMes.has(i.venta_id));
@@ -3008,7 +3296,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   });
   const sumaPagos = (items) => items.reduce((a,i)=>a+(i.pagos||[]).reduce((s,p)=>s+Number(p.valor||0),0), 0);
 
-  const totalSinServicios = itemsDelMesProducto.reduce((a,i)=>a+(Number(i.valor)-Number(i.descuento||0)),0) + cierresDelMes.reduce((a,c)=>a+c.valorNeto,0);
+  const totalSinServicios = sumaProductoConRecorte(itemsDelMesProducto) + cierresDelMes.reduce((a,c)=>a+c.valorNeto,0) + ajustesDelMes.reduce((a,aj)=>a+Number(aj.diferencia||0),0);
   const totalConServicios = totalSinServicios + sumaPagos(itemsDelMesServicios) + abonosFlexipagoAbiertoDelMes.reduce((a,ab)=>a+Number(ab.valor||0),0);
 
   const metaTiendaTotal = tiendaSel ? metaTiendaValor(tiendaSel) : tiendasList.reduce((a,t)=>a+metaTiendaValor(t.id),0);
@@ -3020,7 +3308,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const dataAsesores = asesores.map(a=>{
     const ventasAsesor = ventasDelMes.filter(v=>v.vendedor_id===a.id);
     const idsAsesor = new Set(ventasAsesor.map(v=>v.id));
-    const sinServiciosProducto = itemsDelMesProducto.filter(i=>idsAsesor.has(i.venta_id)).reduce((s,i)=>s+(Number(i.valor)-Number(i.descuento||0)),0);
+    const sinServiciosProducto = sumaProductoConRecorte(itemsDelMesProducto.filter(i=>idsAsesor.has(i.venta_id)))
+      + ajustesDelMes.filter(aj=>ventaByIdGlobal[aj.venta_id]?.vendedor_id===a.id).reduce((s,aj)=>s+Number(aj.diferencia||0),0);
     // El flexipago se le atribuye a quien hizo la venta original, sin importar en qué mes se creó —
     // solo importa que se haya terminado de pagar este mes.
     const sinServiciosFlexipago = cierresDelMes.filter(c=>c.vendedorId===a.id).reduce((s,c)=>s+c.valorNeto,0);
@@ -3039,7 +3328,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const dataTiendas = tiendasList.map(t=>{
     const ventasTienda = ventas.filter(v => v.fecha && v.fecha.slice(0,7)===mesKey && v.tienda_id===t.id);
     const idsT = new Set(ventasTienda.map(v=>v.id));
-    const sinServiciosProducto = ventasItems.filter(i=>idsT.has(i.venta_id) && i.tipo==="producto").reduce((s,i)=>s+(Number(i.valor)-Number(i.descuento||0)),0);
+    const sinServiciosProducto = sumaProductoConRecorte(ventasItems.filter(i=>idsT.has(i.venta_id) && i.tipo==="producto"))
+      + ajustesDelMesTodasTiendas.filter(aj=>ventaByIdGlobal[aj.venta_id]?.tienda_id===t.id).reduce((s,aj)=>s+Number(aj.diferencia||0),0);
     const sinServiciosFlexipago = cierresFlexipago.filter(c=>c.tiendaId===t.id && c.fechaCierre && c.fechaCierre.slice(0,7)===mesKey).reduce((s,c)=>s+c.valorNeto,0);
     const sinServicios = sinServiciosProducto + sinServiciosFlexipago;
     const meta = metaTiendaValor(t.id,"total");
@@ -3050,9 +3340,14 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
 
   const porDia = {};
   ventasDelMes.forEach(v=>{ porDia[v.fecha] = porDia[v.fecha] || { con:0, sin:0, count:0 }; porDia[v.fecha].count += 1; });
-  itemsDelMesProducto.forEach(i=>{
-    const f=fechaPorVenta[i.venta_id];
-    if(f){ const val=(Number(i.valor)-Number(i.descuento||0)); porDia[f].sin += val; porDia[f].con += val; }
+  Object.entries(netoProductoAjustadoPorVenta(itemsDelMesProducto)).forEach(([ventaId,val])=>{
+    const f=fechaPorVenta[ventaId];
+    if(f){ porDia[f]=porDia[f]||{con:0,sin:0,count:0}; porDia[f].sin += val; porDia[f].con += val; }
+  });
+  ajustesDelMes.forEach(aj=>{
+    porDia[aj.fecha] = porDia[aj.fecha] || { con:0, sin:0, count:0 };
+    porDia[aj.fecha].sin += Number(aj.diferencia||0);
+    porDia[aj.fecha].con += Number(aj.diferencia||0);
   });
   cierresDelMes.forEach(c=>{
     porDia[c.fechaCierre] = porDia[c.fechaCierre] || { con:0, sin:0, count:0 };
@@ -3332,7 +3627,7 @@ const CajaBtn = ({ onClick, children, disabled }) => (
   <button onClick={disabled?undefined:onClick} style={{ padding:"5px 12px", borderRadius:5, border:"none", background:C.gold, color:"#fff", fontSize:12, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.5:1, whiteSpace:"nowrap" }}>{children}</button>
 );
 
-function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, puedeRecoleccion, isMobile }) {
+function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, puedeRecoleccion, isMobile }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const tiendasList = tiendasVenta(stores);
   const [tiendaId, setTiendaId] = useState(tiendaFija || tiendasList[0]?.id || "");
@@ -3747,12 +4042,31 @@ export default function App() {
   const [juntaAreas,setJuntaAreas]=useState([]),[juntaLiderAreas,setJuntaLiderAreas]=useState([]);
   const [ventas,setVentas]=useState([]),[ventasItems,setVentasItems]=useState([]),[ventasMetas,setVentasMetas]=useState([]),[ventasMetasAsesor,setVentasMetasAsesor]=useState([]);
   const [ventasAbonos,setVentasAbonos]=useState([]),[cajaAperturas,setCajaAperturas]=useState([]),[cajaCierres,setCajaCierres]=useState([]),[cajaRecolecciones,setCajaRecolecciones]=useState([]),[cajaGastos,setCajaGastos]=useState([]);
+  const [ventasAjustes,setVentasAjustes]=useState([]);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
   const isMobile=useIsMobile();
 
+  // `todayStr` se calcula UNA sola vez cuando carga la página (no es reactivo). Si alguien deja
+  // una pestaña abierta de un día para otro sin recargar, todo lo que depende de "hoy" (fecha por
+  // defecto al registrar una venta, apertura, cierre, etc.) se queda pegado en el día viejo — así
+  // una venta de hoy termina guardada con la fecha de ayer. Por eso se revisa cada minuto (y cada
+  // vez que se vuelve a esta pestaña) si el día real ya cambió, y si cambió, se recarga la página
+  // sola para que todo tome la fecha correcta.
+  useEffect(()=>{
+    const revisarCambioDeDia = () => { if(fmt(new Date())!==todayStr) window.location.reload(); };
+    const intervalo = setInterval(revisarCambioDeDia, 60000);
+    document.addEventListener("visibilitychange", revisarCambioDeDia);
+    window.addEventListener("focus", revisarCambioDeDia);
+    return () => {
+      clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", revisarCambioDeDia);
+      window.removeEventListener("focus", revisarCambioDeDia);
+    };
+  }, []);
+
   const loadAll=async()=>{
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg}]=await Promise.all([
+    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
       supabase.from("registros").select("*").order("date",{ascending:false}),
@@ -3770,6 +4084,7 @@ export default function App() {
       supabase.from("ventas_caja_cierres").select("*").order("created_at",{ascending:false}),
       supabase.from("ventas_caja_recolecciones").select("*").order("created_at",{ascending:false}),
       supabase.from("ventas_caja_gastos").select("*").order("created_at",{ascending:false}),
+      supabase.from("ventas_ajustes").select("*"),
     ]);
     const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
     setStores(sm);setUsers(u||[]);setRecords(r||[]);
@@ -3787,6 +4102,7 @@ export default function App() {
     setCajaCierres(cc||[]);
     setCajaRecolecciones(cr||[]);
     setCajaGastos(cg||[]);
+    setVentasAjustes(vaj||[]);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
@@ -3824,9 +4140,9 @@ export default function App() {
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
         if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} isMobile={isMobile}/>;
-        if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={esAdminDeVentas(user)}/>;
-        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
-        if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
+        if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={esAdminDeVentas(user)}/>;
+        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
+        if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
@@ -3836,9 +4152,9 @@ export default function App() {
       }
     } else if(esCuentaTienda(user)){
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
-      if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} esAdmin={false}/>;
-      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
-      if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
+      if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={false}/>;
+      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
+      if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores}/>;
