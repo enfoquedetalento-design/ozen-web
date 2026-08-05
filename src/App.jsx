@@ -30,6 +30,7 @@ const fmt = (d) => { const c = toColombiaDate(d); return `${c.getFullYear()}-${S
 const fmtTime = (d) => { const c = toColombiaDate(d); return `${String(c.getHours()).padStart(2,"0")}:${String(c.getMinutes()).padStart(2,"0")}`; };
 const todayStr = fmt(new Date());
 const fmtFechaHora = (iso) => iso ? new Date(iso).toLocaleString("es-CO", { day:"numeric", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" }) : "—";
+const diasEntre = (fechaIni, fechaFin) => Math.round((new Date(fechaFin+"T00:00:00") - new Date(fechaIni+"T00:00:00")) / 86400000);
 
 // ── Puntualidad ───────────────────────────────────────────────────────────────
 // Fechas de corte: desde cada fecha (inclusive) rigen los horarios de esa fila.
