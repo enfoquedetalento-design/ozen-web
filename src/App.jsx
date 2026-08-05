@@ -1890,7 +1890,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
   const [itemDescuento, setItemDescuento] = useState("");
   const [itemDescuentoTipo, setItemDescuentoTipo] = useState("valor");
   const [itemPagos, setItemPagos] = useState([]); // [{medio_pago, valor, numero_autorizacion}] — permite repetir medio (ej. dos tarjetas)
-  const [itemMedioNuevo, setItemMedioNuevo] = useState("efectivo");
+  const [itemMedioNuevo, setItemMedioNuevo] = useState("");
   const [observacion, setObservacion] = useState("");
 
   const [clienteTipoDoc, setClienteTipoDoc] = useState("CC");
@@ -1939,12 +1939,14 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
   const itemFlexipagoRestante = itemValorNum - Number(abonoInicialValor||0);
   const itemFlexipagoValido = itemValorNum>0 && clienteDocumento.trim()!=="" && clienteNombre.trim()!=="" && abonoInicialValor.trim()!=="";
 
-  const agregarMedioAItem = () => {
-    if(!itemMedioNuevo) return;
+  const agregarMedioAItem = (medio) => {
+    const m = medio || itemMedioNuevo;
+    if(!m) return;
     // La mayoría de las veces se paga todo con un solo medio, así que se sugiere lo que falta
     // (la primera vez, el valor total del item). Si pagan con varios medios, el asesor lo corrige.
     const sugerido = Math.max(0, itemFalta);
-    setItemPagos(prev=>[...prev, { medio_pago:itemMedioNuevo, valor: sugerido>0?String(sugerido):"", numero_autorizacion:"" }]);
+    setItemPagos(prev=>[...prev, { medio_pago:m, valor: sugerido>0?String(sugerido):"", numero_autorizacion:"" }]);
+    setItemMedioNuevo(""); // vuelve al placeholder, listo para agregar el siguiente medio
   };
   const quitarMedioDeItem = (idx) => setItemPagos(prev=>prev.filter((_,i)=>i!==idx));
   const setItemPagoValor = (idx, v) => setItemPagos(prev=>prev.map((p,i)=>i===idx?{...p,valor:v}:p));
@@ -1972,7 +1974,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
   const saldoPendiente = esFlexipago ? valorFlexipago - Number(abonoInicialValor||0) : 0;
 
   const limpiarTodo = () => {
-    setNumeroFactura(""); setVendedorId(""); setItems([]); setItemTipo("producto"); setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemPagos([]); setItemMedioNuevo("efectivo"); setObservacion("");
+    setNumeroFactura(""); setVendedorId(""); setItems([]); setItemTipo("producto"); setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemPagos([]); setItemMedioNuevo(""); setObservacion("");
     setAbonoInicialValor(""); setAbonoInicialMedio("efectivo");
     setClienteTipoDoc("CC"); setClienteDocumento(""); setClienteNombre(""); setClienteTelefono(""); setClienteEncontrado(false);
   };
@@ -2132,7 +2134,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
                     <CurrencyField label="Valor total" value={itemValor} onChange={setItemValor}/>
                     <div>
                       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
-                        <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento</div>
+                        <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento / Bono</div>
                         <div style={{ display:"flex", gap:4 }}>
                           {VENTAS_DESCUENTO_TIPOS.map(dt=>(
                             <button key={dt.value} type="button" onClick={()=>setItemDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${itemDescuentoTipo===dt.value?C.gold:C.border}`, background:itemDescuentoTipo===dt.value?`${C.gold}22`:"transparent", color:itemDescuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
@@ -2163,10 +2165,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
                       })}
                     </div>
                   )}
-                  <div style={{ display:"flex", gap:8, marginBottom:8, alignItems:"end" }}>
-                    <div style={{ flex:1 }}><Field label="Agregar medio de pago" value={itemMedioNuevo} onChange={setItemMedioNuevo} options={VENTAS_MEDIOS_PAGO}/></div>
-                    <div style={{ marginBottom:14 }}><Btn onClick={agregarMedioAItem} variant="ghost" sm>+ Agregar medio</Btn></div>
-                  </div>
+                  <Field value={itemMedioNuevo} onChange={v=>{ if(v) agregarMedioAItem(v); else setItemMedioNuevo(v); }} options={[{value:"",label:"+ Agregar medio de pago"}, ...VENTAS_MEDIOS_PAGO]}/>
                   {itemPagos.length>0 && (
                     <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(itemFalta)<1?C.green:C.red }}>
                       {Math.abs(itemFalta)<1 ? "✓ Los medios cuadran con el valor de este renglón" : itemFalta>0 ? `Faltan $${itemFalta.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(itemFalta).toLocaleString("es-CO")}`}
@@ -2175,12 +2174,6 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
                 </>
               )}
               <Btn onClick={agregarItem} disabled={itemEsFlexipago ? !itemFlexipagoValido : (itemValorNum<=0 || itemPagos.length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT)} sm full>+ Agregar</Btn>
-            </div>
-
-            <div style={{ marginTop:12 }}>
-              {(esFlexipago || itemEsFlexipago) ? null : (
-                <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>
-              )}
             </div>
           </SeccionVenta>
 
@@ -2194,10 +2187,19 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
           <Card glow style={{ marginBottom:16, padding:0, overflow:"hidden" }}>
             <div style={{ padding:"14px 16px", borderBottom:`1px solid ${C.border}` }}>
               <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color:C.goldLight }}>🧾 Venta actual</div>
-              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>{esFlexipago && clienteNombre ? clienteNombre : "—"}{stores[tiendaId]?.name ? ` · ${stores[tiendaId].name}` : ""}</div>
+              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>
+                {[
+                  esFlexipago && clienteNombre ? clienteNombre : null,
+                  stores[tiendaId]?.name || null,
+                  asesores.find(a=>a.id===vendedorId)?.name || null,
+                ].filter(Boolean).join(" · ") || "Completa los datos para empezar"}
+              </div>
             </div>
 
             <div style={{ padding:"14px 16px" }}>
+              {(esFlexipago || itemEsFlexipago) ? null : (
+                <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>
+              )}
               {items.length>0 && (
                 <>
                   <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Ventas y servicios</div>
@@ -2297,7 +2299,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, se
   const [editItemDescuento, setEditItemDescuento] = useState("");
   const [editItemDescuentoTipo, setEditItemDescuentoTipo] = useState("valor");
   const [editItemPagos, setEditItemPagos] = useState([]); // [{medio_pago, valor, numero_autorizacion}]
-  const [editItemMedioNuevo, setEditItemMedioNuevo] = useState("efectivo");
+  const [editItemMedioNuevo, setEditItemMedioNuevo] = useState("");
   const [editObservacion, setEditObservacion] = useState("");
   const [editNumeroFactura, setEditNumeroFactura] = useState("");
 
@@ -2426,7 +2428,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, se
     setEditItemDescuento("");
     setEditItemDescuentoTipo("valor");
     setEditItemPagos([]);
-    setEditItemMedioNuevo("efectivo");
+    setEditItemMedioNuevo("");
   };
 
   const iniciarCorreccionError = (venta) => {
@@ -2443,7 +2445,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, se
     setEditItemDescuento("");
     setEditItemDescuentoTipo("valor");
     setEditItemPagos([]);
-    setEditItemMedioNuevo("efectivo");
+    setEditItemMedioNuevo("");
   };
 
   const editItemEsFlexipago = editItemTipo === "flexipago";
@@ -2455,9 +2457,11 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, se
   const editItemFalta = editItemNeto - editItemSumaMedios;
   const editItemFaltaAUT = editItemPagos.some(p=>VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && !(p.numero_autorizacion||"").trim());
 
-  const agregarMedioAEditItem = () => {
-    if(!editItemMedioNuevo) return;
-    setEditItemPagos(prev=>[...prev, { medio_pago:editItemMedioNuevo, valor:"", numero_autorizacion:"" }]);
+  const agregarMedioAEditItem = (medio) => {
+    const m = medio || editItemMedioNuevo;
+    if(!m) return;
+    setEditItemPagos(prev=>[...prev, { medio_pago:m, valor:"", numero_autorizacion:"" }]);
+    setEditItemMedioNuevo("");
   };
   const quitarMedioDeEditItem = (idx) => setEditItemPagos(prev=>prev.filter((_,i)=>i!==idx));
   const setEditItemPagoValor = (idx, v) => setEditItemPagos(prev=>prev.map((p,i)=>i===idx?{...p,valor:v}:p));
@@ -2766,7 +2770,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, se
                                   <CurrencyField label="Valor total" value={editItemValor} onChange={setEditItemValor}/>
                                   <div>
                                     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
-                                      <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento</div>
+                                      <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento / Bono</div>
                                       <div style={{ display:"flex", gap:4 }}>
                                         {VENTAS_DESCUENTO_TIPOS.map(dt=>(
                                           <button key={dt.value} type="button" onClick={()=>setEditItemDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${editItemDescuentoTipo===dt.value?C.gold:C.border}`, background:editItemDescuentoTipo===dt.value?`${C.gold}22`:"transparent", color:editItemDescuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
@@ -2797,8 +2801,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, se
                                   </div>
                                 )}
                                 <div style={{ display:"flex", gap:8, marginBottom:8, alignItems:"end" }}>
-                                  <div style={{ flex:1 }}><Field label="Agregar medio de pago" value={editItemMedioNuevo} onChange={setEditItemMedioNuevo} options={VENTAS_MEDIOS_PAGO}/></div>
-                                  <div style={{ marginBottom:14 }}><Btn onClick={agregarMedioAEditItem} variant="ghost" sm>+ Agregar medio</Btn></div>
+                                  <Field value={editItemMedioNuevo} onChange={v=>{ if(v) agregarMedioAEditItem(v); else setEditItemMedioNuevo(v); }} options={[{value:"",label:"+ Agregar medio de pago"}, ...VENTAS_MEDIOS_PAGO]}/>
                                 </div>
                                 {editItemPagos.length>0 && (
                                   <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(editItemFalta)<1?C.green:C.red }}>
@@ -2868,7 +2871,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, se
                               <CurrencyField label="Valor del excedente" value={editItemValor} onChange={setEditItemValor}/>
                               <div>
                                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
-                                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento</div>
+                                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento / Bono</div>
                                   <div style={{ display:"flex", gap:4 }}>
                                     {VENTAS_DESCUENTO_TIPOS.map(dt=>(
                                       <button key={dt.value} type="button" onClick={()=>setEditItemDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${editItemDescuentoTipo===dt.value?C.gold:C.border}`, background:editItemDescuentoTipo===dt.value?`${C.gold}22`:"transparent", color:editItemDescuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
@@ -2899,8 +2902,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, se
                               </div>
                             )}
                             <div style={{ display:"flex", gap:8, marginBottom:8, alignItems:"end" }}>
-                              <div style={{ flex:1 }}><Field label="Agregar medio de pago" value={editItemMedioNuevo} onChange={setEditItemMedioNuevo} options={VENTAS_MEDIOS_PAGO}/></div>
-                              <div style={{ marginBottom:14 }}><Btn onClick={agregarMedioAEditItem} variant="ghost" sm>+ Agregar medio</Btn></div>
+                              <Field value={editItemMedioNuevo} onChange={v=>{ if(v) agregarMedioAEditItem(v); else setEditItemMedioNuevo(v); }} options={[{value:"",label:"+ Agregar medio de pago"}, ...VENTAS_MEDIOS_PAGO]}/>
                             </div>
                             {editItemPagos.length>0 && (
                               <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(editItemFalta)<1?C.green:C.red }}>
@@ -3364,6 +3366,15 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   });
   const diasList = Object.entries(porDia).sort((a,b)=>b[0].localeCompare(a[0]));
 
+  // Ingresos de HOY (sin servicios) para la cápsula rápida — independiente del mes que se esté
+  // viendo en el selector, para poder chequear el día sin cambiar de mes.
+  const ventasHoyCap = ventas.filter(v => v.fecha===todayStr && (!tiendaSel || v.tienda_id===tiendaSel));
+  const idsVentasHoyCap = new Set(ventasHoyCap.map(v=>v.id));
+  const itemsHoyProductoCap = ventasItems.filter(i=>idsVentasHoyCap.has(i.venta_id) && i.tipo==="producto");
+  const cierresHoyCap = cierresFlexipago.filter(c=>c.fechaCierre===todayStr && (!tiendaSel || c.tiendaId===tiendaSel));
+  const ajustesHoyCap = ventasAjustes.filter(aj=>aj.fecha===todayStr && !aj.es_correccion_error && ventaByIdGlobal[aj.venta_id] && (!tiendaSel || ventaByIdGlobal[aj.venta_id].tienda_id===tiendaSel));
+  const ingresosHoy = sumaProductoConRecorte(itemsHoyProductoCap) + cierresHoyCap.reduce((a,c)=>a+c.valorNeto,0) + ajustesHoyCap.reduce((a,aj)=>a+Number(aj.diferencia||0),0);
+
   const medalla = (idx) => idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.`;
 
   return (
@@ -3387,9 +3398,13 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
         </div>
       </Card>
 
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${vistaAsesor?4:5}, 1fr)`, gap:10, marginBottom:16 }}>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${vistaAsesor?5:6}, 1fr)`, gap:10, marginBottom:16 }}>
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
-          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingresos</div>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingresos hoy</div>
+          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(ingresosHoy)}</div>
+        </div>
+        <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingresos del mes</div>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(totalSinServicios)}</div>
         </div>
         {!vistaAsesor && (
