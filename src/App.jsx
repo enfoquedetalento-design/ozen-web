@@ -100,8 +100,8 @@ const calcPuntualidad = (entryTime, shift, date, store) => {
 // ── Junta Admin — rotación del Monitor ───────────────────────────────────────
 // El Monitor rota cada mes entre los líderes, en el orden de la lista
 // (se edita desde la pestaña Equipo y perfiles, con las flechas ▲▼).
-// Arranca el 21 de julio de 2026 (primer martes del protocolo).
-const JUNTA_ROTATION_EPOCH = "2026-07-21";
+// Arranca oficialmente en agosto de 2026 — el primero de la lista es monitor ese mes.
+const JUNTA_ROTATION_EPOCH = "2026-08-01";
 const mesesEntre = (ini, fin) => {
   const a = new Date(ini + "T12:00:00"), b = new Date(fin + "T12:00:00");
   return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
