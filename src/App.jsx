@@ -2035,13 +2035,18 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
             boxShadow:`0 3px 14px ${faltaHoyTienda<=0?C.green:C.gold}22`,
           }}>
             <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:3 }}>🎯 Meta de hoy</div>
-            <div style={{ fontFamily:font.mono, fontSize:21, fontWeight:800, color:C.goldLight }}>{fmtCOP(metaHoyTienda)}</div>
+            <div style={{ fontFamily:font.mono, fontSize:21, fontWeight:800, color:C.goldLight }}>{fmtCOP(faltaHoyTienda<=0 ? vendidoHoyTienda : metaHoyTienda)}</div>
             <div style={{ height:8, borderRadius:5, background:C.border, marginTop:7, marginBottom:7, overflow:"hidden" }}>
               <div style={{ height:"100%", width:`${Math.min(100, Math.round((vendidoHoyTienda/metaHoyTienda)*100))}%`, background: faltaHoyTienda<=0?C.green:C.gold, transition:"width 0.4s ease" }}/>
             </div>
             <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color: faltaHoyTienda<=0?C.green:C.amber }}>
               {faltaHoyTienda<=0 ? "🎉 ¡Meta cumplida!" : `Faltan ${fmtCOP(faltaHoyTienda)}`}
             </div>
+            {faltaHoyTienda<=0 && (
+              <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:4 }}>
+                +{fmtCOP(vendidoHoyTienda-metaHoyTienda)} sobre la meta · Meta era {fmtCOP(metaHoyTienda)}
+              </div>
+            )}
           </div>
         )}
       />
@@ -2176,11 +2181,6 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
               <Btn onClick={agregarItem} disabled={itemEsFlexipago ? !itemFlexipagoValido : (itemValorNum<=0 || itemPagos.length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT)} sm full>+ Agregar</Btn>
             </div>
           </SeccionVenta>
-
-          <div style={{ marginBottom:16 }}>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.06em" }}>Notas (opcional)</div>
-            <Field value={observacion} onChange={setObservacion} placeholder="Nota o comentario..." multiline rows={2}/>
-          </div>
         </div>
 
         <div style={{ position:isMobile?"static":"sticky", top:16 }}>
@@ -2253,6 +2253,10 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
               )}
             </div>
           </Card>
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.06em" }}>Notas (opcional)</div>
+            <Field value={observacion} onChange={setObservacion} placeholder="Nota o comentario..." multiline rows={2}/>
+          </div>
           {msg && <div style={{ background: msg.startsWith("✓")?`${C.green}18`:C.redDim, border:`1px solid ${msg.startsWith("✓")?C.green:C.red}44`, borderRadius:7, padding:"9px 12px", color: msg.startsWith("✓")?C.green:C.red, fontSize:12, marginBottom:12, fontFamily:font.body }}>{msg}</div>}
           <Btn onClick={guardar} disabled={guardando} full>{guardando?"Guardando...":"Registrar venta"}</Btn>
         </div>
