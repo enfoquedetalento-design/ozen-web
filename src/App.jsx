@@ -118,6 +118,19 @@ const getMonitorActual = (lideres) => {
   const hoy = toColombiaDate();
   return getMonitorDeMes(lideres, hoy.getFullYear(), hoy.getMonth());
 };
+// Compara nombres sin importar mayúsculas/tildes/espacios — para saber si la cuenta que inició
+// sesión es la misma persona que el líder configurado como Monitor de turno (no hay un vínculo
+// directo entre "líderes" de la Junta y las cuentas de usuario, así que se compara por nombre).
+const normalizarNombre = (s) => (s||"").trim().toLowerCase();
+const esMonitorActual = (user, lideres) => {
+  const monitor = getMonitorActual(lideres);
+  if (!monitor?.nombre || !user?.name) return false;
+  // sensitivity:"base" ignora mayúsculas y tildes, así que "José" y "jose" cuentan como el mismo nombre.
+  return normalizarNombre(monitor.nombre).localeCompare(normalizarNombre(user.name), "es", { sensitivity:"base" }) === 0;
+};
+// Una tarea que no se marcó completada y ya pasaron más de 3 días desde la fecha en que se
+// esperaba, queda cerrada como "no realizada" — ya no se puede marcar completada desde ahí.
+const tareaVencidaNoRealizada = (t) => !t.completado && !!t.fecha_estimada && diasEntre(t.fecha_estimada, todayStr) > 3;
 // Fechas (aaaa-mm-dd) de todos los martes de un mes calendario dado.
 const martesDelMes = (anio, mes) => {
   const dias = [];
@@ -136,6 +149,21 @@ const statsDelMes = (compromisos, anio, mes) => {
   const completadas = tareas.filter(t => t.completado).length;
   const pct = tareas.length ? Math.round((completadas / tareas.length) * 100) : null;
   return { totalMartes: martes.length, sesiones, totalTareas: tareas.length, completadas, pct };
+};
+// Cumplimiento de tareas, pero desglosado por cada líder — no todos cargan el mismo peso ni la
+// misma cantidad de tareas, así que el % se calcula individualmente (completadas ÷ asignadas).
+const statsPorLiderDelMes = (compromisos, lideres, anio, mes) => {
+  const martes = martesDelMes(anio, mes);
+  const tareas = compromisos.filter(c => martes.includes(c.semana));
+  return lideres
+    .map(l => {
+      const deLider = tareas.filter(t => t.lider_id === l.id);
+      const completadas = deLider.filter(t => t.completado).length;
+      const pct = deLider.length ? Math.round((completadas / deLider.length) * 100) : null;
+      return { lider: l, total: deLider.length, completadas, pct };
+    })
+    .filter(x => x.total > 0)
+    .sort((a,b) => (a.lider.nombre||"").localeCompare(b.lider.nombre||""));
 };
 // Devuelve el martes de la semana de una fecha (o la fecha misma si ya es martes)
 const martesDeSemana = (dateStr) => {
@@ -1388,7 +1416,8 @@ function JuntaAcuerdosTab({ user, acuerdos, setAcuerdos }) {
 }
 
 // ── SCREEN: Junta Admin — Seguimiento semanal (checklist) ───────────────────
-function JuntaSeguimientoScreen({ lideres, compromisos, setCompromisos }) {
+const TODOS_LIDER_ID = "__todos__";
+function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, isMobile }) {
   const soloLectura = useReadOnly();
   const [semana, setSemana] = useState(martesDeSemana(todayStr));
   const [showNueva, setShowNueva] = useState(false);
@@ -1397,9 +1426,23 @@ function JuntaSeguimientoScreen({ lideres, compromisos, setCompromisos }) {
   const tareas = compromisos.filter(c=>c.semana===semana);
   const nombreLider = (id) => lideres.find(l=>l.id===id)?.nombre || "— sin asignar";
   const monitor = getMonitorActual(lideres);
+  const esMonitor = esMonitorActual(user, lideres);
+  // Solo el monitor de turno puede crear tareas y marcarlas completadas. Master queda como
+  // respaldo por si el nombre del líder no coincide exactamente con el de la cuenta que entra.
+  const puedeGestionar = !soloLectura && (user.role==="master" || esMonitor);
 
   const crear = async () => {
     if (!nueva.descripcion.trim()) return;
+    if (nueva.lider_id===TODOS_LIDER_ID) {
+      const filas = lideres.map(l=>({
+        semana, descripcion:nueva.descripcion.trim(), lider_id:l.id,
+        fecha_estimada:nueva.fecha_estimada||null, comentarios:nueva.comentarios.trim(), completado:false,
+      }));
+      if (filas.length===0) return;
+      const { data, error } = await supabase.from("junta_compromisos").insert(filas).select();
+      if (!error && data) { setCompromisos(prev=>[...data, ...prev]); setNueva({ descripcion:"", lider_id:"", fecha_estimada:"", comentarios:"" }); setShowNueva(false); }
+      return;
+    }
     const { data, error } = await supabase.from("junta_compromisos").insert({
       semana, descripcion:nueva.descripcion.trim(), lider_id:nueva.lider_id||null,
       fecha_estimada:nueva.fecha_estimada||null, comentarios:nueva.comentarios.trim(), completado:false,
@@ -1424,7 +1467,7 @@ function JuntaSeguimientoScreen({ lideres, compromisos, setCompromisos }) {
         <div style={{ display:"flex", alignItems:"center", gap:14 }}>
           <div style={{ width:44, height:44, borderRadius:10, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontSize:19, flexShrink:0 }}>🎯</div>
           <div>
-            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:2 }}>Monitor de turno · rota cada mes</div>
+            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:2 }}>Monitor de turno · rota cada mes{esMonitor && " · eres tú"}</div>
             <div style={{ fontFamily:font.body, fontSize:17, fontWeight:700, color:C.goldLight }}>{monitor ? (monitor.nombre || "— sin nombre") : "— sin líderes configurados"}</div>
           </div>
         </div>
@@ -1435,39 +1478,41 @@ function JuntaSeguimientoScreen({ lideres, compromisos, setCompromisos }) {
           <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>Semana del martes</div>
           <input type="date" value={semana} onChange={e=>setSemana(martesDeSemana(e.target.value))} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}/>
           <Btn onClick={()=>setSemana(martesDeSemana(todayStr))} variant="ghost" sm>Esta semana</Btn>
-          {!soloLectura && <Btn onClick={()=>setShowNueva(true)} sm style={{ marginLeft:"auto" }}>+ Nueva tarea</Btn>}
+          {puedeGestionar && <Btn onClick={()=>setShowNueva(true)} sm style={{ marginLeft:"auto" }}>+ Nueva tarea</Btn>}
         </div>
         <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:8 }}>💡 Si la reunión se hace otro día de esa semana (miércoles, jueves...), igual selecciona esa fecha — la app la archiva sola bajo el martes correcto, aunque ese martes sea de otro mes.</div>
+        {!puedeGestionar && !soloLectura && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:4 }}>Solo el monitor de turno puede crear tareas nuevas.</div>}
       </Card>
 
-      {!soloLectura && showNueva && (
+      {puedeGestionar && showNueva && (
         <Card glow style={{ marginBottom:16 }}>
           <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.goldLight, marginBottom:14 }}>Nueva tarea</div>
           <Field label="Tarea" value={nueva.descripcion} onChange={v=>setNueva(p=>({...p,descripcion:v}))} placeholder="¿Qué hay que hacer?"/>
-          <Field label="Quién la hace" value={nueva.lider_id} onChange={v=>setNueva(p=>({...p,lider_id:v}))} options={[{value:"",label:"Selecciona"},...lideres.map(l=>({value:l.id,label:l.nombre||"(sin nombre)"}))]}/>
+          <Field label="Quién la hace" value={nueva.lider_id} onChange={v=>setNueva(p=>({...p,lider_id:v}))} options={[{value:"",label:"Selecciona"},{value:TODOS_LIDER_ID,label:"Todos (se crea una tarea individual por cada líder)"},...lideres.map(l=>({value:l.id,label:l.nombre||"(sin nombre)"}))]}/>
           <Field label="¿Cuándo cree que la termina?" type="date" value={nueva.fecha_estimada} onChange={v=>setNueva(p=>({...p,fecha_estimada:v}))}/>
           <Field label="Comentarios / avance" value={nueva.comentarios} onChange={v=>setNueva(p=>({...p,comentarios:v}))} placeholder="Opcional"/>
           <div style={{ display:"flex", gap:8 }}><Btn onClick={crear} full>Guardar</Btn><Btn onClick={()=>setShowNueva(false)} variant="ghost" full>Cancelar</Btn></div>
         </Card>
       )}
 
-      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        {tareas.map(t=>(
-          <Card key={t.id} p="14px" style={{ opacity:t.completado?0.6:1 }}>
-            <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
-              <button onClick={soloLectura?undefined:()=>actualizar(t.id,{completado:!t.completado})} disabled={soloLectura} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${t.completado?C.green:C.border}`, background:t.completado?C.green:"transparent", cursor:soloLectura?"default":"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:13, marginTop:2 }}>{t.completado?"✓":""}</button>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, textDecoration:t.completado?"line-through":"none" }}>{t.descripcion}</div>
-                <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginTop:4 }}>
-                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>👤 {nombreLider(t.lider_id)}</div>
-                  {t.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:11, color:C.amber }}>📅 {t.fecha_estimada}</div>}
-                </div>
-                <input placeholder="Comentarios / avance..." defaultValue={t.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==t.comentarios) actualizar(t.id,{comentarios:e.target.value}); }} style={{ width:"100%", marginTop:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
-              </div>
-              {!soloLectura && <Btn onClick={()=>eliminar(t.id)} variant="ghost" sm>🗑</Btn>}
+      <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+        {tareas.map(t=>{
+          const vencida = tareaVencidaNoRealizada(t);
+          const cerrada = t.completado || vencida;
+          const puedeMarcar = puedeGestionar && !vencida;
+          const puedeBorrar = !soloLectura && (cerrada ? user.role==="master" : (user.role==="master" || esMonitor));
+          return (
+            <div key={t.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, flexWrap: isMobile ? "wrap" : "nowrap" }}>
+              <button onClick={puedeMarcar?()=>actualizar(t.id,{completado:!t.completado}):undefined} disabled={!puedeMarcar} title={vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${t.completado?C.green:vencida?C.red:C.border}`, background:t.completado?C.green:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{t.completado?"✓":vencida?"✕":""}</button>
+              <div style={{ flex:1, minWidth:120, fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, textDecoration:t.completado?"line-through":"none", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }} title={t.descripcion}>{t.descripcion}</div>
+              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:0, whiteSpace:"nowrap" }}>👤 {nombreLider(t.lider_id)}</div>
+              {t.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:11, color:vencida?C.red:C.amber, flexShrink:0 }}>📅 {t.fecha_estimada}</div>}
+              {vencida && <Badge color={C.red} sm>Vencida sin cumplir</Badge>}
+              <input placeholder="Comentario..." defaultValue={t.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==t.comentarios) actualizar(t.id,{comentarios:e.target.value}); }} style={{ width:isMobile?"100%":150, flexShrink:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+              {puedeBorrar && <button onClick={()=>eliminar(t.id)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, fontSize:13 }}>🗑</button>}
             </div>
-          </Card>
-        ))}
+          );
+        })}
         {tareas.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin tareas para esta semana. Usa "+ Nueva tarea".</div>}
       </div>
     </div>
@@ -1495,6 +1540,7 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
   const actual = meses[0];
   const monitorActual = actual ? getMonitorDeMes(lideres, actual.anio, actual.mes) : null;
   const statsActual = actual ? statsDelMes(compromisos, actual.anio, actual.mes) : null;
+  const statsLideresActual = actual ? statsPorLiderDelMes(compromisos, lideres, actual.anio, actual.mes) : [];
 
   return (
     <div>
@@ -1515,11 +1561,25 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>martes con checklist registrado</div>
             </div>
             <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
-              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Cumplimiento de tareas</div>
+              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Cumplimiento de tareas (todos)</div>
               <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:statsActual.pct===null?C.textMuted:statsActual.pct>=70?C.green:C.amber }}>{statsActual.pct===null?"—":`${statsActual.pct}%`}</div>
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>{statsActual.completadas} de {statsActual.totalTareas} tareas completadas</div>
             </div>
           </div>
+          {statsLideresActual.length>0 && (
+            <>
+              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Cumplimiento por líder</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {statsLideresActual.map(s=>(
+                  <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
+                    <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
+                    <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadas} de {s.total} tareas</div>
+                    <Badge color={s.pct>=70?C.green:C.amber} sm>{s.pct}%</Badge>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </Card>
       )}
 
@@ -4160,7 +4220,7 @@ export default function App() {
     if(puedeUsarAreas(user)){
       if(area==="junta"){
         if(tab==="equipo")       return <JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} areas={juntaAreas} setAreas={setJuntaAreas} liderAreas={juntaLiderAreas} setLiderAreas={setJuntaLiderAreas} isMobile={isMobile}/>;
-        if(tab==="seguimiento")  return <JuntaSeguimientoScreen lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos}/>;
+        if(tab==="seguimiento")  return <JuntaSeguimientoScreen user={user} lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos} isMobile={isMobile}/>;
         if(tab==="indicadores")  return <JuntaIndicadoresTab lideres={juntaLideres} compromisos={juntaCompromisos} isMobile={isMobile}/>;
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
