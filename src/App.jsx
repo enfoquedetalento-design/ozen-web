@@ -355,18 +355,21 @@ const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id
 const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
 const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
 const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar venta" },{ id:"lista",icon:"📋",label:"Lista de ventas" },{ id:"metricas",icon:"📊",label:"Métricas" },{ id:"caja",icon:"💰",label:"Caja" }];
-const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_turnos" || user.role==="admin_finanzas";
-// Quién puede elegir el área "Ventas" desde el selector (no todos los que puedeUsarAreas)
-const puedeUsarVentasArea = (user) => user.role==="master" || user.role==="admin_turnos" || user.role==="admin_finanzas";
+const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas";
+// Quién puede elegir el área "Ventas" desde el selector. Admin y Visualizador entran en modo
+// solo lectura (ver ventasSoloLectura); master y admin_finanzas entran completo.
+const puedeUsarVentasArea = (user) => user.role==="master" || user.role==="admin_finanzas" || user.role==="admin" || user.role==="visualizador";
+// Quién solo puede VER Ventas (lista, métricas, caja) sin registrar ni corregir nada.
+const ventasSoloLectura = (user) => user.role==="admin" || user.role==="visualizador";
 // Cuentas de tienda: login compartido, van directo a Ventas sin selector de área
 const esCuentaTienda = (user) => user.role==="tienda";
-// Admin Finanzas: hace todo lo que hace un Administrador normal (Asistencia/Junta), más lo de Ventas
-// (métricas y metas). No aprueba notas crédito (igual que un admin normal tampoco lo hace).
+// Admin Finanzas: hace todo lo de un Administrador normal (Asistencia/Junta), más Ventas completo
+// (registrar, lista, métricas, asignar metas, aprobar notas crédito y corregir por error).
 const esAdminFinanzas = (user) => user.role==="admin_finanzas";
 // Quién puede aprobar/rechazar notas crédito dentro de Ventas
-const esAdminDeVentas = (user) => user.role==="master" || user.role==="admin_turnos";
+const esAdminDeVentas = (user) => user.role==="master" || user.role==="admin_finanzas";
 // Quién puede asignar las metas mensuales en Métricas
-const puedeAsignarMetas = (user) => user.role==="master" || user.role==="admin_turnos" || user.role==="admin_finanzas";
+const puedeAsignarMetas = (user) => user.role==="master" || user.role==="admin_finanzas";
 // Quién puede registrar una recolección de efectivo: master/admin finanzas, y la cuenta de la
 // tienda (porque son quienes ven la caja físicamente y confirman si estaba completa o no).
 // Ojo: NO incluye a los usuarios individuales de "advisor" (esos son solo para Asistencia).
@@ -374,7 +377,7 @@ const puedeHacerRecoleccion = (user) => user.role==="master" || user.role==="adm
 // Qué pestañas le corresponden a cada quien, según su rol y el área elegida
 const tabsPara = (user, area) => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? ADMIN_TABS_VENTAS : ADVISOR_TABS)
-  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? ADMIN_TABS_VENTAS : ADMIN_TABS_ASISTENCIA);
+  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? (ventasSoloLectura(user) ? ADMIN_TABS_VENTAS.filter(t=>t.id!=="registrar") : ADMIN_TABS_VENTAS) : ADMIN_TABS_ASISTENCIA);
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -389,7 +392,9 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C.border}` }}>
-        <img src="/logo-icon.png" alt="OZEN" style={{ width:44, height:44, borderRadius:"50%" }} />
+        {/* El logo, para master, también es la entrada a Usuarios — a propósito no lleva ningún
+            aviso visual de que se puede hacer clic ahí. */}
+        <img src="/logo-icon.png" alt="OZEN" onClick={user.role==="master"?onAbrirUsuarios:undefined} style={{ width:44, height:44, borderRadius:"50%", cursor:user.role==="master"?"pointer":"default" }} />
       </div>
       <nav style={{ flex:1, padding:"12px 10px", display:"flex", flexDirection:"column", gap:2 }}>
         {tabs.map(t => { const active=tab===t.id; return (
@@ -409,7 +414,6 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
         </div>
         {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
         {user.role!=="master" && <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8 }}>🔑 Mi contraseña</Btn>}
-        {user.role==="master" && <Btn onClick={onAbrirUsuarios} variant="ghost" full sm style={{ marginBottom:8 }}>🗝️ Usuarios</Btn>}
         <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
       </div>
     </div>
@@ -434,11 +438,11 @@ function BottomNav({ tab, setTab, user, area }) {
 function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword, onAbrirUsuarios }) {
   return (
     <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
-      <img src="/logo-icon.png" alt="OZEN" style={{ width:34, height:34, borderRadius:"50%" }} />
+      {/* El logo, para master, también es la entrada a Usuarios — sin ningún aviso visual. */}
+      <img src="/logo-icon.png" alt="OZEN" onClick={user.role==="master"?onAbrirUsuarios:undefined} style={{ width:34, height:34, borderRadius:"50%" }} />
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         {puedeUsarAreas(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
         {user.role!=="master" && <button onClick={onCambiarPassword} title="Mi contraseña" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔑</button>}
-        {user.role==="master" && <button onClick={onAbrirUsuarios} title="Usuarios" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🗝️</button>}
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
         <div style={{ fontFamily:font.body, fontSize:12, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
         <button onClick={onLogout} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 10px", color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:font.body }}>Salir</button>
@@ -642,19 +646,19 @@ function UsersScreen({ users, setUsers }) {
 }
 
 // ── SCREEN: Usuarios (solo master) ─────────────────────────────────────────────
-const ROLE_LABEL = { master:"Master", admin:"Administrador", admin_turnos:"Admin Turnos", admin_finanzas:"Admin Finanzas", visualizador:"Visualizador", advisor:"Asesor", tienda:"Cuenta de tienda" };
-const ROLE_COLOR = { master:C.red, admin:C.gold, admin_turnos:C.green, admin_finanzas:C.blue, visualizador:C.amber, advisor:C.blue, tienda:C.textMuted };
+const ROLE_LABEL = { master:"Master", admin:"Administrador", admin_finanzas:"Admin Finanzas", visualizador:"Visualizador", advisor:"Asesor", tienda:"Cuenta de tienda" };
+const ROLE_COLOR = { master:C.red, admin:C.gold, admin_finanzas:C.blue, visualizador:C.amber, advisor:C.blue, tienda:C.textMuted };
 const ROLE_PERMISOS = {
   master: "Acceso total: Asistencia, Junta, Ventas y el módulo de Usuarios (ve y cambia todas las contraseñas).",
-  admin: "Asistencia y Junta completos (panel, registros, asesores, tiendas, informes). No entra a Ventas ni ve la lista de Usuarios/contraseñas.",
-  admin_turnos: "Todo lo de un Administrador, más Ventas: registrar, lista, métricas, aprobar notas crédito y asignar metas.",
-  admin_finanzas: "Todo lo de un Administrador (Asistencia y Junta), más Ventas: registrar, lista, métricas y asignar metas. No aprueba notas crédito.",
-  visualizador: "Solo puede ver Asistencia y Junta, sin poder editar nada.",
+  admin: "Asistencia y Junta completos (panel, registros, asesores, tiendas, informes). En Ventas solo puede ver (lista, métricas, caja) — no puede registrar ni corregir nada.",
+  admin_finanzas: "Todo lo de un Administrador (Asistencia y Junta), más Ventas completo: registrar, lista, métricas, asignar metas, aprobar notas crédito y corregir por error.",
+  visualizador: "Puede ver Asistencia, Junta y Ventas, sin poder editar ni registrar nada en ninguno de los tres.",
   advisor: "Marca su propia asistencia y ve su historial/malla. Si se usa para vender, aparece para elegir como quién hizo la venta.",
-  tienda: "Login compartido de una tienda: solo entra a Ventas (Registrar, Lista, Métricas) de esa tienda, con la fecha fija en hoy.",
+  tienda: "Login compartido de una tienda: solo entra a Ventas (Registrar, Lista, Métricas, Caja) de esa tienda, con la fecha fija en hoy.",
 };
-function UsuariosScreen({ users, setUsers }) {
-  const [showForm,setShowForm]=useState(false),[form,setForm]=useState({name:"",documento:"",role:"advisor"}),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[cambiandoPass,setCambiandoPass]=useState(null),[nuevaPass,setNuevaPass]=useState(""),[loading,setLoading]=useState(false);
+function UsuariosScreen({ users, setUsers, stores }) {
+  const [showForm,setShowForm]=useState(false),[form,setForm]=useState({name:"",documento:"",role:"advisor",tienda_id:""}),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[cambiandoPass,setCambiandoPass]=useState(null),[nuevaPass,setNuevaPass]=useState(""),[loading,setLoading]=useState(false);
+  const tiendaOptions=[{value:"",label:"Selecciona una tienda..."}, ...tiendasVenta(stores).map(s=>({value:s.id,label:s.name}))];
   const [passVisible,setPassVisible]=useState({});
   const [sincronizando,setSincronizando]=useState(false);
   const traerFrescos=async()=>{ setSincronizando(true); const{data}=await supabase.from("usuarios").select("*"); if(data)setUsers(data); setSincronizando(false); };
@@ -663,10 +667,10 @@ function UsuariosScreen({ users, setUsers }) {
   // aquí sin que master tenga que adivinar o darle refrescar manualmente.
   useEffect(()=>{ traerFrescos(); },[]);
   const ordenados=[...users].sort((a,b)=>(a.role==="master"?0:a.role==="admin"?1:2)-(b.role==="master"?0:b.role==="admin"?1:2) || a.name.localeCompare(b.name));
-  const roleOptions=[{value:"advisor",label:"Asesor"},{value:"admin",label:"Administrador"},{value:"admin_turnos",label:"Admin Turnos"},{value:"admin_finanzas",label:"Admin Finanzas"},{value:"visualizador",label:"Visualizador"},{value:"master",label:"Master"}];
-  const add=async()=>{ if(!form.name.trim()||!form.documento.trim())return; setLoading(true); const{data,error}=await supabase.from("usuarios").insert({name:form.name.trim(),documento:form.documento.trim(),password:form.documento.trim(),role:form.role,active:true}).select().single(); if(!error&&data){setUsers(prev=>[...prev,data]);setForm({name:"",documento:"",role:"advisor"});setShowForm(false);} setLoading(false); };
+  const roleOptions=[{value:"advisor",label:"Asesor"},{value:"admin",label:"Administrador"},{value:"admin_finanzas",label:"Admin Finanzas"},{value:"visualizador",label:"Visualizador"},{value:"tienda",label:"Cuenta de tienda"},{value:"master",label:"Master"}];
+  const add=async()=>{ if(!form.name.trim()||!form.documento.trim())return; if(form.role==="tienda"&&!form.tienda_id)return; setLoading(true); const{data,error}=await supabase.from("usuarios").insert({name:form.name.trim(),documento:form.documento.trim(),password:form.documento.trim(),role:form.role,tienda_id:form.role==="tienda"?form.tienda_id:null,active:true}).select().single(); if(!error&&data){setUsers(prev=>[...prev,data]);setForm({name:"",documento:"",role:"advisor",tienda_id:""});setShowForm(false);} setLoading(false); };
   const toggle=async(u)=>{ const{data}=await supabase.from("usuarios").update({active:!u.active}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
-  const saveEdit=async(id)=>{ if(!editVal.name.trim()||!editVal.documento.trim())return; const{data}=await supabase.from("usuarios").update({name:editVal.name.trim(),documento:editVal.documento.trim(),role:editVal.role}).eq("id",id).select().single(); if(data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setEditing(null);} };
+  const saveEdit=async(id)=>{ if(!editVal.name.trim()||!editVal.documento.trim())return; if(editVal.role==="tienda"&&!editVal.tienda_id)return; const{data}=await supabase.from("usuarios").update({name:editVal.name.trim(),documento:editVal.documento.trim(),role:editVal.role,tienda_id:editVal.role==="tienda"?(editVal.tienda_id||null):null}).eq("id",id).select().single(); if(data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setEditing(null);} };
   const deleteUsuario=async(id)=>{
     const { count } = await supabase.from("registros").select("id", { count: "exact", head: true }).eq("user_id", id);
     if (count > 0) { alert(`Este usuario tiene ${count} registro(s) de asistencia. Eliminarlo borraría ese historial para siempre. Usa el botón "✕" para desactivarlo en su lugar.`); return; }
@@ -690,8 +694,9 @@ function UsuariosScreen({ users, setUsers }) {
           <Field label="N.º de documento" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Número de documento" />
           <Field label="Tipo de usuario" value={form.role} onChange={v=>setForm(f=>({...f,role:v}))} options={roleOptions} />
           <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginTop:-10,marginBottom:12}}>🔎 {ROLE_PERMISOS[form.role]}</div>
+          {form.role==="tienda" && <Field label="Tienda de esta cuenta" value={form.tienda_id} onChange={v=>setForm(f=>({...f,tienda_id:v}))} options={tiendaOptions} />}
           <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 La contraseña inicial será el número de documento.</div>
-          <Btn onClick={add} disabled={loading} full>{loading?"Guardando...":"Crear usuario"}</Btn>
+          <Btn onClick={add} disabled={loading || (form.role==="tienda" && !form.tienda_id)} full>{loading?"Guardando...":"Crear usuario"}</Btn>
         </Card>
       )}
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -703,7 +708,8 @@ function UsuariosScreen({ users, setUsers }) {
                 <Field label="Documento" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} />
                 <Field label="Tipo de usuario" value={editVal.role} onChange={v=>setEditVal(p=>({...p,role:v}))} options={roleOptions} />
                 <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginTop:-10,marginBottom:12}}>🔎 {ROLE_PERMISOS[editVal.role]}</div>
-                <div style={{display:"flex",gap:8}}><Btn onClick={()=>saveEdit(u.id)} variant="success" sm full>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm full>Cancelar</Btn></div>
+                {editVal.role==="tienda" && <Field label="Tienda de esta cuenta" value={editVal.tienda_id||""} onChange={v=>setEditVal(p=>({...p,tienda_id:v}))} options={tiendaOptions} />}
+                <div style={{display:"flex",gap:8}}><Btn onClick={()=>saveEdit(u.id)} disabled={editVal.role==="tienda" && !editVal.tienda_id} variant="success" sm full>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm full>Cancelar</Btn></div>
               </div>
             ):cambiandoPass===u.id?(
               <div>
@@ -715,10 +721,11 @@ function UsuariosScreen({ users, setUsers }) {
                 <div style={{width:36,height:36,borderRadius:8,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,fontWeight:700,color:"#fff",flexShrink:0}}>{u.name[0]}</div>
                 <div style={{flex:1,minWidth:120}}><div style={{fontFamily:font.body,fontSize:13,color:C.text,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div><div style={{fontFamily:font.mono,fontSize:11,color:C.textMuted}}>{u.documento}</div></div>
                 <Badge color={ROLE_COLOR[u.role]||C.textMuted} sm title={ROLE_PERMISOS[u.role]}>{ROLE_LABEL[u.role]||u.role}</Badge>
+                {u.role==="tienda" && <Badge color={C.textMuted} sm>{stores[u.tienda_id]?.name || "Sin tienda asignada"}</Badge>}
                 <Badge color={u.active?C.green:C.red} sm>{u.active?"Activo":"Inactivo"}</Badge>
                 <div style={{display:"flex",gap:4,flexShrink:0}}>
                   {u.role==="tienda" && (u.device_token ? <Btn onClick={()=>liberarDispositivo(u)} variant="ghost" sm>📱 Liberar</Btn> : <Badge color={C.textMuted} sm>📱 Sin vincular</Badge>)}
-                  <Btn onClick={()=>{setEditing(u.id);setEditVal({name:u.name,documento:u.documento,role:u.role});}} variant="ghost" sm>✏</Btn>
+                  <Btn onClick={()=>{setEditing(u.id);setEditVal({name:u.name,documento:u.documento,role:u.role,tienda_id:u.tienda_id||""});}} variant="ghost" sm>✏</Btn>
                   <Btn onClick={()=>{setCambiandoPass(u.id);setNuevaPass("");}} variant="ghost" sm>🔑</Btn>
                   <Btn onClick={()=>toggle(u)} variant={u.active?"danger":"success"} sm>{u.active?"✕":"✓"}</Btn>
                   <Btn onClick={()=>deleteUsuario(u.id)} variant="danger" sm>🗑</Btn>
@@ -1765,7 +1772,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
                 <div style={{ fontSize:32 }}>💰</div>
                 <div>
                   <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.green }}>Ventas</div>
-                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:2 }}>Registro de ventas, metas y métricas por tienda</div>
+                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:2 }}>{ventasSoloLectura(user) ? "Solo para ver: lista, métricas y caja (sin registrar)" : "Registro de ventas, metas y métricas por tienda"}</div>
                 </div>
               </button>
             </Card>
@@ -2283,7 +2290,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
   );
 }
 
-function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, setAjustes, esAdmin }) {
+function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, setAjustes, esAdmin, soloLectura }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const [filtroTienda, setFiltroTienda] = useState("");
   const [filtroFecha, setFiltroFecha] = useState("");
@@ -2316,7 +2323,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, se
   // "Corregir por error": solo para master/admin/admin_finanzas, sin necesitar solicitud aprobada.
   // A diferencia de agregar excedente, aquí sí se puede subir O bajar el valor libremente — es
   // solo para cuando el número se digitó mal desde el principio, no para cambios reales de venta.
-  const puedeCorregirError = ["master","admin","admin_finanzas"].includes(user.role);
+  const puedeCorregirError = !soloLectura && ["master","admin_finanzas"].includes(user.role);
   const [modoErrorId, setModoErrorId] = useState(null);
 
   // Corrección directa de un abono ya registrado (solo master) — para cuando quedó con la fecha,
@@ -2658,7 +2665,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, se
         {ventasFiltradas.map(v=>{
           const d = detalle[v.id];
           const abiertoEdicion = editando===v.id;
-          const puedeEditar = (d?.solicitudes||[]).some(s=>s.estado==="aprobada" && !s.aplicada_at);
+          const puedeEditar = !soloLectura && (d?.solicitudes||[]).some(s=>s.estado==="aprobada" && !s.aplicada_at);
           const totalAbonado = (d?.abonos||[]).reduce((a,x)=>a+Number(x.valor),0);
           const valorFlexipago = (d?.items||[]).filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor),0);
           const saldoPendiente = valorFlexipago - totalAbonado;
@@ -2972,7 +2979,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, se
                           <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:13, fontWeight:700, color:saldoPendiente>0?C.amber:C.green, marginBottom:6 }}>
                             <span>Saldo pendiente</span><span style={{fontFamily:font.mono}}>${saldoPendiente.toLocaleString("es-CO")}</span>
                           </div>
-                          {saldoPendiente>0 && (
+                          {saldoPendiente>0 && !soloLectura && (
                             flexipagoVencido ? (
                               <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"8px 10px", fontFamily:font.body, fontSize:12, color:C.red }}>
                                 ⛔ Pasaron {diasDesdeAbono} días desde el primer abono (máximo {FLEXIPAGO_PLAZO_DIAS}, según el aviso legal). No se puede abonar más ni completar esta venta — el cliente pierde lo abonado y el separado.
@@ -3026,7 +3033,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, se
                         {puedeEditar && !abiertoEdicion && !flexipagoVencido && <Btn onClick={()=>iniciarEdicion(v)} sm>{v.es_flexipago?"✏️ Hacer la corrección aprobada":"➕ Agregar excedente"}</Btn>}
                         {puedeCorregirError && !abiertoEdicion && <Btn onClick={()=>iniciarCorreccionError(v)} variant="ghost" sm style={{ color:C.amber }}>🛠️ Corregir por error</Btn>}
                         {user.role==="master" && <Btn onClick={()=>eliminarVenta(v)} variant="ghost" sm style={{ color:C.red }}>🗑️ Eliminar venta</Btn>}
-                        {mostrarSolicitud===v.id ? (
+                        {!soloLectura && (mostrarSolicitud===v.id ? (
                           <div style={{ display:"flex", gap:8, flex:1, minWidth:220, alignItems:"end" }}>
                             <div style={{ flex:1 }}><Field label="¿Qué hay que corregir y por qué?" value={motivoSolicitud} onChange={setMotivoSolicitud} multiline rows={2}/></div>
                             <div style={{ marginBottom:14, display:"flex", gap:6 }}>
@@ -3036,7 +3043,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ajustes, se
                           </div>
                         ) : (
                           <Btn onClick={()=>setMostrarSolicitud(v.id)} variant="ghost" sm>🔒 Solicitar corrección</Btn>
-                        )}
+                        ))}
                       </div>
                     </>
                   )}
@@ -3646,11 +3653,11 @@ const CajaBtn = ({ onClick, children, disabled }) => (
   <button onClick={disabled?undefined:onClick} style={{ padding:"5px 12px", borderRadius:5, border:"none", background:C.gold, color:"#fff", fontSize:12, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.5:1, whiteSpace:"nowrap" }}>{children}</button>
 );
 
-function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, puedeRecoleccion, isMobile }) {
+function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, puedeRecoleccion, soloLectura, isMobile }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const tiendasList = tiendasVenta(stores);
   const [tiendaId, setTiendaId] = useState(tiendaFija || tiendasList[0]?.id || "");
-  const [cajaVista, setCajaVista] = useState("registrar"); // 'registrar' | 'historial'
+  const [cajaVista, setCajaVista] = useState(soloLectura ? "historial" : "registrar"); // 'registrar' | 'historial'
   const asesores = users.filter(u=>u.role==="advisor" && u.active);
   const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin_finanzas") && u.active);
 
@@ -3885,13 +3892,13 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
           </div>
         )}
         <div style={{ display:"flex", gap:6, marginLeft:"auto" }}>
-          <Btn variant={cajaVista==="registrar"?"primary":"ghost"} sm onClick={()=>setCajaVista("registrar")}>Registrar</Btn>
+          {!soloLectura && <Btn variant={cajaVista==="registrar"?"primary":"ghost"} sm onClick={()=>setCajaVista("registrar")}>Registrar</Btn>}
           <Btn variant={cajaVista==="historial"?"primary":"ghost"} sm onClick={()=>setCajaVista("historial")}>Historial</Btn>
         </div>
       </div>
       {msg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"7px 10px", color:C.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{msg}</div>}
 
-      {cajaVista==="registrar" ? (
+      {cajaVista==="registrar" && !soloLectura ? (
         <>
           <CajaCard icon="🔓" titulo="Apertura de turno">
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1.3fr 1fr auto", gap:8, alignItems:"end" }}>
@@ -4128,7 +4135,7 @@ export default function App() {
 
   const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":puedeUsarAreas(u)?null:"checkin");};
   const logout=()=>{setUser(null);setArea(null);setTab(null);};
-  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?"registrar":"dashboard");};
+  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?(ventasSoloLectura(user)?"lista":"registrar"):"dashboard");};
   const backToAreas=()=>{setArea(null);setTab(null);};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
@@ -4158,10 +4165,10 @@ export default function App() {
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
-        if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} isMobile={isMobile}/>;
-        if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={esAdminDeVentas(user)}/>;
+        if(tab==="registrar" && !ventasSoloLectura(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} isMobile={isMobile}/>;
+        if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
-        if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
+        if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
@@ -4171,9 +4178,9 @@ export default function App() {
       }
     } else if(esCuentaTienda(user)){
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
-      if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={false}/>;
+      if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
-      if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} isMobile={isMobile}/>;
+      if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile}/>;
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores}/>;
@@ -4194,7 +4201,7 @@ export default function App() {
     <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}}>
       <div style={{maxWidth:900,margin:"0 auto"}}>
         <Btn onClick={()=>setMostrarUsuarios(false)} variant="ghost" sm style={{marginBottom:14}}>← Volver</Btn>
-        <UsuariosScreen users={users} setUsers={setUsers}/>
+        <UsuariosScreen users={users} setUsers={setUsers} stores={stores}/>
       </div>
     </div>
   );
