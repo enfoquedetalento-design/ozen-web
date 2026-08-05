@@ -1485,13 +1485,18 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
       </Card>
 
       {puedeGestionar && showNueva && (
-        <Card glow style={{ marginBottom:16 }}>
-          <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.goldLight, marginBottom:14 }}>Nueva tarea</div>
-          <Field label="Tarea" value={nueva.descripcion} onChange={v=>setNueva(p=>({...p,descripcion:v}))} placeholder="¿Qué hay que hacer?"/>
-          <Field label="Quién la hace" value={nueva.lider_id} onChange={v=>setNueva(p=>({...p,lider_id:v}))} options={[{value:"",label:"Selecciona"},{value:TODOS_LIDER_ID,label:"Todos (se crea una tarea individual por cada líder)"},...lideres.map(l=>({value:l.id,label:l.nombre||"(sin nombre)"}))]}/>
-          <Field label="¿Cuándo cree que la termina?" type="date" value={nueva.fecha_estimada} onChange={v=>setNueva(p=>({...p,fecha_estimada:v}))}/>
-          <Field label="Comentarios / avance" value={nueva.comentarios} onChange={v=>setNueva(p=>({...p,comentarios:v}))} placeholder="Opcional"/>
-          <div style={{ display:"flex", gap:8 }}><Btn onClick={crear} full>Guardar</Btn><Btn onClick={()=>setShowNueva(false)} variant="ghost" full>Cancelar</Btn></div>
+        <Card style={{ marginBottom:16 }} p="10px">
+          <input value={nueva.descripcion} onChange={e=>setNueva(p=>({...p,descripcion:e.target.value}))} placeholder="¿Qué hay que hacer?" style={{ width:"100%", marginBottom:6, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+          <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1.4fr 1fr 1.3fr", gap:6, marginBottom:6 }}>
+            <select value={nueva.lider_id} onChange={e=>setNueva(p=>({...p,lider_id:e.target.value}))} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}>
+              <option value="">Quién la hace...</option>
+              <option value={TODOS_LIDER_ID}>Todos (una por líder)</option>
+              {lideres.map(l=><option key={l.id} value={l.id}>{l.nombre||"(sin nombre)"}</option>)}
+            </select>
+            <input type="date" value={nueva.fecha_estimada} onChange={e=>setNueva(p=>({...p,fecha_estimada:e.target.value}))} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}/>
+            <input value={nueva.comentarios} onChange={e=>setNueva(p=>({...p,comentarios:e.target.value}))} placeholder="Comentario (opcional)" style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+          </div>
+          <div style={{ display:"flex", gap:6 }}><Btn onClick={crear} sm>Guardar</Btn><Btn onClick={()=>setShowNueva(false)} variant="ghost" sm>Cancelar</Btn></div>
         </Card>
       )}
 
@@ -1504,7 +1509,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
           return (
             <div key={t.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, flexWrap: isMobile ? "wrap" : "nowrap" }}>
               <button onClick={puedeMarcar?()=>actualizar(t.id,{completado:!t.completado}):undefined} disabled={!puedeMarcar} title={vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${t.completado?C.green:vencida?C.red:C.border}`, background:t.completado?C.green:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{t.completado?"✓":vencida?"✕":""}</button>
-              <div style={{ flex:1, minWidth:120, fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, textDecoration:t.completado?"line-through":"none", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }} title={t.descripcion}>{t.descripcion}</div>
+              <div style={{ flex:1, minWidth:120, textAlign:"left", fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, textDecoration:t.completado?"line-through":"none", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }} title={t.descripcion}>{t.descripcion}</div>
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:0, whiteSpace:"nowrap" }}>👤 {nombreLider(t.lider_id)}</div>
               {t.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:11, color:vencida?C.red:C.amber, flexShrink:0 }}>📅 {t.fecha_estimada}</div>}
               {vencida && <Badge color={C.red} sm>Vencida sin cumplir</Badge>}
