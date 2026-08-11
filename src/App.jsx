@@ -4079,7 +4079,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
             <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, padding:"6px 0", marginTop:8, borderTop:`1px solid ${C.border}`, display:"flex", flexWrap:"wrap", rowGap:2, columnGap:14 }}>
               <span><span style={{ color:C.textMuted }}>Última recolección: </span>{ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · ${ultimaRecoleccion.recibe_nombre||"—"}` : "sin registro previo"}</span>
-              <span><span style={{ color:C.textMuted }}>Efectivo por recoger (sin base): </span><b style={{ fontFamily:font.mono }}>{fmtCOP(efectivoPendienteTotal)}</b>{efectivoHoyPendiente>0 && <span style={{ color:C.textMuted }}> (de hoy: {fmtCOP(efectivoHoyPendiente)})</span>}</span>
+              <span><span style={{ color:C.textMuted }}>Efectivo por recoger (sin base): </span><b style={{ fontFamily:font.mono }}>{fmtCOP(Math.max(0, efectivoPendienteTotal + gastosNetoAcumulado))}</b>{efectivoHoyPendiente>0 && <span style={{ color:C.textMuted }}> (de hoy: {fmtCOP(efectivoHoyPendiente)})</span>}</span>
               {costosAcumulados>0 && <span><span style={{ color:C.textMuted }}>Costos: </span><b style={{ fontFamily:font.mono, color:C.red }}>−{fmtCOP(costosAcumulados)}</b></span>}
               {ingresosAcumulados>0 && <span><span style={{ color:C.textMuted }}>Ingresos: </span><b style={{ fontFamily:font.mono, color:C.green }}>+{fmtCOP(ingresosAcumulados)}</b></span>}
               <span><span style={{ color:C.textMuted }}>Total efectivo con base: </span><b style={{ fontFamily:font.mono, color:C.goldLight }}>{fmtCOP(totalEnCajaAhora)}</b></span>
