@@ -101,8 +101,8 @@ const calcPuntualidad = (entryTime, shift, date, store) => {
 // ── Junta Admin — rotación del Monitor ───────────────────────────────────────
 // El Monitor rota cada mes entre los líderes, en el orden de la lista
 // (se edita desde la pestaña Equipo y perfiles, con las flechas ▲▼).
-// Arranca el 21 de julio de 2026 (primer martes del protocolo).
-const JUNTA_ROTATION_EPOCH = "2026-07-21";
+// Arranca oficialmente en agosto de 2026 — el primero de la lista es monitor ese mes.
+const JUNTA_ROTATION_EPOCH = "2026-08-01";
 const mesesEntre = (ini, fin) => {
   const a = new Date(ini + "T12:00:00"), b = new Date(fin + "T12:00:00");
   return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
@@ -2044,6 +2044,9 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
   const esFlexipago = items.some(i=>i.tipo==="flexipago");
   const valorFlexipago = items.filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+i.valorTotal,0);
   const saldoPendiente = esFlexipago ? valorFlexipago - Number(abonoInicialValor||0) : 0;
+  // El N.º de factura (Siigo) solo aplica a ítems tipo "Venta" (producto). Grabado, arreglo,
+  // marcación y flexipago no se facturan por Siigo, así que no se pide ni se exige.
+  const requiereSiigo = !esFlexipago && items.some(i=>i.tipo==="producto");
 
   const limpiarTodo = () => {
     setNumeroFactura(""); setVendedorId(""); setItems([]); setItemTipo("producto"); setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemPagos([]); setItemMedioNuevo(""); setObservacion("");
@@ -2056,7 +2059,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
     if(!tiendaId){ setMsg("Falta elegir la tienda."); return; }
     if(!vendedorId){ setMsg("Falta elegir quién hizo la venta."); return; }
     if(items.length===0 || valorBruto<=0){ setMsg("Agrega al menos una venta o servicio."); return; }
-    if(!esFlexipago && !numeroFactura.trim()){ setMsg("Falta el número de factura de Siigo."); return; }
+    if(requiereSiigo && !numeroFactura.trim()){ setMsg("Falta el número de factura de Siigo."); return; }
     if(esFlexipago){
       if(!clienteDocumento.trim() || !clienteNombre.trim()){ setMsg("Flexipago necesita los datos del cliente para poder contactarlo."); return; }
       if(Number(abonoInicialValor||0)>0 && !abonoInicialMedio){ setMsg("Falta el medio de pago del abono inicial."); return; }
@@ -2064,7 +2067,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
     setGuardando(true);
     const vendedor = users.find(u=>u.id===vendedorId);
     const { data:venta, error } = await supabase.from("ventas").insert({
-      fecha, numero_factura:esFlexipago?(numeroFactura.trim()||null):numeroFactura.trim(), tienda_id:tiendaId, vendedor_id:vendedorId, vendedor_nombre:vendedor?.name||"",
+      fecha, numero_factura:requiereSiigo?numeroFactura.trim():(numeroFactura.trim()||null), tienda_id:tiendaId, vendedor_id:vendedorId, vendedor_nombre:vendedor?.name||"",
       registrado_por:user.name,
       cliente_tipo_doc:esFlexipago?clienteTipoDoc:null, cliente_documento:esFlexipago?clienteDocumento.trim():null,
       cliente_nombre:esFlexipago?clienteNombre.trim():null, cliente_telefono:esFlexipago?clienteTelefono.trim():null,
@@ -2269,7 +2272,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
             </div>
 
             <div style={{ padding:"14px 16px" }}>
-              {(esFlexipago || itemEsFlexipago) ? null : (
+              {requiereSiigo && (
                 <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>
               )}
               {items.length>0 && (
@@ -3756,6 +3759,10 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const [reFecha, setReFecha] = useState(todayStr);
   const [guardandoRe, setGuardandoRe] = useState(false);
   const [reValorTocado, setReValorTocado] = useState(false);
+  // Caso esporádico: además de lo de días anteriores (siempre incluido), también se retira una
+  // parte del efectivo de HOY, con tope de lo acumulado hoy hasta el momento.
+  const [reIncluyeHoy, setReIncluyeHoy] = useState(false);
+  const [reValorHoy, setReValorHoy] = useState("");
 
   const [msg, setMsg] = useState("");
 
@@ -3769,6 +3776,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     setApBaseCaja(String(aperturasTienda[0]?.base_caja ?? ultimaRecoleccion?.base_caja ?? BASE_CAJA_FIJA));
     setReBaseCaja(String(ultimaRecoleccion?.base_caja ?? BASE_CAJA_FIJA));
     setReValorTocado(false);
+    setReIncluyeHoy(false);
+    setReValorHoy("");
     setCiBaseCajaTocado(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tiendaId, aperturasTienda[0]?.id, ultimaRecoleccion?.id]);
@@ -3782,25 +3791,61 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const ventasTiendaMap = {};
   ventas.forEach(v=>{ if(v.tienda_id===tiendaId) ventasTiendaMap[v.id]=v; });
 
-  // Efectivo acumulado (ventas + abonos en efectivo) desde la última recolección, o desde siempre si no ha habido ninguna
-  const desdeTS = ultimaRecoleccion ? new Date(ultimaRecoleccion.created_at).getTime() : 0;
-  let efectivoAcumulado = 0;
+  // Efectivo (ventas + abonos en efectivo) de la tienda en un día calendario dado.
+  const efectivoDelDia = (fechaDia) => {
+    let total = 0;
+    ventasItems.forEach(i=>{
+      const v = ventasTiendaMap[i.venta_id];
+      if(!v || i.tipo==="flexipago" || v.fecha!==fechaDia) return;
+      (i.pagos||[]).forEach(p=>{ if(p.medio_pago==="efectivo") total += Number(p.valor||0); });
+    });
+    ventasAbonos.forEach(a=>{
+      const v = ventasTiendaMap[a.venta_id];
+      if(!v || a.fecha!==fechaDia) return;
+      if(a.medio_pago==="efectivo") total += Number(a.valor||0);
+    });
+    return total;
+  };
+
+  // ── Efectivo pendiente por recoger ──────────────────────────────────────────
+  // Regla general: una recolección SIEMPRE se lleva el efectivo de días ya cerrados (anteriores a
+  // hoy) — el de HOY no se recoge por defecto, sigue sumando hasta la siguiente recolección. Solo
+  // si se marca "Recoges efectivo de hoy" se retira una parte de hoy, con tope de lo acumulado hoy.
+  const fechaCorte = ultimaRecoleccion ? ultimaRecoleccion.fecha : null;
+  // Si hubo más de una recolección el mismo día (varios retiros parciales de "hoy" ese día), se
+  // suman todos los valor_hoy de ese día para saber cuánto de ese día ya se retiró.
+  const retiradoEnFechaCorte = fechaCorte
+    ? recoleccionesTienda.filter(r=>r.fecha===fechaCorte).reduce((s,r)=>s+Number(r.valor_hoy||0),0)
+    : 0;
+  // Efectivo de todos los días después de la fecha de la última recolección (incluye hoy), más el
+  // remanente del día de esa recolección (lo que no se llevó ese día si no marcó "hoy", o si marcó
+  // solo una parte).
+  let efectivoDiasPosteriores = 0;
   ventasItems.forEach(i=>{
     const v = ventasTiendaMap[i.venta_id];
     if(!v || i.tipo==="flexipago") return;
-    if(new Date(v.created_at).getTime() <= desdeTS) return;
-    (i.pagos||[]).forEach(p=>{ if(p.medio_pago==="efectivo") efectivoAcumulado += Number(p.valor||0); });
+    if(fechaCorte && v.fecha<=fechaCorte) return;
+    (i.pagos||[]).forEach(p=>{ if(p.medio_pago==="efectivo") efectivoDiasPosteriores += Number(p.valor||0); });
   });
   ventasAbonos.forEach(a=>{
     const v = ventasTiendaMap[a.venta_id];
     if(!v) return;
-    const ts = new Date(a.created_at || a.fecha).getTime();
-    if(ts <= desdeTS) return;
-    if(a.medio_pago==="efectivo") efectivoAcumulado += Number(a.valor||0);
+    if(fechaCorte && a.fecha<=fechaCorte) return;
+    if(a.medio_pago==="efectivo") efectivoDiasPosteriores += Number(a.valor||0);
   });
+  const efectivoEnFechaCorte = fechaCorte ? efectivoDelDia(fechaCorte) : 0;
+  const efectivoPendienteTotal = Math.max(0, efectivoDiasPosteriores + efectivoEnFechaCorte - retiradoEnFechaCorte);
+
+  // Efectivo de HOY que sigue pendiente — es el tope para el retiro esporádico de "efectivo de hoy".
+  const retiradoHoyYa = recoleccionesTienda.filter(r=>r.fecha===todayStr).reduce((s,r)=>s+Number(r.valor_hoy||0),0);
+  const efectivoHoyPendiente = Math.max(0, efectivoDelDia(todayStr) - retiradoHoyYa);
+  // Efectivo de días anteriores a hoy que sigue pendiente — esto es lo que SIEMPRE se sugiere
+  // recoger (la "regla general"), sin importar si hoy se marca el retiro esporádico o no.
+  const efectivoAnteriores = Math.max(0, efectivoPendienteTotal - efectivoHoyPendiente);
 
   // Gastos de caja (novedades con valor, ej. comprar un limpiavidrios) desde la última recolección —
   // se pagan con la base, así que se restan de lo que hay para recolectar.
+  const desdeTS = ultimaRecoleccion ? new Date(ultimaRecoleccion.created_at).getTime() : 0;
   const gastosTienda = gastos.filter(g=>g.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
   // Una novedad de tipo "costo" resta (se pagó algo con la base) y una de tipo "ingreso" suma
   // (por ejemplo, vueltas que un cliente no reclamó). Las novedades viejas sin tipo se tratan como costo.
@@ -3809,8 +3854,10 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const costosAcumulados = gastosDesdeRecoleccion.filter(g=>g.tipo!=="ingreso").reduce((s,g)=>s+Number(g.valor||0),0);
   const ingresosAcumulados = gastosDesdeRecoleccion.filter(g=>g.tipo==="ingreso").reduce((s,g)=>s+Number(g.valor||0),0);
 
-  const efectivoARecolectar = Math.max(0, efectivoAcumulado + gastosNetoAcumulado);
-  const totalEnCajaAhora = Number(apBaseCaja||0) + efectivoAcumulado + gastosNetoAcumulado;
+  // Lo que se sugiere recoger por defecto: siempre los días anteriores a hoy + novedades. El
+  // efectivo de hoy (si se marca el check) se suma aparte, no entra en este cálculo automático.
+  const efectivoARecolectar = Math.max(0, efectivoAnteriores + gastosNetoAcumulado);
+  const totalEnCajaAhora = Number(apBaseCaja||0) + efectivoPendienteTotal + gastosNetoAcumulado;
 
   useEffect(()=>{
     if(!reValorTocado) setReValor(String(efectivoARecolectar||""));
@@ -3933,16 +3980,20 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       setMsg(`Falta elegir ${listarFaltantes(falt)}.`); return;
     }
     if(reFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master puede registrar una recolección con fecha distinta a hoy. Pide autorización."); return; }
+    const valorHoyNum = reIncluyeHoy ? Number(reValorHoy||0) : 0;
+    if(reIncluyeHoy && valorHoyNum<=0){ setMsg("Marcaste que recoges efectivo de hoy — falta el valor a retirar."); return; }
+    if(reIncluyeHoy && valorHoyNum>efectivoHoyPendiente){ setMsg(`No puedes retirar más de lo acumulado hoy (${fmtCOP(efectivoHoyPendiente)}).`); return; }
     setGuardandoRe(true); setMsg("");
     const entrega = users.find(u=>u.id===reEntregaId);
     const recibe = users.find(u=>u.id===reRecibeId);
     const { data, error } = await supabase.from("ventas_caja_recolecciones").insert({
       tienda_id:tiendaId, fecha:reFecha, entrega_usuario_id:reEntregaId, entrega_nombre:entrega?.name||"",
-      recibe_usuario_id:reRecibeId, recibe_nombre:recibe?.name||"", valor:Number(reValor||0),
+      recibe_usuario_id:reRecibeId, recibe_nombre:recibe?.name||"", valor:Number(reValor||0)+valorHoyNum,
+      valor_hoy:valorHoyNum, incluye_hoy:reIncluyeHoy,
       base_caja:Number(reBaseCaja||0), comentarios:reComentarios.trim()||null, registrado_por:user.name,
     }).select().single();
     setGuardandoRe(false);
-    if(data){ setRecolecciones(prev=>[data,...prev]); setReValor(""); setReComentarios(""); }
+    if(data){ setRecolecciones(prev=>[data,...prev]); setReValor(""); setReComentarios(""); setReIncluyeHoy(false); setReValorHoy(""); }
     else if(error){ setMsg(`No se pudo guardar la recolección: ${error.message||"error desconocido"}`); }
   };
 
@@ -3976,7 +4027,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
             <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, padding:"6px 0", marginTop:8, borderTop:`1px solid ${C.border}`, display:"flex", flexWrap:"wrap", rowGap:2, columnGap:14 }}>
               <span><span style={{ color:C.textMuted }}>Última recolección: </span>{ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · ${ultimaRecoleccion.recibe_nombre||"—"}` : "sin registro previo"}</span>
-              <span><span style={{ color:C.textMuted }}>Efectivo desde entonces: </span><b style={{ fontFamily:font.mono }}>{fmtCOP(efectivoAcumulado)}</b></span>
+              <span><span style={{ color:C.textMuted }}>Efectivo pendiente: </span><b style={{ fontFamily:font.mono }}>{fmtCOP(efectivoPendienteTotal)}</b>{efectivoHoyPendiente>0 && <span style={{ color:C.textMuted }}> (de hoy: {fmtCOP(efectivoHoyPendiente)})</span>}</span>
               {costosAcumulados>0 && <span><span style={{ color:C.textMuted }}>Costos: </span><b style={{ fontFamily:font.mono, color:C.red }}>−{fmtCOP(costosAcumulados)}</b></span>}
               {ingresosAcumulados>0 && <span><span style={{ color:C.textMuted }}>Ingresos: </span><b style={{ fontFamily:font.mono, color:C.green }}>+{fmtCOP(ingresosAcumulados)}</b></span>}
               <span><span style={{ color:C.textMuted }}>Total en caja: </span><b style={{ fontFamily:font.mono, color:C.goldLight }}>{fmtCOP(totalEnCajaAhora)}</b></span>
@@ -4057,15 +4108,30 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
               <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>No tienes permiso para registrar una recolección. Puedes verlas en Historial.</div>
             ) : (
               <>
-                <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginBottom:6 }}>Sugerido: {fmtCOP(efectivoAcumulado)} ventas en efectivo {gastosNetoAcumulado>=0?"+":"−"} {fmtCOP(Math.abs(gastosNetoAcumulado))} novedades = {fmtCOP(efectivoARecolectar)}. Ajusta si al contar sale distinto.</div>
+                <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginBottom:6 }}>Sugerido (días anteriores a hoy): {fmtCOP(efectivoAnteriores)} ventas en efectivo {gastosNetoAcumulado>=0?"+":"−"} {fmtCOP(Math.abs(gastosNetoAcumulado))} novedades = {fmtCOP(efectivoARecolectar)}. Ajusta si al contar sale distinto. El efectivo de hoy no se incluye aquí — si necesitas recogerlo, usa el check de abajo.</div>
                 <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr 1fr", gap:8, alignItems:"end" }}>
                   <CajaField label="Fecha" type="date" value={reFecha} onChange={setReFecha}/>
                   <CajaField label="Entrega" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                   <CajaField label="Recibe" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
-                  <CajaMoney label="Valor a recoger" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
+                  <CajaMoney label="Valor a recoger (días anteriores)" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
                   <CajaMoney label="Base que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
                 </div>
                 {reFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
+                {reFecha===todayStr && (
+                  <div style={{ marginTop:8, padding:"8px 10px", background:C.surfaceAlt, borderRadius:7, border:`1px solid ${C.border}` }}>
+                    <label style={{ display:"flex", alignItems:"center", gap:7, fontFamily:font.body, fontSize:12, color:C.text, cursor:"pointer" }}>
+                      <input type="checkbox" checked={reIncluyeHoy} onChange={e=>{ setReIncluyeHoy(e.target.checked); if(!e.target.checked) setReValorHoy(""); }} disabled={efectivoHoyPendiente<=0}/>
+                      Recoges efectivo de hoy
+                      {efectivoHoyPendiente<=0 && <span style={{ color:C.textMuted }}> (aún no hay efectivo de hoy)</span>}
+                    </label>
+                    {reIncluyeHoy && (
+                      <div style={{ marginTop:6, display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr auto", gap:8, alignItems:"end" }}>
+                        <CajaMoney label={`Valor a retirar de hoy (máx. ${fmtCOP(efectivoHoyPendiente)})`} value={reValorHoy} onChange={setReValorHoy}/>
+                        <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted }}>Acumulado hoy: {fmtCOP(efectivoHoyPendiente)}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"2fr auto", gap:8, alignItems:"end", marginTop:8 }}>
                   <CajaField label="Comentarios" value={reComentarios} onChange={setReComentarios} placeholder="Opcional"/>
                   <CajaBtn onClick={guardarRecoleccion} disabled={guardandoRe}>{guardandoRe?"...":"Registrar"}</CajaBtn>
@@ -4113,7 +4179,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             <div style={{ display:"flex", flexDirection:"column" }}>
               {recoleccionesTienda.slice(0,30).map(r=>(
                 <div key={r.id} style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
-                  <span>{fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}{r.comentarios?` · ${r.comentarios}`:""}</span>
+                  <span>{fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}{r.comentarios?` · ${r.comentarios}`:""}{r.incluye_hoy && Number(r.valor_hoy||0)>0 ? ` · incluye ${fmtCOP(r.valor_hoy)} de ese mismo día` : ""}</span>
                   <span style={{ fontFamily:font.mono }}>{fmtCOP(r.valor)} <span style={{ color:C.textMuted }}>(queda base {fmtCOP(r.base_caja)})</span></span>
                 </div>
               ))}
