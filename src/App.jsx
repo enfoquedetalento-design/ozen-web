@@ -3721,7 +3721,7 @@ const CajaBtn = ({ onClick, children, disabled }) => (
   <button onClick={disabled?undefined:onClick} style={{ padding:"5px 12px", borderRadius:5, border:"none", background:C.gold, color:"#fff", fontSize:12, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.5:1, whiteSpace:"nowrap" }}>{children}</button>
 );
 
-function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, puedeRecoleccion, soloLectura, isMobile }) {
+function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, solicitudesBorrado, setSolicitudesBorrado, puedeRecoleccion, soloLectura, isMobile }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const tiendasList = tiendasVenta(stores);
   const [tiendaId, setTiendaId] = useState(tiendaFija || tiendasList[0]?.id || "");
@@ -3997,6 +3997,58 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     else if(error){ setMsg(`No se pudo guardar la recolección: ${error.message||"error desconocido"}`); }
   };
 
+  // Borrar registros de caja — solo master/admin_finanzas, y con confirmación (son registros
+  // financieros, así que hay que estar seguro antes de borrar).
+  const puedeBorrarCaja = esAdminDeVentas(user);
+  const borrarApertura = async (a) => {
+    if(!window.confirm(`¿Borrar esta apertura (${fmtFechaHora(a.created_at)} · ${a.asesor_nombre})? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from("ventas_caja_aperturas").delete().eq("id", a.id);
+    if(error){ setMsg(`No se pudo borrar: ${error.message||"error desconocido"}`); return; }
+    setAperturas(prev=>prev.filter(x=>x.id!==a.id));
+  };
+  const borrarCierre = async (c) => {
+    if(!window.confirm(`¿Borrar este cierre (${fmtFechaHora(c.created_at)} · ${c.asesor_nombre})? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from("ventas_caja_cierres").delete().eq("id", c.id);
+    if(error){ setMsg(`No se pudo borrar: ${error.message||"error desconocido"}`); return; }
+    setCierres(prev=>prev.filter(x=>x.id!==c.id));
+  };
+  const borrarRecoleccion = async (r) => {
+    if(!window.confirm(`¿Borrar esta recolección (${fmtFechaHora(r.created_at)} · ${r.entrega_nombre} → ${r.recibe_nombre})? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from("ventas_caja_recolecciones").delete().eq("id", r.id);
+    if(error){ setMsg(`No se pudo borrar: ${error.message||"error desconocido"}`); return; }
+    setRecolecciones(prev=>prev.filter(x=>x.id!==r.id));
+  };
+
+  // ── Cuenta de tienda: solicitar borrado (no puede borrar directo) — master/admin_finanzas aprueban ──
+  const puedeSolicitarBorradoCaja = esCuentaTienda(user);
+  const solicitudesTienda = (solicitudesBorrado||[]).filter(s=>s.tienda_id===tiendaId);
+  const solicitudPendientePara = (tabla, registroId) => solicitudesTienda.find(s=>s.tabla===tabla && s.registro_id===registroId && s.estado==="pendiente");
+  const solicitudesPendientes = solicitudesTienda.filter(s=>s.estado==="pendiente");
+
+  const solicitarBorrado = async (tabla, registro, resumen) => {
+    if(!window.confirm(`¿Solicitar el borrado de este registro (${resumen})? Un master o admin_finanzas debe aprobarlo.`)) return;
+    const { data, error } = await supabase.from("ventas_caja_solicitudes_borrado").insert({
+      tienda_id:tiendaId, tabla, registro_id:registro.id, resumen, solicitado_por:user.name, estado:"pendiente",
+    }).select().single();
+    if(error){ setMsg(`No se pudo enviar la solicitud: ${error.message||"error desconocido"}`); return; }
+    setSolicitudesBorrado(prev=>[data, ...(prev||[])]);
+  };
+
+  const resolverSolicitudBorrado = async (solicitud, nuevoEstado) => {
+    if(nuevoEstado==="aprobada"){
+      if(!window.confirm(`¿Aprobar y borrar (${solicitud.resumen})? Esta acción no se puede deshacer.`)) return;
+      const tablaReal = solicitud.tabla==="apertura"?"ventas_caja_aperturas":solicitud.tabla==="cierre"?"ventas_caja_cierres":"ventas_caja_recolecciones";
+      const { error:errBorrar } = await supabase.from(tablaReal).delete().eq("id", solicitud.registro_id);
+      if(errBorrar){ setMsg(`No se pudo borrar: ${errBorrar.message||"error desconocido"}`); return; }
+      if(solicitud.tabla==="apertura") setAperturas(prev=>prev.filter(x=>x.id!==solicitud.registro_id));
+      else if(solicitud.tabla==="cierre") setCierres(prev=>prev.filter(x=>x.id!==solicitud.registro_id));
+      else setRecolecciones(prev=>prev.filter(x=>x.id!==solicitud.registro_id));
+    }
+    const { data, error } = await supabase.from("ventas_caja_solicitudes_borrado").update({ estado:nuevoEstado, resuelto_por:user.name, fecha_resolucion:new Date().toISOString() }).eq("id", solicitud.id).select().single();
+    if(error){ setMsg(`No se pudo actualizar la solicitud: ${error.message||"error desconocido"}`); return; }
+    setSolicitudesBorrado(prev=>prev.map(s=>s.id===data.id?data:s));
+  };
+
   const fmtFechaHora = (iso) => new Date(iso).toLocaleString("es-CO",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
 
   return (
@@ -4019,9 +4071,9 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
           <CajaCard icon="🔓" titulo="Apertura de turno">
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1.3fr 1fr auto", gap:8, alignItems:"end" }}>
               <CajaField label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
-              <CajaField label="Quién abre" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+              <CajaField label="Quién abre *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
               <CajaMoney label="Base de caja" value={apBaseCaja} onChange={setApBaseCaja}/>
-              <CajaBtn onClick={guardarApertura} disabled={guardandoAp}>{guardandoAp?"...":"Registrar"}</CajaBtn>
+              <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"Registrar"}</CajaBtn>
             </div>
             {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
 
@@ -4095,11 +4147,11 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             {resumenHoy.flexipagoCerradoHoy>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:3 }}>Incluye {fmtCOP(resumenHoy.flexipagoCerradoHoy)} de flexipagos que se terminaron de pagar hoy.</div>}
 
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1.2fr auto", gap:8, alignItems:"end", marginTop:8 }}>
-              <CajaField label="Quién cierra" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+              <CajaField label="Quién cierra *" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
               <CajaField label="Tipo" value={ciTipo} onChange={setCiTipo} options={[{value:"parcial",label:"Parcial"},{value:"definitivo",label:"Definitivo"}]}/>
               <CajaMoney label="Base de caja al cierre" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
               <CajaField label="Novedades" value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta (opcional)"/>
-              <CajaBtn onClick={guardarCierre} disabled={guardandoCi}>{guardandoCi?"...":"Registrar"}</CajaBtn>
+              <CajaBtn onClick={guardarCierre} disabled={guardandoCi || !tiendaId || !ciAsesorId}>{guardandoCi?"...":"Registrar"}</CajaBtn>
             </div>
           </CajaCard>
 
@@ -4111,8 +4163,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginBottom:6 }}>Sugerido (días anteriores a hoy): {fmtCOP(efectivoAnteriores)} ventas en efectivo {gastosNetoAcumulado>=0?"+":"−"} {fmtCOP(Math.abs(gastosNetoAcumulado))} novedades = {fmtCOP(efectivoARecolectar)}. Ajusta si al contar sale distinto. El efectivo de hoy no se incluye aquí — si necesitas recogerlo, usa el check de abajo.</div>
                 <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr 1fr", gap:8, alignItems:"end" }}>
                   <CajaField label="Fecha" type="date" value={reFecha} onChange={setReFecha}/>
-                  <CajaField label="Entrega" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-                  <CajaField label="Recibe" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
+                  <CajaField label="Entrega *" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+                  <CajaField label="Recibe *" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
                   <CajaMoney label="Valor a recoger (días anteriores)" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
                   <CajaMoney label="Base que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
                 </div>
@@ -4134,7 +4186,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 )}
                 <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"2fr auto", gap:8, alignItems:"end", marginTop:8 }}>
                   <CajaField label="Comentarios" value={reComentarios} onChange={setReComentarios} placeholder="Opcional"/>
-                  <CajaBtn onClick={guardarRecoleccion} disabled={guardandoRe}>{guardandoRe?"...":"Registrar"}</CajaBtn>
+                  <CajaBtn onClick={guardarRecoleccion} disabled={guardandoRe || !tiendaId || !reEntregaId || !reRecibeId || !reValor}>{guardandoRe?"...":"Registrar"}</CajaBtn>
                 </div>
               </>
             )}
@@ -4142,12 +4194,32 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
         </>
       ) : (
         <>
+          {puedeBorrarCaja && solicitudesPendientes.length>0 && (
+            <CajaCard icon="🗑️" titulo="Solicitudes de borrado pendientes">
+              <div style={{ display:"flex", flexDirection:"column" }}>
+                {solicitudesPendientes.map(s=>(
+                  <div key={s.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"4px 2px", borderBottom:`1px solid ${C.border}` }}>
+                    <span>{s.resumen} <span style={{ color:C.textMuted }}>· pidió {s.solicitado_por} · {fmtFechaHora(s.fecha_solicitud)}</span></span>
+                    <span style={{ display:"flex", gap:6 }}>
+                      <button onClick={()=>resolverSolicitudBorrado(s,"aprobada")} style={{ background:"none", border:`1px solid ${C.green}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Aprobar y borrar</button>
+                      <button onClick={()=>resolverSolicitudBorrado(s,"rechazada")} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Rechazar</button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CajaCard>
+          )}
+
           <CajaCard icon="🔓" titulo="Historial de apertura">
             <div style={{ display:"flex", flexDirection:"column" }}>
               {aperturasTienda.slice(0,30).map(a=>(
-                <div key={a.id} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
+                <div key={a.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
                   <span>{fmtFechaHora(a.created_at)} · {a.asesor_nombre}</span>
-                  <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base: {fmtCOP(a.base_caja)}</span>
+                  <span style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base: {fmtCOP(a.base_caja)}</span>
+                    {puedeBorrarCaja && <button onClick={()=>borrarApertura(a)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                    {puedeSolicitarBorradoCaja && (solicitudPendientePara("apertura",a.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("apertura",a,`Apertura ${fmtFechaHora(a.created_at)} · ${a.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
+                  </span>
                 </div>
               ))}
               {aperturasTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
@@ -4163,7 +4235,11 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                   <div key={c.id} style={{ display:"flex", flexDirection:"column", gap:1, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"4px 2px", borderBottom:`1px solid ${C.border}` }}>
                     <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4 }}>
                       <span>{fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}{c.novedades?` · ${c.novedades}`:""}</span>
-                      <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base al cierre: {fmtCOP(c.base_caja)}</span>
+                      <span style={{ display:"flex", alignItems:"center", gap:8 }}>
+                        <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base al cierre: {fmtCOP(c.base_caja)}</span>
+                        {puedeBorrarCaja && <button onClick={()=>borrarCierre(c)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                        {puedeSolicitarBorradoCaja && (solicitudPendientePara("cierre",c.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("cierre",c,`Cierre ${fmtFechaHora(c.created_at)} · ${c.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
+                      </span>
                     </div>
                     <div style={{ fontFamily:font.mono, fontSize:10.5, color:C.textMuted }}>
                       Ventas {fmtCOP(rd.totalIngresoNeto)} · Servicios {fmtCOP(rd.totalServicios)} · <span style={{ color:C.goldLight, fontWeight:700 }}>Total {fmtCOP(totalDia)}</span>
@@ -4178,9 +4254,13 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
           <CajaCard icon="🚚" titulo="Historial de recolección">
             <div style={{ display:"flex", flexDirection:"column" }}>
               {recoleccionesTienda.slice(0,30).map(r=>(
-                <div key={r.id} style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
+                <div key={r.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
                   <span>{fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}{r.comentarios?` · ${r.comentarios}`:""}{r.incluye_hoy && Number(r.valor_hoy||0)>0 ? ` · incluye ${fmtCOP(r.valor_hoy)} de ese mismo día` : ""}</span>
-                  <span style={{ fontFamily:font.mono }}>{fmtCOP(r.valor)} <span style={{ color:C.textMuted }}>(queda base {fmtCOP(r.base_caja)})</span></span>
+                  <span style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ fontFamily:font.mono }}>{fmtCOP(r.valor)} <span style={{ color:C.textMuted }}>(queda base {fmtCOP(r.base_caja)})</span></span>
+                    {puedeBorrarCaja && <button onClick={()=>borrarRecoleccion(r)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                    {puedeSolicitarBorradoCaja && (solicitudPendientePara("recoleccion",r.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("recoleccion",r,`Recolección ${fmtFechaHora(r.created_at)} · ${r.entrega_nombre} → ${r.recibe_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
+                  </span>
                 </div>
               ))}
               {recoleccionesTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
@@ -4199,6 +4279,7 @@ export default function App() {
   const [juntaAreas,setJuntaAreas]=useState([]),[juntaLiderAreas,setJuntaLiderAreas]=useState([]);
   const [ventas,setVentas]=useState([]),[ventasItems,setVentasItems]=useState([]),[ventasMetas,setVentasMetas]=useState([]),[ventasMetasAsesor,setVentasMetasAsesor]=useState([]);
   const [ventasAbonos,setVentasAbonos]=useState([]),[cajaAperturas,setCajaAperturas]=useState([]),[cajaCierres,setCajaCierres]=useState([]),[cajaRecolecciones,setCajaRecolecciones]=useState([]),[cajaGastos,setCajaGastos]=useState([]);
+  const [cajaSolicitudesBorrado,setCajaSolicitudesBorrado]=useState([]);
   const [ventasAjustes,setVentasAjustes]=useState([]);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
@@ -4223,7 +4304,7 @@ export default function App() {
   }, []);
 
   const loadAll=async()=>{
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj}]=await Promise.all([
+    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj},{data:csb}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
       supabase.from("registros").select("*").order("date",{ascending:false}),
@@ -4242,6 +4323,7 @@ export default function App() {
       supabase.from("ventas_caja_recolecciones").select("*").order("created_at",{ascending:false}),
       supabase.from("ventas_caja_gastos").select("*").order("created_at",{ascending:false}),
       supabase.from("ventas_ajustes").select("*"),
+      supabase.from("ventas_caja_solicitudes_borrado").select("*").order("fecha_solicitud",{ascending:false}),
     ]);
     const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
     setStores(sm);setUsers(u||[]);setRecords(r||[]);
@@ -4260,6 +4342,7 @@ export default function App() {
     setCajaRecolecciones(cr||[]);
     setCajaGastos(cg||[]);
     setVentasAjustes(vaj||[]);
+    setCajaSolicitudesBorrado(csb||[]);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
@@ -4272,7 +4355,9 @@ export default function App() {
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
 
-  useInactivityLogout(logout, 5);
+  // Cuenta de tienda: es el equipo que queda abierto en el mostrador todo el turno, así que se le
+  // da más margen (30 min) antes de cerrar sesión por inactividad. El resto de cuentas sigue en 5.
+  useInactivityLogout(logout, esCuentaTienda(user||{}) ? 30 : 5);
 
   if(booting) return <div style={{minHeight:"100vh",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,color:C.textMuted,fontSize:14}}>Cargando...</div>;
   if(!user) return <LoginScreen onLogin={login}/>;
@@ -4299,7 +4384,7 @@ export default function App() {
         if(tab==="registrar" && !ventasSoloLectura(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
-        if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile}/>;
+        if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
@@ -4311,7 +4396,7 @@ export default function App() {
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
-      if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile}/>;
+      if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile}/>;
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores}/>;
