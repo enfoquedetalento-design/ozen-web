@@ -1,6 +1,8 @@
-# Ozen · Control de Personal — estado del proyecto
+# Ozen — estado del proyecto
 
-Última actualización: 21 de julio de 2026.
+Última actualización: 23 de julio de 2026. **La app ya está en producción (`main`)
+con todo lo del rol master, visualizador, La Junta Administrativa y seguridad de
+login — práctica y real están sincronizadas.**
 
 ## 🔴 Si este chat se cortó y estás empezando uno nuevo, haz esto:
 
@@ -527,6 +529,23 @@ update usuarios set password_updated_at = now() where password_updated_at is nul
   mensaje de ayuda debajo del campo explicando este comportamiento.
 - El Monitor del mes no se ve afectado por nada de esto — rota por mes calendario,
   no por martes específicos (ver la conversación anterior sobre meses de 5 martes).
+
+**Doceava ronda (23 jul 2026)** — primer paso a producción:
+
+- Se llevó la base de datos REAL (`OZEN`) al mismo estado que práctica: se borró la
+  cuenta de prueba "Admin" (documento 2548, confirmado sin registros asociados), se
+  crearon las tablas de La Junta Administrativa con la misma seguridad (Acuerdos
+  sigue sin poderse editar ni borrar), se agregó la columna de vencimiento de
+  contraseña, y se asignaron los roles: Santiago Rodríguez → master, Shanon Montero
+  y Sebastián Montero → visualizador.
+- Las dos cuentas de Paolo García (admin + advisor) se dejaron tal cual — es
+  intencional, hace turnos de asesor además de su rol admin.
+- Se fusionó `staging` a `main` y se publicó en la URL real
+  (https://ozen-web-ten.vercel.app). Santiago confirmó que todo quedó funcionando
+  correctamente y que no se perdió ningún registro ni usuario existente.
+- **Desde ahora, `main` tiene todo lo que tenía `staging`** — los dos ambientes están
+  sincronizados. Cualquier cambio nuevo debe seguir el mismo proceso: primero
+  `staging`, probar, y solo después fusionar a `main`.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
