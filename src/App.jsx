@@ -2105,23 +2105,23 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
         subtitle={stores[tiendaId]?.name ? `Tienda: ${stores[tiendaId].name}` : "Elige la tienda"}
         action={tiendaId && metaHoyTienda>0 && (
           <div style={{
+            display:"flex", alignItems:"center", gap:14,
             background: faltaHoyTienda<=0 ? `linear-gradient(135deg, ${C.green}26, ${C.green}08)` : `linear-gradient(135deg, ${C.gold}26, ${C.gold}08)`,
-            border:`1.5px solid ${faltaHoyTienda<=0?C.green:C.gold}`, borderRadius:14, padding:"10px 18px", minWidth:220, textAlign:"center",
+            border:`1.5px solid ${faltaHoyTienda<=0?C.green:C.gold}`, borderRadius:10, padding:"8px 18px", minWidth:320,
             boxShadow:`0 3px 14px ${faltaHoyTienda<=0?C.green:C.gold}22`,
           }}>
-            <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:3 }}>🎯 Meta de hoy</div>
-            <div style={{ fontFamily:font.mono, fontSize:21, fontWeight:800, color:C.goldLight }}>{fmtCOP(faltaHoyTienda<=0 ? vendidoHoyTienda : metaHoyTienda)}</div>
-            <div style={{ height:8, borderRadius:5, background:C.border, marginTop:7, marginBottom:7, overflow:"hidden" }}>
-              <div style={{ height:"100%", width:`${Math.min(100, Math.round((vendidoHoyTienda/metaHoyTienda)*100))}%`, background: faltaHoyTienda<=0?C.green:C.gold, transition:"width 0.4s ease" }}/>
+            <div>
+              <div style={{ fontFamily:font.body, fontSize:9.5, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", whiteSpace:"nowrap" }}>🎯 Meta de hoy</div>
+              <div style={{ fontFamily:font.mono, fontSize:16, fontWeight:800, color:C.goldLight, whiteSpace:"nowrap" }}>{fmtCOP(faltaHoyTienda<=0 ? vendidoHoyTienda : metaHoyTienda)}</div>
             </div>
-            <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color: faltaHoyTienda<=0?C.green:C.amber }}>
-              {faltaHoyTienda<=0 ? "🎉 ¡Meta cumplida!" : `Faltan ${fmtCOP(faltaHoyTienda)}`}
-            </div>
-            {faltaHoyTienda<=0 && (
-              <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:4 }}>
-                +{fmtCOP(vendidoHoyTienda-metaHoyTienda)} sobre la meta · Meta era {fmtCOP(metaHoyTienda)}
+            <div style={{ flex:1, minWidth:120 }}>
+              <div style={{ height:5, borderRadius:3, background:C.border, overflow:"hidden" }}>
+                <div style={{ height:"100%", width:`${Math.min(100, Math.round((vendidoHoyTienda/metaHoyTienda)*100))}%`, background: faltaHoyTienda<=0?C.green:C.gold, transition:"width 0.4s ease" }}/>
               </div>
-            )}
+              <div style={{ fontFamily:font.body, fontSize:10.5, fontWeight:700, color: faltaHoyTienda<=0?C.green:C.amber, marginTop:3, whiteSpace:"nowrap" }}>
+                {faltaHoyTienda<=0 ? `🎉 Cumplida · +${fmtCOP(vendidoHoyTienda-metaHoyTienda)} sobre meta` : `Faltan ${fmtCOP(faltaHoyTienda)}`}
+              </div>
+            </div>
           </div>
         )}
       />
@@ -3727,7 +3727,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const [tiendaId, setTiendaId] = useState(tiendaFija || tiendasList[0]?.id || "");
   const [cajaVista, setCajaVista] = useState(soloLectura ? "historial" : "registrar"); // 'registrar' | 'historial'
   const asesores = users.filter(u=>u.role==="advisor" && u.active);
-  const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin_finanzas") && u.active);
+  const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin"||u.role==="admin_finanzas") && u.active);
 
   // Solo master puede registrar con una fecha distinta a hoy (para poner al día algo atrasado).
   const puedeFechaLibre = user.role==="master";
@@ -4078,7 +4078,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
 
             <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, padding:"6px 0", marginTop:8, borderTop:`1px solid ${C.border}`, display:"flex", flexWrap:"wrap", rowGap:2, columnGap:14 }}>
-              <span><span style={{ color:C.textMuted }}>Última recolección: </span>{ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · ${ultimaRecoleccion.recibe_nombre||"—"}` : "sin registro previo"}</span>
+              <span><span style={{ color:C.textMuted }}>Última recolección: </span>{ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · ${ultimaRecoleccion.recibe_nombre||"—"} · ${fmtCOP(ultimaRecoleccion.valor)}` : "sin registro previo"}</span>
               <span><span style={{ color:C.textMuted }}>Efectivo por recoger (sin base): </span><b style={{ fontFamily:font.mono }}>{fmtCOP(Math.max(0, efectivoPendienteTotal + gastosNetoAcumulado))}</b>{efectivoHoyPendiente>0 && <span style={{ color:C.textMuted }}> (de hoy: {fmtCOP(efectivoHoyPendiente)})</span>}</span>
               {costosAcumulados>0 && <span><span style={{ color:C.textMuted }}>Costos: </span><b style={{ fontFamily:font.mono, color:C.red }}>−{fmtCOP(costosAcumulados)}</b></span>}
               {ingresosAcumulados>0 && <span><span style={{ color:C.textMuted }}>Ingresos: </span><b style={{ fontFamily:font.mono, color:C.green }}>+{fmtCOP(ingresosAcumulados)}</b></span>}
