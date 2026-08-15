@@ -147,12 +147,10 @@ const numeroSemanaDelMes = (fechaMartes) => {
 };
 // El martes de la semana N (1-5) de un mes dado — null si ese mes no tiene esa semana.
 const martesSemanaN = (anio, mes, n) => martesDelMes(anio, mes)[n-1] || null;
-// El domingo que cierra la semana de un martes (martes + 5 días) — último día para marcar
-// como hechas o no hechas las tareas que se asignaron esa semana.
-const domingoDeSemana = (fechaMartes) => sumarDias(fechaMartes, 5);
-// Una tarea que no se marcó completada y ya pasó el domingo de la semana en que se asignó,
-// queda cerrada como "no realizada" — ya no se puede marcar completada desde ahí.
-const tareaVencidaNoRealizada = (t) => !t.completado && !!t.semana && todayStr > domingoDeSemana(t.semana);
+// Una tarea vence en su fecha_estimada (por defecto el martes de la siguiente semana, editable
+// a una fecha más lejana) — es cuando se revisa en la siguiente reunión si se cumplió o no. Si
+// pasa ese día y no se marcó completada, queda cerrada como "no realizada" sin poder marcarse.
+const tareaVencidaNoRealizada = (t) => !t.completado && !!t.fecha_estimada && todayStr > t.fecha_estimada;
 // Indicadores de un mes: sesiones registradas (martes con al menos una tarea) y % de tareas completadas.
 const statsDelMes = (compromisos, anio, mes) => {
   const martes = martesDelMes(anio, mes);
@@ -1433,10 +1431,14 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const soloLectura = useReadOnly();
   const [semana, setSemana] = useState(martesDeSemana(todayStr));
   const [filtroLider, setFiltroLider] = useState("");
-  const [vistaEstado, setVistaEstado] = useState("activas"); // 'activas' | 'cerradas'
+  const [vistaEstado, setVistaEstado] = useState("todas"); // 'todas' | 'activas' | 'cerradas'
   const [orden, setOrden] = useState("reciente"); // 'reciente' | 'lider'
   const [showNueva, setShowNueva] = useState(false);
   const [nueva, setNueva] = useState({ descripcion:"", lider_ids:[], fecha_estimada:"", comentarios:"" });
+  // Descripciones largas se muestran truncadas con un "ver más" que despliega el texto completo.
+  const [expandidas, setExpandidas] = useState(new Set());
+  const toggleExpandida = (id) => setExpandidas(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
+  const esLargo = (texto) => (texto||"").length > 60;
 
   const nombreLider = (id) => lideres.find(l=>l.id===id)?.nombre || "— sin asignar";
   const monitor = getMonitorActual(lideres);
@@ -1477,13 +1479,16 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const gruposFiltrados = gruposSemana.filter(g => !filtroLider || g.some(m=>m.lider_id===filtroLider));
   const gruposActivos = gruposFiltrados.filter(g => !esGrupoVencido(g) && !esGrupoCompletado(g));
   const gruposCerrados = gruposFiltrados.filter(g => esGrupoVencido(g) || esGrupoCompletado(g));
-  const gruposMostrados = vistaEstado==="activas" ? gruposActivos : gruposCerrados;
+  const gruposMostrados = vistaEstado==="activas" ? gruposActivos : vistaEstado==="cerradas" ? gruposCerrados : gruposFiltrados;
   const gruposOrdenados = [...gruposMostrados].sort((a,b)=> orden==="lider"
     ? nombreLider(a[0].lider_id).localeCompare(nombreLider(b[0].lider_id))
     : new Date(b[0].created_at||0) - new Date(a[0].created_at||0));
 
   // ── Crear tarea (uno o varios líderes a la vez) ────────────────────────────────
-  const abrirNueva = () => { setNueva({ descripcion:"", lider_ids:[], fecha_estimada: sumarDias(semana,7), comentarios:"" }); setShowNueva(true); };
+  // La fecha sugerida siempre es "el próximo martes desde hoy" — sin importar qué semana
+  // se esté viendo/filtrando en pantalla — para que agregar una tarea fuera de la reunión
+  // (por ejemplo días después) no herede la semana que estaba abierta en el navegador.
+  const abrirNueva = () => { setNueva({ descripcion:"", lider_ids:[], fecha_estimada: sumarDias(martesDeSemana(todayStr),7), comentarios:"" }); setShowNueva(true); };
   const toggleLiderNueva = (id) => setNueva(p => ({...p, lider_ids: p.lider_ids.includes(id) ? p.lider_ids.filter(x=>x!==id) : [...p.lider_ids, id]}));
   const todosMarcados = lideres.length>0 && nueva.lider_ids.length===lideres.length;
   const toggleTodosNueva = () => setNueva(p => ({...p, lider_ids: todosMarcados ? [] : lideres.map(l=>l.id)}));
@@ -1503,6 +1508,15 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
     if (!error && data) setCompromisos(prev=>prev.map(c=>c.id===id?data:c));
   };
   const actualizarComentarioGrupo = (g, valor) => g.forEach(m=>{ if (valor!==m.comentarios) actualizar(m.id, {comentarios:valor}); });
+  // Si la reunión no se hizo el día previsto (se corrió a otro día), una tarea puede vencer
+  // antes de que alcancen a revisarla. El monitor/master puede "reabrirla" con una nueva fecha
+  // para poder marcarla en la reunión real.
+  const reabrirVencida = (g) => {
+    const nueva = window.prompt("Esta tarea venció antes de poder revisarla. ¿Hasta qué fecha le damos más tiempo? (aaaa-mm-dd)", sumarDias(todayStr, 1));
+    if (!nueva) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { alert("Fecha inválida — usa el formato aaaa-mm-dd."); return; }
+    g.forEach(m => actualizar(m.id, { fecha_estimada: nueva }));
+  };
   const eliminarGrupo = async (g) => {
     if (!window.confirm(g.length>1 ? "¿Eliminar esta tarea compartida? Se borra para todos los asignados. Esto no se puede deshacer." : "¿Eliminar esta tarea? Esto no se puede deshacer.")) return;
     await supabase.from("junta_compromisos").delete().in("id", g.map(m=>m.id));
@@ -1545,7 +1559,8 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             <option value="lider">Ordenar: por líder</option>
           </select>
           <div style={{ display:"flex", marginLeft:"auto" }}>
-            <button onClick={()=>setVistaEstado("activas")} style={{ ...selectStyle, borderRadius:"7px 0 0 7px", background:vistaEstado==="activas"?C.gold:C.surfaceAlt, color:vistaEstado==="activas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Activas ({gruposActivos.length})</button>
+            <button onClick={()=>setVistaEstado("todas")} style={{ ...selectStyle, borderRadius:"7px 0 0 7px", background:vistaEstado==="todas"?C.gold:C.surfaceAlt, color:vistaEstado==="todas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Todas ({gruposFiltrados.length})</button>
+            <button onClick={()=>setVistaEstado("activas")} style={{ ...selectStyle, borderRadius:0, borderLeft:"none", background:vistaEstado==="activas"?C.gold:C.surfaceAlt, color:vistaEstado==="activas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Activas ({gruposActivos.length})</button>
             <button onClick={()=>setVistaEstado("cerradas")} style={{ ...selectStyle, borderRadius:"0 7px 7px 0", borderLeft:"none", background:vistaEstado==="cerradas"?C.gold:C.surfaceAlt, color:vistaEstado==="cerradas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Cerradas ({gruposCerrados.length})</button>
           </div>
         </div>
@@ -1580,28 +1595,38 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
           if (!compartida) {
             const t = base;
             const puedeMarcar = puedeGestionar && !vencida;
+            const expandida = expandidas.has(t.id);
             return (
-              <div key={t.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, flexWrap: isMobile ? "wrap" : "nowrap" }}>
-                <button onClick={puedeMarcar?()=>actualizar(t.id,{completado:!t.completado}):undefined} disabled={!puedeMarcar} title={vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${t.completado?C.green:vencida?C.red:C.border}`, background:t.completado?C.green:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{t.completado?"✓":vencida?"✕":""}</button>
-                <div style={{ flex:1, minWidth:120, textAlign:"left", fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, textDecoration:t.completado?"line-through":"none", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }} title={t.descripcion}>{t.descripcion}</div>
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:0, whiteSpace:"nowrap" }}>👤 {nombreLider(t.lider_id)}</div>
-                {t.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:11, color:vencida?C.red:C.amber, flexShrink:0 }}>📅 {t.fecha_estimada}</div>}
-                {vencida && <Badge color={C.red} sm>Vencida sin cumplir</Badge>}
-                <input placeholder="Comentario..." defaultValue={t.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==t.comentarios) actualizar(t.id,{comentarios:e.target.value}); }} style={{ width:isMobile?"100%":150, flexShrink:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
-                {puedeBorrar && <button onClick={()=>eliminarGrupo(g)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, fontSize:13 }}>🗑</button>}
+              <div key={t.id} style={{ padding:"7px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap: isMobile ? "wrap" : "nowrap" }}>
+                  <button onClick={puedeMarcar?()=>actualizar(t.id,{completado:!t.completado}):undefined} disabled={!puedeMarcar} title={vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${t.completado?C.green:vencida?C.red:C.border}`, background:t.completado?C.green:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{t.completado?"✓":vencida?"✕":""}</button>
+                  <div style={{ flex:1, minWidth:80, textAlign:"left", fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, textDecoration:t.completado?"line-through":"none", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }} title={!expandida?t.descripcion:undefined}>{t.descripcion}</div>
+                  {esLargo(t.descripcion) && <button onClick={()=>toggleExpandida(t.id)} style={{ flexShrink:0, background:"none", border:"none", color:C.gold, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandida?"ver menos":"ver más"}</button>}
+                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:0, whiteSpace:"nowrap" }}>👤 {nombreLider(t.lider_id)}</div>
+                  {t.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:11, color:vencida?C.red:C.amber, flexShrink:0 }}>📅 {t.fecha_estimada}</div>}
+                  {vencida && <Badge color={C.red} sm>Vencida sin cumplir</Badge>}
+                  {vencida && puedeGestionar && <button onClick={()=>reabrirVencida(g)} title="La reunión se corrió de fecha — reabrir con nuevo plazo" style={{ flexShrink:0, background:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir</button>}
+                  <input placeholder="Comentario..." defaultValue={t.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==t.comentarios) actualizar(t.id,{comentarios:e.target.value}); }} style={{ width:isMobile?"100%":150, flexShrink:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+                  {puedeBorrar && <button onClick={()=>eliminarGrupo(g)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, fontSize:13 }}>🗑</button>}
+                </div>
+                {expandida && <div style={{ marginTop:6, paddingLeft:28, fontFamily:font.body, fontSize:12, color:C.textSub, whiteSpace:"normal", lineHeight:1.5 }}>{t.descripcion}</div>}
               </div>
             );
           }
+          const expandidaG = expandidas.has(base.grupo_id);
           return (
             <div key={base.grupo_id} style={{ padding:"7px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8 }}>
               <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap: isMobile ? "wrap" : "nowrap" }}>
                 <Badge color={C.blue} sm>Compartida</Badge>
-                <div style={{ flex:1, minWidth:120, textAlign:"left", fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }} title={base.descripcion}>{base.descripcion}</div>
+                <div style={{ flex:1, minWidth:80, textAlign:"left", fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }} title={!expandidaG?base.descripcion:undefined}>{base.descripcion}</div>
+                {esLargo(base.descripcion) && <button onClick={()=>toggleExpandida(base.grupo_id)} style={{ flexShrink:0, background:"none", border:"none", color:C.gold, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandidaG?"ver menos":"ver más"}</button>}
                 {base.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:11, color:vencida?C.red:C.amber, flexShrink:0 }}>📅 {base.fecha_estimada}</div>}
                 {vencida && <Badge color={C.red} sm>Vencida sin cumplir</Badge>}
+                {vencida && puedeGestionar && <button onClick={()=>reabrirVencida(g)} title="La reunión se corrió de fecha — reabrir con nuevo plazo" style={{ flexShrink:0, background:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir</button>}
                 <input placeholder="Comentario..." defaultValue={base.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==base.comentarios) actualizarComentarioGrupo(g, e.target.value); }} style={{ width:isMobile?"100%":150, flexShrink:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
                 {puedeBorrar && <button onClick={()=>eliminarGrupo(g)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, fontSize:13 }}>🗑</button>}
               </div>
+              {expandidaG && <div style={{ marginTop:6, fontFamily:font.body, fontSize:12, color:C.textSub, whiteSpace:"normal", lineHeight:1.5 }}>{base.descripcion}</div>}
               <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:6 }}>
                 {g.map(m=>{
                   const puedeMarcar = puedeGestionar && !vencida;
@@ -1616,7 +1641,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             </div>
           );
         })}
-        {gruposOrdenados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>{vistaEstado==="activas" ? "Sin tareas activas para esta semana." : "Sin tareas cerradas todavía."}</div>}
+        {gruposOrdenados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>{vistaEstado==="activas" ? "Sin tareas activas para esta semana." : vistaEstado==="cerradas" ? "Sin tareas cerradas todavía." : "Sin tareas para esta semana."}</div>}
       </div>
     </div>
   );
@@ -1644,6 +1669,11 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
   const monitorActual = actual ? getMonitorDeMes(lideres, actual.anio, actual.mes) : null;
   const statsActual = actual ? statsDelMes(compromisos, actual.anio, actual.mes) : null;
   const statsLideresActual = actual ? statsPorLiderDelMes(compromisos, lideres, actual.anio, actual.mes) : [];
+  // Cumplimiento (%) y cantidad de tareas son cosas distintas — alguien puede tener pocas
+  // tareas con 100% de cumplimiento, y otra persona muchas tareas con menor %. Se muestran
+  // como dos rankings separados en vez de una sola lista.
+  const topCumplimiento = [...statsLideresActual].sort((a,b)=> b.pct - a.pct || b.total - a.total);
+  const topCantidad = [...statsLideresActual].sort((a,b)=> b.total - a.total || b.pct - a.pct);
 
   return (
     <div>
@@ -1670,18 +1700,34 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
             </div>
           </div>
           {statsLideresActual.length>0 && (
-            <>
-              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Cumplimiento por líder</div>
-              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                {statsLideresActual.map(s=>(
-                  <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
-                    <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
-                    <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadas} de {s.total} tareas</div>
-                    <Badge color={s.pct>=70?C.green:C.amber} sm>{s.pct}%</Badge>
-                  </div>
-                ))}
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16 }}>
+              <div>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Top cumplimiento</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {topCumplimiento.map((s,i)=>(
+                    <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
+                      <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
+                      <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
+                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadas} de {s.total}</div>
+                      <Badge color={s.pct>=70?C.green:C.amber} sm>{s.pct}%</Badge>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </>
+              <div>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Top cantidad de tareas</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {topCantidad.map((s,i)=>(
+                    <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
+                      <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
+                      <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
+                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.total} tareas</div>
+                      <Badge color={s.pct>=70?C.green:C.amber} sm>{s.pct}%</Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           )}
         </Card>
       )}
