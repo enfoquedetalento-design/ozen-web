@@ -1615,25 +1615,24 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
           const marcar = () => compartida ? actualizarCompletadoGrupo(g, !completadoGrupo) : actualizar(base.id, base.completado ? {completado:false,completado_en:null} : {completado:true,completado_en:new Date().toISOString()});
           const nombresLideres = g.map(m=>nombreLider(m.lider_id)).join(", ");
           return (
-            <div key={toggleId} style={{ padding:"8px 12px", background:C.surface, borderRadius:9, borderTop:`1px solid ${C.border}`, borderRight:`1px solid ${C.border}`, borderBottom:`1px solid ${C.border}`, borderLeft:`3px solid ${compartida?C.blue:C.border}` }}>
-              {/* Renglón 1: checkbox + título (ocupa exactamente el espacio libre, sin huecos) + fecha/badge a la derecha */}
-              <div style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
-                <button onClick={puedeMarcar?marcar:undefined} disabled={!puedeMarcar} title={completadoGrupo?(enGracia?"Marcada como hecha — se puede desmarcar unos minutos más":"Ya marcada como hecha — no se puede desmarcar"):vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${completadoGrupo?C.green:vencida?C.amber:C.border}`, background:completadoGrupo?C.green:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11, marginTop:1 }}>{completadoGrupo?"✓":vencida?"✕":""}</button>
-                <div style={{ display:"flex", alignItems:"baseline", gap:6, flex:1, minWidth:0 }}>
-                  <div style={{ flex:1, minWidth:0, textAlign:"left", fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, textDecoration:completadoGrupo?"line-through":"none", whiteSpace:expandida?"normal":"nowrap", overflow:expandida?"visible":"hidden", textOverflow:expandida?"clip":"ellipsis", lineHeight:1.5 }} title={!expandida?base.descripcion:undefined}>{base.descripcion}</div>
-                  <button onClick={()=>toggleExpandida(toggleId)} style={{ flexShrink:0, background:"none", border:"none", color:C.gold, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandida?"ver menos":"ver más"}</button>
-                </div>
-                <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
-                  {base.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:11, color:vencida?C.amber:C.textMuted }}>📅 {base.fecha_estimada}</div>}
-                  {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
-                  {vencida && puedeGestionar && <button onClick={()=>reabrirVencida(g)} title="La reunión se corrió de fecha — reabrir con nuevo plazo" style={{ background:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir</button>}
-                </div>
+            <div key={toggleId} style={{ padding:"7px 10px", background:C.surface, borderRadius:9, borderTop:`1px solid ${C.border}`, borderRight:`1px solid ${C.border}`, borderBottom:`1px solid ${C.border}`, borderLeft:`3px solid ${compartida?C.blue:C.border}`, display:"flex", flexDirection:"column", gap:4 }}>
+              {/* Línea 1: líder(es), fecha, estado (vencida/cumplida), reabrir */}
+              <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                <div style={{ fontFamily:font.body, fontSize:11, color:C.textSub, fontWeight:600 }}>👤 {nombresLideres}</div>
+                {base.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:10.5, color:vencida?C.amber:C.textMuted }}>📅 {base.fecha_estimada}</div>}
+                {completadoGrupo && <Badge color={C.green} sm>Cumplida</Badge>}
+                {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
+                {vencida && puedeGestionar && <button onClick={()=>reabrirVencida(g)} title="La reunión se corrió de fecha — reabrir con nuevo plazo" style={{ background:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir</button>}
               </div>
-              {/* Renglón 2: líder(es) a la izquierda, comentario + borrar a la derecha */}
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:6, paddingLeft:28 }}>
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>👤 {nombresLideres}</div>
-                <div style={{ flex:1 }} />
-                <input placeholder="Comentario..." defaultValue={base.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==base.comentarios) (compartida?actualizarComentarioGrupo(g,e.target.value):actualizar(base.id,{comentarios:e.target.value})); }} style={{ width:isMobile?140:150, flexShrink:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+              {/* Línea 2: check + tarea (ancho libre) + ver más al final */}
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <button onClick={puedeMarcar?marcar:undefined} disabled={!puedeMarcar} title={completadoGrupo?(enGracia?"Marcada como hecha — se puede desmarcar unos minutos más":"Ya marcada como hecha — no se puede desmarcar"):vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${completadoGrupo?C.green:vencida?C.amber:C.border}`, background:completadoGrupo?C.green:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{completadoGrupo?"✓":vencida?"✕":""}</button>
+                <div style={{ flex:1, minWidth:0, textAlign:"left", fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, textDecoration:completadoGrupo?"line-through":"none", whiteSpace:expandida?"normal":"nowrap", overflow:expandida?"visible":"hidden", textOverflow:expandida?"clip":"ellipsis", lineHeight:1.5 }} title={!expandida?base.descripcion:undefined}>{base.descripcion}</div>
+                <button onClick={()=>toggleExpandida(toggleId)} style={{ flexShrink:0, background:"none", border:"none", color:C.gold, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandida?"ver menos":"ver más"}</button>
+              </div>
+              {/* Línea 3: comentario (ancho libre) + eliminar */}
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <input placeholder="Comentario..." defaultValue={base.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==base.comentarios) (compartida?actualizarComentarioGrupo(g,e.target.value):actualizar(base.id,{comentarios:e.target.value})); }} style={{ flex:1, minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
                 {puedeBorrar && <button onClick={()=>eliminarGrupo(g)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, fontSize:13 }}>🗑</button>}
               </div>
             </div>
