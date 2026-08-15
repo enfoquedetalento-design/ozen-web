@@ -151,6 +151,10 @@ const martesSemanaN = (anio, mes, n) => martesDelMes(anio, mes)[n-1] || null;
 // a una fecha más lejana) — es cuando se revisa en la siguiente reunión si se cumplió o no. Si
 // pasa ese día y no se marcó completada, queda cerrada como "no realizada" sin poder marcarse.
 const tareaVencidaNoRealizada = (t) => !t.completado && !!t.fecha_estimada && todayStr > t.fecha_estimada;
+// Al marcar una tarea como hecha hay 5 minutos de gracia para desmarcarla por si fue un error
+// (típico durante la reunión en vivo). Pasado ese tiempo queda fija.
+const GRACIA_DESMARCAR_MS = 5 * 60 * 1000;
+const dentroDeGracia = (t) => !!t.completado_en && (Date.now() - new Date(t.completado_en).getTime()) < GRACIA_DESMARCAR_MS;
 // Indicadores de un mes: sesiones registradas (martes con al menos una tarea) y % de tareas completadas.
 const statsDelMes = (compromisos, anio, mes) => {
   const martes = martesDelMes(anio, mes);
@@ -1431,6 +1435,10 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const soloLectura = useReadOnly();
   const [semana, setSemana] = useState(martesDeSemana(todayStr));
   const [filtroLider, setFiltroLider] = useState("");
+  // Refresca la pantalla cada tanto para que los 5 minutos de gracia de "desmarcar" se venzan
+  // solos en pantalla, sin necesidad de recargar la página.
+  const [, tick] = useState(0);
+  useEffect(() => { const iv = setInterval(() => tick(x => x + 1), 15000); return () => clearInterval(iv); }, []);
   const [vistaEstado, setVistaEstado] = useState("todas"); // 'todas' | 'activas' | 'cerradas'
   const [orden, setOrden] = useState("reciente"); // 'reciente' | 'lider'
   const [showNueva, setShowNueva] = useState(false);
@@ -1511,7 +1519,10 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   // Una tarea compartida se marca como un solo bloque (se hizo o no se hizo entre todos los
   // responsables), no persona por persona — pero cada fila individual sigue guardando su propio
   // completado=true/false para que los indicadores por líder sigan contando el crédito de cada uno.
-  const actualizarCompletadoGrupo = (g, valor) => g.forEach(m => actualizar(m.id, { completado: valor }));
+  const actualizarCompletadoGrupo = (g, valor) => {
+    const patch = valor ? { completado:true, completado_en:new Date().toISOString() } : { completado:false, completado_en:null };
+    g.forEach(m => actualizar(m.id, patch));
+  };
   // Si la reunión no se hizo el día previsto (se corrió a otro día), una tarea puede vencer
   // antes de que alcancen a revisarla. El monitor/master puede "reabrirla" con una nueva fecha
   // para poder marcarla en la reunión real.
@@ -1568,7 +1579,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             <button onClick={()=>setVistaEstado("cerradas")} style={{ ...selectStyle, borderRadius:"0 7px 7px 0", borderLeft:"none", background:vistaEstado==="cerradas"?C.gold:C.surfaceAlt, color:vistaEstado==="cerradas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Cerradas ({gruposCerrados.length})</button>
           </div>
         </div>
-        <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:8 }}>💡 Se puede marcar como hecha hasta su fecha de vencimiento. Después queda cerrada como vencida sin poder marcarse (a menos que se "reabra" con una nueva fecha). Una vez marcada como hecha, no se puede desmarcar.</div>
+        <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:8 }}>💡 Se puede marcar como hecha hasta su fecha de vencimiento. Después queda cerrada como vencida sin poder marcarse (a menos que se "reabra" con una nueva fecha). Al marcarla, hay 5 minutos para desmarcarla por si fue un error — después queda fija.</div>
         {!puedeGestionar && !soloLectura && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:4 }}>Solo el monitor de turno puede crear tareas nuevas.</div>}
       </Card>
 
@@ -1598,14 +1609,15 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
           const puedeBorrar = puedeBorrarGrupo(g);
           if (!compartida) {
             const t = base;
-            // Una vez marcada como hecha queda fija — no se puede desmarcar por accidente desde
-            // la app. Si de verdad hay un error, se corrige directo en la base de datos.
-            const puedeMarcar = puedeGestionar && !vencida && !t.completado;
+            // Se puede desmarcar solo dentro de los primeros 5 minutos después de marcarla
+            // (para corregir un error al vuelo en la reunión). Pasado eso, queda fija.
+            const enGracia = t.completado && dentroDeGracia(t);
+            const puedeMarcar = puedeGestionar && (t.completado ? enGracia : !vencida);
             const expandida = expandidas.has(t.id);
             return (
               <div key={t.id} style={{ padding:"7px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap: expandida ? "wrap" : (isMobile ? "wrap" : "nowrap") }}>
-                  <button onClick={puedeMarcar?()=>actualizar(t.id,{completado:true}):undefined} disabled={!puedeMarcar} title={t.completado?"Ya marcada como hecha — no se puede desmarcar":vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${t.completado?C.green:vencida?C.red:C.border}`, background:t.completado?C.green:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{t.completado?"✓":vencida?"✕":""}</button>
+                  <button onClick={puedeMarcar?()=>actualizar(t.id, t.completado?{completado:false,completado_en:null}:{completado:true,completado_en:new Date().toISOString()}):undefined} disabled={!puedeMarcar} title={t.completado?(enGracia?"Marcada como hecha — se puede desmarcar unos minutos más":"Ya marcada como hecha — pasaron los 5 minutos, no se puede desmarcar"):vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${t.completado?C.green:vencida?C.red:C.border}`, background:t.completado?C.green:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{t.completado?"✓":vencida?"✕":""}</button>
                   <div style={{ flex: expandida?"1 1 100%":1, order: expandida?-1:0, minWidth:80, textAlign:"left", fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, textDecoration:t.completado?"line-through":"none", whiteSpace:expandida?"normal":"nowrap", overflow:expandida?"visible":"hidden", textOverflow:expandida?"clip":"ellipsis", lineHeight:1.5 }} title={!expandida?t.descripcion:undefined}>{t.descripcion}</div>
                   <button onClick={()=>toggleExpandida(t.id)} style={{ flexShrink:0, order: expandida?-1:0, background:"none", border:"none", color:C.gold, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandida?"ver menos":"ver más"}</button>
                   <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:0, whiteSpace:"nowrap" }}>👤 {nombreLider(t.lider_id)}</div>
@@ -1620,13 +1632,15 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
           }
           const expandidaG = expandidas.has(base.grupo_id);
           const completadoGrupo = esGrupoCompletado(g);
+          const enGraciaGrupo = completadoGrupo && dentroDeGracia(base);
           // Se marca como un solo bloque (no por persona) — pero se sigue guardando en cada fila
-          // para que el crédito individual en Indicadores funcione igual que antes.
-          const puedeMarcarGrupo = puedeGestionar && !vencida && !completadoGrupo;
+          // para que el crédito individual en Indicadores funcione igual que antes. Mismos 5
+          // minutos de gracia para desmarcar por error.
+          const puedeMarcarGrupo = puedeGestionar && (completadoGrupo ? enGraciaGrupo : !vencida);
           return (
             <div key={base.grupo_id} style={{ padding:"7px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8 }}>
               <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap: expandidaG ? "wrap" : (isMobile ? "wrap" : "nowrap") }}>
-                <button onClick={puedeMarcarGrupo?()=>actualizarCompletadoGrupo(g,true):undefined} disabled={!puedeMarcarGrupo} title={completadoGrupo?"Ya marcada como hecha — no se puede desmarcar":vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${completadoGrupo?C.green:vencida?C.red:C.border}`, background:completadoGrupo?C.green:"transparent", cursor:puedeMarcarGrupo?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{completadoGrupo?"✓":vencida?"✕":""}</button>
+                <button onClick={puedeMarcarGrupo?()=>actualizarCompletadoGrupo(g,!completadoGrupo):undefined} disabled={!puedeMarcarGrupo} title={completadoGrupo?(enGraciaGrupo?"Marcada como hecha — se puede desmarcar unos minutos más":"Ya marcada como hecha — pasaron los 5 minutos, no se puede desmarcar"):vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${completadoGrupo?C.green:vencida?C.red:C.border}`, background:completadoGrupo?C.green:"transparent", cursor:puedeMarcarGrupo?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{completadoGrupo?"✓":vencida?"✕":""}</button>
                 <Badge color={C.blue} sm>Compartida</Badge>
                 <div style={{ flex: expandidaG?"1 1 100%":1, order: expandidaG?-1:0, minWidth:80, textAlign:"left", fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, textDecoration:completadoGrupo?"line-through":"none", whiteSpace:expandidaG?"normal":"nowrap", overflow:expandidaG?"visible":"hidden", textOverflow:expandidaG?"clip":"ellipsis", lineHeight:1.5 }} title={!expandidaG?base.descripcion:undefined}>{base.descripcion}</div>
                 <button onClick={()=>toggleExpandida(base.grupo_id)} style={{ flexShrink:0, order: expandidaG?-1:0, background:"none", border:"none", color:C.gold, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandidaG?"ver menos":"ver más"}</button>
