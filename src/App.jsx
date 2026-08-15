@@ -1434,7 +1434,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   // solos en pantalla, sin necesidad de recargar la página.
   const [, tick] = useState(0);
   useEffect(() => { const iv = setInterval(() => tick(x => x + 1), 15000); return () => clearInterval(iv); }, []);
-  const [vistaEstado, setVistaEstado] = useState("todas"); // 'todas' | 'cumplidas' | 'vencidas'
+  const [vistaEstado, setVistaEstado] = useState("activas"); // 'activas' | 'todas' | 'cumplidas' | 'vencidas'
   const [orden, setOrden] = useState("reciente"); // 'reciente' | 'lider'
   const [showNueva, setShowNueva] = useState(false);
   const [nueva, setNueva] = useState({ descripcion:"", lider_ids:[], fecha_estimada:"", comentarios:"" });
@@ -1478,7 +1478,8 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const gruposFiltrados = gruposMes.filter(g => !filtroLider || g.some(m=>m.lider_id===filtroLider));
   const gruposCumplidos = gruposFiltrados.filter(esGrupoCompletado);
   const gruposVencidos = gruposFiltrados.filter(esGrupoVencido);
-  const gruposMostrados = vistaEstado==="cumplidas" ? gruposCumplidos : vistaEstado==="vencidas" ? gruposVencidos : gruposFiltrados;
+  const gruposActivos = gruposFiltrados.filter(g => !esGrupoVencido(g) && !esGrupoCompletado(g));
+  const gruposMostrados = vistaEstado==="activas" ? gruposActivos : vistaEstado==="cumplidas" ? gruposCumplidos : vistaEstado==="vencidas" ? gruposVencidos : gruposFiltrados;
   const gruposOrdenados = [...gruposMostrados].sort((a,b)=> orden==="lider"
     ? nombreLider(a[0].lider_id).localeCompare(nombreLider(b[0].lider_id))
     : new Date(b[0].created_at||0) - new Date(a[0].created_at||0));
@@ -1569,7 +1570,8 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             <option value="lider">Ordenar: por líder</option>
           </select>
           <div style={{ display:"flex", marginLeft:"auto" }}>
-            <button onClick={()=>setVistaEstado("todas")} style={{ ...selectStyle, borderRadius:"7px 0 0 7px", background:vistaEstado==="todas"?C.gold:C.surfaceAlt, color:vistaEstado==="todas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Todas ({gruposFiltrados.length})</button>
+            <button onClick={()=>setVistaEstado("activas")} style={{ ...selectStyle, borderRadius:"7px 0 0 7px", background:vistaEstado==="activas"?C.gold:C.surfaceAlt, color:vistaEstado==="activas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Activas ({gruposActivos.length})</button>
+            <button onClick={()=>setVistaEstado("todas")} style={{ ...selectStyle, borderRadius:0, borderLeft:"none", background:vistaEstado==="todas"?C.gold:C.surfaceAlt, color:vistaEstado==="todas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Todas ({gruposFiltrados.length})</button>
             <button onClick={()=>setVistaEstado("cumplidas")} style={{ ...selectStyle, borderRadius:0, borderLeft:"none", background:vistaEstado==="cumplidas"?C.gold:C.surfaceAlt, color:vistaEstado==="cumplidas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Cumplidas ({gruposCumplidos.length})</button>
             <button onClick={()=>setVistaEstado("vencidas")} style={{ ...selectStyle, borderRadius:"0 7px 7px 0", borderLeft:"none", background:vistaEstado==="vencidas"?C.gold:C.surfaceAlt, color:vistaEstado==="vencidas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Vencidas ({gruposVencidos.length})</button>
           </div>
@@ -1613,24 +1615,23 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
           const marcar = () => compartida ? actualizarCompletadoGrupo(g, !completadoGrupo) : actualizar(base.id, base.completado ? {completado:false,completado_en:null} : {completado:true,completado_en:new Date().toISOString()});
           const nombresLideres = g.map(m=>nombreLider(m.lider_id)).join(", ");
           return (
-            <div key={toggleId} style={{ padding:"9px 12px", background:C.surface, borderRadius:9, borderTop:`1px solid ${C.border}`, borderRight:`1px solid ${C.border}`, borderBottom:`1px solid ${C.border}`, borderLeft:`3px solid ${compartida?C.blue:C.border}` }}>
-              <div style={{ display:"flex", alignItems:"center", gap:9 }}>
+            <div key={toggleId} style={{ padding:"8px 12px", background:C.surface, borderRadius:9, borderTop:`1px solid ${C.border}`, borderRight:`1px solid ${C.border}`, borderBottom:`1px solid ${C.border}`, borderLeft:`3px solid ${compartida?C.blue:C.border}` }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", rowGap:6 }}>
                 <button onClick={puedeMarcar?marcar:undefined} disabled={!puedeMarcar} title={completadoGrupo?(enGracia?"Marcada como hecha — se puede desmarcar unos minutos más":"Ya marcada como hecha — no se puede desmarcar"):vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${completadoGrupo?C.green:vencida?C.amber:C.border}`, background:completadoGrupo?C.green:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{completadoGrupo?"✓":vencida?"✕":""}</button>
-                <div style={{ flex:1, minWidth:60, textAlign:"left", fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, textDecoration:completadoGrupo?"line-through":"none", whiteSpace:expandida?"normal":"nowrap", overflow:expandida?"visible":"hidden", textOverflow:expandida?"clip":"ellipsis", lineHeight:1.5 }} title={!expandida?base.descripcion:undefined}>{base.descripcion}</div>
-                <button onClick={()=>toggleExpandida(toggleId)} style={{ flexShrink:0, background:"none", border:"none", color:C.gold, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandida?"ver menos":"ver más"}</button>
-              </div>
-              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginTop:6, paddingLeft:29 }}>
+                <div style={{ flex: expandida?"1 1 100%":"0 1 260px", order: expandida?-1:0, minWidth:80, textAlign:"left", fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, textDecoration:completadoGrupo?"line-through":"none", whiteSpace:expandida?"normal":"nowrap", overflow:expandida?"visible":"hidden", textOverflow:expandida?"clip":"ellipsis", lineHeight:1.5 }} title={!expandida?base.descripcion:undefined}>{base.descripcion}</div>
+                <button onClick={()=>toggleExpandida(toggleId)} style={{ flexShrink:0, order: expandida?-1:0, background:"none", border:"none", color:C.gold, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandida?"ver menos":"ver más"}</button>
                 <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:0 }}>👤 {nombresLideres}</div>
                 {base.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:11, color:vencida?C.amber:C.textMuted, flexShrink:0 }}>📅 {base.fecha_estimada}</div>}
                 {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
                 {vencida && puedeGestionar && <button onClick={()=>reabrirVencida(g)} title="La reunión se corrió de fecha — reabrir con nuevo plazo" style={{ flexShrink:0, background:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir</button>}
-                <input placeholder="Comentario..." defaultValue={base.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==base.comentarios) (compartida?actualizarComentarioGrupo(g,e.target.value):actualizar(base.id,{comentarios:e.target.value})); }} style={{ width:isMobile?"100%":150, flexShrink:0, marginLeft:"auto", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+                <div style={{ flex:"1 1 0", minWidth:0 }} />
+                <input placeholder="Comentario..." defaultValue={base.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==base.comentarios) (compartida?actualizarComentarioGrupo(g,e.target.value):actualizar(base.id,{comentarios:e.target.value})); }} style={{ width:isMobile?"100%":150, flexShrink:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
                 {puedeBorrar && <button onClick={()=>eliminarGrupo(g)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, fontSize:13 }}>🗑</button>}
               </div>
             </div>
           );
         })}
-        {gruposOrdenados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>{vistaEstado==="cumplidas" ? "Sin tareas cumplidas todavía." : vistaEstado==="vencidas" ? "Sin tareas vencidas." : "Sin tareas para este período."}</div>}
+        {gruposOrdenados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>{vistaEstado==="activas" ? "Sin tareas activas." : vistaEstado==="cumplidas" ? "Sin tareas cumplidas todavía." : vistaEstado==="vencidas" ? "Sin tareas vencidas." : "Sin tareas para este período."}</div>}
       </div>
     </div>
   );
