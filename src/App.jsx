@@ -128,9 +128,8 @@ const esMonitorActual = (user, lideres) => {
   // sensitivity:"base" ignora mayúsculas y tildes, así que "José" y "jose" cuentan como el mismo nombre.
   return normalizarNombre(monitor.nombre).localeCompare(normalizarNombre(user.name), "es", { sensitivity:"base" }) === 0;
 };
-// Una tarea que no se marcó completada y ya pasaron más de 3 días desde la fecha en que se
-// esperaba, queda cerrada como "no realizada" — ya no se puede marcar completada desde ahí.
-const tareaVencidaNoRealizada = (t) => !t.completado && !!t.fecha_estimada && diasEntre(t.fecha_estimada, todayStr) > 3;
+// Suma (o resta, con n negativo) n días de calendario a una fecha "aaaa-mm-dd".
+const sumarDias = (fechaStr, n) => fmt(new Date(new Date(fechaStr+"T12:00:00").getTime() + n*86400000));
 // Fechas (aaaa-mm-dd) de todos los martes de un mes calendario dado.
 const martesDelMes = (anio, mes) => {
   const dias = [];
@@ -140,6 +139,30 @@ const martesDelMes = (anio, mes) => {
     d.setDate(d.getDate() + 1);
   }
   return dias;
+};
+// Una tarea vence en su fecha_estimada (por defecto el martes de la siguiente semana, editable
+// a una fecha más lejana) — es cuando se revisa en la siguiente reunión si se cumplió o no. Si
+// pasa ese día y no se marcó completada, queda cerrada como "no realizada" sin poder marcarse.
+const tareaVencidaNoRealizada = (t) => !t.completado && !!t.fecha_estimada && todayStr > t.fecha_estimada;
+// Al marcar una tarea como hecha hay 5 minutos de gracia para desmarcarla por si fue un error
+// (típico durante la reunión en vivo). Pasado ese tiempo queda fija.
+const GRACIA_DESMARCAR_MS = 5 * 60 * 1000;
+const dentroDeGracia = (t) => !!t.completado_en && (Date.now() - new Date(t.completado_en).getTime()) < GRACIA_DESMARCAR_MS;
+// El monitor de turno solo puede gestionar (marcar, reabrir, borrar) las tareas de su mes en
+// curso, más la última semana del monitor anterior — para poder cerrar lo que quedó pendiente
+// si la reunión de traspaso se corrió de fecha. Todo lo anterior a esa semana queda congelado
+// (de solo lectura, salvo para master), para que el indicador de un mes ya cerrado no se pueda
+// alterar después de que ese monitor entregó el turno.
+const fronteraCongelamiento = () => {
+  const hoy = toColombiaDate();
+  let anio = hoy.getFullYear(), mes = hoy.getMonth() - 1;
+  if (mes < 0) { mes = 11; anio -= 1; }
+  const semanasMesAnterior = martesDelMes(anio, mes);
+  return semanasMesAnterior.length ? semanasMesAnterior[semanasMesAnterior.length - 1] : null;
+};
+const semanaCongelada = (semanaTarea) => {
+  const frontera = fronteraCongelamiento();
+  return !!frontera && !!semanaTarea && semanaTarea < frontera;
 };
 // Indicadores de un mes: sesiones registradas (martes con al menos una tarea) y % de tareas completadas.
 const statsDelMes = (compromisos, anio, mes) => {
@@ -1416,14 +1439,26 @@ function JuntaAcuerdosTab({ user, acuerdos, setAcuerdos }) {
 }
 
 // ── SCREEN: Junta Admin — Seguimiento semanal (checklist) ───────────────────
-const TODOS_LIDER_ID = "__todos__";
 function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, isMobile }) {
   const soloLectura = useReadOnly();
-  const [semana, setSemana] = useState(martesDeSemana(todayStr));
+  // Por defecto se ve todo el mes junto (semanaFiltro=""); si se quiere, se puede acotar a una
+  // sola semana con el segundo selector.
+  const [mesSel, setMesSel] = useState(() => martesDeSemana(todayStr).slice(0,7));
+  const [semanaFiltro, setSemanaFiltro] = useState("");
+  const [filtroLider, setFiltroLider] = useState("");
+  // Refresca la pantalla cada tanto para que los 5 minutos de gracia de "desmarcar" se venzan
+  // solos en pantalla, sin necesidad de recargar la página.
+  const [, tick] = useState(0);
+  useEffect(() => { const iv = setInterval(() => tick(x => x + 1), 15000); return () => clearInterval(iv); }, []);
+  const [vistaEstado, setVistaEstado] = useState("activas"); // 'activas' | 'todas' | 'cumplidas' | 'vencidas'
+  const [orden, setOrden] = useState("reciente"); // 'reciente' | 'lider'
   const [showNueva, setShowNueva] = useState(false);
-  const [nueva, setNueva] = useState({ descripcion:"", lider_id:"", fecha_estimada:"", comentarios:"" });
+  const [nueva, setNueva] = useState({ descripcion:"", lider_ids:[], fecha_estimada:"", comentarios:"" });
+  // La descripción se muestra truncada en una línea con un "ver más" que la deja crecer y
+  // hacer wrap en el mismo lugar (sin duplicar el texto en otro bloque aparte).
+  const [expandidas, setExpandidas] = useState(new Set());
+  const toggleExpandida = (id) => setExpandidas(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
 
-  const tareas = compromisos.filter(c=>c.semana===semana);
   const nombreLider = (id) => lideres.find(l=>l.id===id)?.nombre || "— sin asignar";
   const monitor = getMonitorActual(lideres);
   const esMonitor = esMonitorActual(user, lideres);
@@ -1431,33 +1466,103 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   // respaldo por si el nombre del líder no coincide exactamente con el de la cuenta que entra.
   const puedeGestionar = !soloLectura && (user.role==="master" || esMonitor);
 
+  // ── Mes → semanas del mes (martes) ─────────────────────────────────────────────
+  const [anioSel, mesNumSel] = mesSel.split("-").map(Number);
+  const martesDelMesSel = martesDelMes(anioSel, mesNumSel-1);
+  const cambiarMes = (valorMes) => { setMesSel(valorMes); setSemanaFiltro(""); };
+  const irAEstaSemana = () => { const t = martesDeSemana(todayStr); setMesSel(t.slice(0,7)); setSemanaFiltro(t); };
+  const etiquetaSemana = (mt) => new Date(mt+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"});
+
+  const tareasDelMes = compromisos.filter(c=>martesDelMesSel.includes(c.semana));
+  const tareasVista = semanaFiltro ? tareasDelMes.filter(c=>c.semana===semanaFiltro) : tareasDelMes;
+
+  // ── Agrupa tareas compartidas (mismo grupo_id) en un solo bloque visual ────────
+  const agrupar = (lista) => {
+    const vistos = new Set(); const grupos = [];
+    lista.forEach(t=>{
+      if (vistos.has(t.id)) return;
+      const miembros = t.grupo_id ? lista.filter(x=>x.grupo_id===t.grupo_id) : [t];
+      miembros.forEach(m=>vistos.add(m.id));
+      grupos.push(miembros);
+    });
+    return grupos;
+  };
+  const esGrupoVencido = (g) => tareaVencidaNoRealizada(g[0]);
+  const esGrupoCompletado = (g) => g.every(m=>m.completado);
+
+  const gruposMes = agrupar(tareasVista);
+  const gruposFiltrados = gruposMes.filter(g => !filtroLider || g.some(m=>m.lider_id===filtroLider));
+  const gruposCumplidos = gruposFiltrados.filter(esGrupoCompletado);
+  const gruposVencidos = gruposFiltrados.filter(esGrupoVencido);
+  const gruposActivos = gruposFiltrados.filter(g => !esGrupoVencido(g) && !esGrupoCompletado(g));
+  const gruposMostrados = vistaEstado==="activas" ? gruposActivos : vistaEstado==="cumplidas" ? gruposCumplidos : vistaEstado==="vencidas" ? gruposVencidos : gruposFiltrados;
+  const gruposOrdenados = [...gruposMostrados].sort((a,b)=> orden==="lider"
+    ? nombreLider(a[0].lider_id).localeCompare(nombreLider(b[0].lider_id))
+    : new Date(b[0].created_at||0) - new Date(a[0].created_at||0));
+
+  // ── Crear tarea (uno o varios líderes a la vez) ────────────────────────────────
+  // La fecha sugerida siempre es "el próximo martes desde hoy" — sin importar qué se esté
+  // viendo/filtrando en pantalla — para que agregar una tarea fuera de la reunión (por ejemplo
+  // días después) no herede una semana equivocada.
+  const abrirNueva = () => { setNueva({ descripcion:"", lider_ids:[], fecha_estimada: sumarDias(martesDeSemana(todayStr),7), comentarios:"" }); setShowNueva(true); };
+  const toggleLiderNueva = (id) => setNueva(p => ({...p, lider_ids: p.lider_ids.includes(id) ? p.lider_ids.filter(x=>x!==id) : [...p.lider_ids, id]}));
+  const todosMarcados = lideres.length>0 && nueva.lider_ids.length===lideres.length;
+  const toggleTodosNueva = () => setNueva(p => ({...p, lider_ids: todosMarcados ? [] : lideres.map(l=>l.id)}));
+
   const crear = async () => {
-    if (!nueva.descripcion.trim()) return;
-    if (nueva.lider_id===TODOS_LIDER_ID) {
-      const filas = lideres.map(l=>({
-        semana, descripcion:nueva.descripcion.trim(), lider_id:l.id,
-        fecha_estimada:nueva.fecha_estimada||null, comentarios:nueva.comentarios.trim(), completado:false,
-      }));
-      if (filas.length===0) return;
-      const { data, error } = await supabase.from("junta_compromisos").insert(filas).select();
-      if (!error && data) { setCompromisos(prev=>[...data, ...prev]); setNueva({ descripcion:"", lider_id:"", fecha_estimada:"", comentarios:"" }); setShowNueva(false); }
-      return;
-    }
-    const { data, error } = await supabase.from("junta_compromisos").insert({
-      semana, descripcion:nueva.descripcion.trim(), lider_id:nueva.lider_id||null,
-      fecha_estimada:nueva.fecha_estimada||null, comentarios:nueva.comentarios.trim(), completado:false,
-    }).select().single();
-    if (!error && data) { setCompromisos(prev=>[data, ...prev]); setNueva({ descripcion:"", lider_id:"", fecha_estimada:"", comentarios:"" }); setShowNueva(false); }
+    if (!nueva.descripcion.trim() || nueva.lider_ids.length===0) return;
+    // Si se está viendo una semana específica, la tarea nueva queda ahí; si se está viendo
+    // "todo el mes", queda en la semana real de hoy.
+    const semanaTarea = semanaFiltro || martesDeSemana(todayStr);
+    // No se pueden crear tareas retroactivas en un período ya congelado (eso permitiría inflar
+    // el indicador de un mes que ya se cerró).
+    if (semanaCongelada(semanaTarea) && user.role!=="master") { alert("Ese período ya quedó congelado — no se pueden agregar tareas ahí."); return; }
+    const grupoId = nueva.lider_ids.length>1 ? crypto.randomUUID() : null;
+    const filas = nueva.lider_ids.map(lid=>({
+      semana:semanaTarea, descripcion:nueva.descripcion.trim(), lider_id:lid,
+      fecha_estimada:nueva.fecha_estimada||null, comentarios:nueva.comentarios.trim(), completado:false, grupo_id:grupoId,
+    }));
+    const { data, error } = await supabase.from("junta_compromisos").insert(filas).select();
+    if (!error && data) { setCompromisos(prev=>[...data, ...prev]); setShowNueva(false); }
   };
   const actualizar = async (id, patch) => {
     const { data, error } = await supabase.from("junta_compromisos").update(patch).eq("id", id).select().single();
     if (!error && data) setCompromisos(prev=>prev.map(c=>c.id===id?data:c));
   };
-  const eliminar = async (id) => {
-    if (!window.confirm("¿Eliminar esta tarea? Esto no se puede deshacer.")) return;
-    await supabase.from("junta_compromisos").delete().eq("id", id);
-    setCompromisos(prev=>prev.filter(c=>c.id!==id));
+  const actualizarComentarioGrupo = (g, valor) => g.forEach(m=>{ if (valor!==m.comentarios) actualizar(m.id, {comentarios:valor}); });
+  // Una tarea compartida se marca como un solo bloque (se hizo o no se hizo entre todos los
+  // responsables), no persona por persona — pero cada fila individual sigue guardando su propio
+  // completado=true/false para que los indicadores por líder sigan contando el crédito de cada uno.
+  // Queda registrado quién marcó la tarea como hecha (y quién la desmarcó), no solo cuándo —
+  // así se puede revisar después si alguien se marcó tareas propias de forma sospechosa.
+  const actualizarCompletadoGrupo = (g, valor) => {
+    const patch = valor ? { completado:true, completado_en:new Date().toISOString(), completado_por:user.name } : { completado:false, completado_en:null, completado_por:null };
+    g.forEach(m => actualizar(m.id, patch));
   };
+  // Si la reunión no se hizo el día previsto (se corrió a otro día), una tarea puede vencer
+  // antes de que alcancen a revisarla. El monitor/master puede "reabrirla" con una nueva fecha
+  // para poder marcarla en la reunión real. Queda registrado quién la reabrió y cuándo.
+  const reabrirVencida = (g) => {
+    const nueva = window.prompt("Esta tarea venció antes de poder revisarla. ¿Hasta qué fecha le damos más tiempo? (aaaa-mm-dd)", sumarDias(todayStr, 1));
+    if (!nueva) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { alert("Fecha inválida — usa el formato aaaa-mm-dd."); return; }
+    g.forEach(m => actualizar(m.id, { fecha_estimada: nueva, reabierta_por:user.name, reabierta_en:new Date().toISOString() }));
+  };
+  const eliminarGrupo = async (g) => {
+    if (!window.confirm(g.length>1 ? "¿Eliminar esta tarea compartida? Se borra para todos los asignados. Esto no se puede deshacer." : "¿Eliminar esta tarea? Esto no se puede deshacer.")) return;
+    await supabase.from("junta_compromisos").delete().in("id", g.map(m=>m.id));
+    setCompromisos(prev=>prev.filter(c=>!g.some(m=>m.id===c.id)));
+  };
+  // El monitor solo puede borrar tareas activas de un período no congelado; lo cerrado o lo de
+  // meses ya entregados queda solo para master.
+  const puedeBorrarGrupo = (g) => {
+    if (soloLectura) return false;
+    if (user.role==="master") return true;
+    const cerrada = esGrupoVencido(g) || esGrupoCompletado(g);
+    return esMonitor && !cerrada && !semanaCongelada(g[0].semana);
+  };
+
+  const selectStyle = { background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" };
 
   return (
     <div>
@@ -1474,51 +1579,100 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
       </Card>
 
       <Card style={{ marginBottom:16 }} p="12px">
-        <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>Semana del martes</div>
-          <input type="date" value={semana} onChange={e=>setSemana(martesDeSemana(e.target.value))} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}/>
-          <Btn onClick={()=>setSemana(martesDeSemana(todayStr))} variant="ghost" sm>Esta semana</Btn>
-          {puedeGestionar && <Btn onClick={()=>setShowNueva(true)} sm style={{ marginLeft:"auto" }}>+ Nueva tarea</Btn>}
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+          <input type="month" value={mesSel} onChange={e=>cambiarMes(e.target.value)} style={selectStyle}/>
+          <select value={semanaFiltro} onChange={e=>setSemanaFiltro(e.target.value)} style={selectStyle}>
+            <option value="">Todo el mes</option>
+            {martesDelMesSel.map((mt,i)=><option key={mt} value={mt}>Semana {i+1} · {etiquetaSemana(mt)}</option>)}
+          </select>
+          <Btn onClick={irAEstaSemana} variant="ghost" sm>Esta semana</Btn>
+          {puedeGestionar && <Btn onClick={abrirNueva} sm style={{ marginLeft:"auto" }}>+ Nueva tarea</Btn>}
         </div>
-        <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:8 }}>💡 Si la reunión se hace otro día de esa semana (miércoles, jueves...), igual selecciona esa fecha — la app la archiva sola bajo el martes correcto, aunque ese martes sea de otro mes.</div>
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginTop:8, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
+          <select value={filtroLider} onChange={e=>setFiltroLider(e.target.value)} style={selectStyle}>
+            <option value="">Todos los líderes</option>
+            {lideres.map(l=><option key={l.id} value={l.id}>{l.nombre||"(sin nombre)"}</option>)}
+          </select>
+          <select value={orden} onChange={e=>setOrden(e.target.value)} style={selectStyle}>
+            <option value="reciente">Ordenar: más reciente</option>
+            <option value="lider">Ordenar: por líder</option>
+          </select>
+          <div style={{ display:"flex", marginLeft:"auto" }}>
+            <button onClick={()=>setVistaEstado("activas")} style={{ ...selectStyle, borderRadius:"7px 0 0 7px", background:vistaEstado==="activas"?C.gold:C.surfaceAlt, color:vistaEstado==="activas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Activas ({gruposActivos.length})</button>
+            <button onClick={()=>setVistaEstado("todas")} style={{ ...selectStyle, borderRadius:0, borderLeft:"none", background:vistaEstado==="todas"?C.gold:C.surfaceAlt, color:vistaEstado==="todas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Todas ({gruposFiltrados.length})</button>
+            <button onClick={()=>setVistaEstado("cumplidas")} style={{ ...selectStyle, borderRadius:0, borderLeft:"none", background:vistaEstado==="cumplidas"?C.gold:C.surfaceAlt, color:vistaEstado==="cumplidas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Cumplidas ({gruposCumplidos.length})</button>
+            <button onClick={()=>setVistaEstado("vencidas")} style={{ ...selectStyle, borderRadius:"0 7px 7px 0", borderLeft:"none", background:vistaEstado==="vencidas"?C.gold:C.surfaceAlt, color:vistaEstado==="vencidas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Vencidas ({gruposVencidos.length})</button>
+          </div>
+        </div>
+        <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:8 }}>💡 Se puede marcar como hecha hasta su fecha de vencimiento — después queda vencida sin poder marcarse (a menos que se "reabra" con una nueva fecha). Al marcarla, hay 5 minutos para desmarcarla por si fue un error.</div>
         {!puedeGestionar && !soloLectura && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:4 }}>Solo el monitor de turno puede crear tareas nuevas.</div>}
       </Card>
 
       {puedeGestionar && showNueva && (
         <Card style={{ marginBottom:16 }} p="10px">
           <input value={nueva.descripcion} onChange={e=>setNueva(p=>({...p,descripcion:e.target.value}))} placeholder="¿Qué hay que hacer?" style={{ width:"100%", marginBottom:6, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
-          <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1.4fr 1fr 1.3fr", gap:6, marginBottom:6 }}>
-            <select value={nueva.lider_id} onChange={e=>setNueva(p=>({...p,lider_id:e.target.value}))} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}>
-              <option value="">Quién la hace...</option>
-              <option value={TODOS_LIDER_ID}>Todos (una por líder)</option>
-              {lideres.map(l=><option key={l.id} value={l.id}>{l.nombre||"(sin nombre)"}</option>)}
-            </select>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:4 }}>¿Quién la hace? (una o varias personas)</div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:6 }}>
+            <button onClick={toggleTodosNueva} style={{ padding:"5px 10px", borderRadius:99, border:`1px solid ${todosMarcados?C.gold:C.border}`, background:todosMarcados?C.gold:C.surfaceAlt, color:todosMarcados?"#fff":C.textSub, fontSize:11, fontFamily:font.body, cursor:"pointer", fontWeight:600 }}>Todos</button>
+            {lideres.map(l=>{ const marcado = nueva.lider_ids.includes(l.id); return (
+              <button key={l.id} onClick={()=>toggleLiderNueva(l.id)} style={{ padding:"5px 10px", borderRadius:99, border:`1px solid ${marcado?C.gold:C.border}`, background:marcado?C.gold:C.surfaceAlt, color:marcado?"#fff":C.textSub, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{l.nombre||"(sin nombre)"}</button>
+            );})}
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1.3fr", gap:6, marginBottom:6 }}>
             <input type="date" value={nueva.fecha_estimada} onChange={e=>setNueva(p=>({...p,fecha_estimada:e.target.value}))} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}/>
             <input value={nueva.comentarios} onChange={e=>setNueva(p=>({...p,comentarios:e.target.value}))} placeholder="Comentario (opcional)" style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
           </div>
-          <div style={{ display:"flex", gap:6 }}><Btn onClick={crear} sm>Guardar</Btn><Btn onClick={()=>setShowNueva(false)} variant="ghost" sm>Cancelar</Btn></div>
+          <div style={{ display:"flex", gap:6 }}><Btn onClick={crear} sm disabled={!nueva.descripcion.trim()||nueva.lider_ids.length===0}>Guardar</Btn><Btn onClick={()=>setShowNueva(false)} variant="ghost" sm>Cancelar</Btn></div>
         </Card>
       )}
 
-      <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-        {tareas.map(t=>{
-          const vencida = tareaVencidaNoRealizada(t);
-          const cerrada = t.completado || vencida;
-          const puedeMarcar = puedeGestionar && !vencida;
-          const puedeBorrar = !soloLectura && (cerrada ? user.role==="master" : (user.role==="master" || esMonitor));
+      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+        {gruposOrdenados.map(g=>{
+          const base = g[0];
+          const vencida = esGrupoVencido(g);
+          const compartida = g.length>1;
+          const puedeBorrar = puedeBorrarGrupo(g);
+          const completadoGrupo = esGrupoCompletado(g);
+          const enGracia = completadoGrupo && dentroDeGracia(base);
+          // El mes ya entregado por el monitor anterior queda congelado (salvo su última semana,
+          // por si la reunión de traspaso se corrió de fecha) — master siempre puede entrar.
+          const puedeEditarPeriodo = user.role==="master" || !semanaCongelada(base.semana);
+          // Se marca como un solo bloque (no por persona) — pero cada fila individual sigue
+          // guardando su propio completado=true/false para que el crédito en Indicadores por
+          // líder siga contando igual que antes. Hay 5 minutos de gracia para desmarcar por error.
+          const puedeMarcar = puedeGestionar && puedeEditarPeriodo && (completadoGrupo ? enGracia : !vencida);
+          const expandida = expandidas.has(compartida ? base.grupo_id : base.id);
+          const toggleId = compartida ? base.grupo_id : base.id;
+          const marcar = () => actualizarCompletadoGrupo(g, !completadoGrupo);
+          const nombresLideres = g.map(m=>nombreLider(m.lider_id)).join(", ");
           return (
-            <div key={t.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, flexWrap: isMobile ? "wrap" : "nowrap" }}>
-              <button onClick={puedeMarcar?()=>actualizar(t.id,{completado:!t.completado}):undefined} disabled={!puedeMarcar} title={vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${t.completado?C.green:vencida?C.red:C.border}`, background:t.completado?C.green:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{t.completado?"✓":vencida?"✕":""}</button>
-              <div style={{ flex:1, minWidth:120, textAlign:"left", fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, textDecoration:t.completado?"line-through":"none", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }} title={t.descripcion}>{t.descripcion}</div>
-              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:0, whiteSpace:"nowrap" }}>👤 {nombreLider(t.lider_id)}</div>
-              {t.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:11, color:vencida?C.red:C.amber, flexShrink:0 }}>📅 {t.fecha_estimada}</div>}
-              {vencida && <Badge color={C.red} sm>Vencida sin cumplir</Badge>}
-              <input placeholder="Comentario..." defaultValue={t.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==t.comentarios) actualizar(t.id,{comentarios:e.target.value}); }} style={{ width:isMobile?"100%":150, flexShrink:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
-              {puedeBorrar && <button onClick={()=>eliminar(t.id)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, fontSize:13 }}>🗑</button>}
+            <div key={toggleId} style={{ padding:"7px 10px", background:C.surface, borderRadius:9, borderTop:`1px solid ${C.border}`, borderRight:`1px solid ${C.border}`, borderBottom:`1px solid ${C.border}`, borderLeft:`3px solid ${compartida?C.blue:C.border}`, display:"flex", flexDirection:"column", gap:4 }}>
+              {/* Línea 1: líder(es), fecha, estado (vencida/cumplida), reabrir */}
+              <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                <div style={{ fontFamily:font.body, fontSize:11, color:C.textSub, fontWeight:600 }}>👤 {nombresLideres}</div>
+                {base.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:10.5, color:vencida?C.amber:C.textMuted }}>📅 {base.fecha_estimada}</div>}
+                {completadoGrupo && <Badge color={C.green} sm>Cumplida</Badge>}
+                {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
+                {!puedeEditarPeriodo && <Badge color={C.textMuted} sm>Congelada</Badge>}
+                {vencida && puedeGestionar && puedeEditarPeriodo && <button onClick={()=>reabrirVencida(g)} title="La reunión se corrió de fecha — reabrir con nuevo plazo" style={{ background:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir</button>}
+                {completadoGrupo && base.completado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· marcada por {base.completado_por}</div>}
+                {base.reabierta_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· reabierta por {base.reabierta_por}</div>}
+              </div>
+              {/* Línea 2: check + tarea (ancho libre) + ver más al final */}
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <button onClick={puedeMarcar?marcar:undefined} disabled={!puedeMarcar} title={!puedeEditarPeriodo?"Período congelado — ya se cerró el turno del monitor anterior, solo master puede editarlo":completadoGrupo?(enGracia?"Marcada como hecha — se puede desmarcar unos minutos más":"Ya marcada como hecha — no se puede desmarcar"):vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${completadoGrupo?C.green:vencida?C.amber:C.border}`, background:completadoGrupo?C.green:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{completadoGrupo?"✓":vencida?"✕":""}</button>
+                <div style={{ flex:1, minWidth:0, textAlign:"left", fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, textDecoration:completadoGrupo?"line-through":"none", whiteSpace:expandida?"normal":"nowrap", overflow:expandida?"visible":"hidden", textOverflow:expandida?"clip":"ellipsis", lineHeight:1.5 }} title={!expandida?base.descripcion:undefined}>{base.descripcion}</div>
+                <button onClick={()=>toggleExpandida(toggleId)} style={{ flexShrink:0, background:"none", border:"none", color:C.gold, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandida?"ver menos":"ver más"}</button>
+              </div>
+              {/* Línea 3: comentario (ancho libre) + eliminar */}
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <input placeholder="Comentario..." defaultValue={base.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==base.comentarios) (compartida?actualizarComentarioGrupo(g,e.target.value):actualizar(base.id,{comentarios:e.target.value})); }} style={{ flex:1, minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+                {puedeBorrar && <button onClick={()=>eliminarGrupo(g)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, fontSize:13 }}>🗑</button>}
+              </div>
             </div>
           );
         })}
-        {tareas.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin tareas para esta semana. Usa "+ Nueva tarea".</div>}
+        {gruposOrdenados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>{vistaEstado==="activas" ? "Sin tareas activas." : vistaEstado==="cumplidas" ? "Sin tareas cumplidas todavía." : vistaEstado==="vencidas" ? "Sin tareas vencidas." : "Sin tareas para este período."}</div>}
       </div>
     </div>
   );
@@ -1546,6 +1700,11 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
   const monitorActual = actual ? getMonitorDeMes(lideres, actual.anio, actual.mes) : null;
   const statsActual = actual ? statsDelMes(compromisos, actual.anio, actual.mes) : null;
   const statsLideresActual = actual ? statsPorLiderDelMes(compromisos, lideres, actual.anio, actual.mes) : [];
+  // Cumplimiento (%) y cantidad de tareas son cosas distintas — alguien puede tener pocas
+  // tareas con 100% de cumplimiento, y otra persona muchas tareas con menor %. Se muestran
+  // como dos rankings separados en vez de una sola lista.
+  const topCumplimiento = [...statsLideresActual].sort((a,b)=> b.pct - a.pct || b.total - a.total);
+  const topCantidad = [...statsLideresActual].sort((a,b)=> b.total - a.total || b.pct - a.pct);
 
   return (
     <div>
@@ -1572,18 +1731,34 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
             </div>
           </div>
           {statsLideresActual.length>0 && (
-            <>
-              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Cumplimiento por líder</div>
-              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                {statsLideresActual.map(s=>(
-                  <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
-                    <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
-                    <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadas} de {s.total} tareas</div>
-                    <Badge color={s.pct>=70?C.green:C.amber} sm>{s.pct}%</Badge>
-                  </div>
-                ))}
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16 }}>
+              <div>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Top cumplimiento</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {topCumplimiento.map((s,i)=>(
+                    <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
+                      <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
+                      <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
+                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadas} de {s.total}</div>
+                      <Badge color={s.pct>=70?C.green:C.amber} sm>{s.pct}%</Badge>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </>
+              <div>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Top cantidad de tareas</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {topCantidad.map((s,i)=>(
+                    <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
+                      <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
+                      <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
+                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.total} tareas</div>
+                      <Badge color={s.pct>=70?C.green:C.amber} sm>{s.pct}%</Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           )}
         </Card>
       )}
