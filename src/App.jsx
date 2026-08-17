@@ -2662,7 +2662,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
   );
 }
 
-function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems, ventasAbonos, ajustes, setAjustes, esAdmin, soloLectura }) {
+function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, esAdmin, soloLectura }) {
   const isMobile = useIsMobile();
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const [filtroTienda, setFiltroTienda] = useState("");
@@ -2760,6 +2760,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     setGuardandoEa(false);
     if(data){
       setDetalle(prev=>({...prev, [ventaId]: { ...prev[ventaId], abonos:(prev[ventaId]?.abonos||[]).map(x=>x.id===data.id?data:x) }}));
+      if(setVentasAbonos) setVentasAbonos(prev=>prev.map(a=>a.id===data.id?data:a));
       setEditandoAbonoId(null);
     }
   };
@@ -2910,6 +2911,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       if(ventaAct){
         setVentas(prev=>prev.map(v=>v.id===venta.id?ventaAct:v));
         setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], items:itemsNuevos||[], solicitudes:(prev[venta.id]?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s) }}));
+        if(setVentasItems) setVentasItems(prev=>[...prev.filter(i=>i.venta_id!==venta.id), ...(itemsNuevos||[])]);
       }
       setEditando(null);
       setModoErrorId(null);
@@ -2951,6 +2953,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     if(ventaAct){
       setVentas(prev=>prev.map(v=>v.id===venta.id?ventaAct:v));
       setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], items:itemsActualizados, solicitudes:(prev[venta.id]?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s) }}));
+      if(setVentasItems) setVentasItems(prev=>[...prev.filter(i=>i.venta_id!==venta.id), ...itemsActualizados]);
     }
     setEditando(null);
   };
@@ -2977,6 +2980,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     const { data } = await supabase.from("ventas_abonos").insert({ venta_id:venta.id, fecha:todayStr, valor:Number(abonoValor), registrado_por:user.name, medio_pago:abonoMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(abonoMedio)?abonoAutorizacion.trim():null }).select().single();
     if(data){
       setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], abonos:[...(prev[venta.id]?.abonos||[]), data]}}));
+      if(setVentasAbonos) setVentasAbonos(prev=>[...prev, data]);
       if(completaPago && !venta.numero_factura && abonoNumeroFactura.trim()){
         const { data:ventaAct } = await supabase.from("ventas").update({ numero_factura:abonoNumeroFactura.trim() }).eq("id",venta.id).select().single();
         if(ventaAct) setVentas(prev=>prev.map(v=>v.id===venta.id?ventaAct:v));
@@ -3056,24 +3060,35 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
           const d = detalle[v.id];
           const abiertoEdicion = editando===v.id;
           const puedeEditar = !soloLectura && (d?.solicitudes||[]).some(s=>s.estado==="aprobada" && !s.aplicada_at);
-          const totalAbonado = (d?.abonos||[]).reduce((a,x)=>a+Number(x.valor),0);
-          const valorFlexipago = (d?.items||[]).filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor),0);
+          // Los totales/estado del Flexipago se calculan desde ventasItems/ventasAbonos (siempre
+          // cargados) en vez del detalle (que solo se carga al abrir la tarjeta) — así el badge de
+          // estado y el bloqueo de edición son correctos aunque todavía no se haya abierto.
+          const abonosVenta = v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id).sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id))) : [];
+          const totalAbonado = abonosVenta.reduce((a,x)=>a+Number(x.valor||0),0);
+          const valorFlexipago = v.es_flexipago ? (ventasItems||[]).filter(i=>i.venta_id===v.id && i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor||0)-Number(i.descuento||0),0) : 0;
           const saldoPendiente = valorFlexipago - totalAbonado;
+          const flexipagoCompletado = v.es_flexipago && valorFlexipago>0 && saldoPendiente<=0;
           // Regla del aviso legal: 60 días calendario desde el primer abono para completar el pago.
-          const primerAbonoFecha = (d?.abonos && d.abonos.length>0) ? d.abonos[0].fecha : null;
+          const primerAbonoFecha = abonosVenta.length>0 ? abonosVenta[0].fecha : null;
           const diasDesdeAbono = primerAbonoFecha ? diasEntre(primerAbonoFecha, todayStr) : null;
+          const fechaLimite = primerAbonoFecha ? sumarDias(primerAbonoFecha, FLEXIPAGO_PLAZO_DIAS) : null;
+          const fechaLimiteCorta = fechaLimite ? new Date(fechaLimite+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"}) : "";
           const flexipagoVencido = v.es_flexipago && saldoPendiente>0 && diasDesdeAbono!==null && diasDesdeAbono>FLEXIPAGO_PLAZO_DIAS && !v.flexipago_reabierto_en;
           const diasRestantes60 = diasDesdeAbono!==null ? FLEXIPAGO_PLAZO_DIAS - diasDesdeAbono : null;
           // Avisos previos al vencimiento: a los 30 días (mitad del plazo) y en los últimos 5 días, para
           // que el asesor le recuerde al cliente que venga por su pedido antes de perderlo.
           const flexipagoUrgente = v.es_flexipago && saldoPendiente>0 && !flexipagoVencido && diasRestantes60!==null && diasRestantes60<=5;
           const flexipagoAviso30 = v.es_flexipago && saldoPendiente>0 && !flexipagoVencido && !flexipagoUrgente && diasDesdeAbono!==null && diasDesdeAbono>=30;
-          // Versión "global" de si el Flexipago ya quedó completo — calculada desde ventasItems/ventasAbonos
-          // (que siempre están cargados), no desde el detalle (que solo se carga al abrir la tarjeta). Así
-          // la etiqueta "Completado" y el bloqueo de edición funcionan aunque todavía no se haya abierto.
-          const valorFlexipagoGlobal = v.es_flexipago ? (ventasItems||[]).filter(i=>i.venta_id===v.id && i.tipo==="flexipago").reduce((s,i)=>s+Number(i.valor||0)-Number(i.descuento||0),0) : 0;
-          const totalAbonadoGlobal = v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id).reduce((s,a)=>s+Number(a.valor||0),0) : 0;
-          const flexipagoCompletado = v.es_flexipago && valorFlexipagoGlobal>0 && totalAbonadoGlobal >= valorFlexipagoGlobal;
+          // Un solo badge de estado (en vez de varios apilados) para que todas las filas se vean
+          // igual de "gruesas" — cambia de color y texto según el estado, pero siempre es uno solo.
+          let estadoFlexipago = null;
+          if(v.es_flexipago){
+            if(flexipagoCompletado) estadoFlexipago = { color:C.green, texto:"✅ Completado" };
+            else if(flexipagoVencido) estadoFlexipago = { color:C.red, texto:"⛔ Vencido" };
+            else if(v.flexipago_reabierto_en) estadoFlexipago = { color:C.amber, texto:"🔓 Reabierto" };
+            else if(saldoPendiente>0 && diasRestantes60!==null) estadoFlexipago = { color: flexipagoUrgente?C.red:flexipagoAviso30?C.amber:C.blue, texto:`📦 Vence en ${diasRestantes60}d · ${fechaLimiteCorta}` };
+            else estadoFlexipago = { color:C.blue, texto:"📦 Flexipago" };
+          }
           return (
             <Card key={v.id} p="0" style={{ overflow:"hidden" }}>
               <button onClick={()=>toggleExpand(v.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"9px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
@@ -3087,12 +3102,18 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                     </div>
                   )}
                 </div>
-                {v.es_flexipago && <Badge color={C.blue} sm>Flexipago</Badge>}
-                {flexipagoCompletado && <Badge color={C.green} sm title="Ya se pagó completo — no se puede editar más.">✅ Completado</Badge>}
-                {flexipagoVencido && <Badge color={C.red} sm title={`Pasaron ${diasDesdeAbono} días desde el primer abono (máximo ${FLEXIPAGO_PLAZO_DIAS}). No se puede abonar ni editar.`}>⛔ Vencido</Badge>}
-                {v.flexipago_reabierto_en && saldoPendiente>0 && <Badge color={C.amber} sm title={`Reabierto por ${v.flexipago_reabierto_por} el ${fmtFechaHora(v.flexipago_reabierto_en)}`}>🔓 Reabierto</Badge>}
-                {flexipagoUrgente && <Badge color={C.red} sm title={`Quedan ${diasRestantes60} días para que se cumplan los ${FLEXIPAGO_PLAZO_DIAS} días. Recuérdale al cliente que venga por su pedido.`}>🔔 Vence en {diasRestantes60}d</Badge>}
-                {flexipagoAviso30 && <Badge color={C.amber} sm title="Ya pasaron 30 días desde el primer abono. Buen momento para recordarle al cliente.">⚠️ 30 días</Badge>}
+                {estadoFlexipago && (
+                  <Badge
+                    color={estadoFlexipago.color}
+                    sm
+                    title={
+                      flexipagoCompletado ? "Ya se pagó completo — no se puede editar más." :
+                      flexipagoVencido ? `Pasaron ${diasDesdeAbono} días desde el primer abono (máximo ${FLEXIPAGO_PLAZO_DIAS}). No se puede abonar ni editar.` :
+                      v.flexipago_reabierto_en ? `Reabierto por ${v.flexipago_reabierto_por} el ${fmtFechaHora(v.flexipago_reabierto_en)}` :
+                      fechaLimite ? `Vence el ${fechaLimiteCorta} (${FLEXIPAGO_PLAZO_DIAS} días desde el primer abono).` : undefined
+                    }
+                  >{estadoFlexipago.texto}</Badge>
+                )}
                 <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight }}>${Number(v.total).toLocaleString("es-CO")}</div>
                 <span style={{ color:C.textMuted, fontSize:11 }}>{expandido===v.id?"▲":"▼"}</span>
               </button>
@@ -3117,12 +3138,9 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                               </div>
                               <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                                 {i.tipo==="flexipago" ? (
-                                  <>
-                                    {flexipagoCompletado ? <Badge color={C.green} sm>✅ Completado</Badge> : <Badge color={C.blue} sm>📦 Pago diferido</Badge>}
-                                    {(i.codigos_producto||[]).filter(c=>c.codigo||c.valor).map((c,ci)=>(
-                                      <Badge key={ci} color={C.textMuted} sm>{c.codigo?`#${c.codigo}`:"—"}{c.valor?` · $${Number(c.valor).toLocaleString("es-CO")}`:""}</Badge>
-                                    ))}
-                                  </>
+                                  (i.codigos_producto||[]).filter(c=>c.codigo||c.valor).map((c,ci)=>(
+                                    <Badge key={ci} color={C.textMuted} sm>{c.codigo?`#${c.codigo}`:"—"}{c.valor?` · $${Number(c.valor).toLocaleString("es-CO")}`:""}</Badge>
+                                  ))
                                 ) : (i.pagos||[]).map((p,pidx)=>(
                                   corrigiendoPago && corrigiendoPago.itemId===i.id && corrigiendoPago.pagoIdx===pidx ? (
                                     <div key={pidx} style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"end", padding:"4px 0", background:C.dark, borderRadius:6 }}>
@@ -3158,13 +3176,13 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                                   <div style={{ flex:1, fontFamily:font.mono, fontSize:12, color:C.text, textAlign:"right" }}>${i.valorTotal.toLocaleString("es-CO")}{i.descuento>0 && ` (desc $${i.descuento.toLocaleString("es-CO")})`}</div>
                                   <button onClick={()=>quitarEditItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
                                 </div>
-                                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                                  {i.tipo==="flexipago" ? (
-                                    <Badge color={C.blue} sm>📦 Pago diferido</Badge>
-                                  ) : i.pagos.map((p,pidx)=>(
-                                    <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}</Badge>
-                                  ))}
-                                </div>
+                                {i.tipo!=="flexipago" && (
+                                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                                    {i.pagos.map((p,pidx)=>(
+                                      <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}</Badge>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -3381,8 +3399,18 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
 
                       {v.es_flexipago && (
                         <>
-                          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"8px 0 3px" }}>Abonos</div>
-                          <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:4 }}>
+                          <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", margin:"6px 0 4px" }}>
+                            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>Abonos</div>
+                            <div style={{ fontFamily:font.body, fontSize:12, fontWeight:700, color:saldoPendiente>0?C.amber:C.green }}>
+                              {saldoPendiente>0 ? `Faltan $${saldoPendiente.toLocaleString("es-CO")}` : "✓ Saldado"}
+                            </div>
+                          </div>
+                          {valorFlexipago>0 && (
+                            <div style={{ height:5, borderRadius:3, background:C.border, overflow:"hidden", marginBottom:8 }}>
+                              <div style={{ height:"100%", width:`${Math.min(100, Math.round((totalAbonado/valorFlexipago)*100))}%`, background: saldoPendiente<=0?C.green:C.gold, transition:"width 0.4s ease" }}/>
+                            </div>
+                          )}
+                          <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:6 }}>
                             {(d?.abonos||[]).map(a=>(
                               editandoAbonoId===a.id ? (
                                 <div key={a.id} style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"end", padding:"4px 0", background:C.dark, borderRadius:6, marginBottom:2 }}>
@@ -3394,7 +3422,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                                 </div>
                               ) : (
                                 <div key={a.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, padding:"2px 0" }}>
-                                  <span>{a.fecha} — Abono · {VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}{a.numero_autorizacion?` · AUT ${a.numero_autorizacion}`:""}</span>
+                                  <span>{a.fecha} — {VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}{a.numero_autorizacion?` · AUT ${a.numero_autorizacion}`:""}</span>
                                   <span style={{ display:"flex", alignItems:"center", gap:8 }}>
                                     <span style={{fontFamily:font.mono}}>${Number(a.valor).toLocaleString("es-CO")}</span>
                                     {esAdmin && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
@@ -3403,9 +3431,6 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                               )
                             ))}
                             {(d?.abonos||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin abonos todavía.</div>}
-                          </div>
-                          <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:13, fontWeight:700, color:saldoPendiente>0?C.amber:C.green, marginBottom:6 }}>
-                            <span>Saldo pendiente</span><span style={{fontFamily:font.mono}}>${saldoPendiente.toLocaleString("es-CO")}</span>
                           </div>
                           {saldoPendiente>0 && !soloLectura && (
                             flexipagoVencido ? (
@@ -4750,7 +4775,7 @@ export default function App() {
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
         if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
-        if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
+        if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
         if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile}/>;
       } else {
@@ -4762,7 +4787,7 @@ export default function App() {
       }
     } else if(esCuentaTienda(user)){
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
-      if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={false} soloLectura={false}/>;
+      if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
       if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile}/>;
     } else {
