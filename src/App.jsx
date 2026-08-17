@@ -149,15 +149,24 @@ const tareaVencidaNoRealizada = (t) => !t.completado && !!t.fecha_estimada && to
 const GRACIA_DESMARCAR_MS = 5 * 60 * 1000;
 const dentroDeGracia = (t) => !!t.completado_en && (Date.now() - new Date(t.completado_en).getTime()) < GRACIA_DESMARCAR_MS;
 // El monitor de turno solo puede gestionar (marcar, reabrir, borrar) las tareas de su mes en
-// curso, más la última semana del monitor anterior — para poder cerrar lo que quedó pendiente
-// si la reunión de traspaso se corrió de fecha. Todo lo anterior a esa semana queda congelado
-// (de solo lectura, salvo para master), para que el indicador de un mes ya cerrado no se pueda
+// curso. La última semana del monitor anterior queda editable un poco más — durante la semana 1
+// y la semana 2 del mes nuevo — por si la reunión de traspaso se corrió de fecha. A partir de la
+// semana 3 del mes nuevo, esa última semana también se congela: todo el mes anterior queda de
+// solo lectura (salvo para master), para que el indicador de un mes ya cerrado no se pueda
 // alterar después de que ese monitor entregó el turno.
 const fronteraCongelamiento = () => {
   const hoy = toColombiaDate();
-  let anio = hoy.getFullYear(), mes = hoy.getMonth() - 1;
-  if (mes < 0) { mes = 11; anio -= 1; }
-  const semanasMesAnterior = martesDelMes(anio, mes);
+  const anio = hoy.getFullYear(), mes = hoy.getMonth();
+  const semanasMes = martesDelMes(anio, mes);
+  const terceraSemana = semanasMes[2];
+  if (terceraSemana && todayStr >= terceraSemana) {
+    // Ya empezó la semana 3 del mes en curso: el mes anterior queda congelado por completo.
+    return semanasMes[0] || null;
+  }
+  // Semana 1 o 2 del mes en curso: todavía se puede tocar la última semana del mes anterior.
+  let anioPrev = anio, mesPrev = mes - 1;
+  if (mesPrev < 0) { mesPrev = 11; anioPrev -= 1; }
+  const semanasMesAnterior = martesDelMes(anioPrev, mesPrev);
   return semanasMesAnterior.length ? semanasMesAnterior[semanasMesAnterior.length - 1] : null;
 };
 const semanaCongelada = (semanaTarea) => {
@@ -412,6 +421,10 @@ const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || 
 const puedeUsarVentasArea = (user) => user.role==="master" || user.role==="admin_finanzas" || user.role==="admin" || user.role==="visualizador";
 // Quién solo puede VER Ventas (lista, métricas, caja) sin registrar ni corregir nada.
 const ventasSoloLectura = (user) => user.role==="admin" || user.role==="visualizador";
+// Admin (no admin_finanzas) sí puede ENTRAR a la pantalla de Registrar venta para verla, pero
+// en modo solo lectura — no puede guardar. Visualizador ni siquiera ve esa pestaña.
+const puedeVerRegistrar = (user) => user.role!=="visualizador";
+const puedeRegistrarVenta = (user) => user.role==="master" || user.role==="admin_finanzas";
 // Cuentas de tienda: login compartido, van directo a Ventas sin selector de área
 const esCuentaTienda = (user) => user.role==="tienda";
 // Admin Finanzas: hace todo lo de un Administrador normal (Asistencia/Junta), más Ventas completo
@@ -428,7 +441,7 @@ const puedeHacerRecoleccion = (user) => user.role==="master" || user.role==="adm
 // Qué pestañas le corresponden a cada quien, según su rol y el área elegida
 const tabsPara = (user, area) => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? ADMIN_TABS_VENTAS : ADVISOR_TABS)
-  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? (ventasSoloLectura(user) ? ADMIN_TABS_VENTAS.filter(t=>t.id!=="registrar") : ADMIN_TABS_VENTAS) : ADMIN_TABS_ASISTENCIA);
+  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? (puedeVerRegistrar(user) ? ADMIN_TABS_VENTAS : ADMIN_TABS_VENTAS.filter(t=>t.id!=="registrar")) : ADMIN_TABS_ASISTENCIA);
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -2012,7 +2025,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
                 <div style={{ fontSize:32 }}>💰</div>
                 <div>
                   <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.green }}>Ventas</div>
-                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:2 }}>{ventasSoloLectura(user) ? "Solo para ver: lista, métricas y caja (sin registrar)" : "Registro de ventas, metas y métricas por tienda"}</div>
+                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:2 }}>{ventasSoloLectura(user) ? "Solo para ver — no se puede registrar ni corregir nada" : "Registro de ventas, metas y métricas por tienda"}</div>
                 </div>
               </button>
             </Card>
@@ -2124,7 +2137,7 @@ const FLEXIPAGO_AVISO_ITEMS = [
   { texto:"Este acuerdo se rige por las normas comerciales y civiles vigentes en Colombia." },
 ];
 
-function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, isMobile }) {
+function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, isMobile, soloLectura }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const [tiendaId, setTiendaId] = useState(tiendaFija || Object.keys(stores)[0] || "");
   const [fecha, setFecha] = useState(todayStr);
@@ -2231,6 +2244,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
 
   const guardar = async () => {
     setMsg("");
+    if(soloLectura){ setMsg("No tienes permiso para registrar ventas — solo puedes ver esta pantalla."); return; }
     if(!tiendaId){ setMsg("Falta elegir la tienda."); return; }
     if(!vendedorId){ setMsg("Falta elegir quién hizo la venta."); return; }
     if(items.length===0 || valorBruto<=0){ setMsg("Agrega al menos una venta o servicio."); return; }
@@ -2274,7 +2288,13 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
   const faltaHoyTienda = Math.max(0, metaHoyTienda - vendidoHoyTienda);
 
   return (
-    <div>
+    <>
+      {soloLectura && (
+        <div style={{ background:`${C.amber}18`, border:`1px solid ${C.amber}55`, borderRadius:8, padding:"10px 14px", marginBottom:14, fontFamily:font.body, fontSize:12, color:C.amber }}>
+          👁️ Modo solo lectura — puedes ver esta pantalla, pero no tienes permiso para registrar ventas.
+        </div>
+      )}
+    <div style={soloLectura ? { pointerEvents:"none", opacity:0.55 } : undefined}>
       <PageHeader
         title="Registrar venta"
         subtitle={stores[tiendaId]?.name ? `Tienda: ${stores[tiendaId].name}` : "Elige la tienda"}
@@ -2312,7 +2332,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
                   <div style={{ fontFamily:font.body, fontSize:13, color:C.text, padding:"9px 0" }}>{stores[tiendaId]?.name || "—"}</div>
                 </div>
               )}
-              {user.role==="master" ? (
+              {(user.role==="master" || user.role==="admin_finanzas") ? (
                 <Field label="Fecha" type="date" value={fecha} onChange={setFecha}/>
               ) : (
                 <div>
@@ -2530,6 +2550,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, metas, 
         {ventasHoy.length===0 && <div style={{ textAlign:"center", padding:30, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin ventas registradas hoy en esta tienda.</div>}
       </div>
     </div>
+    </>
   );
 }
 
@@ -4556,7 +4577,7 @@ export default function App() {
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
-        if(tab==="registrar" && !ventasSoloLectura(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} isMobile={isMobile}/>;
+        if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
         if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile}/>;
