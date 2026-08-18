@@ -4875,9 +4875,10 @@ export default function App() {
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
 
-  // Cuenta de tienda: es el equipo que queda abierto en el mostrador todo el turno, así que se le
-  // da más margen (30 min) antes de cerrar sesión por inactividad. El resto de cuentas sigue en 5.
-  useInactivityLogout(logout, esCuentaTienda(user||{}) ? 30 : 5);
+  // Cuenta de tienda: es el equipo compartido que queda abierto en el mostrador toda la
+  // jornada, así que se le da el margen de una jornada completa (7 horas) antes de cerrar
+  // sesión por inactividad. El resto de cuentas (uso personal) sigue en 5 minutos.
+  useInactivityLogout(logout, esCuentaTienda(user||{}) ? 7*60 : 5);
 
   if(booting) return <div style={{minHeight:"100vh",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,color:C.textMuted,fontSize:14}}>Cargando...</div>;
   if(!user) return <LoginScreen onLogin={login}/>;
