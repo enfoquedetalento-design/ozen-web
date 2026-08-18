@@ -2700,6 +2700,9 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   const [abonoValor, setAbonoValor] = useState("");
   const [abonoMedio, setAbonoMedio] = useState("efectivo");
   const [abonoAutorizacion, setAbonoAutorizacion] = useState("");
+  // Solo master/admin_finanzas pueden cambiar la fecha del abono (para registrar abonos
+  // atrasados con su fecha real) — el resto siempre abona con la fecha de hoy.
+  const [abonoFecha, setAbonoFecha] = useState(todayStr);
   const [guardando, setGuardando] = useState(false);
   const [editErrorMsg, setEditErrorMsg] = useState("");
 
@@ -3037,7 +3040,11 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     if(VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && !abonoAutorizacion.trim()) return;
     const completaPago = (valorFlexipagoVenta - totalAbonadoActual - Number(abonoValor)) <= 0;
     if(completaPago && !venta.numero_factura && !abonoNumeroFactura.trim()) return;
-    const { data } = await supabase.from("ventas_abonos").insert({ venta_id:venta.id, fecha:todayStr, valor:Number(abonoValor), registrado_por:user.name, medio_pago:abonoMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(abonoMedio)?abonoAutorizacion.trim():null }).select().single();
+    // Solo master/admin_finanzas pueden poner una fecha distinta a hoy (para abonos atrasados
+    // que se registran después de que pasaron). El resto siempre abona con la fecha de hoy.
+    const fechaAbono = (esAdmin && abonoFecha) ? abonoFecha : todayStr;
+    const { data, error } = await supabase.from("ventas_abonos").insert({ venta_id:venta.id, fecha:fechaAbono, valor:Number(abonoValor), registrado_por:user.name, medio_pago:abonoMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(abonoMedio)?abonoAutorizacion.trim():null }).select().single();
+    if(error){ alert(`No se pudo guardar el abono: ${error.message}`); return; }
     if(data){
       setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], abonos:[...(prev[venta.id]?.abonos||[]), data]}}));
       if(setVentasAbonos) setVentasAbonos(prev=>[...prev, data]);
@@ -3045,7 +3052,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
         const { data:ventaAct } = await supabase.from("ventas").update({ numero_factura:abonoNumeroFactura.trim() }).eq("id",venta.id).select().single();
         if(ventaAct) setVentas(prev=>prev.map(v=>v.id===venta.id?ventaAct:v));
       }
-      setAbonoForm(null); setAbonoValor(""); setAbonoMedio("efectivo"); setAbonoAutorizacion(""); setAbonoNumeroFactura("");
+      setAbonoForm(null); setAbonoValor(""); setAbonoMedio("efectivo"); setAbonoAutorizacion(""); setAbonoNumeroFactura(""); setAbonoFecha(todayStr);
     }
   };
 
@@ -3456,6 +3463,9 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                                   {VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && (
                                     <div style={{ flex:1, minWidth:110 }}><Field label="N.º autorización" value={abonoAutorizacion} onChange={setAbonoAutorizacion} placeholder="Ej: 056495"/></div>
                                   )}
+                                  {esAdmin && (
+                                    <div style={{ flex:1, minWidth:130 }}><Field label="Fecha del abono" type="date" value={abonoFecha} onChange={setAbonoFecha}/></div>
+                                  )}
                                 </div>
                                 {(saldoPendiente - Number(abonoValor||0) <= 0) && !v.numero_factura && (
                                   <Field label="Este abono completa el pago — N.º de factura (Siigo)" value={abonoNumeroFactura} onChange={setAbonoNumeroFactura} placeholder="Ej: FE-1234"/>
@@ -3466,7 +3476,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                                 </div>
                               </div>
                             ) : (
-                              <Btn onClick={()=>setAbonoForm(v.id)} sm style={{ marginBottom:6 }}>+ Agregar abono</Btn>
+                              <Btn onClick={()=>{ setAbonoForm(v.id); setAbonoFecha(todayStr); }} sm style={{ marginBottom:6 }}>+ Agregar abono</Btn>
                             )
                           )}
                         </>
