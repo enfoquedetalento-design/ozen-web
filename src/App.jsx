@@ -1747,7 +1747,7 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
           {statsLideresActual.length>0 && (
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16 }}>
               <div>
-                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Top cumplimiento — % de sus tareas completadas</div>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Porcentaje cumplimiento</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                   {topCumplimiento.map((s,i)=>(
                     <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
@@ -1760,7 +1760,7 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
                 </div>
               </div>
               <div>
-                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Top cantidad — % del total de tareas del mes</div>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>% del total de tareas del mes</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                   {topCantidad.map((s,i)=>{
                     const shareTareas = statsActual.totalTareas>0 ? Math.round((s.total/statsActual.totalTareas)*100) : 0;
