@@ -2837,7 +2837,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   };
 
   const iniciarCorreccionError = (venta) => {
-    const confirmacion = window.prompt(`Vas a CORREGIR POR ERROR la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nA diferencia de "Agregar excedente", aquí el valor puede subir o bajar libremente. Úsalo SOLO si el número se digitó mal desde el principio — no para un cambio real de producto (para eso usa "Agregar excedente").\n\nEscribe CORREGIR para confirmar.`);
+    const confirmacion = window.prompt(`Vas a corregir la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nA diferencia de la Notacrédito normal, aquí el valor puede subir o bajar libremente y no necesita aprobación. Úsalo SOLO si el número se digitó mal desde el principio.\n\nEscribe CORREGIR para confirmar.`);
     if(confirmacion!=="CORREGIR") return;
     setModoErrorId(venta.id);
     setEditando(venta.id);
@@ -2987,6 +2987,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     }
     setEditErrorMsg("");
     setGuardando(true);
+    const valorAnterior = Number(venta.total);
     const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), numero_factura:editNumeroFactura.trim()||null, valor_bruto:nuevoBruto, descuento_total:descuentoOriginal, total:nuevoTotal, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
     const itemsActualizados = [];
     for(const it of ncItems){
@@ -2995,6 +2996,13 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     }
     for(const s of aprobadasSinAplicar){
       await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
+    }
+    // El excedente (lo que subió hoy respecto a lo que ya tenía) queda registrado con la fecha de
+    // HOY para Métricas — el valor original se queda contando en su día de venta (no se toca acá,
+    // ver recortePorVenta en VentasMetricasScreen). Así "Ventas de hoy" solo ve lo que entró hoy.
+    if(nuevoTotal !== valorAnterior){
+      const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:todayStr, valor_anterior:valorAnterior, valor_nuevo:nuevoTotal, diferencia:nuevoTotal-valorAnterior, motivo:editObservacion.trim()||null, aplicado_por:user.name }).select().single();
+      if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
     }
     setGuardando(false);
     if(ventaAct){
@@ -3088,7 +3096,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   };
 
   return (
-    <div style={{ maxWidth:640 }}>
+    <div>
       <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas`} />
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"end" }}>
@@ -3105,7 +3113,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
         </div>
       </Card>
 
-      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(360px, 1fr))", gap:12, alignItems:"start" }}>
         {ventasFiltradas.map(v=>{
           const d = detalle[v.id];
           const abiertoEdicion = editando===v.id;
@@ -3179,19 +3187,16 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                     <div style={{ padding:14, color:C.textMuted, fontFamily:font.body, fontSize:12 }}>Cargando...</div>
                   ) : (
                     <>
-                      <div style={{ display:"flex", alignItems:"baseline", gap:8, margin:"6px 0 4px" }}>
+                      <div style={{ display:"flex", alignItems:"baseline", gap:6, margin:"4px 0 3px" }}>
                         <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>Ventas y servicios</div>
                         <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>· Bruto ${Number(v.valor_bruto).toLocaleString("es-CO")}{Number(v.descuento_total)>0 && ` · Desc $${Number(v.descuento_total).toLocaleString("es-CO")}`}</div>
                       </div>
                       {!abiertoEdicion ? (
-                        <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:6 }}>
+                        <div style={{ display:"flex", flexDirection:"column", gap:3, marginBottom:4 }}>
                           {(d?.items||[]).map(i=>(
-                            <div key={i.id} style={{ display:"flex", flexDirection:"column", gap:2, padding:"3px 0" }}>
-                              <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:12, color:C.text, flexWrap:"wrap" }}>
+                            <div key={i.id} style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", fontFamily:font.body, fontSize:12, color:C.text, padding:"1px 0" }}>
                                 <Badge color={i.tipo==="producto"?C.green:i.tipo==="flexipago"?C.blue:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
                                 <span style={{ fontFamily:font.mono }}>${Number(i.valor).toLocaleString("es-CO")}{Number(i.descuento)>0 && ` (desc $${Number(i.descuento).toLocaleString("es-CO")})`}</span>
-                              </div>
-                              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                                 {i.tipo==="flexipago" ? (
                                   (i.codigos_producto||[]).filter(c=>c.codigo||c.valor).map((c,ci)=>(
                                     <Badge key={ci} color={C.textMuted} sm>{c.codigo?`#${c.codigo}`:"—"}{c.valor?` · $${Number(c.valor).toLocaleString("es-CO")}`:""}</Badge>
@@ -3211,7 +3216,6 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                                     </Badge>
                                   )
                                 ))}
-                              </div>
                             </div>
                           ))}
                           {(d?.items||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin ventas/servicios registrados.</div>}
@@ -3406,14 +3410,14 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
 
                       {v.es_flexipago && (
                         <>
-                          <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", margin:"6px 0 4px" }}>
+                          <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", margin:"8px 0 3px" }}>
                             <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>Abonos</div>
                             <div style={{ fontFamily:font.body, fontSize:12, fontWeight:700, color:saldoPendiente>0?C.amber:C.green }}>
                               {saldoPendiente>0 ? `Faltan $${saldoPendiente.toLocaleString("es-CO")}` : "✓ Saldado"}
                             </div>
                           </div>
                           {valorFlexipago>0 && (
-                            <div style={{ height:5, borderRadius:3, background:C.border, overflow:"hidden", marginBottom:8 }}>
+                            <div style={{ height:4, borderRadius:2, background:C.border, overflow:"hidden", marginBottom:4 }}>
                               <div style={{ height:"100%", width:`${Math.min(100, Math.round((totalAbonado/valorFlexipago)*100))}%`, background: saldoPendiente<=0?C.green:C.gold, transition:"width 0.4s ease" }}/>
                             </div>
                           )}
@@ -3499,7 +3503,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                       <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:6 }}>
                         {v.es_flexipago && <Btn onClick={()=>imprimirVenta(v,d)} variant="ghost" sm>🖨️ Imprimir</Btn>}
                         {puedeEditar && !abiertoEdicion && !flexipagoVencido && !flexipagoCompletado && <Btn onClick={()=>iniciarEdicion(v)} sm title="Ya te aprobaron el Notacrédito — usa este botón para aplicarlo.">📝 Aplicar Notacrédito</Btn>}
-                        {puedeCorregirErrorAqui && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarCorreccionError(v)} variant="ghost" sm style={{ color:C.amber }} title={esHoyTienda && !puedeCorregirError ? "Puedes corregir libremente lo registrado hoy mismo. Para días anteriores, pide Notacrédito." : "Solo master/admin finanzas: corrige de una vez, sin necesidad de aprobación — para cuando el número se digitó mal desde el principio."}>🛠️ Corregir por error</Btn>}
+                        {puedeCorregirErrorAqui && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarCorreccionError(v)} variant="ghost" sm style={{ color:C.amber }} title={esHoyTienda && !puedeCorregirError ? "Puedes corregir libremente lo registrado hoy mismo (sube o baja el valor sin límite). Para días anteriores, pide Notacrédito." : "Solo master/admin finanzas: corrige de una vez, sin necesidad de aprobación — sube o baja el valor libremente, para cuando el número se digitó mal desde el principio."}>🛠️ Nota crédito</Btn>}
                         {puedeEliminarAqui && <Btn onClick={()=>eliminarVenta(v)} variant="ghost" sm style={{ color:C.red }} title={esHoyTienda && !esAdmin ? "Puedes eliminar lo registrado hoy mismo." : undefined}>🗑️ Eliminar venta</Btn>}
                         {!soloLectura && !puedeCorregirErrorAqui && !flexipagoCompletado && (mostrarSolicitud===v.id ? (
                           <div style={{ display:"flex", gap:8, flex:1, minWidth:220, alignItems:"end" }}>
@@ -3520,7 +3524,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
             </Card>
           );
         })}
-        {ventasFiltradas.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>No hay ventas que coincidan con los filtros.</div>}
+        {ventasFiltradas.length===0 && <div style={{ gridColumn:"1/-1", textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>No hay ventas que coincidan con los filtros.</div>}
       </div>
     </div>
   );
