@@ -2406,7 +2406,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
                   </div>
                   <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                     {it.tipo==="flexipago" ? (
-                      <Badge color={C.blue} sm>📦 Pago diferido — se cobra con abonos</Badge>
+                      <Badge color={C.blue} sm>📦 Flexipago — se cobra con abonos</Badge>
                     ) : it.pagos.map((p,pidx)=>(
                       <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
                     ))}
@@ -2619,7 +2619,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
           const tiposRaw = [...new Set(itemsDeVenta.map(it=>it.tipo))];
           const mediosRaw = [...new Set(itemsDeVenta.flatMap(it=>it.tipo==="flexipago" ? ["flexipago"] : (it.pagos||[]).map(p=>p.medio_pago)))];
           const tiposTexto = tiposRaw.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(", ");
-          const mediosTexto = [...new Set(itemsDeVenta.flatMap(it=>it.tipo==="flexipago" ? ["Pago diferido"] : (it.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago)))].join(", ");
+          const mediosTexto = [...new Set(itemsDeVenta.flatMap(it=>it.tipo==="flexipago" ? ["Flexipago"] : (it.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago)))].join(", ");
           const tipoColor = VENTAS_TIPO_COLORES[tiposRaw[0]] || C.blue;
           const tipoIcon = VENTAS_TIPO_ICONOS[tiposRaw[0]] || "🛍️";
           const medioIcon = mediosRaw[0]==="flexipago" ? "⏳" : (VENTAS_MEDIO_ICONOS[mediosRaw[0]] || "💰");
