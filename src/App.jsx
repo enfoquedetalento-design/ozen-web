@@ -1926,9 +1926,12 @@ function LoginScreen({ onLogin }) {
         // null antes de que el otro alcance a guardar), solo uno gana la carrera — el otro
         // queda sin filas afectadas y se bloquea, en vez de quedar ambos con sesión abierta.
         const nuevoToken = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const { data:actualizado } = await supabase.from("usuarios").update({ device_token:nuevoToken }).eq("id",data.id).is("device_token",null).select().single();
+        const { data:actualizado, error:errorClaim } = await supabase.from("usuarios").update({ device_token:nuevoToken }).eq("id",data.id).is("device_token",null).select().single();
         if(!actualizado){
-          setErr("Esta cuenta de tienda ya está autorizada en otro dispositivo. Pide a un administrador que la libere desde Usuarios para poder entrar desde aquí.");
+          // Si de verdad otro dispositivo ganó la carrera, esto es normal y no hay error.
+          // Pero si "errorClaim" trae algo (permisos, RLS, etc.), es un problema distinto —
+          // se muestra el detalle para poder diagnosticarlo en vez de confundirlo con el bloqueo.
+          setErr(errorClaim ? `No se pudo vincular este dispositivo: ${errorClaim.message}` : "Esta cuenta de tienda ya está autorizada en otro dispositivo. Pide a un administrador que la libere desde Usuarios para poder entrar desde aquí.");
           setLoading(false);
           return;
         }
