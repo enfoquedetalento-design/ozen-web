@@ -457,7 +457,7 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
   const tabs = tabsPara(user, area);
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
-      <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C.border}` }}>
+      <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C.border}`, textAlign:"center" }}>
         {/* El logo, para master, también es la entrada a Usuarios — a propósito no lleva ningún
             aviso visual de que se puede hacer clic ahí. */}
         <img src="/logo-icon.png" alt="OZEN" onClick={user.role==="master"?onAbrirUsuarios:undefined} style={{ width:44, height:44, borderRadius:"50%", cursor:user.role==="master"?"pointer":"default" }} />
@@ -3038,7 +3038,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   };
 
   return (
-    <div>
+    <div style={{ maxWidth:880 }}>
       <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas`} />
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"end" }}>
