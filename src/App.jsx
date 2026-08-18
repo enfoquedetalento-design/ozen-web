@@ -3096,7 +3096,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   };
 
   return (
-    <div>
+    <div style={{ maxWidth:820 }}>
       <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas`} />
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"end" }}>
@@ -3113,7 +3113,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
         </div>
       </Card>
 
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(360px, 1fr))", gap:12, alignItems:"start" }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
         {ventasFiltradas.map(v=>{
           const d = detalle[v.id];
           const abiertoEdicion = editando===v.id;
@@ -3325,9 +3325,6 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                         </div>
                       ) : v.es_flexipago ? (
                         <div style={{ marginBottom:10 }}>
-                          <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.blue}18`, border:`1px solid ${C.blue}55`, color:C.text }}>
-                            📝 Notacrédito aprobada: el tipo se queda en Flexipago — no se puede cambiar. Puedes corregir los datos del cliente, los códigos de producto y sus valores, y el medio del abono inicial. La suma de los productos no puede quedar por debajo de ${Number(v.valor_original ?? v.total).toLocaleString("es-CO")}.
-                          </div>
                           <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1.3fr", gap:10 }}>
                             <Field label="Tipo de documento" value={ncCliente.tipoDoc} onChange={v2=>setNcCliente(prev=>({...prev,tipoDoc:v2}))} options={VENTAS_TIPOS_DOC}/>
                             <Field label="N.º de documento" value={ncCliente.documento} onChange={v2=>setNcCliente(prev=>({...prev,documento:v2}))}/>
@@ -3369,9 +3366,6 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                         </div>
                       ) : (
                         <div style={{ marginBottom:10 }}>
-                          <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.blue}18`, border:`1px solid ${C.blue}55`, color:C.text }}>
-                            📝 Notacrédito aprobada: puedes cambiar el tipo y el valor de lo ya registrado. El nuevo valor no puede quedar por debajo de ${Number(v.valor_original ?? v.total).toLocaleString("es-CO")}.
-                          </div>
                           <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:10 }}>
                             {ncItems.map((it,idx)=>(
                               <div key={it.id} style={{ display:"flex", gap:8, alignItems:"end", flexWrap:"wrap", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
@@ -3524,7 +3518,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
             </Card>
           );
         })}
-        {ventasFiltradas.length===0 && <div style={{ gridColumn:"1/-1", textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>No hay ventas que coincidan con los filtros.</div>}
+        {ventasFiltradas.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>No hay ventas que coincidan con los filtros.</div>}
       </div>
     </div>
   );
