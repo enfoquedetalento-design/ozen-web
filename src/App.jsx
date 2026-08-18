@@ -1619,8 +1619,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             <button onClick={()=>setVistaEstado("vencidas")} style={{ ...selectStyle, borderRadius:"0 7px 7px 0", borderLeft:"none", background:vistaEstado==="vencidas"?C.gold:C.surfaceAlt, color:vistaEstado==="vencidas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Vencidas ({gruposVencidos.length})</button>
           </div>
         </div>
-        <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:8 }}>💡 Se puede marcar como hecha hasta su fecha de vencimiento — después queda vencida sin poder marcarse (a menos que se "reabra" con una nueva fecha). Al marcarla, hay 5 minutos para desmarcarla por si fue un error.</div>
-        {!puedeGestionar && !soloLectura && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:4 }}>Solo el monitor de turno puede crear tareas nuevas.</div>}
+        {!puedeGestionar && !soloLectura && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:8 }}>Solo el monitor de turno puede crear tareas nuevas.</div>}
       </Card>
 
       {puedeGestionar && showNueva && (
@@ -1748,29 +1747,32 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
           {statsLideresActual.length>0 && (
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16 }}>
               <div>
-                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Top cumplimiento</div>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Top cumplimiento — % de sus tareas completadas</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                   {topCumplimiento.map((s,i)=>(
                     <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
                       <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
                       <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
                       <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadas} de {s.total}</div>
-                      <Badge color={s.pct>=70?C.green:C.amber} sm>{s.pct}%</Badge>
+                      <Badge color={s.pct>=70?C.green:C.amber} sm>{s.pct}% cumplido</Badge>
                     </div>
                   ))}
                 </div>
               </div>
               <div>
-                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Top cantidad de tareas</div>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Top cantidad — % del total de tareas del mes</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                  {topCantidad.map((s,i)=>(
-                    <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
-                      <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
-                      <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
-                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.total} tareas</div>
-                      <Badge color={s.pct>=70?C.green:C.amber} sm>{s.pct}%</Badge>
-                    </div>
-                  ))}
+                  {topCantidad.map((s,i)=>{
+                    const shareTareas = statsActual.totalTareas>0 ? Math.round((s.total/statsActual.totalTareas)*100) : 0;
+                    return (
+                      <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
+                        <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
+                        <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
+                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.total} tareas</div>
+                        <Badge color={C.gold} sm>{shareTareas}% del total</Badge>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
