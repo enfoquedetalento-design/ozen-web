@@ -453,7 +453,7 @@ const passwordVencida = (u) => {
   return dias >= DIAS_EXPIRACION_PASSWORD;
 };
 
-function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios }) {
+function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas }) {
   const tabs = tabsPara(user, area);
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
@@ -479,7 +479,8 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
           <button onClick={onRefresh} disabled={refreshing} title="Actualizar" style={{ marginLeft:"auto", background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:16, opacity:refreshing?0.4:1, transition:"transform 0.4s", transform:refreshing?"rotate(180deg)":"rotate(0deg)" }}>🔄</button>
         </div>
         {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
-        {user.role!=="master" && <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8 }}>🔑 Mi contraseña</Btn>}
+        {esAdminFinanzas(user) && <Btn onClick={onAbrirAccesoTiendas} variant="ghost" full sm style={{ marginBottom:8 }}>🏬 Acceso tiendas</Btn>}
+        {user.role!=="master" && !esCuentaTienda(user) && <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8 }}>🔑 Mi contraseña</Btn>}
         <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
       </div>
     </div>
@@ -501,14 +502,15 @@ function BottomNav({ tab, setTab, user, area }) {
   );
 }
 
-function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword, onAbrirUsuarios }) {
+function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas }) {
   return (
     <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
       {/* El logo, para master, también es la entrada a Usuarios — sin ningún aviso visual. */}
       <img src="/logo-icon.png" alt="OZEN" onClick={user.role==="master"?onAbrirUsuarios:undefined} style={{ width:34, height:34, borderRadius:"50%" }} />
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         {puedeUsarAreas(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
-        {user.role!=="master" && <button onClick={onCambiarPassword} title="Mi contraseña" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔑</button>}
+        {esAdminFinanzas(user) && <button onClick={onAbrirAccesoTiendas} title="Acceso tiendas" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🏬</button>}
+        {user.role!=="master" && !esCuentaTienda(user) && <button onClick={onCambiarPassword} title="Mi contraseña" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔑</button>}
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
         <div style={{ fontFamily:font.body, fontSize:12, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
         <button onClick={onLogout} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 10px", color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:font.body }}>Salir</button>
@@ -808,6 +810,67 @@ function UsuariosScreen({ users, setUsers, stores }) {
             )}
           </Card>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ── SCREEN: Acceso de tiendas (admin_finanzas) ─────────────────────────────────
+// Versión reducida de UsuariosScreen: solo cuentas de tienda, y solo lo que admin_finanzas
+// necesita para resolver problemas de acceso sin tener el panel completo de Usuarios (que
+// sigue siendo exclusivo de master — ahí sí se puede crear/borrar gente y cambiar roles).
+function TiendasAccesoScreen({ users, setUsers, stores }) {
+  const [editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[cambiandoPass,setCambiandoPass]=useState(null),[nuevaPass,setNuevaPass]=useState("");
+  const [passVisible,setPassVisible]=useState({});
+  const [sincronizando,setSincronizando]=useState(false);
+  const traerFrescos=async()=>{ setSincronizando(true); const{data}=await supabase.from("usuarios").select("*").eq("role","tienda"); if(data)setUsers(prev=>[...prev.filter(u=>u.role!=="tienda"),...data]); setSincronizando(false); };
+  useEffect(()=>{ traerFrescos(); },[]);
+  const tiendas=users.filter(u=>u.role==="tienda").sort((a,b)=>a.name.localeCompare(b.name));
+  const saveEdit=async(id)=>{ if(!editVal.name.trim()||!editVal.documento.trim())return; const{data}=await supabase.from("usuarios").update({name:editVal.name.trim(),documento:editVal.documento.trim()}).eq("id",id).select().single(); if(data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setEditing(null);} };
+  const guardarPassword=async(id)=>{ if(!nuevaPass.trim())return; const{data,error}=await supabase.from("usuarios").update({password:nuevaPass.trim(),password_updated_at:new Date().toISOString()}).eq("id",id).select().single(); if(!error&&data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setCambiandoPass(null);setNuevaPass("");alert("Contraseña actualizada.");} };
+  const liberarDispositivo=async(u)=>{ if(!window.confirm(`¿Liberar el dispositivo autorizado de "${u.name}"? El próximo dispositivo que ingrese con esta cuenta quedará autorizado.`))return; const{data}=await supabase.from("usuarios").update({device_token:null}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
+  return (
+    <div>
+      <PageHeader title="Acceso de tiendas" subtitle={`${tiendas.length} cuentas de tienda · liberar dispositivo, usuario y contraseña`} action={
+        <Btn onClick={traerFrescos} variant="ghost" sm disabled={sincronizando}>{sincronizando?"Actualizando...":"🔄 Actualizar"}</Btn>
+      } />
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {tiendas.map(u=>(
+          <Card key={u.id} p="14px" style={{opacity:u.active?1:0.6}}>
+            {editing===u.id?(
+              <div>
+                <Field label="Nombre" value={editVal.name} onChange={v=>setEditVal(p=>({...p,name:v}))} />
+                <Field label="N.º de documento (usuario)" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} />
+                <div style={{display:"flex",gap:8}}><Btn onClick={()=>saveEdit(u.id)} variant="success" sm full>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm full>Cancelar</Btn></div>
+              </div>
+            ):cambiandoPass===u.id?(
+              <div>
+                <Field label={`Nueva contraseña para ${u.name}`} type="password" value={nuevaPass} onChange={setNuevaPass} placeholder="Nueva contraseña" autoComplete="new-password" />
+                <div style={{display:"flex",gap:8}}><Btn onClick={()=>guardarPassword(u.id)} variant="success" sm full>Guardar contraseña</Btn><Btn onClick={()=>{setCambiandoPass(null);setNuevaPass("");}} variant="ghost" sm full>Cancelar</Btn></div>
+              </div>
+            ):(
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <div style={{width:36,height:36,borderRadius:8,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,fontWeight:700,color:"#fff",flexShrink:0}}>{u.name[0]}</div>
+                <div style={{flex:1,minWidth:120}}><div style={{fontFamily:font.body,fontSize:13,color:C.text,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div><div style={{fontFamily:font.mono,fontSize:11,color:C.textMuted}}>{u.documento}</div></div>
+                <Badge color={C.textMuted} sm>{stores[u.tienda_id]?.name || "Sin tienda asignada"}</Badge>
+                <Badge color={u.active?C.green:C.red} sm>{u.active?"Activo":"Inactivo"}</Badge>
+                <div style={{display:"flex",gap:4,flexShrink:0}}>
+                  {u.device_token ? <Btn onClick={()=>liberarDispositivo(u)} variant="ghost" sm>📱 Liberar</Btn> : <Badge color={C.textMuted} sm>📱 Sin vincular</Badge>}
+                  <Btn onClick={()=>{setEditing(u.id);setEditVal({name:u.name,documento:u.documento});}} variant="ghost" sm>✏ Usuario</Btn>
+                  <Btn onClick={()=>{setCambiandoPass(u.id);setNuevaPass("");}} variant="ghost" sm>🔑 Contraseña</Btn>
+                </div>
+              </div>
+            )}
+            {editing!==u.id && cambiandoPass!==u.id && (
+              <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+                <span style={{fontFamily:font.body,fontSize:10,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Contraseña actual</span>
+                <span style={{fontFamily:font.mono,fontSize:12,color:C.text,letterSpacing:"0.05em"}}>{passVisible[u.id]?(u.password||"—"):"•".repeat(Math.max((u.password||"").length,6))}</span>
+                <button onClick={()=>setPassVisible(p=>({...p,[u.id]:!p[u.id]}))} style={{background:"none",border:"none",cursor:"pointer",fontSize:11,color:C.goldLight,fontFamily:font.body,padding:0}}>{passVisible[u.id]?"🙈 Ocultar":"👁 Ver"}</button>
+              </div>
+            )}
+          </Card>
+        ))}
+        {tiendas.length===0 && <Card><div style={{textAlign:"center",padding:20,color:C.textMuted,fontFamily:font.body,fontSize:13}}>No hay cuentas de tienda todavía.</div></Card>}
       </div>
     </div>
   );
@@ -4739,6 +4802,7 @@ export default function App() {
   const [ventasAjustes,setVentasAjustes]=useState([]);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
+  const [mostrarAccesoTiendas,setMostrarAccesoTiendas]=useState(false);
   const isMobile=useIsMobile();
 
   // `todayStr` se calcula UNA sola vez cuando carga la página (no es reactivo). Si alguien deja
@@ -4878,14 +4942,24 @@ export default function App() {
     </div>
   );
 
+  const modalAccesoTiendas = mostrarAccesoTiendas && (
+    <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}}>
+      <div style={{maxWidth:900,margin:"0 auto"}}>
+        <Btn onClick={()=>setMostrarAccesoTiendas(false)} variant="ghost" sm style={{marginBottom:14}}>← Volver</Btn>
+        <TiendasAccesoScreen users={users} setUsers={setUsers} stores={stores}/>
+      </div>
+    </div>
+  );
+
   if(isMobile) return (
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden"}}>
-        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)}/>
+        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)}/>
         <main style={{flex:1,overflowY:"auto",padding:16}}>{renderScreen()}</main>
         <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
         {modalCambiarPassword}
         {modalUsuarios}
+        {modalAccesoTiendas}
       </div>
     </ReadOnlyContext.Provider>
   );
@@ -4893,10 +4967,11 @@ export default function App() {
   return (
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
-        <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)}/>
+        <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)}/>
         <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}>{renderScreen()}</main>
         {modalCambiarPassword}
         {modalUsuarios}
+        {modalAccesoTiendas}
       </div>
     </ReadOnlyContext.Provider>
   );
