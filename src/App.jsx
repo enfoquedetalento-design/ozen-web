@@ -3113,7 +3113,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
         </div>
       </Card>
 
-      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
         {ventasFiltradas.map(v=>{
           const d = detalle[v.id];
           const abiertoEdicion = editando===v.id;
@@ -3154,14 +3154,13 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
           const puedeEliminarAqui = esAdmin || esHoyTienda;
           return (
             <Card key={v.id} p="0" style={{ overflow:"hidden" }}>
-              <button onClick={()=>toggleExpand(v.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"9px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
+              <button onClick={()=>toggleExpand(v.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
                 <Badge color={C.gold} sm>#{v.numero_factura||"—"}</Badge>
                 <div style={{ flex:1, minWidth:140 }}>
                   <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha} · {stores[v.tienda_id]?.name||v.tienda_id}</span></div>
-                  {v.cliente_nombre && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, lineHeight:1.3 }}>{v.cliente_nombre}</div>}
-                  {(v.cliente_documento || v.cliente_telefono) && (
+                  {(v.cliente_nombre || v.cliente_documento || v.cliente_telefono) && (
                     <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, lineHeight:1.3 }}>
-                      {v.cliente_tipo_doc||""} {v.cliente_documento||""}{v.cliente_documento && v.cliente_telefono ? " · " : ""}{v.cliente_telefono ? `Tel: ${v.cliente_telefono}` : ""}
+                      {v.cliente_nombre||""}{v.cliente_nombre && (v.cliente_documento||v.cliente_telefono) ? " · " : ""}{v.cliente_tipo_doc||""} {v.cliente_documento||""}{v.cliente_documento && v.cliente_telefono ? " · " : ""}{v.cliente_telefono ? `Tel: ${v.cliente_telefono}` : ""}
                     </div>
                   )}
                 </div>
