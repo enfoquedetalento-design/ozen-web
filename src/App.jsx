@@ -2623,8 +2623,17 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
           const tipoColor = VENTAS_TIPO_COLORES[tiposRaw[0]] || C.blue;
           const tipoIcon = VENTAS_TIPO_ICONOS[tiposRaw[0]] || "🛍️";
           const medioIcon = mediosRaw[0]==="flexipago" ? "⏳" : (VENTAS_MEDIO_ICONOS[mediosRaw[0]] || "💰");
+          // Un Flexipago recién abierto (con solo el separo) todavía no es venta real — solo
+          // cuenta el total el día que se termina de pagar. Se mira solo lo abonado ESE mismo día
+          // de apertura (no lo abonado más adelante, que ya se ve aparte en abonosHoyTienda el día
+          // que realmente entró) — si separo + abonos de ese mismo día ya completan el total, sí
+          // se muestra el total ya como venta cerrada.
+          const valorFlex = v.es_flexipago ? itemsDeVenta.filter(i=>i.tipo==="flexipago").reduce((s,i)=>s+Number(i.valor||0)-Number(i.descuento||0),0) : 0;
+          const abonadoHoyMismo = v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id && a.fecha===v.fecha).reduce((s,a)=>s+Number(a.valor||0),0) : 0;
+          const flexipagoCompletadoHoy = v.es_flexipago && valorFlex>0 && abonadoHoyMismo>=valorFlex;
+          const esFlexipagoAbierto = v.es_flexipago && !flexipagoCompletadoHoy;
           return (
-          <Card key={v.id} p="10px 14px" style={{ borderLeft:`3px solid ${tipoColor}` }}>
+          <Card key={v.id} p="10px 14px" style={{ borderLeft:`3px solid ${esFlexipagoAbierto?C.blue:tipoColor}` }}>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
                 <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{v.numero_factura?`#${v.numero_factura}`:"—"}</span>
@@ -2632,10 +2641,19 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
                   {v.vendedor_nombre}{v.cliente_nombre?` · ${v.cliente_nombre}`:""}
                 </span>
               </div>
-              {tiposTexto && <Badge color={tipoColor} sm title={tiposTexto}>{tipoIcon} {tiposTexto}</Badge>}
-              {mediosTexto && <Badge color={C.blue} sm title={mediosTexto}>{medioIcon} {mediosTexto}</Badge>}
-              <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${Number(v.total).toLocaleString("es-CO")}</div>
+              {esFlexipagoAbierto ? (
+                <Badge color={C.blue} sm title={`Separado con $${abonadoHoyMismo.toLocaleString("es-CO")} de $${valorFlex.toLocaleString("es-CO")} — no cuenta como venta hasta completarse`}>⏳ Abono Flexipago</Badge>
+              ) : (
+                <>
+                  {tiposTexto && <Badge color={tipoColor} sm title={tiposTexto}>{tipoIcon} {tiposTexto}</Badge>}
+                  {mediosTexto && <Badge color={C.blue} sm title={mediosTexto}>{medioIcon} {mediosTexto}</Badge>}
+                </>
+              )}
+              <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${(esFlexipagoAbierto?abonadoHoyMismo:Number(v.total)).toLocaleString("es-CO")}</div>
             </div>
+            {esFlexipagoAbierto && (
+              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>Flexipago abierto hoy — separado con ${abonadoHoyMismo.toLocaleString("es-CO")} de ${valorFlex.toLocaleString("es-CO")}. No cuenta como venta hasta que se complete el pago.</div>
+            )}
           </Card>
           );
         })}
@@ -2650,10 +2668,10 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
               </div>
               <Badge color={a.completa?C.green:C.blue} sm title={a.completa?`Antes había abonado $${a.antes.toLocaleString("es-CO")}`:`Lleva abonado $${(a.antes+Number(a.valor)).toLocaleString("es-CO")} de $${a.valorFlex.toLocaleString("es-CO")}`}>{a.completa?"✅ Completa Flexipago":"⏳ Abono Flexipago"}</Badge>
               <Badge color={C.blue} sm>{VENTAS_MEDIO_ICONOS[a.medio_pago]||"💰"} {VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}</Badge>
-              <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${Number(a.valor).toLocaleString("es-CO")}</div>
+              <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${(a.completa?a.valorFlex:Number(a.valor)).toLocaleString("es-CO")}</div>
             </div>
             <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>
-              {a.completa ? `Completó el Flexipago — antes había abonado $${a.antes.toLocaleString("es-CO")}` : `Abono parcial — lleva $${(a.antes+Number(a.valor)).toLocaleString("es-CO")} de $${a.valorFlex.toLocaleString("es-CO")}`}
+              {a.completa ? `Completó el Flexipago hoy con un abono de $${Number(a.valor).toLocaleString("es-CO")} — antes había abonado $${a.antes.toLocaleString("es-CO")}` : `Abono parcial de $${Number(a.valor).toLocaleString("es-CO")} — lleva $${(a.antes+Number(a.valor)).toLocaleString("es-CO")} de $${a.valorFlex.toLocaleString("es-CO")}`}
             </div>
           </Card>
         ))}
