@@ -3038,8 +3038,18 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   const agregarAbono = async (venta, valorFlexipagoVenta, totalAbonadoActual) => {
     if(!abonoValor || Number(abonoValor)<=0) return;
     if(VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && !abonoAutorizacion.trim()) return;
-    const completaPago = (valorFlexipagoVenta - totalAbonadoActual - Number(abonoValor)) <= 0;
-    if(completaPago && !venta.numero_factura && !abonoNumeroFactura.trim()) return;
+    // El total abonado que llega por parámetro viene del render (puede quedar desactualizado si
+    // se registran varios abonos seguidos muy rápido, antes de que la pantalla alcance a
+    // refrescarse). Para decidir si este abono cierra el Flexipago, se vuelve a sumar lo
+    // realmente guardado en la base justo antes de insertar — así no se le escapa pedir el N.º
+    // de factura cuando sí corresponde, ni queda un saldo fantasma que solo se corrige al recargar.
+    const { data: abonosActuales } = await supabase.from("ventas_abonos").select("valor").eq("venta_id", venta.id);
+    const totalAbonadoReal = (abonosActuales||[]).reduce((a,x)=>a+Number(x.valor||0), 0);
+    const completaPago = (valorFlexipagoVenta - totalAbonadoReal - Number(abonoValor)) <= 0;
+    if(completaPago && !venta.numero_factura && !abonoNumeroFactura.trim()){
+      alert("Este abono deja el Flexipago completamente pagado — falta el N.º de factura (Siigo) para poder guardarlo. Escríbelo en el campo que apareció y guarda de nuevo.");
+      return;
+    }
     // Solo master/admin_finanzas pueden poner una fecha distinta a hoy (para abonos atrasados
     // que se registran después de que pasaron). El resto siempre abona con la fecha de hoy.
     const fechaAbono = (esAdmin && abonoFecha) ? abonoFecha : todayStr;
@@ -3467,11 +3477,11 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                                     <div style={{ flex:1, minWidth:130 }}><Field label="Fecha del abono" type="date" value={abonoFecha} onChange={setAbonoFecha}/></div>
                                   )}
                                 </div>
-                                {(saldoPendiente - Number(abonoValor||0) <= 0) && !v.numero_factura && (
-                                  <Field label="Este abono completa el pago — N.º de factura (Siigo)" value={abonoNumeroFactura} onChange={setAbonoNumeroFactura} placeholder="Ej: FE-1234"/>
+                                {!v.numero_factura && (
+                                  <Field label="N.º de factura (Siigo) — solo si este abono deja el Flexipago pagado por completo" value={abonoNumeroFactura} onChange={setAbonoNumeroFactura} placeholder="Ej: FE-1234"/>
                                 )}
                                 <div style={{ display:"flex", gap:6 }}>
-                                  <Btn onClick={()=>agregarAbono(v, valorFlexipago, totalAbonado)} disabled={!abonoValor || Number(abonoValor)<=0 || (VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && !abonoAutorizacion.trim()) || ((saldoPendiente - Number(abonoValor||0) <= 0) && !v.numero_factura && !abonoNumeroFactura.trim())} sm>Guardar</Btn>
+                                  <Btn onClick={()=>agregarAbono(v, valorFlexipago, totalAbonado)} disabled={!abonoValor || Number(abonoValor)<=0 || (VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && !abonoAutorizacion.trim())} sm>Guardar</Btn>
                                   <Btn onClick={()=>{setAbonoForm(null);setAbonoValor("");setAbonoMedio("efectivo");setAbonoAutorizacion("");setAbonoNumeroFactura("");}} variant="ghost" sm>Cancelar</Btn>
                                 </div>
                               </div>
