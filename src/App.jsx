@@ -2318,20 +2318,28 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
   // Abonos que entraron hoy a un Flexipago creado en OTRO día — el dinero entra hoy aunque la
   // venta se haya abierto antes, así que también debe verse en "Ventas de hoy" de esta tienda.
   // (Si el Flexipago se creó y se pagó completo hoy mismo, ya se ve como venta normal arriba,
-  // no se duplica aquí).
-  const abonosHoyTienda = (ventasAbonos||[])
-    .filter(a=>a.fecha===fecha)
-    .map(a=>{
-      const venta = ventas.find(v=>v.id===a.venta_id);
-      if(!venta || venta.tienda_id!==tiendaId || venta.fecha===fecha) return null;
-      const valorFlex = ventasItems.filter(i=>i.venta_id===venta.id && i.tipo==="flexipago").reduce((s,i)=>s+Number(i.valor||0)-Number(i.descuento||0),0);
-      const todasDeEstaVenta = (ventasAbonos||[]).filter(ab=>ab.venta_id===venta.id).sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
-      const idx = todasDeEstaVenta.findIndex(ab=>ab.id===a.id);
-      const antes = todasDeEstaVenta.slice(0,idx).reduce((s,ab)=>s+Number(ab.valor||0),0);
-      const completa = valorFlex>0 && (antes + Number(a.valor||0)) >= valorFlex;
-      return { ...a, venta, valorFlex, antes, completa };
-    })
-    .filter(Boolean);
+  // no se duplica aquí). Si hubo VARIOS abonos hoy para la misma venta (ej: pagó una parte con
+  // tarjeta y volvió más tarde con efectivo), se agrupan en una sola tarjeta — antes se mostraba
+  // un renglón por cada abono y parecía una venta duplicada.
+  const gruposAbonoHoy = {};
+  (ventasAbonos||[]).filter(a=>a.fecha===fecha).forEach(a=>{
+    const venta = ventas.find(v=>v.id===a.venta_id);
+    if(!venta || venta.tienda_id!==tiendaId || venta.fecha===fecha) return;
+    if(!gruposAbonoHoy[venta.id]) gruposAbonoHoy[venta.id] = { venta, abonos:[] };
+    gruposAbonoHoy[venta.id].abonos.push(a);
+  });
+  const abonosHoyTienda = Object.values(gruposAbonoHoy).map(({venta, abonos})=>{
+    const valorFlex = ventasItems.filter(i=>i.venta_id===venta.id && i.tipo==="flexipago").reduce((s,i)=>s+Number(i.valor||0)-Number(i.descuento||0),0);
+    const todasDeEstaVenta = (ventasAbonos||[]).filter(ab=>ab.venta_id===venta.id).sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
+    const idsHoy = new Set(abonos.map(a=>a.id));
+    const primerIdxHoy = todasDeEstaVenta.findIndex(ab=>idsHoy.has(ab.id));
+    const antes = todasDeEstaVenta.slice(0,primerIdxHoy).reduce((s,ab)=>s+Number(ab.valor||0),0);
+    const abonosOrdenados = [...abonos].sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
+    const totalHoy = abonosOrdenados.reduce((s,a)=>s+Number(a.valor||0),0);
+    const completa = valorFlex>0 && (antes + totalHoy) >= valorFlex;
+    const mediosHoy = [...new Set(abonosOrdenados.map(a=>a.medio_pago))];
+    return { venta, abonos:abonosOrdenados, valorFlex, antes, totalHoy, completa, mediosHoy };
+  });
 
   // Meta del día de hoy para la tienda seleccionada (si ya se asignó por día en Métricas) y
   // cuánto falta para completarla — el dato que se quiere ver de primeras al registrar ventas.
@@ -2660,21 +2668,29 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
           </Card>
           );
         })}
-        {abonosHoyTienda.map(a=>(
-          <Card key={`abono-${a.id}`} p="10px 14px" style={{ borderLeft:`3px solid ${a.completa?C.green:C.blue}` }}>
+        {abonosHoyTienda.map(({venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy})=>(
+          <Card key={`abono-${venta.id}`} p="10px 14px" style={{ borderLeft:`3px solid ${completa?C.green:C.blue}` }}>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
-                <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{a.venta.numero_factura?`#${a.venta.numero_factura}`:"—"}</span>
+                <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{venta.numero_factura?`#${venta.numero_factura}`:"—"}</span>
                 <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                  {a.venta.cliente_nombre || a.venta.vendedor_nombre}
+                  {venta.cliente_nombre || venta.vendedor_nombre}
                 </span>
               </div>
-              <Badge color={a.completa?C.green:C.blue} sm title={a.completa?`Antes había abonado $${a.antes.toLocaleString("es-CO")}`:`Lleva abonado $${(a.antes+Number(a.valor)).toLocaleString("es-CO")} de $${a.valorFlex.toLocaleString("es-CO")}`}>{a.completa?"✅ Completa Flexipago":"⏳ Abono Flexipago"}</Badge>
-              <Badge color={C.blue} sm>{VENTAS_MEDIO_ICONOS[a.medio_pago]||"💰"} {VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}</Badge>
-              <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${(a.completa?a.valorFlex:Number(a.valor)).toLocaleString("es-CO")}</div>
+              <Badge color={completa?C.green:C.blue} sm title={completa?`Antes había abonado $${antes.toLocaleString("es-CO")}`:`Lleva abonado $${(antes+totalHoy).toLocaleString("es-CO")} de $${valorFlex.toLocaleString("es-CO")}`}>{completa?"✅ Completa Flexipago":"⏳ Abono Flexipago"}</Badge>
+              {mediosHoy.length===1 ? (
+                <Badge color={C.blue} sm>{VENTAS_MEDIO_ICONOS[mediosHoy[0]]||"💰"} {VENTAS_MEDIOS_PAGO.find(m=>m.value===mediosHoy[0])?.label||mediosHoy[0]}</Badge>
+              ) : (
+                <Badge color={C.blue} sm title={abonos.map(a=>`${VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}: $${Number(a.valor).toLocaleString("es-CO")}`).join(" · ")}>{abonos.length} abonos hoy</Badge>
+              )}
+              <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${(completa?valorFlex:totalHoy).toLocaleString("es-CO")}</div>
             </div>
             <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>
-              {a.completa ? `Completó el Flexipago hoy con un abono de $${Number(a.valor).toLocaleString("es-CO")} — antes había abonado $${a.antes.toLocaleString("es-CO")}` : `Abono parcial de $${Number(a.valor).toLocaleString("es-CO")} — lleva $${(a.antes+Number(a.valor)).toLocaleString("es-CO")} de $${a.valorFlex.toLocaleString("es-CO")}`}
+              {abonos.length>1
+                ? `Hoy: ${abonos.map(a=>`$${Number(a.valor).toLocaleString("es-CO")} (${VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago})`).join(" + ")} — antes había abonado $${antes.toLocaleString("es-CO")}`
+                : completa
+                  ? `Completó el Flexipago hoy con un abono de $${totalHoy.toLocaleString("es-CO")} — antes había abonado $${antes.toLocaleString("es-CO")}`
+                  : `Abono parcial de $${totalHoy.toLocaleString("es-CO")} — lleva $${(antes+totalHoy).toLocaleString("es-CO")} de $${valorFlex.toLocaleString("es-CO")}`}
             </div>
           </Card>
         ))}
