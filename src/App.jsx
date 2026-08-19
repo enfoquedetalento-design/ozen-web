@@ -1023,7 +1023,7 @@ function TurnosAdminScreen({ users, setUsers, stores, setStores, turnosGlobales,
 
 // ── Turnos: helpers compartidos por la rejilla (ver/editar) y por "Mis turnos" ─
 const MESES_LARGO = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-const diasDelMes = (anio, mes) => { const n = new Date(anio, mes+1, 0).getDate(); return Array.from({length:n},(_,i)=>`${anio}-${String(mes+1).padStart(2,"0")}-${String(i+1).padStart(2,"0")}`); };
+const fechasDelMesTurnos = (anio, mes) => { const n = new Date(anio, mes+1, 0).getDate(); return Array.from({length:n},(_,i)=>`${anio}-${String(mes+1).padStart(2,"0")}-${String(i+1).padStart(2,"0")}`); };
 const addDiasFecha = (fechaStr, n) => { const d=new Date(fechaStr+"T12:00:00"); d.setDate(d.getDate()+n); return fmt(d); };
 const primerNombre = (n) => (n||"").trim().split(" ")[0];
 const nombreDia = (fechaStr) => { const d=new Date(fechaStr+"T12:00:00"); const l=d.toLocaleDateString("es-CO",{weekday:"long"}); return l.charAt(0).toUpperCase()+l.slice(1); };
@@ -1145,7 +1145,7 @@ function TurnosVerScreen({ users, stores, turnosGlobales, asignaciones }) {
   const [visibles,setVisibles]=useState(advisorsActivos.map(a=>a.id));
   useEffect(()=>{ setVisibles(prev=>{ const ids=advisorsActivos.map(a=>a.id); const keep=prev.filter(id=>ids.includes(id)); return keep.length?keep:ids; }); },[users.length]);
   const advisors = advisorsActivos.filter(a=>visibles.includes(a.id));
-  const dias = diasDelMes(anio, mes);
+  const dias = fechasDelMesTurnos(anio, mes);
   const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
   return (
     <div>
@@ -1166,7 +1166,7 @@ function TurnosEditarScreen({ users, stores, turnosGlobales, asignaciones, setAs
   const [visibles,setVisibles]=useState(advisorsActivos.map(a=>a.id));
   useEffect(()=>{ setVisibles(prev=>{ const ids=advisorsActivos.map(a=>a.id); const keep=prev.filter(id=>ids.includes(id)); return keep.length?keep:ids; }); },[users.length]);
   const advisors = advisorsActivos.filter(a=>visibles.includes(a.id));
-  const dias = diasDelMes(anio, mes);
+  const dias = fechasDelMesTurnos(anio, mes);
   const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
   const onCambiarCelda = async (asesorId, fecha, valor) => {
     const existing = asigMap.get(`${asesorId}|${fecha}`);
@@ -1337,7 +1337,7 @@ function HistoryScreen({ user, records, stores }) {
 // ── SCREEN: Schedule (malla horaria personal — rejilla de Turnos filtrada al asesor) ──
 function ScheduleScreen({ user, stores, turnosGlobales, asignaciones }) {
   const { anio, mes, prev, next } = useMesSeleccionado();
-  const dias = diasDelMes(anio, mes);
+  const dias = fechasDelMesTurnos(anio, mes);
   const asigMap = new Map((asignaciones||[]).filter(a=>a.asesor_id===user.id).map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
   return (
     <div>
