@@ -411,7 +411,9 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
 }
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
-const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id:"records",icon:"📋",label:"Registros" },{ id:"users",icon:"👥",label:"Asesores" },{ id:"stores",icon:"🏬",label:"Tiendas" },{ id:"reports",icon:"📈",label:"Informes" }];
+const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id:"records",icon:"📋",label:"Registros" },{ id:"turnos",icon:"📅",label:"Turnos" },{ id:"reports",icon:"📈",label:"Informes" }];
+// Las pestañas "Asesores" y "Tiendas" ya no van sueltas — ahora viven dentro de Turnos ▸
+// Administrar (ver TurnosAdminScreen), junto con los códigos de turno especiales.
 // Usuarios (control total de contraseñas) ya no va en esta lista de pestañas — es solo para
 // master, y se abre aparte con un ícono discreto en el pie del menú (ver Sidebar/MobileHeader).
 const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
@@ -718,7 +720,7 @@ const ROLE_LABEL = { master:"Master", admin:"Administrador", admin_finanzas:"Adm
 const ROLE_COLOR = { master:C.red, admin:C.gold, admin_finanzas:C.blue, visualizador:C.amber, advisor:C.blue, tienda:C.textMuted };
 const ROLE_PERMISOS = {
   master: "Acceso total: Asistencia, Junta, Ventas y el módulo de Usuarios (ve y cambia todas las contraseñas).",
-  admin: "Asistencia y Junta completos (panel, registros, asesores, tiendas, informes). En Ventas solo puede ver (lista, métricas, caja) — no puede registrar ni corregir nada.",
+  admin: "Asistencia y Junta completos (panel, registros, turnos —incluye crear/editar/eliminar asesores y tiendas—, informes). En Ventas solo puede ver (lista, métricas, caja) — no puede registrar ni corregir nada.",
   admin_finanzas: "Todo lo de un Administrador (Asistencia y Junta), más Ventas completo: registrar, lista, métricas, asignar metas, aprobar notas crédito y corregir por error.",
   visualizador: "Puede ver Asistencia, Junta y Ventas, sin poder editar ni registrar nada en ninguno de los tres.",
   advisor: "Marca su propia asistencia y ve su historial/malla. Si se usa para vender, aparece para elegir como quién hizo la venta.",
@@ -877,33 +879,58 @@ function TiendasAccesoScreen({ users, setUsers, stores }) {
 }
 
 // ── SCREEN: Stores ────────────────────────────────────────────────────────────
+const TIENDA_COLOR_PRESETS = [
+  { label:"Rojo",        value:"#e0433e" },
+  { label:"Verde",       value:"#3fa15e" },
+  { label:"Azul",        value:"#3d7ee0" },
+  { label:"Azul oscuro", value:"#1e3a5f" },
+  { label:"Ámbar",       value:"#d99a2b" },
+  { label:"Gris",        value:"#6b7280" },
+];
+function ColorPicker({ value, onChange }) {
+  return (
+    <div style={{ marginBottom:12 }}>
+      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Color</div>
+      <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+        {TIENDA_COLOR_PRESETS.map(p=>(
+          <button key={p.value} type="button" title={p.label} onClick={()=>onChange(p.value)} style={{ width:24, height:24, borderRadius:6, background:p.value, border:value===p.value?`2px solid ${C.text}`:"2px solid transparent", cursor:"pointer", padding:0 }}/>
+        ))}
+        <input type="color" value={value||"#6b7280"} onChange={e=>onChange(e.target.value)} style={{ width:28, height:24, border:"none", background:"none", cursor:"pointer", padding:0 }}/>
+      </div>
+    </div>
+  );
+}
 function StoresScreen({ stores, setStores }) {
   const soloLectura = useReadOnly();
-  const [showForm,setShowForm]=useState(false),[newName,setNewName]=useState(""),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[newShift,setNewShift]=useState({});
-  const addStore=async()=>{ if(!newName.trim())return; const id=newName.trim().toLowerCase().replace(/\s+/g,"_").replace(/[^a-z0-9_]/g,""); if(stores[id])return; const{data}=await supabase.from("tiendas").insert({id,name:newName.trim(),shifts:[]}).select().single(); if(data){setStores(prev=>({...prev,[data.id]:data}));setNewName("");setShowForm(false);} };
+  const [showForm,setShowForm]=useState(false),[newName,setNewName]=useState(""),[newColor,setNewColor]=useState("#6b7280"),[newVende,setNewVende]=useState(true),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[newShift,setNewShift]=useState({});
+  const addStore=async()=>{ if(!newName.trim())return; const id=newName.trim().toLowerCase().replace(/\s+/g,"_").replace(/[^a-z0-9_]/g,""); if(stores[id])return; const{data}=await supabase.from("tiendas").insert({id,name:newName.trim(),shifts:[],color:newColor,vende:newVende}).select().single(); if(data){setStores(prev=>({...prev,[data.id]:data}));setNewName("");setNewColor("#6b7280");setNewVende(true);setShowForm(false);} };
   const deleteStore=async(id)=>{
     const { count } = await supabase.from("registros").select("id", { count: "exact", head: true }).eq("store", id);
     if (count > 0) { alert(`Esta tienda tiene ${count} registro(s) de asistencia asociados. Eliminarla podría borrar ese historial para siempre. Si ya no está operando, simplemente deja de asignarle turnos nuevos en vez de eliminarla.`); return; }
     if (!window.confirm("Esta tienda no tiene registros de asistencia. ¿Eliminarla de todas formas? Esto no se puede deshacer.")) return;
     await supabase.from("tiendas").delete().eq("id",id); setStores(prev=>{const c={...prev};delete c[id];return c;});
   };
-  const saveEdit=async(id)=>{ if(!editVal.name.trim())return; const{data}=await supabase.from("tiendas").update({name:editVal.name.trim()}).eq("id",id).select().single(); if(data){setStores(prev=>({...prev,[id]:data}));setEditing(null);} };
+  const saveEdit=async(id)=>{ if(!editVal.name.trim())return; const{data}=await supabase.from("tiendas").update({name:editVal.name.trim(),color:editVal.color||"#6b7280"}).eq("id",id).select().single(); if(data){setStores(prev=>({...prev,[id]:data}));setEditing(null);} };
   const toggleVende=async(s)=>{ const{data}=await supabase.from("tiendas").update({vende:!(s.vende!==false)}).eq("id",s.id).select().single(); if(data)setStores(prev=>({...prev,[s.id]:data})); };
   const removeShift=async(sid,sh)=>{ const shifts=stores[sid].shifts.filter(x=>x!==sh); const{data}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data)setStores(prev=>({...prev,[sid]:data})); };
   const addShift=async(sid)=>{ const sh=(newShift[sid]||"").trim(); if(!sh||stores[sid].shifts.includes(sh))return; const shifts=[...stores[sid].shifts,sh]; const{data}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data){setStores(prev=>({...prev,[sid]:data}));setNewShift(p=>({...p,[sid]:""}));} };
   return (
     <div>
       <PageHeader title="Tiendas" subtitle="Puntos de venta y turnos" action={soloLectura?null:<Btn onClick={()=>setShowForm(!showForm)} sm>{showForm?"Cancelar":"+ Nueva"}</Btn>} />
-      {!soloLectura && showForm&&(<Card glow style={{marginBottom:16}}><Field label="Nombre de la tienda" value={newName} onChange={setNewName} placeholder="Ej: Centenario" /><Btn onClick={addStore} full>Crear tienda</Btn></Card>)}
+      {!soloLectura && showForm&&(<Card glow style={{marginBottom:16}}><Field label="Nombre de la tienda" value={newName} onChange={setNewName} placeholder="Ej: Centenario" /><ColorPicker value={newColor} onChange={setNewColor}/><div style={{marginBottom:12}}><label style={{display:"flex",alignItems:"center",gap:8,fontFamily:font.body,fontSize:12,color:C.text,cursor:"pointer"}}><input type="checkbox" checked={newVende} onChange={e=>setNewVende(e.target.checked)}/> Vende — aparece en Ventas</label></div><Btn onClick={addStore} full>Crear tienda</Btn></Card>)}
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         {Object.values(stores).map(s=>(
           <Card key={s.id} glow={editing===s.id}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-              {!soloLectura && editing===s.id?<input value={editVal.name} onChange={e=>setEditVal(p=>({...p,name:e.target.value}))} style={{flex:1,background:C.surfaceAlt,border:`1px solid ${C.gold}`,borderRadius:7,padding:"7px 10px",color:C.text,fontSize:15,fontFamily:font.body,outline:"none",fontWeight:700}}/>:<div style={{fontFamily:font.body,fontSize:15,fontWeight:700,color:C.goldLight}}>{s.name}</div>}
+              <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
+                <span style={{width:12,height:12,borderRadius:4,background:s.color||"#6b7280",flexShrink:0}}/>
+                {!soloLectura && editing===s.id?<input value={editVal.name} onChange={e=>setEditVal(p=>({...p,name:e.target.value}))} style={{flex:1,background:C.surfaceAlt,border:`1px solid ${C.gold}`,borderRadius:7,padding:"7px 10px",color:C.text,fontSize:15,fontFamily:font.body,outline:"none",fontWeight:700}}/>:<div style={{fontFamily:font.body,fontSize:15,fontWeight:700,color:C.goldLight}}>{s.name}</div>}
+              </div>
               {!soloLectura && <div style={{display:"flex",gap:6,marginLeft:10,flexShrink:0}}>
-                {editing===s.id?<><Btn onClick={()=>saveEdit(s.id)} sm>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm>✕</Btn></>:<><Btn onClick={()=>{setEditing(s.id);setEditVal({name:s.name});}} variant="ghost" sm>✏</Btn><Btn onClick={()=>deleteStore(s.id)} variant="danger" sm>🗑</Btn></>}
+                {editing===s.id?<><Btn onClick={()=>saveEdit(s.id)} sm>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm>✕</Btn></>:<><Btn onClick={()=>{setEditing(s.id);setEditVal({name:s.name,color:s.color||"#6b7280"});}} variant="ghost" sm>✏</Btn><Btn onClick={()=>deleteStore(s.id)} variant="danger" sm>🗑</Btn></>}
               </div>}
             </div>
+            {!soloLectura && editing===s.id && <ColorPicker value={editVal.color} onChange={c=>setEditVal(p=>({...p,color:c}))}/>}
             <div style={{marginBottom:10}}>
               {soloLectura ? (
                 <Badge color={s.vende!==false?C.green:C.textMuted} sm>{s.vende!==false?"Vende":"No vende (no aparece en Ventas)"}</Badge>
@@ -929,6 +956,266 @@ function StoresScreen({ stores, setStores }) {
           </Card>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── SCREEN: Turnos especiales (códigos sin tienda: descanso, incapacidad, vacaciones...) ──
+function TurnosEspecialesScreen({ turnosGlobales, setTurnosGlobales }) {
+  const soloLectura = useReadOnly();
+  const [showForm,setShowForm]=useState(false),[newNombre,setNewNombre]=useState(""),[newColor,setNewColor]=useState("#9ca3af"),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({});
+  const addGlobal=async()=>{ if(!newNombre.trim())return; const id=newNombre.trim().toLowerCase().replace(/\s+/g,"_").replace(/[^a-z0-9_]/g,""); if(!id||turnosGlobales.some(t=>t.id===id))return; const{data,error}=await supabase.from("turnos_globales").insert({id,nombre:newNombre.trim(),color:newColor}).select().single(); if(!error&&data){setTurnosGlobales(prev=>[...prev,data]);setNewNombre("");setNewColor("#9ca3af");setShowForm(false);} };
+  const saveEdit=async(id)=>{ if(!editVal.nombre.trim())return; const{data,error}=await supabase.from("turnos_globales").update({nombre:editVal.nombre.trim(),color:editVal.color||"#9ca3af"}).eq("id",id).select().single(); if(!error&&data){setTurnosGlobales(prev=>prev.map(t=>t.id===id?data:t));setEditing(null);} };
+  const deleteGlobal=async(id)=>{
+    const { count } = await supabase.from("turnos_asignaciones").select("id",{ count:"exact", head:true }).eq("turno_global_id",id);
+    if(count>0){ alert(`Este código está asignado en ${count} día(s) de la rejilla. Quítalo de esas asignaciones antes de eliminarlo.`); return; }
+    if(!window.confirm("¿Eliminar este código? Esto no se puede deshacer.")) return;
+    await supabase.from("turnos_globales").delete().eq("id",id); setTurnosGlobales(prev=>prev.filter(t=>t.id!==id));
+  };
+  return (
+    <div>
+      <PageHeader title="Turnos especiales" subtitle="Códigos sin tienda: descanso, incapacidad, vacaciones..." action={soloLectura?null:<Btn onClick={()=>setShowForm(!showForm)} sm>{showForm?"Cancelar":"+ Nuevo"}</Btn>} />
+      {!soloLectura && showForm&&(<Card glow style={{marginBottom:16}}><Field label="Nombre / código" value={newNombre} onChange={setNewNombre} placeholder="Ej: Descanso" /><ColorPicker value={newColor} onChange={setNewColor}/><Btn onClick={addGlobal} full>Crear código</Btn></Card>)}
+      <div style={{display:"flex",flexWrap:"wrap",gap:10}}>
+        {turnosGlobales.map(t=>(
+          <Card key={t.id} p="10px 14px" glow={editing===t.id} style={{minWidth:180}}>
+            {!soloLectura && editing===t.id ? (
+              <div>
+                <input value={editVal.nombre} onChange={e=>setEditVal(p=>({...p,nombre:e.target.value}))} style={{width:"100%",background:C.surfaceAlt,border:`1px solid ${C.gold}`,borderRadius:7,padding:"6px 8px",color:C.text,fontSize:13,fontFamily:font.body,outline:"none",marginBottom:8}}/>
+                <ColorPicker value={editVal.color} onChange={c=>setEditVal(p=>({...p,color:c}))}/>
+                <div style={{display:"flex",gap:6}}><Btn onClick={()=>saveEdit(t.id)} sm full>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm full>✕</Btn></div>
+              </div>
+            ) : (
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{width:12,height:12,borderRadius:4,background:t.color,flexShrink:0}}/>
+                <span style={{fontFamily:font.body,fontSize:13,color:C.text,fontWeight:600,flex:1}}>{t.nombre}</span>
+                {!soloLectura && <div style={{display:"flex",gap:4}}>
+                  <Btn onClick={()=>{setEditing(t.id);setEditVal({nombre:t.nombre,color:t.color});}} variant="ghost" sm>✏</Btn>
+                  <Btn onClick={()=>deleteGlobal(t.id)} variant="danger" sm>🗑</Btn>
+                </div>}
+              </div>
+            )}
+          </Card>
+        ))}
+        {turnosGlobales.length===0 && <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted}}>Sin códigos especiales todavía.</div>}
+      </div>
+    </div>
+  );
+}
+
+// ── SCREEN: Turnos · Administrar (asesores + tiendas + turnos especiales, en un solo lugar) ──
+function TurnosAdminScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales }) {
+  const [sub,setSub]=useState("asesores");
+  const subTabs=[{id:"asesores",label:"Asesores"},{id:"tiendas",label:"Tiendas"},{id:"especiales",label:"Turnos especiales"}];
+  return (
+    <div>
+      <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+        {subTabs.map(t=>(
+          <button key={t.id} onClick={()=>setSub(t.id)} style={{padding:"6px 14px",borderRadius:99,border:`1px solid ${sub===t.id?C.gold:C.border}`,background:sub===t.id?`${C.gold}18`:"transparent",color:sub===t.id?C.goldLight:C.textMuted,fontFamily:font.body,fontSize:12,fontWeight:600,cursor:"pointer"}}>{t.label}</button>
+        ))}
+      </div>
+      {sub==="asesores"   && <UsersScreen users={users} setUsers={setUsers}/>}
+      {sub==="tiendas"    && <StoresScreen stores={stores} setStores={setStores}/>}
+      {sub==="especiales" && <TurnosEspecialesScreen turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales}/>}
+    </div>
+  );
+}
+
+// ── Turnos: helpers compartidos por la rejilla (ver/editar) y por "Mis turnos" ─
+const MESES_LARGO = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const diasDelMes = (anio, mes) => { const n = new Date(anio, mes+1, 0).getDate(); return Array.from({length:n},(_,i)=>`${anio}-${String(mes+1).padStart(2,"0")}-${String(i+1).padStart(2,"0")}`); };
+const addDiasFecha = (fechaStr, n) => { const d=new Date(fechaStr+"T12:00:00"); d.setDate(d.getDate()+n); return fmt(d); };
+const primerNombre = (n) => (n||"").trim().split(" ")[0];
+const nombreDia = (fechaStr) => { const d=new Date(fechaStr+"T12:00:00"); const l=d.toLocaleDateString("es-CO",{weekday:"long"}); return l.charAt(0).toUpperCase()+l.slice(1); };
+const esDomingo = (fechaStr) => new Date(fechaStr+"T12:00:00").getDay()===0;
+const resolverTurno = (asig, stores, turnosGlobales) => {
+  if(!asig) return null;
+  if(asig.turno_global_id){ const g=turnosGlobales.find(t=>t.id===asig.turno_global_id); return g?{ label:g.nombre, color:g.color }:null; }
+  if(asig.tienda_id){ const s=stores[asig.tienda_id]; return s?{ label:asig.shift||s.name, color:s.color||"#6b7280" }:null; }
+  return null;
+};
+const valorCelda = (asig) => { if(!asig) return ""; if(asig.turno_global_id) return `g:${asig.turno_global_id}`; if(asig.tienda_id) return `t:${asig.tienda_id}|${encodeURIComponent(asig.shift||"")}`; return ""; };
+function TurnoBadgeCelda({ turno, size }) {
+  if(!turno) return <div style={{ width:"100%", minHeight:size==="sm"?24:28 }}/>;
+  return (
+    <div style={{ width:"100%", minHeight:size==="sm"?24:28, borderRadius:5, background:turno.color, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:size==="sm"?10.5:11.5, fontWeight:700, padding:"3px 4px", textShadow:"0 1px 1px rgba(0,0,0,0.25)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{turno.label}</div>
+  );
+}
+function SelectorAsesoresColumnas({ advisors, visibles, setVisibles }) {
+  return (
+    <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:14 }}>
+      {advisors.map(a=>{ const on = visibles.includes(a.id); return (
+        <button key={a.id} onClick={()=>setVisibles(prev=> on ? prev.filter(id=>id!==a.id) : [...prev,a.id])} style={{ padding:"5px 12px", borderRadius:99, border:`1px solid ${on?C.gold:C.border}`, background:on?`${C.gold}18`:"transparent", color:on?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:11.5, fontWeight:600, cursor:"pointer" }}>{a.name}</button>
+      );})}
+    </div>
+  );
+}
+
+// ── Turnos: rejilla mensual (asesores en columnas, días en filas) ─────────────
+function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, editable, onCambiarCelda }) {
+  const colWidth = Math.max(70, ...advisors.map(a=>primerNombre(a.name).length*8+28), 70);
+  const storeGroups = Object.values(stores).filter(s=>(s.shifts||[]).length>0);
+  return (
+    <div style={{ overflowX:"auto", border:`1px solid ${C.border}`, borderRadius:10 }}>
+      <table style={{ borderCollapse:"collapse", width:"100%", minWidth:140+advisors.length*colWidth }}>
+        <thead>
+          <tr>
+            <th style={{ position:"sticky", left:0, top:0, zIndex:3, background:C.surfaceAlt, borderBottom:`1px solid ${C.border}`, borderRight:`1px solid ${C.border}`, padding:"8px 10px", minWidth:130, textAlign:"left", fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>Día</th>
+            {advisors.map(a=>(
+              <th key={a.id} style={{ position:"sticky", top:0, zIndex:2, background:C.surfaceAlt, borderBottom:`1px solid ${C.border}`, borderLeft:`1px solid ${C.border}`, padding:"8px 4px", width:colWidth, minWidth:colWidth, textAlign:"center", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{primerNombre(a.name)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {dias.map(fecha=>{ const dom=esDomingo(fecha); return (
+            <tr key={fecha}>
+              <td style={{ position:"sticky", left:0, background:C.surface, borderBottom:`1px solid ${C.border}`, borderRight:`1px solid ${C.border}`, padding:"5px 10px", fontFamily:font.body, fontSize:11.5, whiteSpace:"nowrap" }}>
+                <span style={{ color:dom?C.green:C.textMuted, fontWeight:dom?700:400 }}>{nombreDia(fecha)}</span>{" "}
+                <span style={{ color:C.text }}>{Number(fecha.slice(8,10))}</span>
+              </td>
+              {advisors.map(a=>{
+                const asig = asigMap.get(`${a.id}|${fecha}`);
+                const turno = resolverTurno(asig, stores, turnosGlobales);
+                return (
+                  <td key={a.id} style={{ borderBottom:`1px solid ${C.border}`, borderLeft:`1px solid ${C.border}`, padding:3 }}>
+                    {editable ? (
+                      <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ width:"100%", minHeight:28, borderRadius:5, border:`1px solid ${C.border}`, background:turno?turno.color:C.surfaceAlt, color:turno?"#fff":C.textMuted, fontFamily:font.body, fontSize:11, fontWeight:turno?700:400, padding:"3px 2px", cursor:"pointer", outline:"none" }}>
+                        <option value="">—</option>
+                        <optgroup label="Especiales">{turnosGlobales.map(g=><option key={g.id} value={`g:${g.id}`}>{g.nombre}</option>)}</optgroup>
+                        {storeGroups.map(s=>(<optgroup key={s.id} label={s.name}>{s.shifts.map(sh=><option key={sh} value={`t:${s.id}|${encodeURIComponent(sh)}`}>{sh}</option>)}</optgroup>))}
+                      </select>
+                    ) : <TurnoBadgeCelda turno={turno}/>}
+                  </td>
+                );
+              })}
+            </tr>
+          );})}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── Turnos: mini resumen ayer / hoy / mañana ───────────────────────────────────
+function TurnosMiniResumen({ advisors, asigMap, stores, turnosGlobales }) {
+  const filas = [{ label:"Ayer", fecha:addDiasFecha(todayStr,-1) },{ label:"Hoy", fecha:todayStr },{ label:"Mañana", fecha:addDiasFecha(todayStr,1) }];
+  return (
+    <Card glow style={{ marginBottom:16, overflowX:"auto" }}>
+      <table style={{ borderCollapse:"collapse", width:"100%" }}>
+        <thead><tr>
+          <th style={{ textAlign:"left", padding:"4px 10px 8px 0", fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>Día</th>
+          {advisors.map(a=><th key={a.id} style={{ padding:"4px 8px 8px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.text, textAlign:"center" }}>{primerNombre(a.name)}</th>)}
+        </tr></thead>
+        <tbody>
+          {filas.map(f=>(
+            <tr key={f.label}>
+              <td style={{ padding:"4px 10px 4px 0", fontFamily:font.body, fontSize:12, fontWeight:600, color:f.fecha===todayStr?C.goldLight:C.text, whiteSpace:"nowrap" }}>{f.label}</td>
+              {advisors.map(a=>{ const turno=resolverTurno(asigMap.get(`${a.id}|${f.fecha}`), stores, turnosGlobales); return (
+                <td key={a.id} style={{ padding:4, minWidth:76 }}><TurnoBadgeCelda turno={turno} size="sm"/></td>
+              );})}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
+function useMesSeleccionado() {
+  const hoy = toColombiaDate();
+  const [anio,setAnio]=useState(hoy.getFullYear()), [mes,setMes]=useState(hoy.getMonth());
+  const prev=()=>{ if(mes===0){setMes(11);setAnio(a=>a-1);} else setMes(m=>m-1); };
+  const next=()=>{ if(mes===11){setMes(0);setAnio(a=>a+1);} else setMes(m=>m+1); };
+  return { anio, mes, prev, next };
+}
+function SelectorMes({ anio, mes, prev, next }) {
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
+      <Btn onClick={prev} variant="ghost" sm>← Anterior</Btn>
+      <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.goldLight, minWidth:150, textAlign:"center" }}>{MESES_LARGO[mes]} {anio}</div>
+      <Btn onClick={next} variant="ghost" sm>Siguiente →</Btn>
+    </div>
+  );
+}
+
+// ── SCREEN: Turnos · Ver ────────────────────────────────────────────────────────
+function TurnosVerScreen({ users, stores, turnosGlobales, asignaciones }) {
+  const { anio, mes, prev, next } = useMesSeleccionado();
+  const advisorsActivos = users.filter(u=>u.role==="advisor"&&u.active);
+  const [visibles,setVisibles]=useState(advisorsActivos.map(a=>a.id));
+  useEffect(()=>{ setVisibles(prev=>{ const ids=advisorsActivos.map(a=>a.id); const keep=prev.filter(id=>ids.includes(id)); return keep.length?keep:ids; }); },[users.length]);
+  const advisors = advisorsActivos.filter(a=>visibles.includes(a.id));
+  const dias = diasDelMes(anio, mes);
+  const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
+  return (
+    <div>
+      <PageHeader title="Turnos" subtitle="Rejilla del mes — solo consulta"/>
+      <TurnosMiniResumen advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales}/>
+      <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
+      <SelectorAsesoresColumnas advisors={advisorsActivos} visibles={visibles} setVisibles={setVisibles}/>
+      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>Selecciona al menos un asesor para ver la rejilla.</div> :
+        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} editable={false}/>}
+    </div>
+  );
+}
+
+// ── SCREEN: Turnos · Editar ──────────────────────────────────────────────────────
+function TurnosEditarScreen({ users, stores, turnosGlobales, asignaciones, setAsignaciones }) {
+  const { anio, mes, prev, next } = useMesSeleccionado();
+  const advisorsActivos = users.filter(u=>u.role==="advisor"&&u.active);
+  const [visibles,setVisibles]=useState(advisorsActivos.map(a=>a.id));
+  useEffect(()=>{ setVisibles(prev=>{ const ids=advisorsActivos.map(a=>a.id); const keep=prev.filter(id=>ids.includes(id)); return keep.length?keep:ids; }); },[users.length]);
+  const advisors = advisorsActivos.filter(a=>visibles.includes(a.id));
+  const dias = diasDelMes(anio, mes);
+  const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
+  const onCambiarCelda = async (asesorId, fecha, valor) => {
+    const existing = asigMap.get(`${asesorId}|${fecha}`);
+    if(!valor){
+      if(existing){ await supabase.from("turnos_asignaciones").delete().eq("id",existing.id); setAsignaciones(prev=>prev.filter(a=>a.id!==existing.id)); }
+      return;
+    }
+    let payload;
+    if(valor.startsWith("g:")) payload={ asesor_id:asesorId, fecha, turno_global_id:valor.slice(2), tienda_id:null, shift:null };
+    else { const [sid,encShift]=valor.slice(2).split("|"); payload={ asesor_id:asesorId, fecha, tienda_id:sid, shift:decodeURIComponent(encShift||""), turno_global_id:null }; }
+    if(existing){
+      const{data,error}=await supabase.from("turnos_asignaciones").update(payload).eq("id",existing.id).select().single();
+      if(!error&&data) setAsignaciones(prev=>prev.map(a=>a.id===data.id?data:a));
+    } else {
+      const{data,error}=await supabase.from("turnos_asignaciones").insert(payload).select().single();
+      if(!error&&data) setAsignaciones(prev=>[...prev,data]);
+    }
+  };
+  return (
+    <div>
+      <PageHeader title="Turnos" subtitle="Asignar turnos — los cambios se guardan al instante"/>
+      <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
+      <SelectorAsesoresColumnas advisors={advisorsActivos} visibles={visibles} setVisibles={setVisibles}/>
+      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>Selecciona al menos un asesor para editar la rejilla.</div> :
+        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} editable onCambiarCelda={onCambiarCelda}/>}
+    </div>
+  );
+}
+
+// ── SCREEN: Turnos (contenedor con sub-pestañas Ver / Editar / Administrar) ────
+function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, puedeAdministrar }) {
+  const soloLectura = useReadOnly();
+  const [sub,setSub]=useState("ver");
+  const subTabs=[
+    { id:"ver", label:"📅 Ver" },
+    ...(soloLectura?[]:[{ id:"editar", label:"✏️ Editar" }]),
+    ...(puedeAdministrar?[{ id:"administrar", label:"⚙️ Administrar" }]:[]),
+  ];
+  useEffect(()=>{ if(!subTabs.some(t=>t.id===sub)) setSub("ver"); },[soloLectura, puedeAdministrar]);
+  return (
+    <div>
+      <div style={{ display:"flex", gap:6, marginBottom:18, flexWrap:"wrap" }}>
+        {subTabs.map(t=>(
+          <button key={t.id} onClick={()=>setSub(t.id)} style={{ padding:"7px 16px", borderRadius:99, border:`1px solid ${sub===t.id?C.gold:C.border}`, background:sub===t.id?`${C.gold}18`:"transparent", color:sub===t.id?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>{t.label}</button>
+        ))}
+      </div>
+      {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} asignaciones={asignaciones}/>}
+      {sub==="editar"      && !soloLectura && <TurnosEditarScreen users={users} stores={stores} turnosGlobales={turnosGlobales} asignaciones={asignaciones} setAsignaciones={setAsignaciones}/>}
+      {sub==="administrar" && puedeAdministrar && <TurnosAdminScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales}/>}
     </div>
   );
 }
@@ -1045,12 +1332,23 @@ function HistoryScreen({ user, records, stores }) {
   );
 }
 
-// ── SCREEN: Schedule ──────────────────────────────────────────────────────────
-function ScheduleScreen() {
+// ── SCREEN: Schedule (malla horaria personal — rejilla de Turnos filtrada al asesor) ──
+function ScheduleScreen({ user, stores, turnosGlobales, asignaciones }) {
+  const { anio, mes, prev, next } = useMesSeleccionado();
+  const dias = diasDelMes(anio, mes);
+  const asigMap = new Map((asignaciones||[]).filter(a=>a.asesor_id===user.id).map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
   return (
     <div>
-      <PageHeader title="Malla Horaria" subtitle="Consulta tu programación semanal"/>
-      <Card glow><div style={{textAlign:"center",padding:"24px 0"}}><div style={{fontSize:40,marginBottom:12}}>📅</div><div style={{fontFamily:font.body,fontSize:13,color:C.textMuted,marginBottom:16}}>Tu malla horaria está disponible en Google Sheets.</div><a href="https://docs.google.com/spreadsheets/d/1dQ3aPmKrvZXl7Njqvt_F36SIulnV6aenArLBk1bcTe0/edit?usp=sharing" target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:8,background:C.gold,color:"#fff",fontFamily:font.body,fontWeight:600,fontSize:14,padding:"11px 22px",borderRadius:8,textDecoration:"none"}}>Abrir malla horaria ↗</a></div></Card>
+      <PageHeader title="Malla Horaria" subtitle="Tu programación del mes"/>
+      <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
+      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+        {dias.map(fecha=>{ const turno=resolverTurno(asigMap.get(`${user.id}|${fecha}`), stores, turnosGlobales); const dom=esDomingo(fecha); return (
+          <Card key={fecha} p="10px 14px" style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ minWidth:110, fontFamily:font.body, fontSize:12.5, color:dom?C.green:C.text, fontWeight:dom?700:500 }}>{nombreDia(fecha)} {Number(fecha.slice(8,10))}</div>
+            <div style={{ flex:1 }}>{turno ? <TurnoBadgeCelda turno={turno}/> : <span style={{fontFamily:font.body,fontSize:12,color:C.border}}>Sin asignar</span>}</div>
+          </Card>
+        );})}
+      </div>
     </div>
   );
 }
@@ -4800,6 +5098,7 @@ export default function App() {
   const [ventasAbonos,setVentasAbonos]=useState([]),[cajaAperturas,setCajaAperturas]=useState([]),[cajaCierres,setCajaCierres]=useState([]),[cajaRecolecciones,setCajaRecolecciones]=useState([]),[cajaGastos,setCajaGastos]=useState([]);
   const [cajaSolicitudesBorrado,setCajaSolicitudesBorrado]=useState([]);
   const [ventasAjustes,setVentasAjustes]=useState([]);
+  const [turnosGlobales,setTurnosGlobales]=useState([]),[turnosAsignaciones,setTurnosAsignaciones]=useState([]);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
   const [mostrarAccesoTiendas,setMostrarAccesoTiendas]=useState(false);
@@ -4824,7 +5123,7 @@ export default function App() {
   }, []);
 
   const loadAll=async()=>{
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj},{data:csb}]=await Promise.all([
+    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj},{data:csb},{data:tg},{data:tas}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
       supabase.from("registros").select("*").order("date",{ascending:false}),
@@ -4844,6 +5143,8 @@ export default function App() {
       supabase.from("ventas_caja_gastos").select("*").order("created_at",{ascending:false}),
       supabase.from("ventas_ajustes").select("*"),
       supabase.from("ventas_caja_solicitudes_borrado").select("*").order("fecha_solicitud",{ascending:false}),
+      supabase.from("turnos_globales").select("*"),
+      supabase.from("turnos_asignaciones").select("*"),
     ]);
     const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
     setStores(sm);setUsers(u||[]);setRecords(r||[]);
@@ -4863,6 +5164,8 @@ export default function App() {
     setCajaGastos(cg||[]);
     setVentasAjustes(vaj||[]);
     setCajaSolicitudesBorrado(csb||[]);
+    setTurnosGlobales(tg||[]);
+    setTurnosAsignaciones(tas||[]);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
@@ -4909,8 +5212,7 @@ export default function App() {
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
-        if(tab==="users")     return <UsersScreen users={users} setUsers={setUsers}/>;
-        if(tab==="stores")    return <StoresScreen stores={stores} setStores={setStores}/>;
+        if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} puedeAdministrar={user.role!=="visualizador"}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
     } else if(esCuentaTienda(user)){
@@ -4921,7 +5223,7 @@ export default function App() {
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores}/>;
-      if(tab==="schedule") return <ScheduleScreen/>;
+      if(tab==="schedule") return <ScheduleScreen user={user} stores={stores} turnosGlobales={turnosGlobales} asignaciones={turnosAsignaciones}/>;
     }
     return null;
   };
