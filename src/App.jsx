@@ -903,14 +903,14 @@ function ColorPicker({ value, onChange }) {
 function StoresScreen({ stores, setStores }) {
   const soloLectura = useReadOnly();
   const [showForm,setShowForm]=useState(false),[newName,setNewName]=useState(""),[newColor,setNewColor]=useState("#6b7280"),[newVende,setNewVende]=useState(true),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({}),[newShift,setNewShift]=useState({});
-  const addStore=async()=>{ if(!newName.trim())return; const id=newName.trim().toLowerCase().replace(/\s+/g,"_").replace(/[^a-z0-9_]/g,""); if(stores[id])return; const{data}=await supabase.from("tiendas").insert({id,name:newName.trim(),shifts:[],color:newColor,vende:newVende}).select().single(); if(data){setStores(prev=>({...prev,[data.id]:data}));setNewName("");setNewColor("#6b7280");setNewVende(true);setShowForm(false);} };
+  const addStore=async()=>{ if(!newName.trim())return; const id=newName.trim().toLowerCase().replace(/\s+/g,"_").replace(/[^a-z0-9_]/g,""); if(stores[id])return; const{data,error}=await supabase.from("tiendas").insert({id,name:newName.trim(),shifts:[],color:newColor,vende:newVende}).select().single(); if(data){setStores(prev=>({...prev,[data.id]:data}));setNewName("");setNewColor("#6b7280");setNewVende(true);setShowForm(false);} else if(error){ alert(`No se pudo crear la tienda: ${error.message}`); } };
   const deleteStore=async(id)=>{
     const { count } = await supabase.from("registros").select("id", { count: "exact", head: true }).eq("store", id);
     if (count > 0) { alert(`Esta tienda tiene ${count} registro(s) de asistencia asociados. Eliminarla podría borrar ese historial para siempre. Si ya no está operando, simplemente deja de asignarle turnos nuevos en vez de eliminarla.`); return; }
     if (!window.confirm("Esta tienda no tiene registros de asistencia. ¿Eliminarla de todas formas? Esto no se puede deshacer.")) return;
     await supabase.from("tiendas").delete().eq("id",id); setStores(prev=>{const c={...prev};delete c[id];return c;});
   };
-  const saveEdit=async(id)=>{ if(!editVal.name.trim())return; const{data}=await supabase.from("tiendas").update({name:editVal.name.trim(),color:editVal.color||"#6b7280"}).eq("id",id).select().single(); if(data){setStores(prev=>({...prev,[id]:data}));setEditing(null);} };
+  const saveEdit=async(id)=>{ if(!editVal.name.trim())return; const{data,error}=await supabase.from("tiendas").update({name:editVal.name.trim(),color:editVal.color||"#6b7280"}).eq("id",id).select().single(); if(data){setStores(prev=>({...prev,[id]:data}));setEditing(null);} else if(error){ alert(`No se pudo guardar: ${error.message}`); } };
   const toggleVende=async(s)=>{ const{data}=await supabase.from("tiendas").update({vende:!(s.vende!==false)}).eq("id",s.id).select().single(); if(data)setStores(prev=>({...prev,[s.id]:data})); };
   const removeShift=async(sid,sh)=>{ const shifts=stores[sid].shifts.filter(x=>x!==sh); const{data}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data)setStores(prev=>({...prev,[sid]:data})); };
   const addShift=async(sid)=>{ const sh=(newShift[sid]||"").trim(); if(!sh||stores[sid].shifts.includes(sh))return; const shifts=[...stores[sid].shifts,sh]; const{data}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data){setStores(prev=>({...prev,[sid]:data}));setNewShift(p=>({...p,[sid]:""}));} };
@@ -964,8 +964,8 @@ function StoresScreen({ stores, setStores }) {
 function TurnosEspecialesScreen({ turnosGlobales, setTurnosGlobales }) {
   const soloLectura = useReadOnly();
   const [showForm,setShowForm]=useState(false),[newNombre,setNewNombre]=useState(""),[newColor,setNewColor]=useState("#9ca3af"),[editing,setEditing]=useState(null),[editVal,setEditVal]=useState({});
-  const addGlobal=async()=>{ if(!newNombre.trim())return; const id=newNombre.trim().toLowerCase().replace(/\s+/g,"_").replace(/[^a-z0-9_]/g,""); if(!id||turnosGlobales.some(t=>t.id===id))return; const{data,error}=await supabase.from("turnos_globales").insert({id,nombre:newNombre.trim(),color:newColor}).select().single(); if(!error&&data){setTurnosGlobales(prev=>[...prev,data]);setNewNombre("");setNewColor("#9ca3af");setShowForm(false);} };
-  const saveEdit=async(id)=>{ if(!editVal.nombre.trim())return; const{data,error}=await supabase.from("turnos_globales").update({nombre:editVal.nombre.trim(),color:editVal.color||"#9ca3af"}).eq("id",id).select().single(); if(!error&&data){setTurnosGlobales(prev=>prev.map(t=>t.id===id?data:t));setEditing(null);} };
+  const addGlobal=async()=>{ if(!newNombre.trim())return; const id=newNombre.trim().toLowerCase().replace(/\s+/g,"_").replace(/[^a-z0-9_]/g,""); if(!id||turnosGlobales.some(t=>t.id===id))return; const{data,error}=await supabase.from("turnos_globales").insert({id,nombre:newNombre.trim(),color:newColor}).select().single(); if(!error&&data){setTurnosGlobales(prev=>[...prev,data]);setNewNombre("");setNewColor("#9ca3af");setShowForm(false);} else if(error){ alert(`No se pudo crear el código: ${error.message}`); } };
+  const saveEdit=async(id)=>{ if(!editVal.nombre.trim())return; const{data,error}=await supabase.from("turnos_globales").update({nombre:editVal.nombre.trim(),color:editVal.color||"#9ca3af"}).eq("id",id).select().single(); if(!error&&data){setTurnosGlobales(prev=>prev.map(t=>t.id===id?data:t));setEditing(null);} else if(error){ alert(`No se pudo guardar: ${error.message}`); } };
   const deleteGlobal=async(id)=>{
     const { count } = await supabase.from("turnos_asignaciones").select("id",{ count:"exact", head:true }).eq("turno_global_id",id);
     if(count>0){ alert(`Este código está asignado en ${count} día(s) de la rejilla. Quítalo de esas asignaciones antes de eliminarlo.`); return; }
@@ -1171,7 +1171,7 @@ function TurnosEditarScreen({ users, stores, turnosGlobales, asignaciones, setAs
   const onCambiarCelda = async (asesorId, fecha, valor) => {
     const existing = asigMap.get(`${asesorId}|${fecha}`);
     if(!valor){
-      if(existing){ await supabase.from("turnos_asignaciones").delete().eq("id",existing.id); setAsignaciones(prev=>prev.filter(a=>a.id!==existing.id)); }
+      if(existing){ const{error}=await supabase.from("turnos_asignaciones").delete().eq("id",existing.id); if(error){ alert(`No se pudo borrar: ${error.message}`); return; } setAsignaciones(prev=>prev.filter(a=>a.id!==existing.id)); }
       return;
     }
     let payload;
@@ -1180,9 +1180,11 @@ function TurnosEditarScreen({ users, stores, turnosGlobales, asignaciones, setAs
     if(existing){
       const{data,error}=await supabase.from("turnos_asignaciones").update(payload).eq("id",existing.id).select().single();
       if(!error&&data) setAsignaciones(prev=>prev.map(a=>a.id===data.id?data:a));
+      else if(error) alert(`No se pudo guardar el turno: ${error.message}`);
     } else {
       const{data,error}=await supabase.from("turnos_asignaciones").insert(payload).select().single();
       if(!error&&data) setAsignaciones(prev=>[...prev,data]);
+      else if(error) alert(`No se pudo guardar el turno: ${error.message}`);
     }
   };
   return (
