@@ -912,8 +912,11 @@ function StoresScreen({ stores, setStores }) {
   };
   const saveEdit=async(id)=>{ if(!editVal.name.trim())return; const{data,error}=await supabase.from("tiendas").update({name:editVal.name.trim(),color:editVal.color||"#6b7280"}).eq("id",id).select().single(); if(data){setStores(prev=>({...prev,[id]:data}));setEditing(null);} else if(error){ alert(`No se pudo guardar: ${error.message}`); } };
   const toggleVende=async(s)=>{ const{data}=await supabase.from("tiendas").update({vende:!(s.vende!==false)}).eq("id",s.id).select().single(); if(data)setStores(prev=>({...prev,[s.id]:data})); };
-  const removeShift=async(sid,sh)=>{ const shifts=stores[sid].shifts.filter(x=>x!==sh); const{data}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data)setStores(prev=>({...prev,[sid]:data})); };
-  const addShift=async(sid)=>{ const sh=(newShift[sid]||"").trim(); if(!sh||stores[sid].shifts.includes(sh))return; const shifts=[...stores[sid].shifts,sh]; const{data}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data){setStores(prev=>({...prev,[sid]:data}));setNewShift(p=>({...p,[sid]:""}));} };
+  const [editShiftId,setEditShiftId]=useState(null),[editShiftNombre,setEditShiftNombre]=useState("");
+  const removeShift=async(sid,shId)=>{ const shifts=stores[sid].shifts.filter(x=>x.id!==shId); const{data,error}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data)setStores(prev=>({...prev,[sid]:data})); else if(error) alert(`No se pudo quitar el turno: ${error.message}`); };
+  const addShift=async(sid)=>{ const nombre=(newShift[sid]||"").trim(); if(!nombre||stores[sid].shifts.some(x=>x.nombre===nombre))return; const id=nombre.toLowerCase().replace(/\s+/g,"_").replace(/[^a-z0-9_]/g,"")||`turno_${Date.now()}`; const shifts=[...stores[sid].shifts,{id,nombre,activo:true}]; const{data,error}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data){setStores(prev=>({...prev,[sid]:data}));setNewShift(p=>({...p,[sid]:""}));} else if(error) alert(`No se pudo agregar el turno: ${error.message}`); };
+  const toggleShiftActivo=async(sid,shId)=>{ const shifts=stores[sid].shifts.map(x=>x.id===shId?{...x,activo:x.activo===false}:x); const{data,error}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data)setStores(prev=>({...prev,[sid]:data})); else if(error) alert(`No se pudo actualizar: ${error.message}`); };
+  const saveShiftNombre=async(sid,shId)=>{ if(!editShiftNombre.trim())return; const shifts=stores[sid].shifts.map(x=>x.id===shId?{...x,nombre:editShiftNombre.trim()}:x); const{data,error}=await supabase.from("tiendas").update({shifts}).eq("id",sid).select().single(); if(data){setStores(prev=>({...prev,[sid]:data}));setEditShiftId(null);} else if(error) alert(`No se pudo renombrar: ${error.message}`); };
   return (
     <div>
       <PageHeader title="Tiendas" subtitle="Puntos de venta y turnos" action={soloLectura?null:<Btn onClick={()=>setShowForm(!showForm)} sm>{showForm?"Cancelar":"+ Nueva"}</Btn>} />
@@ -943,9 +946,23 @@ function StoresScreen({ stores, setStores }) {
             <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
               {s.shifts.length===0&&<span style={{fontFamily:font.body,fontSize:12,color:C.border}}>Sin turnos</span>}
               {s.shifts.map(sh=>(
-                <div key={sh} style={{display:"flex",alignItems:"center",gap:4}}>
-                  <Badge color={C.goldLight} sm>{sh}</Badge>
-                  {!soloLectura && <button onClick={()=>removeShift(s.id,sh)} style={{background:C.redDim,border:`1px solid ${C.red}33`,color:C.red,borderRadius:4,width:16,height:16,cursor:"pointer",fontSize:9,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>}
+                <div key={sh.id} style={{display:"flex",alignItems:"center",gap:4}}>
+                  {!soloLectura && editShiftId===sh.id ? (
+                    <>
+                      <input autoFocus value={editShiftNombre} onChange={e=>setEditShiftNombre(e.target.value)} onKeyDown={e=>e.key==="Enter"&&saveShiftNombre(s.id,sh.id)} style={{width:100,background:C.surfaceAlt,border:`1px solid ${C.gold}`,borderRadius:5,padding:"3px 6px",color:C.text,fontSize:11,fontFamily:font.body,outline:"none"}}/>
+                      <button onClick={()=>saveShiftNombre(s.id,sh.id)} style={{background:"none",border:"none",color:C.green,cursor:"pointer",fontSize:12}}>✓</button>
+                      <button onClick={()=>setEditShiftId(null)} style={{background:"none",border:"none",color:C.textMuted,cursor:"pointer",fontSize:12}}>✕</button>
+                    </>
+                  ) : (
+                    <>
+                      <Badge color={sh.activo===false?C.textMuted:C.goldLight} sm>{sh.nombre}{sh.activo===false?" · inactivo":""}</Badge>
+                      {!soloLectura && <>
+                        <button onClick={()=>{setEditShiftId(sh.id);setEditShiftNombre(sh.nombre);}} title="Renombrar" style={{background:"none",border:"none",color:C.textMuted,cursor:"pointer",fontSize:11}}>✏</button>
+                        <button onClick={()=>toggleShiftActivo(s.id,sh.id)} title={sh.activo===false?"Activar":"Desactivar"} style={{background:"none",border:"none",color:sh.activo===false?C.green:C.amber,cursor:"pointer",fontSize:11}}>{sh.activo===false?"✓":"⏸"}</button>
+                        <button onClick={()=>removeShift(s.id,sh.id)} style={{background:C.redDim,border:`1px solid ${C.red}33`,color:C.red,borderRadius:4,width:16,height:16,cursor:"pointer",fontSize:9,display:"flex",alignItems:"center",justifyContent:"center"}}>🗑</button>
+                      </>}
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -1041,20 +1058,33 @@ function TurnoBadgeCelda({ turno, size }) {
     <div style={{ width:"100%", minHeight:size==="sm"?24:28, borderRadius:5, background:turno.color, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:size==="sm"?10.5:11.5, fontWeight:700, padding:"3px 4px", textShadow:"0 1px 1px rgba(0,0,0,0.25)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{turno.label}</div>
   );
 }
-function SelectorAsesoresColumnas({ advisors, visibles, setVisibles }) {
+// ── Turnos: leyenda de colores (tiendas + turnos especiales) ──────────────────
+function TurnosLeyenda({ stores, turnosGlobales }) {
+  const tiendasConColor = Object.values(stores).filter(s=>s.color);
+  if(tiendasConColor.length===0 && turnosGlobales.length===0) return null;
   return (
-    <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:14 }}>
-      {advisors.map(a=>{ const on = visibles.includes(a.id); return (
-        <button key={a.id} onClick={()=>setVisibles(prev=> on ? prev.filter(id=>id!==a.id) : [...prev,a.id])} style={{ padding:"5px 12px", borderRadius:99, border:`1px solid ${on?C.gold:C.border}`, background:on?`${C.gold}18`:"transparent", color:on?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:11.5, fontWeight:600, cursor:"pointer" }}>{a.name}</button>
-      );})}
-    </div>
+    <Card p="12px 14px" style={{ marginBottom:16, display:"flex", flexWrap:"wrap", gap:14 }}>
+      {tiendasConColor.map(s=>(
+        <div key={s.id} style={{ display:"flex", alignItems:"center", gap:6 }}>
+          <span style={{ width:11, height:11, borderRadius:3, background:s.color, flexShrink:0 }}/>
+          <span style={{ fontFamily:font.body, fontSize:11.5, color:C.text, fontWeight:600 }}>{s.name}</span>
+          {(s.shifts||[]).some(sh=>sh.activo!==false) && <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>({s.shifts.filter(sh=>sh.activo!==false).map(sh=>sh.nombre).join(", ")})</span>}
+        </div>
+      ))}
+      {turnosGlobales.map(g=>(
+        <div key={g.id} style={{ display:"flex", alignItems:"center", gap:6 }}>
+          <span style={{ width:11, height:11, borderRadius:3, background:g.color, flexShrink:0 }}/>
+          <span style={{ fontFamily:font.body, fontSize:11.5, color:C.text, fontWeight:600 }}>{g.nombre}</span>
+        </div>
+      ))}
+    </Card>
   );
 }
 
 // ── Turnos: rejilla mensual (asesores en columnas, días en filas) ─────────────
 function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, editable, onCambiarCelda }) {
   const colWidth = Math.max(70, ...advisors.map(a=>primerNombre(a.name).length*8+28), 70);
-  const storeGroups = Object.values(stores).filter(s=>(s.shifts||[]).length>0);
+  const storeGroups = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
   return (
     <div style={{ overflowX:"auto", border:`1px solid ${C.border}`, borderRadius:10 }}>
       <table style={{ borderCollapse:"collapse", width:"100%", minWidth:140+advisors.length*colWidth }}>
@@ -1082,7 +1112,7 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, editab
                       <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ width:"100%", minHeight:28, borderRadius:5, border:`1px solid ${C.border}`, background:turno?turno.color:C.surfaceAlt, color:turno?"#fff":C.textMuted, fontFamily:font.body, fontSize:11, fontWeight:turno?700:400, padding:"3px 2px", cursor:"pointer", outline:"none" }}>
                         <option value="">—</option>
                         <optgroup label="Especiales">{turnosGlobales.map(g=><option key={g.id} value={`g:${g.id}`}>{g.nombre}</option>)}</optgroup>
-                        {storeGroups.map(s=>(<optgroup key={s.id} label={s.name}>{s.shifts.map(sh=><option key={sh} value={`t:${s.id}|${encodeURIComponent(sh)}`}>{sh}</option>)}</optgroup>))}
+                        {storeGroups.map(s=>(<optgroup key={s.id} label={s.name}>{s.shifts.filter(sh=>sh.activo!==false).map(sh=><option key={sh.id} value={`t:${s.id}|${encodeURIComponent(sh.nombre)}`}>{sh.nombre}</option>)}</optgroup>))}
                       </select>
                     ) : <TurnoBadgeCelda turno={turno}/>}
                   </td>
@@ -1141,19 +1171,16 @@ function SelectorMes({ anio, mes, prev, next }) {
 // ── SCREEN: Turnos · Ver ────────────────────────────────────────────────────────
 function TurnosVerScreen({ users, stores, turnosGlobales, asignaciones }) {
   const { anio, mes, prev, next } = useMesSeleccionado();
-  const advisorsActivos = users.filter(u=>u.role==="advisor"&&u.active);
-  const [visibles,setVisibles]=useState(advisorsActivos.map(a=>a.id));
-  useEffect(()=>{ setVisibles(prev=>{ const ids=advisorsActivos.map(a=>a.id); const keep=prev.filter(id=>ids.includes(id)); return keep.length?keep:ids; }); },[users.length]);
-  const advisors = advisorsActivos.filter(a=>visibles.includes(a.id));
+  const advisors = users.filter(u=>u.role==="advisor"&&u.active);
   const dias = fechasDelMesTurnos(anio, mes);
   const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
   return (
     <div>
       <PageHeader title="Turnos" subtitle="Rejilla del mes — solo consulta"/>
+      <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales}/>
       <TurnosMiniResumen advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales}/>
       <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
-      <SelectorAsesoresColumnas advisors={advisorsActivos} visibles={visibles} setVisibles={setVisibles}/>
-      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>Selecciona al menos un asesor para ver la rejilla.</div> :
+      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay asesores activos. Actívalos en Turnos ▸ Administrar ▸ Asesores.</div> :
         <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} editable={false}/>}
     </div>
   );
@@ -1162,10 +1189,7 @@ function TurnosVerScreen({ users, stores, turnosGlobales, asignaciones }) {
 // ── SCREEN: Turnos · Editar ──────────────────────────────────────────────────────
 function TurnosEditarScreen({ users, stores, turnosGlobales, asignaciones, setAsignaciones }) {
   const { anio, mes, prev, next } = useMesSeleccionado();
-  const advisorsActivos = users.filter(u=>u.role==="advisor"&&u.active);
-  const [visibles,setVisibles]=useState(advisorsActivos.map(a=>a.id));
-  useEffect(()=>{ setVisibles(prev=>{ const ids=advisorsActivos.map(a=>a.id); const keep=prev.filter(id=>ids.includes(id)); return keep.length?keep:ids; }); },[users.length]);
-  const advisors = advisorsActivos.filter(a=>visibles.includes(a.id));
+  const advisors = users.filter(u=>u.role==="advisor"&&u.active);
   const dias = fechasDelMesTurnos(anio, mes);
   const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
   const onCambiarCelda = async (asesorId, fecha, valor) => {
@@ -1189,10 +1213,10 @@ function TurnosEditarScreen({ users, stores, turnosGlobales, asignaciones, setAs
   };
   return (
     <div>
-      <PageHeader title="Turnos" subtitle="Asignar turnos — los cambios se guardan al instante"/>
+      <PageHeader title="Turnos" subtitle="Los cambios se guardan al instante"/>
+      <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales}/>
       <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
-      <SelectorAsesoresColumnas advisors={advisorsActivos} visibles={visibles} setVisibles={setVisibles}/>
-      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>Selecciona al menos un asesor para editar la rejilla.</div> :
+      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay asesores activos. Actívalos en Turnos ▸ Administrar ▸ Asesores.</div> :
         <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} editable onCambiarCelda={onCambiarCelda}/>}
     </div>
   );
@@ -1242,7 +1266,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores }) {
       <PageHeader title="Marcar Asistencia" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} />
       <Card style={{marginBottom:12}}>
         <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}} disabled={locked} options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
-        {selStore&&stores[selStore]?.shifts?.length>0&&<Field label="Turno" value={selShift} onChange={setSelShift} disabled={locked} options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).map(s=>({value:s,label:s}))]}/>}
+        {selStore&&stores[selStore]?.shifts?.some(s=>s.activo!==false)&&<Field label="Turno" value={selShift} onChange={setSelShift} disabled={locked} options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).filter(s=>s.activo!==false).map(s=>({value:s.nombre,label:s.nombre}))]}/>}
       </Card>
 
       {nextEvent ? (
