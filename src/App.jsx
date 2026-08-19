@@ -1247,9 +1247,14 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
 }
 
 // ── SCREEN: CheckIn ───────────────────────────────────────────────────────────
-function CheckInScreen({ user, records, onRecord, onRefresh, stores }) {
+function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignaciones }) {
   const [selStore,setSelStore]=useState(""),[selShift,setSelShift]=useState(""),[locked,setLocked]=useState(false),[showCamera,setShowCamera]=useState(false),[recording,setRecording]=useState(false),[toast,setToast]=useState(null);
   useEffect(()=>{ const h=records.filter(r=>r.user_id===user.id&&r.date===todayStr&&r.event!=="omitido"); if(h.length>0){setSelStore(h[0].store);setSelShift(h[0].shift);setLocked(true);} },[records]);
+  // Si hoy ya tiene un turno asignado en la rejilla de Turnos (incluye apoyo en pareja — ambos
+  // quedan con el mismo tienda+turno ese día), se precarga solo — el asesor ya no tiene que
+  // elegirlo a mano. Sigue siendo editable por si el plan cambió ese día.
+  const asigHoy = (asignaciones||[]).find(a=>a.asesor_id===user.id && a.fecha===todayStr && a.tienda_id);
+  useEffect(()=>{ if(locked||selStore) return; if(asigHoy){ setSelStore(asigHoy.tienda_id); setSelShift(asigHoy.shift||""); } },[asigHoy, locked, selStore]);
   const todayRecs=records.filter(r=>r.user_id===user.id&&r.date===todayStr);
   const eventosReales=todayRecs.filter(r=>r.event!=="omitido").map(r=>r.event);
   const ultimoReal=[...ORDEN].reverse().find(e=>eventosReales.includes(e));
@@ -1265,6 +1270,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores }) {
       {toast&&<div style={{position:"fixed",top:16,right:16,left:16,background:C.greenDim,border:`1px solid ${C.green}`,borderRadius:10,padding:"12px 16px",color:C.green,fontFamily:font.body,fontSize:13,fontWeight:600,zIndex:200,textAlign:"center"}}>{toast}</div>}
       <PageHeader title="Marcar Asistencia" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} />
       <Card style={{marginBottom:12}}>
+        {!locked && asigHoy && <div style={{marginBottom:10}}><Badge color={C.gold} sm>📅 Turno de hoy precargado desde Turnos</Badge></div>}
         <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}} disabled={locked} options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
         {selStore&&stores[selStore]?.shifts?.some(s=>s.activo!==false)&&<Field label="Turno" value={selShift} onChange={setSelShift} disabled={locked} options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).filter(s=>s.activo!==false).map(s=>({value:s.nombre,label:s.nombre}))]}/>}
       </Card>
@@ -5247,7 +5253,7 @@ export default function App() {
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
       if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile}/>;
     } else {
-      if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores}/>;
+      if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores}/>;
       if(tab==="schedule") return <ScheduleScreen user={user} stores={stores} turnosGlobales={turnosGlobales} asignaciones={turnosAsignaciones}/>;
     }
