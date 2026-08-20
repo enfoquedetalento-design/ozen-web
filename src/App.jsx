@@ -1191,10 +1191,18 @@ const formatearHorarioFila = (fila) => {
   const vs = `${fmtHora12(fila.entrada_vs)}–${fmtHora12(fila.salida_vs)}`;
   return lj===vs ? lj : `${lj} (L-J) / ${vs} (V-S)`;
 };
-// ── Turnos: leyenda compacta y colapsable — texto plano, sin color de fondo (el color ya
-// está en la rejilla; aquí solo importa que se lean bien las horas) ──────────────
+// Líneas de horario al estilo de tu Excel: una línea si L-J y V-S son iguales,
+// dos líneas ("L-J (COD) hora" / "V-S (COD) hora") si son distintas.
+const lineasHorarioTurno = (sh, fila) => {
+  if(!fila) return [`(${sh.nombre}) sin horario`];
+  const lj = `${fmtHora12(fila.entrada_lj)}–${fmtHora12(fila.salida_lj)}`;
+  const vs = `${fmtHora12(fila.entrada_vs)}–${fmtHora12(fila.salida_vs)}`;
+  if(lj===vs) return [`(${sh.nombre}) ${lj}`];
+  return [`L-J (${sh.nombre}) ${lj}`, `V-S (${sh.nombre}) ${vs}`];
+};
+// ── Turnos: leyenda — un bloque de color por tienda, lado a lado, igual que el Excel ──
 function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios }) {
-  const [abierta,setAbierta]=useState(false);
+  const [abierta,setAbierta]=useState(true);
   const tiendasConTurnos = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
   if(tiendasConTurnos.length===0 && turnosGlobales.length===0) return null;
   const totalTurnos = tiendasConTurnos.reduce((n,s)=>n+s.shifts.filter(sh=>sh.activo!==false).length,0) + turnosGlobales.length;
@@ -1205,26 +1213,28 @@ function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios }) {
         <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11, color:C.goldLight }}>{abierta?"Ocultar ▲":"Ver ▾"}</span>
       </button>
       {abierta && (
-        <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:12 }}>
+        <div style={{ display:"flex", gap:2, marginTop:12, overflowX:"auto" }}>
           {tiendasConTurnos.map(s=>{
             const activos=s.shifts.filter(sh=>sh.activo!==false);
-            const linea = activos.map(sh=>{
-              const fila = filaHorarioVigente(familiaDeTurno(sh.nombre), s.id, turnosHorarios);
-              return `${sh.nombre} ${fila?formatearHorarioFila(fila):"(sin horario)"}`;
-            }).join("  ·  ");
+            const txt = colorTextoContraste(s.color);
             return (
-              <div key={s.id} style={{ fontFamily:font.body, fontSize:12, lineHeight:1.6 }}>
-                <span style={{ color:C.text, fontWeight:700 }}>{s.name}: </span>
-                <span style={{ color:C.textMuted }}>{linea}</span>
+              <div key={s.id} style={{ flex:"0 0 200px", background:s.color, padding:"10px 12px" }}>
+                <div style={{ fontFamily:font.body, fontSize:12.5, fontWeight:700, color:txt, textAlign:"center", marginBottom:6 }}>{s.name}</div>
+                {activos.flatMap(sh=>{
+                  const fila = filaHorarioVigente(familiaDeTurno(sh.nombre), s.id, turnosHorarios);
+                  return lineasHorarioTurno(sh, fila).map((linea,i)=>(
+                    <div key={sh.id+"_"+i} style={{ fontFamily:font.body, fontSize:11, color:txt, textAlign:"center", lineHeight:1.5 }}>{linea}</div>
+                  ));
+                })}
               </div>
             );
           })}
-          {turnosGlobales.length>0 && (
-            <div style={{ fontFamily:font.body, fontSize:12, lineHeight:1.6 }}>
-              <span style={{ color:C.text, fontWeight:700 }}>Especiales: </span>
-              <span style={{ color:C.textMuted }}>{turnosGlobales.map(g=>g.nombre).join("  ·  ")}</span>
-            </div>
-          )}
+        </div>
+      )}
+      {abierta && turnosGlobales.length>0 && (
+        <div style={{ marginTop:10, fontFamily:font.body, fontSize:12, lineHeight:1.6 }}>
+          <span style={{ color:C.text, fontWeight:700 }}>Especiales: </span>
+          <span style={{ color:C.textMuted }}>{turnosGlobales.map(g=>g.nombre).join("  ·  ")}</span>
         </div>
       )}
     </Card>
