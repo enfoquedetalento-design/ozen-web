@@ -2981,7 +2981,14 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     if(confirmacion!=="CORREGIR") return;
     setModoErrorId(venta.id);
     setEditando(venta.id);
-    setEditItems((detalle[venta.id]?.items||[]).map(i=>({ id:i.id, tipo:i.tipo, valorTotal:Number(i.valor), descuento:Number(i.descuento||0), pagos:i.pagos||[], esOriginal:true, valorOriginalItem:Number(i.valor) })));
+    // es_original/fecha_item quedan guardados en la fila desde la vez que se creó ese renglón —
+    // así un excedente sigue siendo excedente (editable, con fecha propia) en futuras Notas
+    // crédito, no solo en la sesión donde se agregó. Filas viejas (antes de esta columna) caen
+    // en es_original=true por el default de la base, que es el comportamiento correcto para ellas.
+    setEditItems((detalle[venta.id]?.items||[]).map(i=>{
+      const esOriginal = i.es_original!==false;
+      return { id:i.id, tipo:i.tipo, valorTotal:Number(i.valor), descuento:Number(i.descuento||0), pagos:i.pagos||[], esOriginal, valorOriginalItem: esOriginal?Number(i.valor):0, fecha: !esOriginal ? (i.fecha_item||todayStr) : undefined };
+    }));
     setEditObservacion(venta.observacion||"");
     setEditNumeroFactura(venta.numero_factura||"");
     setEditErrorMsg("");
@@ -3092,7 +3099,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       if(!puedeCorregirError) payload.valor_original = total;
       const { data:ventaAct } = await supabase.from("ventas").update(payload).eq("id",venta.id).select().single();
       await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
-      const filasItems = editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos }));
+      const filasItems = editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, es_original:i.esOriginal!==false, fecha_item:i.esOriginal===false?(i.fecha||todayStr):null }));
       const { data:itemsNuevos } = await supabase.from("ventas_items").insert(filasItems).select();
       const aprobadasSinAplicar = (detalle[venta.id]?.solicitudes||[]).filter(s=>s.estado==="aprobada" && !s.aplicada_at);
       for(const s of aprobadasSinAplicar){
