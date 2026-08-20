@@ -2220,11 +2220,13 @@ const FLEXIPAGO_AVISO_ITEMS = [
 ];
 
 // Tarjeta de un registro de Nota crédito (el "espejo" del excedente, con su propio N.º de
-// factura) — usada tanto en "Ventas de hoy" como en "Lista de ventas". Se ve IGUAL que una
-// tarjeta de venta normal (mismos badges de tipo/medio de pago), mezclada en la misma lista — no
-// tiene un tratamiento visual aparte. Es expandible: al abrirla se ve de qué factura original
-// viene y cuál era su valor original, sin afectar la suma (esto es solo informativo).
-function NotaCreditoCard({ ajuste, venta, ventasItems }) {
+// factura) — usada tanto en "Ventas de hoy" como en "Lista de ventas". En Lista de ventas es
+// desplegable: colapsada solo muestra la etiqueta "🧾 Notacrédito" (para identificarla a simple
+// vista), y el tipo/medio de pago y de qué factura original viene solo se ven al abrirla — con la
+// misma estructura y paddings de una tarjeta de venta normal, para que todos los registros de la
+// lista tengan el mismo grosor. En Ventas de hoy no se despliega: se ve todo de una, igual que
+// las demás tarjetas de esa pantalla (que tampoco se despliegan).
+function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
   const [abierto, setAbierto] = useState(false);
   const valorOriginalFactura = Number(venta.valor_original ?? venta.total);
   // El o los renglones que componen ESTA Notacrédito específica: los que quedaron marcados como
@@ -2236,33 +2238,53 @@ function NotaCreditoCard({ ajuste, venta, ventasItems }) {
   const tipoColor = VENTAS_TIPO_COLORES[tiposRaw[0]] || C.blue;
   const tipoIcon = VENTAS_TIPO_ICONOS[tiposRaw[0]] || "🛍️";
   const medioIcon = VENTAS_MEDIO_ICONOS[itemsDelAjuste[0]?.pagos?.[0]?.medio_pago] || "💰";
-  // Colapsado se ve igual que cualquier tarjeta de venta normal (factura, nombre, valor) — el
-  // detalle de que viene de una Notacrédito (tipo, medio, "🧾 Notacrédito", factura original)
-  // solo aparece al desplegarla, igual que el detalle de renglones de una venta normal.
-  return (
-    <Card p="10px 14px" style={{ borderLeft:`3px solid ${tipoColor}` }}>
-      <button onClick={()=>setAbierto(a=>!a)} style={{ width:"100%", background:"none", border:"none", padding:0, cursor:"pointer", textAlign:"left" }}>
+
+  const infoFacturaOriginal = (
+    <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, lineHeight:1.5 }}>
+      Viene de una Nota crédito sobre la factura original <strong style={{ color:C.text }}>#{venta.numero_factura||"—"}</strong> del {venta.fecha} — valor original de esa factura: <strong style={{ color:C.text }}>${valorOriginalFactura.toLocaleString("es-CO")}</strong>.
+    </div>
+  );
+
+  if(!desplegable){
+    return (
+      <Card p="10px 14px" style={{ borderLeft:`3px solid ${tipoColor}` }}>
         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-          <Badge color={C.gold} sm>{ajuste.numero_factura?`#${ajuste.numero_factura}`:"—"}</Badge>
-          <div style={{ flex:1, minWidth:140, overflow:"hidden" }}>
+          <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
+            <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{ajuste.numero_factura?`#${ajuste.numero_factura}`:"—"}</span>
             <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
               {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
             </span>
           </div>
+          {tiposTexto && <Badge color={tipoColor} sm title={tiposTexto}>{tipoIcon} {tiposTexto}</Badge>}
+          {mediosTexto && <Badge color={C.blue} sm title={mediosTexto}>{medioIcon} {mediosTexto}</Badge>}
+          <Badge color={C.amber} sm>🧾 Notacrédito</Badge>
           <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${Number(ajuste.diferencia||0).toLocaleString("es-CO")}</div>
-          <span style={{ color:C.textMuted, fontSize:11, flexShrink:0 }}>{abierto?"▲":"▼"}</span>
         </div>
+        <div style={{ marginTop:5 }}>{infoFacturaOriginal}</div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card p="0" style={{ overflow:"hidden" }}>
+      <button onClick={()=>setAbierto(a=>!a)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
+        <Badge color={C.gold} sm>{ajuste.numero_factura?`#${ajuste.numero_factura}`:"—"}</Badge>
+        <div style={{ flex:1, minWidth:140, minHeight:30, display:"flex", alignItems:"center", overflow:"hidden" }}>
+          <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+            {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
+          </span>
+        </div>
+        <Badge color={C.amber} sm>🧾 Notacrédito</Badge>
+        <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${Number(ajuste.diferencia||0).toLocaleString("es-CO")}</div>
+        <span style={{ color:C.textMuted, fontSize:11, flexShrink:0 }}>{abierto?"▲":"▼"}</span>
       </button>
       {abierto && (
-        <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:8 }}>
+        <div style={{ padding:"0 12px 12px", borderTop:`1px solid ${C.border}` }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", margin:"8px 0" }}>
             {tiposTexto && <Badge color={tipoColor} sm title={tiposTexto}>{tipoIcon} {tiposTexto}</Badge>}
             {mediosTexto && <Badge color={C.blue} sm title={mediosTexto}>{medioIcon} {mediosTexto}</Badge>}
-            <Badge color={C.amber} sm>🧾 Notacrédito</Badge>
           </div>
-          <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, lineHeight:1.5 }}>
-            Viene de una Nota crédito sobre la factura original <strong style={{ color:C.text }}>#{venta.numero_factura||"—"}</strong> del {venta.fecha} — valor original de esa factura: <strong style={{ color:C.text }}>${valorOriginalFactura.toLocaleString("es-CO")}</strong>.
-          </div>
+          {infoFacturaOriginal}
         </div>
       )}
     </Card>
@@ -2832,7 +2854,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
           </Card>
         ))}
         {notaCreditoHoyTienda.map(({venta, ajuste})=>(
-          <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta} ventasItems={ventasItems}/>
+          <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta} ventasItems={ventasItems} desplegable={false}/>
         ))}
         {ventasHoy.length===0 && abonosHoyTienda.length===0 && notaCreditoHoyTienda.length===0 && <div style={{ textAlign:"center", padding:30, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin ventas registradas hoy en esta tienda.</div>}
       </div>
@@ -3503,7 +3525,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
             <Card key={v.id} p="0" style={{ overflow:"hidden" }}>
               <button onClick={()=>toggleExpand(v.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
                 <Badge color={C.gold} sm>#{v.numero_factura||"—"}</Badge>
-                <div style={{ flex:1, minWidth:140 }}>
+                <div style={{ flex:1, minWidth:140, minHeight:30 }}>
                   <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha} · {stores[v.tienda_id]?.name||v.tienda_id}</span></div>
                   {(v.cliente_nombre || v.cliente_documento || v.cliente_telefono) && (
                     <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, lineHeight:1.3 }}>
