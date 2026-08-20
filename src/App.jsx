@@ -3314,17 +3314,21 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     <div style={{ maxWidth:820 }}>
       <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas`} />
       <Card style={{ marginBottom:16 }} p="12px">
-        <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"end" }}>
-          {!tiendaFija && (
-            <div style={{ minWidth:160 }}><Field label="Tienda" value={filtroTienda} onChange={setFiltroTienda} options={[{value:"",label:"Todas"},...tiendasVenta(stores).map(s=>({value:s.id,label:s.name}))]}/></div>
-          )}
-          <div style={{ minWidth:160 }}><Field label="Vendedor" value={filtroVendedor} onChange={setFiltroVendedor} options={[{value:"",label:"Todos"},...asesores.map(a=>({value:a.id,label:a.name}))]}/></div>
-          <div style={{ minWidth:150 }}><Field label="Fecha" type="date" value={filtroFecha} onChange={setFiltroFecha}/></div>
-          <div style={{ minWidth:200, flex:1 }}><Field label="Buscar (nombre, documento o N.º factura)" value={busqueda} onChange={setBusqueda} placeholder="Ej: Juan Pérez, 1234567 o FE-1234"/></div>
-          <div style={{ marginBottom:14 }}>
-            <Btn variant={filtroFlexipago?"primary":"ghost"} sm onClick={()=>setFiltroFlexipago(f=>!f)}>📦 Solo Flexipago</Btn>
+        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"end" }}>
+            {!tiendaFija && (
+              <div style={{ minWidth:140, flex:1 }}><Field label="Tienda" value={filtroTienda} onChange={setFiltroTienda} options={[{value:"",label:"Todas"},...tiendasVenta(stores).map(s=>({value:s.id,label:s.name}))]}/></div>
+            )}
+            <div style={{ minWidth:140, flex:1 }}><Field label="Vendedor" value={filtroVendedor} onChange={setFiltroVendedor} options={[{value:"",label:"Todos"},...asesores.map(a=>({value:a.id,label:a.name}))]}/></div>
+            <div style={{ minWidth:130, flex:1 }}><Field label="Fecha" type="date" value={filtroFecha} onChange={setFiltroFecha}/></div>
           </div>
-          {(filtroTienda||filtroFecha||filtroVendedor||filtroFlexipago||busqueda) && <Btn onClick={()=>{setFiltroTienda("");setFiltroFecha("");setFiltroVendedor("");setFiltroFlexipago(false);setBusqueda("");}} variant="ghost" sm>Limpiar filtros</Btn>}
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"end" }}>
+            <div style={{ minWidth:200, flex:2 }}><Field label="Buscar" value={busqueda} onChange={setBusqueda} placeholder="Nombre, cédula o N.º factura"/></div>
+            <div style={{ marginBottom:14 }}>
+              <Btn variant={filtroFlexipago?"primary":"ghost"} sm onClick={()=>setFiltroFlexipago(f=>!f)}>📦 Flexipago</Btn>
+            </div>
+            {(filtroTienda||filtroFecha||filtroVendedor||filtroFlexipago||busqueda) && <div style={{ marginBottom:14 }}><Btn onClick={()=>{setFiltroTienda("");setFiltroFecha("");setFiltroVendedor("");setFiltroFlexipago(false);setBusqueda("");}} variant="ghost" sm>Limpiar filtros</Btn></div>}
+          </div>
         </div>
       </Card>
 
