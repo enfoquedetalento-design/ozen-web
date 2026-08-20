@@ -2332,6 +2332,11 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
   // El N.º de factura (Siigo) solo aplica a ítems tipo "Venta" (producto). Grabado, arreglo,
   // marcación y flexipago no se facturan por Siigo, así que no se pide ni se exige.
   const requiereSiigo = !esFlexipago && items.some(i=>i.tipo==="producto");
+  // Flexipago es excluyente con el resto: o estás separando (Flexipago) o estás comprando
+  // normal, no las dos cosas en la misma factura. Si ya hay un renglón de un lado, el otro
+  // desaparece de las opciones — igual que un "o esto o lo otro", no un checkbox.
+  const itemTipoOptions = items.length===0 ? VENTAS_TIPOS : esFlexipago ? VENTAS_TIPOS.filter(t=>t.value==="flexipago") : VENTAS_TIPOS.filter(t=>t.value!=="flexipago");
+  useEffect(() => { if(!itemTipoOptions.some(t=>t.value===itemTipo)) setItemTipo(itemTipoOptions[0]?.value||"producto"); }, [esFlexipago, items.length]);
 
   const limpiarTodo = () => {
     setNumeroFactura(""); setVendedorId(""); setItems([]); setItemTipo("producto"); setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemPagos([]); setItemMedioNuevo(""); setObservacion(""); setItemCodigosFlexipago([{ codigo:"", valor:"" }]);
@@ -2491,7 +2496,11 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
             </div>
 
             <div style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"12px" }}>
-              <Field label="Tipo" value={itemTipo} onChange={setItemTipo} options={VENTAS_TIPOS}/>
+              <Field label="Tipo" value={itemTipo} onChange={setItemTipo} options={itemTipoOptions}/>
+              {items.length>0 && (esFlexipago
+                ? <div style={{ fontFamily:font.body, fontSize:11, color:C.blue, marginTop:-8, marginBottom:10 }}>📦 Esta factura ya tiene un Flexipago — no se puede mezclar con otros tipos.</div>
+                : <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:-8, marginBottom:10 }}>Ya hay ítems normales en esta factura — para un Flexipago, hazlo en una factura aparte.</div>
+              )}
               {itemEsFlexipago ? (
                 <>
                   <div style={{ marginBottom:14 }}>
@@ -2795,6 +2804,11 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   const [ncCliente, setNcCliente] = useState({ tipoDoc:"CC", documento:"", nombre:"", telefono:"" }); // flexipago
   const [ncCodigos, setNcCodigos] = useState([{ codigo:"", valor:"" }]); // flexipago
   const [ncAbonoMedio, setNcAbonoMedio] = useState("efectivo"); // flexipago
+  // Fecha real del excedente/ajuste (puede ser distinta a hoy: ej. dinero que entró hace unos
+  // días y se está registrando apenas ahora). Solo master/admin_finanzas pueden cambiarla —
+  // igual que con abonoFecha — el resto siempre queda con la fecha de hoy.
+  const [ajusteFecha, setAjusteFecha] = useState(todayStr);
+  const puedeEditarFechaAjuste = ["master","admin_finanzas"].includes(user.role);
 
   const [abonoForm, setAbonoForm] = useState(null);
   const [abonoValor, setAbonoValor] = useState("");
@@ -2930,6 +2944,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     // registrado — no se agregan renglones nuevos. En ambos casos el piso es valor_original.
     setEditando(venta.id);
     setEditErrorMsg("");
+    setAjusteFecha(todayStr);
     if(venta.es_flexipago){
       const itemFlex = (detalle[venta.id]?.items||[]).find(i=>i.tipo==="flexipago");
       setNcCliente({ tipoDoc: venta.cliente_tipo_doc||"CC", documento: venta.cliente_documento||"", nombre: venta.cliente_nombre||"", telefono: venta.cliente_telefono||"" });
@@ -2956,6 +2971,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     setEditItemDescuentoTipo("valor");
     setEditItemPagos([]);
     setEditItemMedioNuevo("");
+    setAjusteFecha(todayStr);
   };
 
   const editItemEsFlexipago = editItemTipo === "flexipago";
@@ -3018,7 +3034,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       // Se deja un rastro en el historial de ajustes, marcado como corrección por error para que
       // Métricas no lo cuente como un excedente real (eso ya quedó reflejado arriba en valor_original).
       if(esModoError && total!==valorAnterior){
-        const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:todayStr, valor_anterior:valorAnterior, valor_nuevo:total, diferencia:total-valorAnterior, motivo:`Corrección por error${editObservacion.trim()?": "+editObservacion.trim():""}`, aplicado_por:user.name, es_correccion_error:true }).select().single();
+        const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:(puedeEditarFechaAjuste && ajusteFecha) || todayStr, valor_anterior:valorAnterior, valor_nuevo:total, diferencia:total-valorAnterior, motivo:`Corrección por error${editObservacion.trim()?": "+editObservacion.trim():""}`, aplicado_por:user.name, es_correccion_error:true }).select().single();
         if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
       }
       setGuardando(false);
@@ -3106,7 +3122,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     // HOY para Métricas — el valor original se queda contando en su día de venta (no se toca acá,
     // ver recortePorVenta en VentasMetricasScreen). Así "Ventas de hoy" solo ve lo que entró hoy.
     if(nuevoTotal !== valorAnterior){
-      const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:todayStr, valor_anterior:valorAnterior, valor_nuevo:nuevoTotal, diferencia:nuevoTotal-valorAnterior, motivo:editObservacion.trim()||null, aplicado_por:user.name }).select().single();
+      const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:(puedeEditarFechaAjuste && ajusteFecha) || todayStr, valor_anterior:valorAnterior, valor_nuevo:nuevoTotal, diferencia:nuevoTotal-valorAnterior, motivo:editObservacion.trim()||null, aplicado_por:user.name }).select().single();
       if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
     }
     setGuardando(false);
@@ -3362,7 +3378,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                             ))}
                           </div>
                           <div style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"12px", marginBottom:10 }}>
-                            <Field label="Tipo" value={editItemTipo} onChange={setEditItemTipo} options={VENTAS_TIPOS}/>
+                            <Field label="Tipo" value={editItemTipo} onChange={setEditItemTipo} options={VENTAS_TIPOS.filter(t=>t.value!=="flexipago")}/>
                             {editItemEsFlexipago ? (
                               <>
                                 <CurrencyField label="Valor total" value={editItemValor} onChange={setEditItemValor}/>
@@ -3436,6 +3452,9 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                           ) : (
                             <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
                           )}
+                          {puedeEditarFechaAjuste && (
+                            <Field label="Fecha real del ajuste" type="date" value={ajusteFecha} onChange={setAjusteFecha}/>
+                          )}
                           <div style={{ display:"flex", gap:8 }}>
                             <Btn onClick={()=>guardarEdicion(v)} disabled={guardando} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
                             <Btn onClick={()=>{ setEditando(null); setEditErrorMsg(""); setModoErrorId(null); }} variant="ghost" sm>Cancelar</Btn>
@@ -3494,6 +3513,9 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                           </div>
                           <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
                           <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
+                          {puedeEditarFechaAjuste && (
+                            <Field label="Fecha real del excedente" type="date" value={ajusteFecha} onChange={setAjusteFecha}/>
+                          )}
                           {(() => {
                             const nuevoBruto = ncItems.reduce((s,i)=>s+Number(i.valor||0),0);
                             const descuentoOriginal = ncItems.reduce((s,i)=>s+Number(i.descuento||0),0);
