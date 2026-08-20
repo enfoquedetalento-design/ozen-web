@@ -1411,19 +1411,27 @@ function SelectorMes({ anio, mes, prev, next }) {
 }
 
 // ── Turnos: quién aparece como columna en la malla — activar/desactivar sin salir de Editar ──
+// Diseñado como si hubiera cientos de personas: buscador + filtro por rol + tabla con scroll
+// (encabezado fijo) en vez de una nube de cápsulas — eso último se vuelve ilegible apenas hay
+// más de 10-15 personas, sin importar cómo se agrupe.
 function GestionAsesoresActivosTurnos({ users, setUsers }) {
   const [abierto,setAbierto]=useState(false);
-  // Orden fijo (solo alfabético) — antes ordenaba activos primero, lo que hacía que cada
-  // cápsula saltara de lugar al togglearla. Así se queda quieta, solo cambia de color.
+  const [busqueda,setBusqueda]=useState("");
+  const [filtroRol,setFiltroRol]=useState("todos"); // todos | advisor | admin
+
   // Incluye asesores Y admin (master/admin/admin_finanzas/visualizador) — estos últimos con su
   // propio campo `activo_en_turnos` para no interferir con el `active` general que ya usan otras
-  // pantallas (ej. Caja). Se muestran en dos grupos separados (Asesores / Administradores) para
-  // que no se vea como una sola lista desordenada — algunas personas tienen cuenta de asesor Y de
-  // admin (mismo nombre en ambos grupos a propósito: son cuentas distintas, no se fusionan).
-  const personas=[...users].filter(u=>esUsuarioDeTurnos(u)).sort((a,b)=>a.name.localeCompare(b.name));
+  // pantallas (ej. Caja). Algunas personas tienen cuenta de asesor Y de admin a propósito (son
+  // cuentas distintas, no se fusionan) — la columna "Rol" deja claro cuál es cuál.
+  const personas=[...users].filter(u=>esUsuarioDeTurnos(u))
+    .sort((a,b)=> (a.role==="advisor"?0:1)-(b.role==="advisor"?0:1) || ROLE_ORDEN_TURNOS.indexOf(a.role)-ROLE_ORDEN_TURNOS.indexOf(b.role) || a.name.localeCompare(b.name));
   const activos=personas.filter(a=>activoEnMallaTurnos(a)).length;
-  const asesoresList = personas.filter(u=>u.role==="advisor");
-  const adminsList = personas.filter(u=>u.role!=="advisor").sort((a,b)=> ROLE_ORDEN_TURNOS.indexOf(a.role)-ROLE_ORDEN_TURNOS.indexOf(b.role) || a.name.localeCompare(b.name));
+
+  const q = busqueda.trim().toLowerCase();
+  const filtradas = personas
+    .filter(u => filtroRol==="todos" || (filtroRol==="advisor" ? u.role==="advisor" : u.role!=="advisor"))
+    .filter(u => !q || u.name.toLowerCase().includes(q));
+
   // Optimista: cambia el color al instante (no espera la respuesta del servidor) y solo
   // revierte si de verdad falla — así se siente inmediato en vez de esperar la red.
   const toggle=async(u)=>{
@@ -1434,20 +1442,9 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
     if(data) setUsers(prev=>prev.map(x=>x.id===u.id?data:x));
     else if(error){ setUsers(prev=>prev.map(x=>x.id===u.id?{...x,[campo]:valorActual}:x)); alert(`No se pudo actualizar: ${error.message}`); }
   };
-  const renderGrupo = (titulo, lista) => lista.length===0 ? null : (
-    <div key={titulo}>
-      <div style={{ fontFamily:font.body, fontSize:10, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"0 0 6px" }}>{titulo} ({lista.filter(activoEnMallaTurnos).length}/{lista.length})</div>
-      <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-        {lista.map(a=>{
-          const act = activoEnMallaTurnos(a);
-          const tag = a.role==="admin" ? "" : ` · ${ROLE_LABEL[a.role]||a.role}`;
-          return (
-            <button key={a.id} onClick={()=>toggle(a)} style={{ padding:"5px 12px", borderRadius:99, border:`1px solid ${act?C.green:C.border}`, background:act?`${C.green}18`:"transparent", color:act?C.green:C.textMuted, fontFamily:font.body, fontSize:11.5, fontWeight:600, cursor:"pointer" }}>{act?"✓ ":"✕ "}{a.name}{tag}</button>
-          );
-        })}
-      </div>
-    </div>
-  );
+
+  const FILTROS_ROL = [{ id:"todos", label:"Todos" },{ id:"advisor", label:"Asesores" },{ id:"admin", label:"Administradores" }];
+
   return (
     <Card p="10px 14px" style={{ marginBottom:16 }}>
       <button onClick={()=>setAbierto(!abierto)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", display:"flex", alignItems:"center", gap:8, width:"100%" }}>
@@ -1455,10 +1452,43 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
         <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11, color:C.goldLight }}>{abierto?"Ocultar ▲":"Gestionar ▾"}</span>
       </button>
       {abierto && (
-        <div style={{ display:"flex", flexDirection:"column", gap:14, marginTop:12 }}>
-          {renderGrupo("Asesores", asesoresList)}
-          {renderGrupo("Administradores", adminsList)}
-          {personas.length===0 && <span style={{fontFamily:font.body,fontSize:12,color:C.textMuted}}>No hay asesores ni admin creados todavía.</span>}
+        <div style={{ marginTop:12 }}>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:10 }}>
+            <input value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder="Buscar por nombre..." style={{ flex:1, minWidth:160, boxSizing:"border-box", padding:"8px 11px", borderRadius:7, border:`1px solid ${C.border}`, background:C.surfaceAlt, color:C.text, fontFamily:font.body, fontSize:12.5, outline:"none" }}/>
+            <div style={{ display:"flex", gap:4 }}>
+              {FILTROS_ROL.map(f=>(
+                <button key={f.id} onClick={()=>setFiltroRol(f.id)} style={{ padding:"7px 11px", borderRadius:7, border:`1px solid ${filtroRol===f.id?C.gold:C.border}`, background:filtroRol===f.id?`${C.gold}18`:"transparent", color:filtroRol===f.id?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:11.5, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>{f.label}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ maxHeight:340, overflowY:"auto", border:`1px solid ${C.border}`, borderRadius:8 }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead>
+                <tr>
+                  <th style={{ position:"sticky", top:0, zIndex:1, textAlign:"left", padding:"7px 10px", background:C.surfaceAlt, fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", boxShadow:`0 1px 0 ${C.border}` }}>Nombre</th>
+                  <th style={{ position:"sticky", top:0, zIndex:1, textAlign:"left", padding:"7px 10px", background:C.surfaceAlt, fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", boxShadow:`0 1px 0 ${C.border}` }}>Rol</th>
+                  <th style={{ position:"sticky", top:0, zIndex:1, textAlign:"right", padding:"7px 10px", background:C.surfaceAlt, fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", boxShadow:`0 1px 0 ${C.border}` }}>En malla</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtradas.map((a,i)=>{
+                  const act = activoEnMallaTurnos(a);
+                  return (
+                    <tr key={a.id} style={{ background: i%2===0 ? "transparent" : `${C.surfaceAlt}80` }}>
+                      <td style={{ padding:"7px 10px", borderTop:`1px solid ${C.border}`, fontFamily:font.body, fontSize:12.5, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:180 }}>{a.name}</td>
+                      <td style={{ padding:"7px 10px", borderTop:`1px solid ${C.border}`, fontFamily:font.body, fontSize:11.5, color:C.textMuted, whiteSpace:"nowrap" }}>{ROLE_LABEL[a.role]||a.role}</td>
+                      <td style={{ padding:"7px 10px", borderTop:`1px solid ${C.border}`, textAlign:"right" }}>
+                        <button onClick={()=>toggle(a)} title={act?"Desactivar":"Activar"} style={{ width:38, height:21, borderRadius:99, border:"none", background:act?C.green:C.border, position:"relative", cursor:"pointer", padding:0, transition:"background .15s ease" }}>
+                          <span style={{ position:"absolute", top:2, left:act?18:2, width:17, height:17, borderRadius:99, background:"#fff", transition:"left .15s ease", boxShadow:"0 1px 2px rgba(0,0,0,0.3)" }}/>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filtradas.length===0 && <tr><td colSpan={3} style={{ padding:20, textAlign:"center", fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin resultados.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </Card>
