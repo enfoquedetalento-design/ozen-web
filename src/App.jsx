@@ -392,7 +392,7 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
 }
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
-const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id:"records",icon:"📋",label:"Registros" },{ id:"turnos",icon:"📅",label:"Turnos" },{ id:"reports",icon:"📈",label:"Informes" }];
+const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id:"records",icon:"📋",label:"Registros" },{ id:"turnos",icon:"📅",label:"Turnos" },{ id:"mi_asistencia",icon:"📍",label:"Marcar Asistencia" },{ id:"reports",icon:"📈",label:"Informes" }];
 // Las pestañas "Asesores" y "Tiendas" ya no van sueltas — ahora viven dentro de Turnos ▸
 // Administrar (ver TurnosAdminScreen), junto con los códigos de turno especiales.
 // Usuarios (control total de contraseñas) ya no va en esta lista de pestañas — es solo para
@@ -1186,7 +1186,7 @@ function TurnoBadgeCelda({ turno, size }) {
   const txt = colorTextoContraste(turno.color);
   return (
     <div style={{
-      width:"100%", minHeight:size==="sm"?24:28, borderRadius:8,
+      width:"100%", minHeight:size==="sm"?24:28, borderRadius:8, boxSizing:"border-box",
       background:`linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,18)})`,
       color:txt, display:"flex", alignItems:"center", justifyContent:"center",
       fontFamily:font.body, fontSize:size==="sm"?10.5:11.5, fontWeight:700, letterSpacing:"0.01em",
@@ -1247,12 +1247,12 @@ function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios }) {
               const fila = filaHorarioVigente(familiaDeTurno(sh.nombre), s.id, turnosHorarios);
               return lineasHorarioTurno(sh, fila);
             });
-            const anchoTexto = Math.max(s.name.length, ...lineas.map(l=>l.length), 8) * 6.4 + 20;
+            const anchoTexto = Math.max(s.name.length, ...lineas.map(l=>l.length), 8) * 6 + 14;
             return (
-              <div key={s.id} style={{ flex:`0 0 ${anchoTexto}px`, background:s.color, padding:"6px 6px", borderRight:si<tiendasConTurnos.length-1?"1px solid rgba(0,0,0,0.15)":"none" }}>
-                <div style={{ fontFamily:font.body, fontSize:12.5, fontWeight:700, color:txt, textAlign:"center", marginBottom:4, whiteSpace:"nowrap" }}>{s.name}</div>
+              <div key={s.id} style={{ flex:`0 0 ${anchoTexto}px`, background:s.color, padding:"4px 5px", borderRight:si<tiendasConTurnos.length-1?"1px solid rgba(0,0,0,0.15)":"none" }}>
+                <div style={{ fontFamily:font.body, fontSize:12.5, fontWeight:700, color:txt, textAlign:"center", marginBottom:2, whiteSpace:"nowrap" }}>{s.name}</div>
                 {lineas.map((linea,i)=>(
-                  <div key={s.id+"_"+i} style={{ fontFamily:font.body, fontSize:11, color:txt, textAlign:"center", lineHeight:1.3, whiteSpace:"nowrap" }}>{linea}</div>
+                  <div key={s.id+"_"+i} style={{ fontFamily:font.body, fontSize:11, color:txt, textAlign:"center", lineHeight:1.25, whiteSpace:"nowrap" }}>{linea}</div>
                 ))}
               </div>
             );
@@ -1336,7 +1336,7 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
                   <td key={a.id} style={{ borderBottom:`1px solid ${C.border}`, borderLeft:`1px solid ${C.border}`, padding:3 }}>
                     {editable ? (
                       <div style={{ display:"flex", alignItems:"center", gap:2 }}>
-                        <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ flex:1, minWidth:0, minHeight:28, borderRadius:7, border:`1px solid ${turno?hexToRgba(oscurecerColor(turno.color,30),0.55):C.border}`, background:turno?`linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,18)})`:C.surfaceAlt, color:turno?colorTextoContraste(turno.color):C.textMuted, fontFamily:font.body, fontSize:11, fontWeight:turno?700:400, padding:"3px 2px", cursor:"pointer", outline:"none", boxShadow:turno?"0 1px 3px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.22)":"none", textShadow:turno&&colorTextoContraste(turno.color)==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none", transition:"transform .12s ease, box-shadow .12s ease" }}>
+                        <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ flex:1, minWidth:0, minHeight:28, borderRadius:7, boxSizing:"border-box", border:`1px solid ${turno?hexToRgba(oscurecerColor(turno.color,30),0.55):C.border}`, background:turno?`linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,18)})`:C.surfaceAlt, color:turno?colorTextoContraste(turno.color):C.textMuted, fontFamily:font.body, fontSize:11, fontWeight:turno?700:400, padding:"3px 2px", cursor:"pointer", outline:"none", boxShadow:turno?"0 1px 3px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.22)":"none", textShadow:turno&&colorTextoContraste(turno.color)==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none", transition:"transform .12s ease, box-shadow .12s ease" }}>
                           <option value="">—</option>
                           <optgroup label="Especiales">{turnosGlobales.map(g=><option key={g.id} value={`g:${g.id}`}>{g.nombre}</option>)}</optgroup>
                           {storeGroups.map(s=>(<optgroup key={s.id} label={s.name}>{s.shifts.filter(sh=>sh.activo!==false).map(sh=><option key={sh.id} value={`t:${s.id}|${encodeURIComponent(sh.nombre)}`}>{sh.nombre}</option>)}</optgroup>))}
@@ -1514,6 +1514,23 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
       {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones}/>}
       {sub==="editar"      && !soloLectura && <TurnosEditarScreen users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} setAsignaciones={setAsignaciones}/>}
       {sub==="administrar" && puedeAdministrar && <TurnosAdminScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
+    </div>
+  );
+}
+
+// ── SCREEN: Mi Asistencia (para cuentas de líder/admin) — agrupa Marcar + Mi Historial ──
+function MiAsistenciaScreen({ user, records, onRecord, onRefresh, stores, asignaciones, turnosHorarios, turnosAsignaciones }) {
+  const [sub,setSub]=useState("marcar");
+  const subTabs=[{ id:"marcar", label:"📍 Marcar" },{ id:"historial", label:"📋 Mi Historial" }];
+  return (
+    <div>
+      <div style={{ display:"flex", gap:6, marginBottom:18, flexWrap:"wrap" }}>
+        {subTabs.map(t=>(
+          <button key={t.id} onClick={()=>setSub(t.id)} style={{ padding:"7px 16px", borderRadius:99, border:`1px solid ${sub===t.id?C.gold:C.border}`, background:sub===t.id?`${C.gold}18`:"transparent", color:sub===t.id?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>{t.label}</button>
+        ))}
+      </div>
+      {sub==="marcar"    && <CheckInScreen user={user} records={records} onRecord={onRecord} onRefresh={onRefresh} stores={stores} asignaciones={asignaciones} turnosHorarios={turnosHorarios}/>}
+      {sub==="historial" && <HistoryScreen user={user} records={records} stores={stores} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>}
     </div>
   );
 }
@@ -5877,6 +5894,7 @@ export default function App() {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
         if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeAdministrar={user.role!=="visualizador"}/>;
+        if(tab==="mi_asistencia") return <MiAsistenciaScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
     } else if(esCuentaTienda(user)){
