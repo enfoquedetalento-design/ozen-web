@@ -3067,7 +3067,13 @@ function FirmarDocumentoScreen() {
   return (
     <div>
       {dibujando && <FirmaPadModal onListo={onFirmaLista} onCancelar={() => setDibujando(false)} />}
-      <PageHeader title="Firmar documento" subtitle="Nada se sube ni se guarda — dibujas tu firma en el momento, la ubicas y descargas el resultado" />
+      <PageHeader title="Firmar documento" subtitle="Firma exclusiva para este documento — no se sube ni se guarda en ningún lado" />
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-start", background: `${C.gold}12`, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
+        <div style={{ fontSize: 16, lineHeight: 1 }}>🔒</div>
+        <div style={{ fontFamily: font.body, fontSize: 12, color: C.textSub, lineHeight: 1.55 }}>
+          <strong style={{ color: C.text }}>Este PDF y tu firma se procesan solo en tu navegador.</strong> No se suben ni se guardan en ningún servidor ni base de datos — nadie más los ve. La firma que dibujas es exclusiva para este documento: no queda asociada a tu usuario, no se puede reutilizar después, y desaparece por completo si recargas la página o sales de esta pantalla. Lo único que se genera es el PDF firmado que tú mismo descargas al final.
+        </div>
+      </div>
       <Card style={{ marginBottom: 16 }}>
         <input ref={fileInputRef} type="file" accept="application/pdf" onChange={handleFile} style={{ display: "none" }} />
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
