@@ -1,5 +1,8 @@
 import { useState, useRef, useCallback, useEffect, createContext, useContext } from "react";
 import { supabase } from "./supabase";
+import { PDFDocument } from "pdf-lib";
+import * as pdfjsLib from "pdfjs-dist";
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
 
 // ── Contexto de solo-lectura (rol "visualizador") ───────────────────────────────
 const ReadOnlyContext = createContext(false);
@@ -400,6 +403,7 @@ const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id
 const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
 const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Turnos" }];
 const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar venta" },{ id:"lista",icon:"📋",label:"Lista de ventas" },{ id:"metricas",icon:"📊",label:"Métricas" },{ id:"caja",icon:"💰",label:"Caja" }];
+const ADMIN_TABS_FIRMAS     = [{ id:"firmar",icon:"✍️",label:"Firmar documento" },{ id:"mi_firma",icon:"🖊️",label:"Mi firma" }];
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas";
 // Quién puede elegir el área "Ventas" desde el selector. Admin y Visualizador entran en modo
 // solo lectura (ver ventasSoloLectura); master y admin_finanzas entran completo.
@@ -441,7 +445,7 @@ const puedeHacerRecoleccion = (user) => user.role==="master" || user.role==="adm
 // Qué pestañas le corresponden a cada quien, según su rol y el área elegida
 const tabsPara = (user, area) => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? ADMIN_TABS_VENTAS : ADVISOR_TABS)
-  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? (puedeVerRegistrar(user) ? ADMIN_TABS_VENTAS : ADMIN_TABS_VENTAS.filter(t=>t.id!=="registrar")) : ADMIN_TABS_ASISTENCIA);
+  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? (puedeVerRegistrar(user) ? ADMIN_TABS_VENTAS : ADMIN_TABS_VENTAS.filter(t=>t.id!=="registrar")) : area==="firmas" ? ADMIN_TABS_FIRMAS : ADMIN_TABS_ASISTENCIA);
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -2752,6 +2756,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
     { id:"junta", icon:"🗓️", titulo:"La Junta Administrativa", desc:"Equipo, seguimiento semanal y guion de la reunión", accent:C.goldLight, mostrar:true },
     { id:"asistencia", icon:"📋", titulo:"Registro de Asistencia", desc:"Panel, registros, turnos, asesores, tiendas e informes", accent:"#6ea8fe", mostrar:true },
     { id:"ventas", icon:"💰", titulo:"Ventas", desc:ventasSoloLectura(user) ? "Solo para ver — no se puede registrar ni corregir nada" : "Registro de ventas, metas y métricas por tienda", accent:C.green, mostrar:puedeUsarVentasArea(user) },
+    { id:"firmas", icon:"✍️", titulo:"Firmar Documentos", desc:"Sube un PDF, ubica tu firma y descárgalo — nada queda guardado", accent:"#c084fc", mostrar:true },
   ].filter(m=>m.mostrar);
   return (
     <div style={{ minHeight:"100vh", background:`radial-gradient(1100px 520px at 50% -10%, ${C.goldLight}14, transparent 60%), ${C.dark}`, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
@@ -2797,6 +2802,337 @@ function AreaSelector({ user, onChoose, onLogout }) {
           <Btn onClick={onLogout} variant="ghost" sm>Cerrar sesión</Btn>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── FIRMAS: dibujar y guardar la firma personal (una vez, queda en la cuenta) ──
+function MiFirmaScreen({ user, setUser }) {
+  const canvasRef = useRef(null);
+  const dibujando = useRef(false);
+  const [tieneTrazo, setTieneTrazo] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [firmaGuardada, setFirmaGuardada] = useState(user.firma_data || null);
+
+  const posDesdeEvento = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  };
+  const onDown = (e) => {
+    e.preventDefault();
+    canvasRef.current.setPointerCapture(e.pointerId);
+    dibujando.current = true;
+    const { x, y } = posDesdeEvento(e);
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+  const onMove = (e) => {
+    if (!dibujando.current) return;
+    const { x, y } = posDesdeEvento(e);
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.strokeStyle = "#15202b"; ctx.lineWidth = 2.8; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.lineTo(x, y); ctx.stroke();
+    setTieneTrazo(true);
+  };
+  const onUp = () => { dibujando.current = false; };
+  const limpiar = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    setTieneTrazo(false);
+  };
+  // Recorta el canvas al recuadro real del trazo (usando el canal alfa), para no guardar
+  // un montón de espacio transparente alrededor de la firma.
+  const recortar = (canvas) => {
+    const ctx = canvas.getContext("2d");
+    const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let minX = width, minY = height, maxX = 0, maxY = 0, tiene = false;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (data[(y * width + x) * 4 + 3] > 10) {
+          tiene = true;
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (!tiene) return null;
+    const pad = 6;
+    minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+    maxX = Math.min(width - 1, maxX + pad); maxY = Math.min(height - 1, maxY + pad);
+    const w = maxX - minX + 1, h = maxY - minY + 1;
+    const out = document.createElement("canvas");
+    out.width = w; out.height = h;
+    out.getContext("2d").drawImage(canvas, minX, minY, w, h, 0, 0, w, h);
+    return out.toDataURL("image/png");
+  };
+  const guardar = async () => {
+    const recortada = recortar(canvasRef.current);
+    if (!recortada) { setMsg("Dibuja tu firma antes de guardar."); return; }
+    setGuardando(true); setMsg("");
+    const { data, error } = await supabase.from("usuarios").update({ firma_data: recortada }).eq("id", user.id).select().single();
+    setGuardando(false);
+    if (error) { alert(`No se pudo guardar la firma: ${error.message}`); return; }
+    setUser(data);
+    setFirmaGuardada(data.firma_data);
+    limpiar();
+    setMsg("Firma guardada ✓");
+    setTimeout(() => setMsg(""), 2500);
+  };
+  const borrarGuardada = async () => {
+    if (!confirm("¿Quitar tu firma guardada? Tendrás que volver a dibujarla para firmar documentos.")) return;
+    const { data, error } = await supabase.from("usuarios").update({ firma_data: null }).eq("id", user.id).select().single();
+    if (error) { alert(`No se pudo quitar: ${error.message}`); return; }
+    setUser(data);
+    setFirmaGuardada(null);
+  };
+
+  return (
+    <div>
+      <PageHeader title="Mi firma" subtitle="Se dibuja una sola vez y queda guardada en tu cuenta para usarla al firmar documentos" />
+      {firmaGuardada && (
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{ fontFamily: font.body, fontSize: 12.5, fontWeight: 600, color: C.text, marginBottom: 10 }}>Firma guardada actualmente</div>
+          <div style={{ background: "#fff", borderRadius: 8, padding: 14, display: "inline-block" }}>
+            <img src={firmaGuardada} alt="Tu firma" style={{ height: 60, display: "block" }} />
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <Btn onClick={borrarGuardada} variant="danger" sm>Quitar firma guardada</Btn>
+          </div>
+        </Card>
+      )}
+      <Card>
+        <div style={{ fontFamily: font.body, fontSize: 12.5, fontWeight: 600, color: C.text, marginBottom: 4 }}>{firmaGuardada ? "Dibujar una firma nueva (reemplaza la actual)" : "Dibuja tu firma"}</div>
+        <div style={{ fontFamily: font.body, fontSize: 11.5, color: C.textMuted, marginBottom: 10 }}>Usa el mouse, o el dedo/lápiz si estás en una pantalla táctil.</div>
+        <canvas
+          ref={canvasRef}
+          width={520}
+          height={190}
+          onPointerDown={onDown}
+          onPointerMove={onMove}
+          onPointerUp={onUp}
+          onPointerLeave={onUp}
+          style={{ width: "100%", maxWidth: 520, height: 190, background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, touchAction: "none", cursor: "crosshair", display: "block" }}
+        />
+        {msg && <div style={{ marginTop: 10, fontFamily: font.body, fontSize: 12, color: msg.includes("✓") ? C.green : C.red }}>{msg}</div>}
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <Btn onClick={guardar} disabled={!tieneTrazo || guardando}>{guardando ? "Guardando..." : "Guardar firma"}</Btn>
+          <Btn onClick={limpiar} variant="ghost">Borrar y repetir</Btn>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ── FIRMAS: un cuadro de firma arrastrable/redimensionable sobre la página del PDF ──
+function FirmaOverlay({ placement, tamPagina, firmaSrc, aspecto, onChange, onRemove }) {
+  const dragRef = useRef(null);
+  const resizeRef = useRef(null);
+  const anchoPx = placement.widthPct * tamPagina.w;
+  const altoPx = anchoPx * aspecto;
+  const leftPx = placement.xPct * tamPagina.w;
+  const topPx = placement.yPct * tamPagina.h;
+
+  const onDragStart = (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: leftPx, origY: topPx };
+  };
+  const onDragMove = (e) => {
+    if (!dragRef.current) return;
+    const dx = e.clientX - dragRef.current.startX, dy = e.clientY - dragRef.current.startY;
+    let nx = Math.max(0, Math.min(tamPagina.w - anchoPx, dragRef.current.origX + dx));
+    let ny = Math.max(0, Math.min(tamPagina.h - altoPx, dragRef.current.origY + dy));
+    onChange({ ...placement, xPct: nx / tamPagina.w, yPct: ny / tamPagina.h });
+  };
+  const onDragEnd = () => { dragRef.current = null; };
+
+  const onResizeStart = (e) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    resizeRef.current = { startX: e.clientX, startWidth: anchoPx };
+  };
+  const onResizeMove = (e) => {
+    if (!resizeRef.current) return;
+    const dx = e.clientX - resizeRef.current.startX;
+    const nuevoAncho = Math.max(36, Math.min(tamPagina.w - leftPx, resizeRef.current.startWidth + dx));
+    onChange({ ...placement, widthPct: nuevoAncho / tamPagina.w });
+  };
+  const onResizeEnd = () => { resizeRef.current = null; };
+
+  return (
+    <div
+      onPointerDown={onDragStart}
+      onPointerMove={onDragMove}
+      onPointerUp={onDragEnd}
+      style={{ position: "absolute", left: leftPx, top: topPx, width: anchoPx, height: altoPx, cursor: "move", touchAction: "none" }}
+    >
+      <img src={firmaSrc} draggable={false} style={{ width: "100%", height: "100%", pointerEvents: "none", userSelect: "none" }} />
+      <div
+        onPointerDown={onResizeStart}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeEnd}
+        title="Arrastra para cambiar el tamaño"
+        style={{ position: "absolute", right: -7, bottom: -7, width: 15, height: 15, borderRadius: "50%", background: C.gold, border: "2px solid #fff", cursor: "nwse-resize", touchAction: "none" }}
+      />
+      <button
+        onClick={(e) => { e.stopPropagation(); onRemove(placement.id); }}
+        title="Quitar esta firma"
+        style={{ position: "absolute", top: -10, right: -10, width: 18, height: 18, borderRadius: "50%", background: C.red, color: "#fff", border: "2px solid #fff", fontSize: 10, lineHeight: "14px", cursor: "pointer", padding: 0 }}
+      >×</button>
+    </div>
+  );
+}
+
+// ── FIRMAS: subir un PDF, ubicar la firma guardada y descargar — nada se guarda en el servidor ──
+function FirmarDocumentoScreen({ user }) {
+  const fileInputRef = useRef(null);
+  const containerRef = useRef(null);
+  const canvasRef = useRef(null);
+  const pdfBytesFinalRef = useRef(null);
+  const [pdfDoc, setPdfDoc] = useState(null);
+  const [numPaginas, setNumPaginas] = useState(0);
+  const [paginaActual, setPaginaActual] = useState(0);
+  const [tamPagina, setTamPagina] = useState({ w: 0, h: 0 });
+  const [firmas, setFirmas] = useState([]);
+  const [nombreArchivo, setNombreArchivo] = useState("");
+  const [cargando, setCargando] = useState(false);
+  const [descargando, setDescargando] = useState(false);
+  const [aspecto, setAspecto] = useState(0.35);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (!user.firma_data) return;
+    const img = new Image();
+    img.onload = () => setAspecto(img.naturalHeight / img.naturalWidth);
+    img.src = user.firma_data;
+  }, [user.firma_data]);
+
+  const renderPagina = useCallback(async (doc, num) => {
+    if (!doc || !canvasRef.current) return;
+    const page = await doc.getPage(num);
+    const base = page.getViewport({ scale: 1 });
+    const contW = containerRef.current?.clientWidth || 640;
+    const scale = Math.min((contW - 32) / base.width, 1.6);
+    const viewport = page.getViewport({ scale });
+    const canvas = canvasRef.current;
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+    setTamPagina({ w: viewport.width, h: viewport.height });
+  }, []);
+
+  useEffect(() => { if (pdfDoc) renderPagina(pdfDoc, paginaActual + 1); }, [pdfDoc, paginaActual, renderPagina]);
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErr(""); setCargando(true); setFirmas([]); setPdfDoc(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const paraVer = new Uint8Array(buf.slice(0));
+      pdfBytesFinalRef.current = new Uint8Array(buf.slice(0));
+      const doc = await pdfjsLib.getDocument({ data: paraVer }).promise;
+      setNumPaginas(doc.numPages);
+      setPaginaActual(0);
+      setNombreArchivo(file.name);
+      setPdfDoc(doc);
+    } catch (e2) {
+      setErr("No se pudo abrir ese PDF. Verifica que el archivo no esté dañado.");
+    }
+    setCargando(false);
+    e.target.value = "";
+  };
+
+  const agregarFirma = () => {
+    if (!user.firma_data) return;
+    setFirmas(prev => [...prev, { id: Date.now() + Math.random(), pageIndex: paginaActual, xPct: 0.6, yPct: 0.78, widthPct: 0.22 }]);
+  };
+  const actualizarFirma = (nueva) => setFirmas(prev => prev.map(f => f.id === nueva.id ? nueva : f));
+  const quitarFirma = (id) => setFirmas(prev => prev.filter(f => f.id !== id));
+
+  const descargar = async () => {
+    if (!pdfBytesFinalRef.current || firmas.length === 0) return;
+    setDescargando(true);
+    try {
+      const doc = await PDFDocument.load(pdfBytesFinalRef.current);
+      const png = await doc.embedPng(user.firma_data);
+      const paginas = doc.getPages();
+      firmas.forEach(f => {
+        const pagina = paginas[f.pageIndex];
+        if (!pagina) return;
+        const { width, height } = pagina.getSize();
+        const imgW = f.widthPct * width;
+        const imgH = imgW * aspecto;
+        pagina.drawImage(png, { x: f.xPct * width, y: height - f.yPct * height - imgH, width: imgW, height: imgH });
+      });
+      const bytes = await doc.save();
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `firmado-${nombreArchivo || "documento.pdf"}`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e2) {
+      alert(`No se pudo generar el PDF firmado: ${e2.message}`);
+    }
+    setDescargando(false);
+  };
+
+  if (!user.firma_data) {
+    return (
+      <div>
+        <PageHeader title="Firmar documento" subtitle="Sube un PDF, ubica tu firma y descárgalo" />
+        <Card>
+          <div style={{ fontFamily: font.body, fontSize: 13, color: C.text }}>Todavía no tienes una firma guardada. Ve a la pestaña <strong>Mi firma</strong> (arriba) y dibújala una vez — luego podrás usarla aquí las veces que quieras.</div>
+        </Card>
+      </div>
+    );
+  }
+
+  const firmasPagina = firmas.filter(f => f.pageIndex === paginaActual);
+
+  return (
+    <div>
+      <PageHeader title="Firmar documento" subtitle="Nada se sube ni se guarda — todo pasa en tu navegador y descargas el resultado" />
+      <Card style={{ marginBottom: 16 }}>
+        <input ref={fileInputRef} type="file" accept="application/pdf" onChange={handleFile} style={{ display: "none" }} />
+        <Btn onClick={() => fileInputRef.current?.click()} variant={pdfDoc ? "ghost" : "primary"}>{pdfDoc ? "Cambiar PDF" : "Subir PDF"}</Btn>
+        {nombreArchivo && <span style={{ marginLeft: 10, fontFamily: font.body, fontSize: 12, color: C.textMuted }}>{nombreArchivo}</span>}
+        {cargando && <span style={{ marginLeft: 10, fontFamily: font.body, fontSize: 12, color: C.textMuted }}>Abriendo...</span>}
+        {err && <div style={{ marginTop: 10, fontFamily: font.body, fontSize: 12, color: C.red }}>{err}</div>}
+      </Card>
+
+      {pdfDoc && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+            <Btn onClick={() => setPaginaActual(p => Math.max(0, p - 1))} variant="ghost" sm disabled={paginaActual === 0}>← Anterior</Btn>
+            <div style={{ fontFamily: font.body, fontSize: 12.5, color: C.text }}>Página {paginaActual + 1} de {numPaginas}</div>
+            <Btn onClick={() => setPaginaActual(p => Math.min(numPaginas - 1, p + 1))} variant="ghost" sm disabled={paginaActual >= numPaginas - 1}>Siguiente →</Btn>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+              <Btn onClick={agregarFirma} variant="success" sm>+ Agregar mi firma aquí</Btn>
+              <Btn onClick={descargar} disabled={firmas.length === 0 || descargando} sm>{descargando ? "Generando..." : "⬇ Descargar PDF firmado"}</Btn>
+            </div>
+          </div>
+          <div style={{ fontFamily: font.body, fontSize: 11, color: C.textMuted, marginBottom: 10 }}>
+            Arrastra la firma para ubicarla y usa el punto dorado de la esquina para cambiar su tamaño.
+            {firmasPagina.length > 0 ? ` ${firmasPagina.length} firma(s) en esta página.` : ""}
+            {firmas.length > firmasPagina.length ? ` ${firmas.length} en total.` : ""}
+          </div>
+          <div ref={containerRef} style={{ overflow: "auto", border: `1px solid ${C.border}`, borderRadius: 10, background: "#525659", padding: 16, textAlign: "center" }}>
+            <div style={{ position: "relative", display: "inline-block", width: tamPagina.w || "auto", height: tamPagina.h || "auto" }}>
+              <canvas ref={canvasRef} style={{ display: "block", boxShadow: "0 2px 10px rgba(0,0,0,0.4)" }} />
+              {firmasPagina.map(f => (
+                <FirmaOverlay key={f.id} placement={f} tamPagina={tamPagina} firmaSrc={user.firma_data} aspecto={aspecto} onChange={actualizarFirma} onRemove={quitarFirma} />
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -5967,7 +6303,7 @@ export default function App() {
 
   const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":puedeUsarAreas(u)?null:"checkin");};
   const logout=()=>{setUser(null);setArea(null);setTab(null);};
-  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?(ventasSoloLectura(user)?"lista":"registrar"):"dashboard");};
+  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?(ventasSoloLectura(user)?"lista":"registrar"):a==="firmas"?"firmar":"dashboard");};
   const backToAreas=()=>{setArea(null);setTab(null);};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
@@ -6004,6 +6340,9 @@ export default function App() {
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
         if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile}/>;
+      } else if(area==="firmas"){
+        if(tab==="firmar")   return <FirmarDocumentoScreen user={user} setUser={setUser}/>;
+        if(tab==="mi_firma") return <MiFirmaScreen user={user} setUser={setUser}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
