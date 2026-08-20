@@ -4545,13 +4545,23 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                     <div style={{ padding:14, color:C.textMuted, fontFamily:font.body, fontSize:12 }}>Cargando...</div>
                   ) : (
                     <>
-                      <div style={{ display:"flex", alignItems:"baseline", gap:6, margin:"4px 0 3px" }}>
-                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>Ventas y servicios</div>
-                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>· Bruto ${Number(v.valor_bruto).toLocaleString("es-CO")}{Number(v.descuento_total)>0 && ` · Desc $${Number(v.descuento_total).toLocaleString("es-CO")}`}</div>
-                      </div>
+                      {(()=>{
+                        // Los renglones que vienen de una Notacrédito (con su propio N.º de Siigo
+                        // nuevo) no se muestran en la factura original — esa factura se queda tal
+                        // cual quedó registrada. Solo se ven al editar con Notacrédito Siigo.
+                        const itemsOriginales = (d?.items||[]).filter(i=>i.es_original!==false);
+                        const brutoOriginal = itemsOriginales.reduce((s,i)=>s+Number(i.valor||0),0);
+                        const descOriginal = itemsOriginales.reduce((s,i)=>s+Number(i.descuento||0),0);
+                        return (
+                          <div style={{ display:"flex", alignItems:"baseline", gap:6, margin:"4px 0 3px" }}>
+                            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>Ventas y servicios</div>
+                            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>· Bruto ${brutoOriginal.toLocaleString("es-CO")}{descOriginal>0 && ` · Desc $${descOriginal.toLocaleString("es-CO")}`}</div>
+                          </div>
+                        );
+                      })()}
                       {!abiertoEdicion ? (
                         <div style={{ display:"flex", flexDirection:"column", gap:3, marginBottom:4 }}>
-                          {(d?.items||[]).map(i=>(
+                          {(d?.items||[]).filter(i=>i.es_original!==false).map(i=>(
                             <div key={i.id} style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", fontFamily:font.body, fontSize:12, color:C.text, padding:"1px 0" }}>
                                 <Badge color={i.tipo==="producto"?C.green:i.tipo==="flexipago"?C.blue:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
                                 <span style={{ fontFamily:font.mono }}>${Number(i.valor).toLocaleString("es-CO")}{Number(i.descuento)>0 && ` (desc $${Number(i.descuento).toLocaleString("es-CO")})`}</span>
@@ -4576,7 +4586,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                                 ))}
                             </div>
                           ))}
-                          {(d?.items||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin ventas/servicios registrados.</div>}
+                          {(d?.items||[]).filter(i=>i.es_original!==false).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin ventas/servicios registrados.</div>}
                         </div>
                       ) : modoErrorId===v.id ? (
                         <div style={{ marginBottom:10 }}>
