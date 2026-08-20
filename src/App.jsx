@@ -4949,6 +4949,28 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
         })()}
         {ventasFiltradas.length===0 && notaCreditosFiltradas.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>No hay ventas que coincidan con los filtros.</div>}
       </div>
+
+      {notaCreditosFiltradas.length>0 && (
+        <div style={{ marginTop:20 }}>
+          <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:8 }}>Notas crédito ({notaCreditosFiltradas.length})</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {notaCreditosFiltradas.map(({ajuste, venta})=>(
+              <Card key={`nc-${ajuste.id}`} p="10px 14px" style={{ borderLeft:`3px solid ${C.amber}` }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
+                    <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{venta.numero_factura?`#${venta.numero_factura}`:"—"}</span>
+                    <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                      {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
+                    </span>
+                  </div>
+                  <Badge color={C.amber} sm title={`Factura original del ${venta.fecha}`}>🧾 Notacrédito · {ajuste.fecha}</Badge>
+                  <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${Number(ajuste.diferencia||0).toLocaleString("es-CO")}</div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
