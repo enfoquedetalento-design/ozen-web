@@ -2220,22 +2220,34 @@ const FLEXIPAGO_AVISO_ITEMS = [
 ];
 
 // Tarjeta de un registro de Nota crédito (el "espejo" del excedente, con su propio N.º de
-// factura) — usada tanto en "Ventas de hoy" como en "Lista de ventas". Es expandible: al abrirla
-// se ve de qué factura original viene y cuál era su valor original, sin afectar la suma (esto es
-// solo informativo).
-function NotaCreditoCard({ ajuste, venta }) {
+// factura) — usada tanto en "Ventas de hoy" como en "Lista de ventas". Se ve IGUAL que una
+// tarjeta de venta normal (mismos badges de tipo/medio de pago), mezclada en la misma lista — no
+// tiene un tratamiento visual aparte. Es expandible: al abrirla se ve de qué factura original
+// viene y cuál era su valor original, sin afectar la suma (esto es solo informativo).
+function NotaCreditoCard({ ajuste, venta, ventasItems }) {
   const [abierto, setAbierto] = useState(false);
   const valorOriginalFactura = Number(venta.valor_original ?? venta.total);
+  // El o los renglones que componen ESTA Notacrédito específica: los que quedaron marcados como
+  // no-originales con la fecha real de este ajuste.
+  const itemsDelAjuste = (ventasItems||[]).filter(i=>i.venta_id===ajuste.venta_id && i.es_original===false && i.fecha_item===ajuste.fecha);
+  const tiposRaw = [...new Set(itemsDelAjuste.map(i=>i.tipo))];
+  const tiposTexto = tiposRaw.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(", ");
+  const mediosTexto = [...new Set(itemsDelAjuste.flatMap(i=>(i.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago)))].join(", ");
+  const tipoColor = VENTAS_TIPO_COLORES[tiposRaw[0]] || C.blue;
+  const tipoIcon = VENTAS_TIPO_ICONOS[tiposRaw[0]] || "🛍️";
+  const medioIcon = VENTAS_MEDIO_ICONOS[itemsDelAjuste[0]?.pagos?.[0]?.medio_pago] || "💰";
   return (
-    <Card p="10px 14px" style={{ borderLeft:`3px solid ${C.amber}` }}>
+    <Card p="10px 14px" style={{ borderLeft:`3px solid ${tipoColor}` }}>
       <button onClick={()=>setAbierto(a=>!a)} style={{ width:"100%", background:"none", border:"none", padding:0, cursor:"pointer", textAlign:"left" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-          <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+          <div style={{ flex:1, minWidth:140, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
             <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{ajuste.numero_factura?`#${ajuste.numero_factura}`:"—"}</span>
             <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
               {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
             </span>
           </div>
+          {tiposTexto && <Badge color={tipoColor} sm title={tiposTexto}>{tipoIcon} {tiposTexto}</Badge>}
+          {mediosTexto && <Badge color={C.blue} sm title={mediosTexto}>{medioIcon} {mediosTexto}</Badge>}
           <Badge color={C.amber} sm>🧾 Notacrédito</Badge>
           <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${Number(ajuste.diferencia||0).toLocaleString("es-CO")}</div>
           <span style={{ color:C.textMuted, fontSize:11, flexShrink:0 }}>{abierto?"▲":"▼"}</span>
@@ -2813,7 +2825,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
           </Card>
         ))}
         {notaCreditoHoyTienda.map(({venta, ajuste})=>(
-          <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta}/>
+          <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta} ventasItems={ventasItems}/>
         ))}
         {ventasHoy.length===0 && abonosHoyTienda.length===0 && notaCreditoHoyTienda.length===0 && <div style={{ textAlign:"center", padding:30, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin ventas registradas hoy en esta tienda.</div>}
       </div>
@@ -3407,7 +3419,8 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       </Card>
 
       <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-        {ventasFiltradas.map(v=>{
+        {(() => {
+        const elementosVentas = ventasFiltradas.map(v=>{
           const d = detalle[v.id];
           const abiertoEdicion = editando===v.id;
           const puedeEditar = !soloLectura && (d?.solicitudes||[]).some(s=>s.estado==="aprobada" && !s.aplicada_at);
@@ -3449,7 +3462,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
           // Nota crédito posterior se muestra aparte, sin agrandar la fila (cuenta en Métricas en
           // su propia fecha, no en la fecha de esta venta).
           const valorOriginalMostrar = Number(v.valor_original ?? v.total);
-          return (
+          return { fecha: v.fecha, el: (
             <Card key={v.id} p="0" style={{ overflow:"hidden" }}>
               <button onClick={()=>toggleExpand(v.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
                 <Badge color={C.gold} sm>#{v.numero_factura||"—"}</Badge>
@@ -3847,21 +3860,19 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                 </div>
               )}
             </Card>
-          );
-        })}
+          )};
+        });
+        // Las Notas crédito se mezclan en la MISMA lista, ordenadas por su fecha real junto con
+        // las demás ventas — no van en una sección aparte, para que se vean como un registro más.
+        const elementosNC = notaCreditosFiltradas.map(({ajuste, venta})=>({
+          fecha: ajuste.fecha,
+          el: <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta} ventasItems={ventasItems}/>,
+        }));
+        const combinados = [...elementosVentas, ...elementosNC].sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||""));
+        return combinados.map(e=>e.el);
+        })()}
         {ventasFiltradas.length===0 && notaCreditosFiltradas.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>No hay ventas que coincidan con los filtros.</div>}
       </div>
-
-      {notaCreditosFiltradas.length>0 && (
-        <div style={{ marginTop:20 }}>
-          <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:8 }}>Notas crédito ({notaCreditosFiltradas.length})</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-            {notaCreditosFiltradas.map(({ajuste, venta})=>(
-              <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta}/>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
