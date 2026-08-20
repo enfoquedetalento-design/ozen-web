@@ -1165,11 +1165,37 @@ const colorTextoContraste = (hex) => {
   const luminancia = (0.299*r + 0.587*g + 0.114*b)/255;
   return luminancia > 0.65 ? C.goldDark : "#fff";
 };
+// Oscurece un hex un % dado (para el segundo stop del degradado de los badges de turno).
+const oscurecerColor = (hex, pct=16) => {
+  if(!hex) return hex;
+  const h = hex.replace("#","");
+  if(h.length!==6) return hex;
+  const r=parseInt(h.substring(0,2),16), g=parseInt(h.substring(2,4),16), b=parseInt(h.substring(4,6),16);
+  const f = (c) => Math.max(0, Math.round(c*(1-pct/100)));
+  return `#${[f(r),f(g),f(b)].map(n=>n.toString(16).padStart(2,"0")).join("")}`;
+};
+const hexToRgba = (hex, alpha) => {
+  if(!hex) return `rgba(0,0,0,${alpha})`;
+  const h = hex.replace("#","");
+  if(h.length!==6) return `rgba(0,0,0,${alpha})`;
+  const r=parseInt(h.substring(0,2),16), g=parseInt(h.substring(2,4),16), b=parseInt(h.substring(4,6),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+};
 function TurnoBadgeCelda({ turno, size }) {
   if(!turno) return <div style={{ width:"100%", minHeight:size==="sm"?24:28 }}/>;
   const txt = colorTextoContraste(turno.color);
   return (
-    <div style={{ width:"100%", minHeight:size==="sm"?24:28, borderRadius:5, background:turno.color, color:txt, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:size==="sm"?10.5:11.5, fontWeight:700, padding:"3px 4px", textShadow:txt==="#fff"?"0 1px 1px rgba(0,0,0,0.25)":"none", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{turno.label}</div>
+    <div style={{
+      width:"100%", minHeight:size==="sm"?24:28, borderRadius:8,
+      background:`linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,18)})`,
+      color:txt, display:"flex", alignItems:"center", justifyContent:"center",
+      fontFamily:font.body, fontSize:size==="sm"?10.5:11.5, fontWeight:700, letterSpacing:"0.01em",
+      padding:"3px 6px", textShadow:txt==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none",
+      overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+      boxShadow:"0 1px 3px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.22)",
+      border:`1px solid ${hexToRgba(oscurecerColor(turno.color,30),0.55)}`,
+      transition:"transform .12s ease, box-shadow .12s ease",
+    }}>{turno.label}</div>
   );
 }
 // Busca, para una familia de turno + tienda + fecha dadas, la fila de `turnos_horarios` que
@@ -1213,19 +1239,21 @@ function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios }) {
         <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11, color:C.goldLight }}>{abierta?"Ocultar ▲":"Ver ▾"}</span>
       </button>
       {abierta && (
-        <div style={{ display:"flex", gap:0, marginTop:10, overflowX:"auto", borderRadius:8, overflow:"hidden" }}>
-          {tiendasConTurnos.map(s=>{
+        <div style={{ display:"flex", marginTop:10, overflowX:"auto", whiteSpace:"nowrap" }}>
+          {tiendasConTurnos.map((s,si)=>{
             const activos=s.shifts.filter(sh=>sh.activo!==false);
             const txt = colorTextoContraste(s.color);
+            const lineas = activos.flatMap(sh=>{
+              const fila = filaHorarioVigente(familiaDeTurno(sh.nombre), s.id, turnosHorarios);
+              return lineasHorarioTurno(sh, fila);
+            });
+            const anchoTexto = Math.max(s.name.length, ...lineas.map(l=>l.length), 8) * 6.4 + 20;
             return (
-              <div key={s.id} style={{ flex:"0 0 200px", background:s.color, padding:"6px 4px" }}>
-                <div style={{ fontFamily:font.body, fontSize:12.5, fontWeight:700, color:txt, textAlign:"center", marginBottom:4 }}>{s.name}</div>
-                {activos.flatMap(sh=>{
-                  const fila = filaHorarioVigente(familiaDeTurno(sh.nombre), s.id, turnosHorarios);
-                  return lineasHorarioTurno(sh, fila).map((linea,i)=>(
-                    <div key={sh.id+"_"+i} style={{ fontFamily:font.body, fontSize:11, color:txt, textAlign:"center", lineHeight:1.35 }}>{linea}</div>
-                  ));
-                })}
+              <div key={s.id} style={{ flex:`0 0 ${anchoTexto}px`, background:s.color, padding:"6px 6px", borderRight:si<tiendasConTurnos.length-1?"1px solid rgba(0,0,0,0.15)":"none" }}>
+                <div style={{ fontFamily:font.body, fontSize:12.5, fontWeight:700, color:txt, textAlign:"center", marginBottom:4, whiteSpace:"nowrap" }}>{s.name}</div>
+                {lineas.map((linea,i)=>(
+                  <div key={s.id+"_"+i} style={{ fontFamily:font.body, fontSize:11, color:txt, textAlign:"center", lineHeight:1.3, whiteSpace:"nowrap" }}>{linea}</div>
+                ))}
               </div>
             );
           })}
@@ -1308,7 +1336,7 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
                   <td key={a.id} style={{ borderBottom:`1px solid ${C.border}`, borderLeft:`1px solid ${C.border}`, padding:3 }}>
                     {editable ? (
                       <div style={{ display:"flex", alignItems:"center", gap:2 }}>
-                        <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ flex:1, minWidth:0, minHeight:28, borderRadius:5, border:`1px solid ${C.border}`, background:turno?turno.color:C.surfaceAlt, color:turno?colorTextoContraste(turno.color):C.textMuted, fontFamily:font.body, fontSize:11, fontWeight:turno?700:400, padding:"3px 2px", cursor:"pointer", outline:"none" }}>
+                        <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ flex:1, minWidth:0, minHeight:28, borderRadius:7, border:`1px solid ${turno?hexToRgba(oscurecerColor(turno.color,30),0.55):C.border}`, background:turno?`linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,18)})`:C.surfaceAlt, color:turno?colorTextoContraste(turno.color):C.textMuted, fontFamily:font.body, fontSize:11, fontWeight:turno?700:400, padding:"3px 2px", cursor:"pointer", outline:"none", boxShadow:turno?"0 1px 3px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.22)":"none", textShadow:turno&&colorTextoContraste(turno.color)==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none", transition:"transform .12s ease, box-shadow .12s ease" }}>
                           <option value="">—</option>
                           <optgroup label="Especiales">{turnosGlobales.map(g=><option key={g.id} value={`g:${g.id}`}>{g.nombre}</option>)}</optgroup>
                           {storeGroups.map(s=>(<optgroup key={s.id} label={s.name}>{s.shifts.filter(sh=>sh.activo!==false).map(sh=><option key={sh.id} value={`t:${s.id}|${encodeURIComponent(sh.nombre)}`}>{sh.nombre}</option>)}</optgroup>))}
@@ -2626,45 +2654,52 @@ function LoginScreen({ onLogin }) {
 
 // ── SELECTOR DE ÁREA (solo admin) ───────────────────────────────────────────
 function AreaSelector({ user, onChoose, onLogout }) {
+  const modulos = [
+    { id:"junta", icon:"🗓️", titulo:"La Junta Administrativa", desc:"Equipo, seguimiento semanal y guion de la reunión", accent:C.goldLight, mostrar:true },
+    { id:"asistencia", icon:"📋", titulo:"Registro de Asistencia", desc:"Panel, registros, turnos, asesores, tiendas e informes", accent:"#6ea8fe", mostrar:true },
+    { id:"ventas", icon:"💰", titulo:"Ventas", desc:ventasSoloLectura(user) ? "Solo para ver — no se puede registrar ni corregir nada" : "Registro de ventas, metas y métricas por tienda", accent:C.green, mostrar:puedeUsarVentasArea(user) },
+  ].filter(m=>m.mostrar);
   return (
-    <div style={{ minHeight:"100vh", background:C.dark, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-      <div style={{ width:"100%", maxWidth:520 }}>
-        <div style={{ textAlign:"center", marginBottom:28 }}>
-          <img src="/logo-horizontal.png" alt="OZEN" style={{ width:280, height:"auto", marginBottom:10 }} />
-          <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>Hola, {user.name.split(" ")[0]} — ¿qué quieres abrir?</div>
+    <div style={{ minHeight:"100vh", background:`radial-gradient(1100px 520px at 50% -10%, ${C.goldLight}14, transparent 60%), ${C.dark}`, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <style>{`
+        @keyframes ozenPopIn { from { opacity:0; transform:translateY(14px) scale(0.98); } to { opacity:1; transform:translateY(0) scale(1); } }
+        .ozen-modulo-card { animation:ozenPopIn .38s cubic-bezier(.2,.8,.2,1) both; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+        .ozen-modulo-card:hover { transform:translateY(-3px) scale(1.01); }
+        .ozen-modulo-card:active { transform:translateY(-1px) scale(0.995); }
+        .ozen-modulo-arrow { transition:transform .18s ease, opacity .18s ease; opacity:0.4; }
+        .ozen-modulo-card:hover .ozen-modulo-arrow { transform:translateX(4px); opacity:1; }
+        .ozen-modulo-icon { transition:transform .18s ease; }
+        .ozen-modulo-card:hover .ozen-modulo-icon { transform:scale(1.08) rotate(-2deg); }
+      `}</style>
+      <div style={{ width:"100%", maxWidth:540 }}>
+        <div style={{ textAlign:"center", marginBottom:32, animation:"ozenPopIn .38s ease both" }}>
+          <img src="/logo-horizontal.png" alt="OZEN" style={{ width:260, height:"auto", marginBottom:14 }} />
+          <div style={{ fontFamily:font.body, fontSize:13.5, color:C.textMuted }}>Hola, {user.name.split(" ")[0]} — ¿qué quieres abrir?</div>
         </div>
-        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-          <Card glow style={{ cursor:"pointer" }} p="0">
-            <button onClick={()=>onChoose("junta")} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"26px 22px", display:"flex", alignItems:"center", gap:16, textAlign:"left" }}>
-              <div style={{ fontSize:32 }}>🗓️</div>
-              <div>
-                <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.goldLight }}>La Junta Administrativa</div>
-                <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:2 }}>Equipo, seguimiento semanal y guion de la reunión</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          {modulos.map((m,i)=>(
+            <button key={m.id} onClick={()=>onChoose(m.id)} className="ozen-modulo-card" style={{
+              animationDelay:`${i*70}ms`, width:"100%", textAlign:"left", cursor:"pointer",
+              background:`linear-gradient(135deg, ${C.surface}, ${C.surfaceAlt})`,
+              border:`1px solid ${C.border}`, borderRadius:16, padding:"20px 22px",
+              display:"flex", alignItems:"center", gap:18,
+              boxShadow:`0 1px 2px rgba(0,0,0,0.2)`,
+            }}>
+              <div className="ozen-modulo-icon" style={{
+                fontSize:26, flexShrink:0, width:52, height:52, borderRadius:14,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                background:`linear-gradient(135deg, ${hexToRgba(m.accent,0.22)}, ${hexToRgba(m.accent,0.06)})`,
+                border:`1px solid ${hexToRgba(m.accent,0.35)}`,
+              }}>{m.icon}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontFamily:font.body, fontSize:15.5, fontWeight:700, color:m.accent }}>{m.titulo}</div>
+                <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{m.desc}</div>
               </div>
+              <div className="ozen-modulo-arrow" style={{ fontSize:18, color:m.accent, flexShrink:0 }}>→</div>
             </button>
-          </Card>
-          <Card style={{ cursor:"pointer" }} p="0">
-            <button onClick={()=>onChoose("asistencia")} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"26px 22px", display:"flex", alignItems:"center", gap:16, textAlign:"left" }}>
-              <div style={{ fontSize:32 }}>📋</div>
-              <div>
-                <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>Registro de Asistencia</div>
-                <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:2 }}>Panel, registros, asesores, tiendas e informes</div>
-              </div>
-            </button>
-          </Card>
-          {puedeUsarVentasArea(user) && (
-            <Card style={{ cursor:"pointer" }} p="0">
-              <button onClick={()=>onChoose("ventas")} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"26px 22px", display:"flex", alignItems:"center", gap:16, textAlign:"left" }}>
-                <div style={{ fontSize:32 }}>💰</div>
-                <div>
-                  <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.green }}>Ventas</div>
-                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:2 }}>{ventasSoloLectura(user) ? "Solo para ver — no se puede registrar ni corregir nada" : "Registro de ventas, metas y métricas por tienda"}</div>
-                </div>
-              </button>
-            </Card>
-          )}
+          ))}
         </div>
-        <div style={{ textAlign:"center", marginTop:20 }}>
+        <div style={{ textAlign:"center", marginTop:24 }}>
           <Btn onClick={onLogout} variant="ghost" sm>Cerrar sesión</Btn>
         </div>
       </div>
@@ -5488,6 +5523,13 @@ export default function App() {
 
   const soloLectura = user.role==="visualizador";
 
+  const globalAnimStyles = (
+    <style>{`
+      @keyframes ozenFadeSlideIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+      .ozen-pane-anim { animation: ozenFadeSlideIn .22s ease; }
+    `}</style>
+  );
+
   const modalCambiarPassword = mostrarCambiarPassword && (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:1000}}>
       <CambiarPasswordForm user={user} onUpdated={(u)=>{setUser(u);setMostrarCambiarPassword(false);}} onCancel={()=>setMostrarCambiarPassword(false)}/>
@@ -5515,8 +5557,9 @@ export default function App() {
   if(isMobile) return (
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden"}}>
+        {globalAnimStyles}
         <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)}/>
-        <main style={{flex:1,overflowY:"auto",padding:16}}>{renderScreen()}</main>
+        <main style={{flex:1,overflowY:"auto",padding:16}}><div key={`${area}-${tab}`} className="ozen-pane-anim">{renderScreen()}</div></main>
         <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
         {modalCambiarPassword}
         {modalUsuarios}
@@ -5528,8 +5571,9 @@ export default function App() {
   return (
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
+        {globalAnimStyles}
         <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)}/>
-        <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}>{renderScreen()}</main>
+        <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}><div key={`${area}-${tab}`} className="ozen-pane-anim">{renderScreen()}</div></main>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
