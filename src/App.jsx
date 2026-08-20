@@ -5023,6 +5023,21 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   });
   const diasList = Object.entries(porDia).sort((a,b)=>b[0].localeCompare(a[0]));
 
+  // Anotación informativa (no suma nada aquí, solo aviso): en el día ORIGINAL de una venta que
+  // después recibió una nota crédito con excedente en otra fecha, mostramos un aviso de que ese
+  // excedente existe — igual que el Flexipago se muestra informativamente sin sumar hasta que se
+  // completa. El valor del excedente ya se está sumando en su propia fecha real (ver ajustesDelMes
+  // arriba); esto es solo para que se vea, al mirar el día original, que parte de esa venta se
+  // completó después.
+  const excedentesPorDiaOriginal = {};
+  ventasAjustes.forEach(aj=>{
+    if(aj.es_correccion_error) return;
+    const v = ventaByIdGlobal[aj.venta_id];
+    if(!v || !idsVentasDelMes.has(v.id) || aj.fecha===v.fecha) return;
+    excedentesPorDiaOriginal[v.fecha] = excedentesPorDiaOriginal[v.fecha] || [];
+    excedentesPorDiaOriginal[v.fecha].push({ valor:Number(aj.diferencia||0), fecha:aj.fecha });
+  });
+
   // Ingresos de HOY (sin servicios) para la cápsula rápida — independiente del mes que se esté
   // viendo en el selector, para poder chequear el día sin cambiar de mes.
   const ventasHoyCap = ventas.filter(v => v.fecha===todayStr && (!tiendaSel || v.tienda_id===tiendaSel));
@@ -5237,13 +5252,26 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
 
       <SeccionVenta icon="📅" titulo={`Ventas por día — ${tiendaSel ? stores[tiendaSel]?.name : "Todas las tiendas"}`}>
         <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-          {diasList.map(([fecha,d])=>(
-            <div key={fecha} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, padding:"6px 4px", borderBottom:`1px solid ${C.border}` }}>
-              <span>{new Date(fecha+"T12:00:00").toLocaleDateString("es-CO",{weekday:"short",day:"numeric",month:"short"})}</span>
-              <span style={{ color:C.textMuted }}>{d.count} venta{d.count!==1?"s":""}</span>
-              <span style={{ fontFamily:font.mono }}>{fmtCOP(d.sin)} <span style={{ color:C.textMuted }}>/ {fmtCOP(d.con)}</span></span>
+          {diasList.map(([fecha,d])=>{
+            const excedentes = excedentesPorDiaOriginal[fecha];
+            return (
+            <div key={fecha} style={{ padding:"6px 4px", borderBottom:`1px solid ${C.border}` }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text }}>
+                <span>{new Date(fecha+"T12:00:00").toLocaleDateString("es-CO",{weekday:"short",day:"numeric",month:"short"})}</span>
+                <span style={{ color:C.textMuted }}>{d.count} venta{d.count!==1?"s":""}</span>
+                <span style={{ fontFamily:font.mono }}>{fmtCOP(d.sin)} <span style={{ color:C.textMuted }}>/ {fmtCOP(d.con)}</span></span>
+              </div>
+              {excedentes && excedentes.length>0 && (
+                <div
+                  style={{ fontFamily:font.body, fontSize:10.5, color:C.amber, marginTop:2, textAlign:"right" }}
+                  title="Este valor ya entró y se sumó en la fecha real del excedente, no aquí."
+                >
+                  ⓘ {excedentes.map((e,idx)=>`+${fmtCOP(e.valor)} nota crédito el ${new Date(e.fecha+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"})}`).join(" · ")}
+                </div>
+              )}
             </div>
-          ))}
+            );
+          })}
           {diasList.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Sin ventas registradas este mes.</div>}
         </div>
       </SeccionVenta>
@@ -5370,11 +5398,15 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   ventas.forEach(v=>{ if(v.tienda_id===tiendaId) ventasTiendaMap[v.id]=v; });
 
   // Efectivo (ventas + abonos en efectivo) de la tienda en un día calendario dado.
+  // Cada renglón cuenta en SU propia fecha efectiva: la de la venta original, salvo que sea un
+  // excedente de nota crédito (es_original:false), en cuyo caso cuenta en su fecha_item real.
   const efectivoDelDia = (fechaDia) => {
     let total = 0;
     ventasItems.forEach(i=>{
       const v = ventasTiendaMap[i.venta_id];
-      if(!v || i.tipo==="flexipago" || v.fecha!==fechaDia) return;
+      if(!v || i.tipo==="flexipago") return;
+      const fechaEfectiva = (i.es_original===false && i.fecha_item) ? i.fecha_item : v.fecha;
+      if(fechaEfectiva!==fechaDia) return;
       (i.pagos||[]).forEach(p=>{ if(p.medio_pago==="efectivo") total += Number(p.valor||0); });
     });
     ventasAbonos.forEach(a=>{
@@ -5402,7 +5434,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   ventasItems.forEach(i=>{
     const v = ventasTiendaMap[i.venta_id];
     if(!v || i.tipo==="flexipago") return;
-    if(fechaCorte && v.fecha<=fechaCorte) return;
+    const fechaEfectiva = (i.es_original===false && i.fecha_item) ? i.fecha_item : v.fecha;
+    if(fechaCorte && fechaEfectiva<=fechaCorte) return;
     (i.pagos||[]).forEach(p=>{ if(p.medio_pago==="efectivo") efectivoDiasPosteriores += Number(p.valor||0); });
   });
   ventasAbonos.forEach(a=>{
