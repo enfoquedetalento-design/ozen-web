@@ -1213,17 +1213,17 @@ function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios }) {
         <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11, color:C.goldLight }}>{abierta?"Ocultar ▲":"Ver ▾"}</span>
       </button>
       {abierta && (
-        <div style={{ display:"flex", gap:2, marginTop:12, overflowX:"auto" }}>
+        <div style={{ display:"flex", gap:0, marginTop:10, overflowX:"auto", borderRadius:8, overflow:"hidden" }}>
           {tiendasConTurnos.map(s=>{
             const activos=s.shifts.filter(sh=>sh.activo!==false);
             const txt = colorTextoContraste(s.color);
             return (
-              <div key={s.id} style={{ flex:"0 0 200px", background:s.color, padding:"10px 12px" }}>
-                <div style={{ fontFamily:font.body, fontSize:12.5, fontWeight:700, color:txt, textAlign:"center", marginBottom:6 }}>{s.name}</div>
+              <div key={s.id} style={{ flex:"0 0 200px", background:s.color, padding:"6px 4px" }}>
+                <div style={{ fontFamily:font.body, fontSize:12.5, fontWeight:700, color:txt, textAlign:"center", marginBottom:4 }}>{s.name}</div>
                 {activos.flatMap(sh=>{
                   const fila = filaHorarioVigente(familiaDeTurno(sh.nombre), s.id, turnosHorarios);
                   return lineasHorarioTurno(sh, fila).map((linea,i)=>(
-                    <div key={sh.id+"_"+i} style={{ fontFamily:font.body, fontSize:11, color:txt, textAlign:"center", lineHeight:1.5 }}>{linea}</div>
+                    <div key={sh.id+"_"+i} style={{ fontFamily:font.body, fontSize:11, color:txt, textAlign:"center", lineHeight:1.35 }}>{linea}</div>
                   ));
                 })}
               </div>
