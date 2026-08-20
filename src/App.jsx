@@ -1014,8 +1014,9 @@ function TurnosHorariosScreen({ stores, turnosHorarios, setTurnosHorarios }) {
   const [historialAbierto,setHistorialAbierto]=useState(null); // id de la fila cuyo historial se está mostrando
   const [historial,setHistorial]=useState({}); // { [horarioId]: [...filas] }
   const guardar=async()=>{
+    if(!form.familia.trim()){ alert("Falta el nombre del turno (familia), ej. T5."); return; }
     if(!form.entrada_lj||!form.entrada_vs){ alert("Falta la hora de entrada L-J y V-S."); return; }
-    const payload={ familia:form.familia, tienda_id:form.tienda_id||null, vigente_desde:form.vigente_desde, entrada_lj:form.entrada_lj, entrada_vs:form.entrada_vs, salida_lj:form.salida_lj||null, salida_vs:form.salida_vs||null };
+    const payload={ familia:form.familia.trim().toUpperCase(), tienda_id:form.tienda_id||null, vigente_desde:form.vigente_desde, entrada_lj:form.entrada_lj, entrada_vs:form.entrada_vs, salida_lj:form.salida_lj||null, salida_vs:form.salida_vs||null };
     const{data,error}=await supabase.from("turnos_horarios").insert(payload).select().single();
     if(!error&&data){ setTurnosHorarios(prev=>[...prev,data]); setForm(vacio); setShowForm(false); } else if(error){ alert(`No se pudo guardar: ${error.message}`); }
   };
@@ -1041,13 +1042,15 @@ function TurnosHorariosScreen({ stores, turnosHorarios, setTurnosHorarios }) {
     setHistorialAbierto(id);
     if(!historial[id]){ const{data}=await supabase.from("turnos_horarios_historial").select("*").eq("horario_id",id).order("reemplazado_en",{ascending:false}); setHistorial(prev=>({...prev,[id]:data||[]})); }
   };
-  const porFamilia = FAMILIAS_TURNO.map(fam=>({ familia:fam, filas:turnosHorarios.filter(h=>h.familia===fam).sort((a,b)=>b.vigente_desde.localeCompare(a.vigente_desde)) }));
+  const familiasPresentes = [...new Set([...FAMILIAS_TURNO, ...turnosHorarios.map(h=>h.familia)])];
+  const porFamilia = familiasPresentes.map(fam=>({ familia:fam, filas:turnosHorarios.filter(h=>h.familia===fam).sort((a,b)=>b.vigente_desde.localeCompare(a.vigente_desde)) })).filter(f=>f.filas.length>0 || FAMILIAS_TURNO.includes(f.familia));
   return (
     <div>
       <PageHeader title="Horarios" subtitle="Hora de entrada esperada por turno — define si un registro cuenta como puntual" action={soloLectura?null:<Btn onClick={()=>setShowForm(!showForm)} sm>{showForm?"Cancelar":"+ Nuevo cambio"}</Btn>}/>
       {!soloLectura && showForm && (
         <Card glow style={{marginBottom:16}}>
-          <Field label="Turno (familia)" value={form.familia} onChange={v=>setForm(f=>({...f,familia:v}))} options={FAMILIAS_TURNO.map(f=>({value:f,label:f}))}/>
+          <Field label="Turno (familia)" value={form.familia} onChange={v=>setForm(f=>({...f,familia:v.toUpperCase()}))} placeholder="T1, T2... o uno nuevo como T5"/>
+          <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginTop:-10,marginBottom:12}}>💡 Es la parte que comparten UT1/JT1/CT1, etc. Si creas un turno nuevo (ej. T5), ponlo aquí igual que en el código de la tienda (UT5, CT5...) para que quede vinculado.</div>
           <Field label="Tienda (opcional — vacío aplica a todas)" value={form.tienda_id} onChange={v=>setForm(f=>({...f,tienda_id:v}))} options={[{value:"",label:"Todas las tiendas"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
           <Field label="Vigente desde" type="date" value={form.vigente_desde} onChange={v=>setForm(f=>({...f,vigente_desde:v}))}/>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -1091,6 +1094,7 @@ function TurnosHorariosScreen({ stores, turnosHorarios, setTurnosHorarios }) {
                     <Badge color={C.textMuted} sm>{h.tienda_id ? (stores[h.tienda_id]?.name||h.tienda_id) : "Todas las tiendas"}</Badge>
                     <span style={{fontFamily:font.body,fontSize:12,color:C.text}}>desde {h.vigente_desde}</span>
                     <span style={{fontFamily:font.mono,fontSize:12,color:C.text}}>Entra {h.entrada_lj} (L-J) · {h.entrada_vs} (V-S)</span>
+                    <span style={{fontFamily:font.mono,fontSize:12,color:C.textMuted}}>Sale {h.salida_lj||"—"} (L-J) · {h.salida_vs||"—"} (V-S)</span>
                     <button onClick={()=>verHistorial(h.id)} style={{background:"none",border:"none",color:C.goldLight,cursor:"pointer",fontSize:11,fontFamily:font.body}}>{historialAbierto===h.id?"Ocultar historial":"Ver historial"}</button>
                     {!soloLectura && <div style={{marginLeft:"auto",display:"flex",gap:8}}>
                       <button onClick={()=>empezarEdicion(h)} style={{background:"none",border:"none",color:C.textMuted,cursor:"pointer",fontSize:12}}>✏</button>
@@ -1186,47 +1190,48 @@ const formatearHorarioFila = (fila) => {
   const vs = `${fmtHora12(fila.entrada_vs)}–${fmtHora12(fila.salida_vs)}`;
   return lj===vs ? lj : `${lj} (L-J) / ${vs} (V-S)`;
 };
-// ── Turnos: leyenda de colores (tiendas + turnos especiales), con horario legible ─
+// ── Turnos: leyenda compacta y colapsable — un chip por turno, con horario en el hover ──
 function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios }) {
-  const tiendasConColor = Object.values(stores).filter(s=>s.color);
+  const [abierta,setAbierta]=useState(false);
+  const tiendasConColor = Object.values(stores).filter(s=>s.color && (s.shifts||[]).some(sh=>sh.activo!==false));
   if(tiendasConColor.length===0 && turnosGlobales.length===0) return null;
+  const totalTurnos = tiendasConColor.reduce((n,s)=>n+s.shifts.filter(sh=>sh.activo!==false).length,0) + turnosGlobales.length;
   return (
-    <Card p="12px 14px" style={{ marginBottom:16 }}>
-      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-        {tiendasConColor.map(s=>{
-          const activos=(s.shifts||[]).filter(sh=>sh.activo!==false);
-          if(!activos.length) return null;
-          return (
-            <div key={s.id}>
-              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:5 }}>
-                <span style={{ width:11, height:11, borderRadius:3, background:s.color, flexShrink:0 }}/>
-                <span style={{ fontFamily:font.body, fontSize:12, color:C.text, fontWeight:700 }}>{s.name}</span>
+    <Card p="10px 14px" style={{ marginBottom:16 }}>
+      <button onClick={()=>setAbierta(!abierta)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", display:"flex", alignItems:"center", gap:8, width:"100%" }}>
+        <span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:600, color:C.text }}>🎨 Colores y horarios ({totalTurnos})</span>
+        <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11, color:C.goldLight }}>{abierta?"Ocultar ▲":"Ver ▾"}</span>
+      </button>
+      {!abierta && (
+        <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:10 }}>
+          {tiendasConColor.map(s=>(
+            <span key={s.id} title={s.name} style={{ width:14, height:14, borderRadius:4, background:s.color, display:"inline-block" }}/>
+          ))}
+          {turnosGlobales.map(g=>(
+            <span key={g.id} title={g.nombre} style={{ width:14, height:14, borderRadius:4, background:g.color, border:`1px solid ${C.border}`, display:"inline-block" }}/>
+          ))}
+        </div>
+      )}
+      {abierta && (
+        <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:12 }}>
+          {tiendasConColor.flatMap(s=>s.shifts.filter(sh=>sh.activo!==false).map(sh=>{
+            const fila = filaHorarioVigente(familiaDeTurno(sh.nombre), s.id, turnosHorarios);
+            const horarioTxt = fila ? formatearHorarioFila(fila) : "sin horario";
+            const txt = colorTextoContraste(s.color);
+            return (
+              <div key={`${s.id}_${sh.id}`} title={`${s.name} — ${horarioTxt}`} style={{ background:s.color, color:txt, borderRadius:99, padding:"4px 10px", fontFamily:font.body, fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>
+                {sh.nombre} <span style={{ fontWeight:400, opacity:0.9 }}>{fila?formatearHorarioFila(fila):"s/h"}</span>
               </div>
-              <div style={{ display:"flex", flexWrap:"wrap", gap:8, paddingLeft:17 }}>
-                {activos.map(sh=>{
-                  const fila = filaHorarioVigente(familiaDeTurno(sh.nombre), s.id, turnosHorarios);
-                  return (
-                    <div key={sh.id} style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>
-                      <span style={{ color:C.text, fontWeight:600 }}>{sh.nombre}</span>{" "}
-                      {fila ? formatearHorarioFila(fila) : "sin horario definido"}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-        {turnosGlobales.length>0 && (
-          <div style={{ display:"flex", flexWrap:"wrap", gap:14, paddingTop: tiendasConColor.length?8:0, borderTop: tiendasConColor.length?`1px solid ${C.border}`:"none" }}>
-            {turnosGlobales.map(g=>(
-              <div key={g.id} style={{ display:"flex", alignItems:"center", gap:6 }}>
-                <span style={{ width:11, height:11, borderRadius:3, background:g.color, flexShrink:0 }}/>
-                <span style={{ fontFamily:font.body, fontSize:11.5, color:C.text, fontWeight:600 }}>{g.nombre}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+            );
+          }))}
+          {turnosGlobales.map(g=>{
+            const txt = colorTextoContraste(g.color);
+            return (
+              <div key={g.id} style={{ background:g.color, color:txt, border:`1px solid ${C.border}`, borderRadius:99, padding:"4px 10px", fontFamily:font.body, fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>{g.nombre}</div>
+            );
+          })}
+        </div>
+      )}
     </Card>
   );
 }
@@ -1269,21 +1274,21 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
   const storeGroups = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
   const [modalInfo,setModalInfo]=useState(null);
   return (
-    <div style={{ overflowX:"auto", border:`1px solid ${C.border}`, borderRadius:10 }}>
+    <div style={{ overflow:"auto", maxHeight:"72vh", border:`1px solid ${C.border}`, borderRadius:10 }}>
       {modalInfo && <ModalHorarioCustom info={modalInfo} turnosHorarios={turnosHorarios} onCerrar={()=>setModalInfo(null)} onGuardar={(entrada,salida,nota)=>{ onGuardarCustom(modalInfo.asesorId, modalInfo.fecha, entrada, salida, nota); setModalInfo(null); }}/>}
-      <table style={{ borderCollapse:"collapse", width:"100%", minWidth:140+advisors.length*colWidth }}>
+      <table style={{ borderCollapse:"separate", borderSpacing:0, width:"100%", minWidth:140+advisors.length*colWidth }}>
         <thead>
           <tr>
-            <th style={{ position:"sticky", left:0, top:0, zIndex:3, background:C.surfaceAlt, borderBottom:`1px solid ${C.border}`, borderRight:`1px solid ${C.border}`, padding:"8px 10px", minWidth:130, textAlign:"left", fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>Día</th>
+            <th style={{ position:"sticky", left:0, top:0, zIndex:4, background:C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, 1px 0 0 ${C.border}`, padding:"8px 10px", minWidth:130, textAlign:"left", fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>Día</th>
             {advisors.map(a=>(
-              <th key={a.id} style={{ position:"sticky", top:0, zIndex:2, background:C.surfaceAlt, borderBottom:`1px solid ${C.border}`, borderLeft:`1px solid ${C.border}`, padding:"8px 4px", width:colWidth, minWidth:colWidth, textAlign:"center", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{primerNombre(a.name)}</th>
+              <th key={a.id} style={{ position:"sticky", top:0, zIndex:3, background:C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, -1px 0 0 ${C.border}`, padding:"8px 4px", width:colWidth, minWidth:colWidth, textAlign:"center", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{primerNombre(a.name)}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {dias.map(fecha=>{ const dom=esDomingo(fecha); return (
             <tr key={fecha}>
-              <td style={{ position:"sticky", left:0, background:C.surface, borderBottom:`1px solid ${C.border}`, borderRight:`1px solid ${C.border}`, padding:"5px 10px", fontFamily:font.body, fontSize:11.5, whiteSpace:"nowrap" }}>
+              <td style={{ position:"sticky", left:0, zIndex:1, background:C.surface, boxShadow:`0 -1px 0 ${C.border}, 1px 0 0 ${C.border}`, padding:"5px 10px", fontFamily:font.body, fontSize:11.5, whiteSpace:"nowrap" }}>
                 <span style={{ color:dom?C.green:C.textMuted, fontWeight:dom?700:400 }}>{nombreDia(fecha)}</span>{" "}
                 <span style={{ color:C.text }}>{Number(fecha.slice(8,10))}</span>
               </td>
@@ -1360,9 +1365,18 @@ function SelectorMes({ anio, mes, prev, next }) {
 // ── Turnos: quién aparece como columna en la malla — activar/desactivar sin salir de Editar ──
 function GestionAsesoresActivosTurnos({ users, setUsers }) {
   const [abierto,setAbierto]=useState(false);
-  const asesores=[...users].filter(u=>u.role==="advisor").sort((a,b)=>(b.active?1:0)-(a.active?1:0)||a.name.localeCompare(b.name));
+  // Orden fijo (solo alfabético) — antes ordenaba activos primero, lo que hacía que cada
+  // cápsula saltara de lugar al togglearla. Así se queda quieta, solo cambia de color.
+  const asesores=[...users].filter(u=>u.role==="advisor").sort((a,b)=>a.name.localeCompare(b.name));
   const activos=asesores.filter(a=>a.active).length;
-  const toggle=async(u)=>{ const{data,error}=await supabase.from("usuarios").update({active:!u.active}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); else if(error) alert(`No se pudo actualizar: ${error.message}`); };
+  // Optimista: cambia el color al instante (no espera la respuesta del servidor) y solo
+  // revierte si de verdad falla — así se siente inmediato en vez de esperar la red.
+  const toggle=async(u)=>{
+    setUsers(prev=>prev.map(x=>x.id===u.id?{...x,active:!u.active}:x));
+    const{data,error}=await supabase.from("usuarios").update({active:!u.active}).eq("id",u.id).select().single();
+    if(data) setUsers(prev=>prev.map(x=>x.id===u.id?data:x));
+    else if(error){ setUsers(prev=>prev.map(x=>x.id===u.id?{...x,active:u.active}:x)); alert(`No se pudo actualizar: ${error.message}`); }
+  };
   return (
     <Card p="10px 14px" style={{ marginBottom:16 }}>
       <button onClick={()=>setAbierto(!abierto)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", display:"flex", alignItems:"center", gap:8, width:"100%" }}>
