@@ -420,6 +420,7 @@ const esCuentaTienda = (user) => user.role==="tienda";
 // pueden aparecer como columna en la malla y que se les asigne un turno propio para marcar
 // asistencia — no se fusiona su cuenta con ninguna de asesor, solo se les habilita la malla.
 const esAdminAsignableATurnos = (u) => ["master","admin","admin_finanzas","visualizador"].includes(u.role);
+const ROLE_ORDEN_TURNOS = ["master","admin","admin_finanzas","visualizador"];
 const esUsuarioDeTurnos = (u) => u.role==="advisor" || esAdminAsignableATurnos(u);
 // Los asesores usan el campo general `active` (ya existente). Los admin usan un campo propio
 // `activo_en_turnos` para no interferir con el `active` general que ya se usa en otras pantallas
@@ -1420,9 +1421,13 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
   // cápsula saltara de lugar al togglearla. Así se queda quieta, solo cambia de color.
   // Incluye asesores Y admin (master/admin/admin_finanzas/visualizador) — estos últimos con su
   // propio campo `activo_en_turnos` para no interferir con el `active` general que ya usan otras
-  // pantallas (ej. Caja).
+  // pantallas (ej. Caja). Se muestran en dos grupos separados (Asesores / Administradores) para
+  // que no se vea como una sola lista desordenada — algunas personas tienen cuenta de asesor Y de
+  // admin (mismo nombre en ambos grupos a propósito: son cuentas distintas, no se fusionan).
   const personas=[...users].filter(u=>esUsuarioDeTurnos(u)).sort((a,b)=>a.name.localeCompare(b.name));
   const activos=personas.filter(a=>activoEnMallaTurnos(a)).length;
+  const asesoresList = personas.filter(u=>u.role==="advisor");
+  const adminsList = personas.filter(u=>u.role!=="advisor").sort((a,b)=> ROLE_ORDEN_TURNOS.indexOf(a.role)-ROLE_ORDEN_TURNOS.indexOf(b.role) || a.name.localeCompare(b.name));
   // Optimista: cambia el color al instante (no espera la respuesta del servidor) y solo
   // revierte si de verdad falla — así se siente inmediato en vez de esperar la red.
   const toggle=async(u)=>{
@@ -1433,6 +1438,20 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
     if(data) setUsers(prev=>prev.map(x=>x.id===u.id?data:x));
     else if(error){ setUsers(prev=>prev.map(x=>x.id===u.id?{...x,[campo]:valorActual}:x)); alert(`No se pudo actualizar: ${error.message}`); }
   };
+  const renderGrupo = (titulo, lista) => lista.length===0 ? null : (
+    <div key={titulo}>
+      <div style={{ fontFamily:font.body, fontSize:10, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"0 0 6px" }}>{titulo} ({lista.filter(activoEnMallaTurnos).length}/{lista.length})</div>
+      <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+        {lista.map(a=>{
+          const act = activoEnMallaTurnos(a);
+          const tag = a.role==="admin" ? "" : ` · ${ROLE_LABEL[a.role]||a.role}`;
+          return (
+            <button key={a.id} onClick={()=>toggle(a)} style={{ padding:"5px 12px", borderRadius:99, border:`1px solid ${act?C.green:C.border}`, background:act?`${C.green}18`:"transparent", color:act?C.green:C.textMuted, fontFamily:font.body, fontSize:11.5, fontWeight:600, cursor:"pointer" }}>{act?"✓ ":"✕ "}{a.name}{tag}</button>
+          );
+        })}
+      </div>
+    </div>
+  );
   return (
     <Card p="10px 14px" style={{ marginBottom:16 }}>
       <button onClick={()=>setAbierto(!abierto)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", display:"flex", alignItems:"center", gap:8, width:"100%" }}>
@@ -1440,13 +1459,9 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
         <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11, color:C.goldLight }}>{abierto?"Ocultar ▲":"Gestionar ▾"}</span>
       </button>
       {abierto && (
-        <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:12 }}>
-          {personas.map(a=>{
-            const act = activoEnMallaTurnos(a);
-            return (
-              <button key={a.id} onClick={()=>toggle(a)} style={{ padding:"5px 12px", borderRadius:99, border:`1px solid ${act?C.green:C.border}`, background:act?`${C.green}18`:"transparent", color:act?C.green:C.textMuted, fontFamily:font.body, fontSize:11.5, fontWeight:600, cursor:"pointer" }}>{act?"✓ ":"✕ "}{a.name}{a.role!=="advisor"?` (${ROLE_LABEL[a.role]||a.role})`:""}</button>
-            );
-          })}
+        <div style={{ display:"flex", flexDirection:"column", gap:14, marginTop:12 }}>
+          {renderGrupo("Asesores", asesoresList)}
+          {renderGrupo("Administradores", adminsList)}
           {personas.length===0 && <span style={{fontFamily:font.body,fontSize:12,color:C.textMuted}}>No hay asesores ni admin creados todavía.</span>}
         </div>
       )}
