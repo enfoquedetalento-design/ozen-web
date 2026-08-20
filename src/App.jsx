@@ -1146,6 +1146,7 @@ const fechasDelMesTurnos = (anio, mes) => { const n = new Date(anio, mes+1, 0).g
 const addDiasFecha = (fechaStr, n) => { const d=new Date(fechaStr+"T12:00:00"); d.setDate(d.getDate()+n); return fmt(d); };
 const primerNombre = (n) => (n||"").trim().split(" ")[0];
 const nombreDia = (fechaStr) => { const d=new Date(fechaStr+"T12:00:00"); const l=d.toLocaleDateString("es-CO",{weekday:"long"}); return l.charAt(0).toUpperCase()+l.slice(1); };
+const nombreDiaCorto = (fechaStr) => nombreDia(fechaStr).slice(0,3);
 const esDomingo = (fechaStr) => new Date(fechaStr+"T12:00:00").getDay()===0;
 const resolverTurno = (asig, stores, turnosGlobales) => {
   if(!asig) return null;
@@ -1190,18 +1191,10 @@ const formatearHorarioFila = (fila) => {
   const vs = `${fmtHora12(fila.entrada_vs)}–${fmtHora12(fila.salida_vs)}`;
   return lj===vs ? lj : `${lj} (L-J) / ${vs} (V-S)`;
 };
-// Líneas de horario al estilo de tu Excel: una línea si L-J y V-S son iguales,
-// dos líneas ("L-J (COD) hora" / "V-S (COD) hora") si son distintas.
-const lineasHorarioTurno = (sh, fila) => {
-  if(!fila) return [`(${sh.nombre}) sin horario`];
-  const lj = `${fmtHora12(fila.entrada_lj)}–${fmtHora12(fila.salida_lj)}`;
-  const vs = `${fmtHora12(fila.entrada_vs)}–${fmtHora12(fila.salida_vs)}`;
-  if(lj===vs) return [`(${sh.nombre}) ${lj}`];
-  return [`L-J (${sh.nombre}) ${lj}`, `V-S (${sh.nombre}) ${vs}`];
-};
-// ── Turnos: leyenda — un bloque de color por tienda, lado a lado, igual que el Excel ──
+// ── Turnos: leyenda compacta y colapsable — texto plano, sin color de fondo (el color ya
+// está en la rejilla; aquí solo importa que se lean bien las horas) ──────────────
 function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios }) {
-  const [abierta,setAbierta]=useState(true);
+  const [abierta,setAbierta]=useState(false);
   const tiendasConTurnos = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
   if(tiendasConTurnos.length===0 && turnosGlobales.length===0) return null;
   const totalTurnos = tiendasConTurnos.reduce((n,s)=>n+s.shifts.filter(sh=>sh.activo!==false).length,0) + turnosGlobales.length;
@@ -1212,28 +1205,26 @@ function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios }) {
         <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11, color:C.goldLight }}>{abierta?"Ocultar ▲":"Ver ▾"}</span>
       </button>
       {abierta && (
-        <div style={{ display:"flex", gap:2, marginTop:12, overflowX:"auto" }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:12 }}>
           {tiendasConTurnos.map(s=>{
             const activos=s.shifts.filter(sh=>sh.activo!==false);
-            const txt = colorTextoContraste(s.color);
+            const linea = activos.map(sh=>{
+              const fila = filaHorarioVigente(familiaDeTurno(sh.nombre), s.id, turnosHorarios);
+              return `${sh.nombre} ${fila?formatearHorarioFila(fila):"(sin horario)"}`;
+            }).join("  ·  ");
             return (
-              <div key={s.id} style={{ flex:"0 0 200px", background:s.color, padding:"10px 12px" }}>
-                <div style={{ fontFamily:font.body, fontSize:12.5, fontWeight:700, color:txt, textAlign:"center", marginBottom:6 }}>{s.name}</div>
-                {activos.flatMap(sh=>{
-                  const fila = filaHorarioVigente(familiaDeTurno(sh.nombre), s.id, turnosHorarios);
-                  return lineasHorarioTurno(sh, fila).map((linea,i)=>(
-                    <div key={sh.id+"_"+i} style={{ fontFamily:font.body, fontSize:11, color:txt, textAlign:"center", lineHeight:1.5 }}>{linea}</div>
-                  ));
-                })}
+              <div key={s.id} style={{ fontFamily:font.body, fontSize:12, lineHeight:1.6 }}>
+                <span style={{ color:C.text, fontWeight:700 }}>{s.name}: </span>
+                <span style={{ color:C.textMuted }}>{linea}</span>
               </div>
             );
           })}
-        </div>
-      )}
-      {abierta && turnosGlobales.length>0 && (
-        <div style={{ marginTop:10, fontFamily:font.body, fontSize:12, lineHeight:1.6 }}>
-          <span style={{ color:C.text, fontWeight:700 }}>Especiales: </span>
-          <span style={{ color:C.textMuted }}>{turnosGlobales.map(g=>g.nombre).join("  ·  ")}</span>
+          {turnosGlobales.length>0 && (
+            <div style={{ fontFamily:font.body, fontSize:12, lineHeight:1.6 }}>
+              <span style={{ color:C.text, fontWeight:700 }}>Especiales: </span>
+              <span style={{ color:C.textMuted }}>{turnosGlobales.map(g=>g.nombre).join("  ·  ")}</span>
+            </div>
+          )}
         </div>
       )}
     </Card>
@@ -1275,15 +1266,19 @@ function ModalHorarioCustom({ info, turnosHorarios, onGuardar, onCerrar }) {
 // ── Turnos: rejilla mensual (asesores en columnas, días en filas) ─────────────
 function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnosHorarios, editable, onCambiarCelda, onGuardarCustom }) {
   const colWidth = Math.max(70, ...advisors.map(a=>primerNombre(a.name).length*8+28), 70);
+  const diaColWidth = 88;
   const storeGroups = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
   const [modalInfo,setModalInfo]=useState(null);
   return (
-    <div style={{ overflow:"auto", maxHeight:"72vh", border:`1px solid ${C.border}`, borderRadius:10 }}>
+    // text-align:center + la tabla en "inline-table" hace que se centre sola cuando es más
+    // angosta que el contenedor (pocos asesores), y si es más ancha simplemente aparece el
+    // scroll normal — a diferencia de centrar con flex, esto no corta el borde izquierdo.
+    <div style={{ overflow:"auto", maxHeight:"72vh", border:`1px solid ${C.border}`, borderRadius:10, textAlign:"center" }}>
       {modalInfo && <ModalHorarioCustom info={modalInfo} turnosHorarios={turnosHorarios} onCerrar={()=>setModalInfo(null)} onGuardar={(entrada,salida,nota)=>{ onGuardarCustom(modalInfo.asesorId, modalInfo.fecha, entrada, salida, nota); setModalInfo(null); }}/>}
-      <table style={{ borderCollapse:"separate", borderSpacing:0, width:"100%", minWidth:140+advisors.length*colWidth }}>
+      <table style={{ borderCollapse:"separate", borderSpacing:0, display:"inline-table", width:diaColWidth+advisors.length*colWidth, textAlign:"left" }}>
         <thead>
           <tr>
-            <th style={{ position:"sticky", left:0, top:0, zIndex:4, background:C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, 1px 0 0 ${C.border}`, padding:"8px 10px", minWidth:130, textAlign:"left", fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>Día</th>
+            <th style={{ position:"sticky", left:0, top:0, zIndex:4, background:C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, 1px 0 0 ${C.border}`, padding:"8px 10px", width:diaColWidth, minWidth:diaColWidth, textAlign:"left", fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>Día</th>
             {advisors.map(a=>(
               <th key={a.id} style={{ position:"sticky", top:0, zIndex:3, background:C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, -1px 0 0 ${C.border}`, padding:"8px 4px", width:colWidth, minWidth:colWidth, textAlign:"center", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{primerNombre(a.name)}</th>
             ))}
@@ -1292,8 +1287,8 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
         <tbody>
           {dias.map(fecha=>{ const dom=esDomingo(fecha); return (
             <tr key={fecha}>
-              <td style={{ position:"sticky", left:0, zIndex:1, background:C.surface, boxShadow:`0 -1px 0 ${C.border}, 1px 0 0 ${C.border}`, padding:"5px 10px", fontFamily:font.body, fontSize:11.5, whiteSpace:"nowrap" }}>
-                <span style={{ color:dom?C.green:C.textMuted, fontWeight:dom?700:400 }}>{nombreDia(fecha)}</span>{" "}
+              <td style={{ position:"sticky", left:0, zIndex:1, background:C.surface, boxShadow:`0 -1px 0 ${C.border}, 1px 0 0 ${C.border}`, padding:"5px 10px", width:diaColWidth, minWidth:diaColWidth, fontFamily:font.body, fontSize:11.5, whiteSpace:"nowrap" }}>
+                <span title={nombreDia(fecha)} style={{ color:dom?C.green:C.textMuted, fontWeight:dom?700:400 }}>{nombreDiaCorto(fecha)}</span>{" "}
                 <span style={{ color:C.text }}>{Number(fecha.slice(8,10))}</span>
               </td>
               {advisors.map(a=>{
