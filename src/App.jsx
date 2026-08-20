@@ -416,6 +416,16 @@ const puedeVerRegistrar = (user) => user.role!=="visualizador";
 const puedeRegistrarVenta = (user) => user.role==="master" || user.role==="admin_finanzas";
 // Cuentas de tienda: login compartido, van directo a Ventas sin selector de área
 const esCuentaTienda = (user) => user.role==="tienda";
+// Turnos: además de los asesores, los admin (master/admin/admin_finanzas/visualizador) también
+// pueden aparecer como columna en la malla y que se les asigne un turno propio para marcar
+// asistencia — no se fusiona su cuenta con ninguna de asesor, solo se les habilita la malla.
+const esAdminAsignableATurnos = (u) => ["master","admin","admin_finanzas","visualizador"].includes(u.role);
+const esUsuarioDeTurnos = (u) => u.role==="advisor" || esAdminAsignableATurnos(u);
+// Los asesores usan el campo general `active` (ya existente). Los admin usan un campo propio
+// `activo_en_turnos` para no interferir con el `active` general que ya se usa en otras pantallas
+// (ej. Caja, para elegir quién recibe una recolección). Si la columna aún no existe o es null,
+// se trata como activo por defecto.
+const activoEnMallaTurnos = (u) => u.role==="advisor" ? !!u.active : u.activo_en_turnos!==false;
 // Admin Finanzas: hace todo lo de un Administrador normal (Asistencia/Junta), más Ventas completo
 // (registrar, lista, métricas, asignar metas, aprobar notas crédito y corregir por error).
 const esAdminFinanzas = (user) => user.role==="admin_finanzas";
@@ -1408,28 +1418,36 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
   const [abierto,setAbierto]=useState(false);
   // Orden fijo (solo alfabético) — antes ordenaba activos primero, lo que hacía que cada
   // cápsula saltara de lugar al togglearla. Así se queda quieta, solo cambia de color.
-  const asesores=[...users].filter(u=>u.role==="advisor").sort((a,b)=>a.name.localeCompare(b.name));
-  const activos=asesores.filter(a=>a.active).length;
+  // Incluye asesores Y admin (master/admin/admin_finanzas/visualizador) — estos últimos con su
+  // propio campo `activo_en_turnos` para no interferir con el `active` general que ya usan otras
+  // pantallas (ej. Caja).
+  const personas=[...users].filter(u=>esUsuarioDeTurnos(u)).sort((a,b)=>a.name.localeCompare(b.name));
+  const activos=personas.filter(a=>activoEnMallaTurnos(a)).length;
   // Optimista: cambia el color al instante (no espera la respuesta del servidor) y solo
   // revierte si de verdad falla — así se siente inmediato en vez de esperar la red.
   const toggle=async(u)=>{
-    setUsers(prev=>prev.map(x=>x.id===u.id?{...x,active:!u.active}:x));
-    const{data,error}=await supabase.from("usuarios").update({active:!u.active}).eq("id",u.id).select().single();
+    const campo = u.role==="advisor" ? "active" : "activo_en_turnos";
+    const valorActual = activoEnMallaTurnos(u);
+    setUsers(prev=>prev.map(x=>x.id===u.id?{...x,[campo]:!valorActual}:x));
+    const{data,error}=await supabase.from("usuarios").update({[campo]:!valorActual}).eq("id",u.id).select().single();
     if(data) setUsers(prev=>prev.map(x=>x.id===u.id?data:x));
-    else if(error){ setUsers(prev=>prev.map(x=>x.id===u.id?{...x,active:u.active}:x)); alert(`No se pudo actualizar: ${error.message}`); }
+    else if(error){ setUsers(prev=>prev.map(x=>x.id===u.id?{...x,[campo]:valorActual}:x)); alert(`No se pudo actualizar: ${error.message}`); }
   };
   return (
     <Card p="10px 14px" style={{ marginBottom:16 }}>
       <button onClick={()=>setAbierto(!abierto)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", display:"flex", alignItems:"center", gap:8, width:"100%" }}>
-        <span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:600, color:C.text }}>👥 Asesores activos en la malla ({activos}/{asesores.length})</span>
+        <span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:600, color:C.text }}>👥 Personas activas en la malla ({activos}/{personas.length})</span>
         <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11, color:C.goldLight }}>{abierto?"Ocultar ▲":"Gestionar ▾"}</span>
       </button>
       {abierto && (
         <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:12 }}>
-          {asesores.map(a=>(
-            <button key={a.id} onClick={()=>toggle(a)} style={{ padding:"5px 12px", borderRadius:99, border:`1px solid ${a.active?C.green:C.border}`, background:a.active?`${C.green}18`:"transparent", color:a.active?C.green:C.textMuted, fontFamily:font.body, fontSize:11.5, fontWeight:600, cursor:"pointer" }}>{a.active?"✓ ":"✕ "}{a.name}</button>
-          ))}
-          {asesores.length===0 && <span style={{fontFamily:font.body,fontSize:12,color:C.textMuted}}>No hay asesores creados todavía.</span>}
+          {personas.map(a=>{
+            const act = activoEnMallaTurnos(a);
+            return (
+              <button key={a.id} onClick={()=>toggle(a)} style={{ padding:"5px 12px", borderRadius:99, border:`1px solid ${act?C.green:C.border}`, background:act?`${C.green}18`:"transparent", color:act?C.green:C.textMuted, fontFamily:font.body, fontSize:11.5, fontWeight:600, cursor:"pointer" }}>{act?"✓ ":"✕ "}{a.name}{a.role!=="advisor"?` (${ROLE_LABEL[a.role]||a.role})`:""}</button>
+            );
+          })}
+          {personas.length===0 && <span style={{fontFamily:font.body,fontSize:12,color:C.textMuted}}>No hay asesores ni admin creados todavía.</span>}
         </div>
       )}
     </Card>
@@ -1439,7 +1457,7 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
 // ── SCREEN: Turnos · Ver (esta es la que ven también los asesores, como "Turnos") ──
 function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asignaciones }) {
   const { anio, mes, prev, next } = useMesSeleccionado();
-  const advisors = users.filter(u=>u.role==="advisor"&&u.active);
+  const advisors = users.filter(u=>esUsuarioDeTurnos(u) && activoEnMallaTurnos(u));
   const dias = fechasDelMesTurnos(anio, mes);
   const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
   return (
@@ -1448,7 +1466,7 @@ function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asigna
       <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios}/>
       <TurnosMiniResumen advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales}/>
       <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
-      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay asesores activos. Actívalos en Turnos ▸ Administrar ▸ Asesores.</div> :
+      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay personas activas en la malla. Actívalas en Turnos ▸ Borrador ▸ "Personas activas en la malla".</div> :
         <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable={false}/>}
     </div>
   );
@@ -1457,7 +1475,7 @@ function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asigna
 // ── SCREEN: Turnos · Borrador (antes "Editar") ─────────────────────────────────
 function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHorarios, asignaciones, setAsignaciones }) {
   const { anio, mes, prev, next } = useMesSeleccionado();
-  const advisors = users.filter(u=>u.role==="advisor"&&u.active);
+  const advisors = users.filter(u=>esUsuarioDeTurnos(u) && activoEnMallaTurnos(u));
   const dias = fechasDelMesTurnos(anio, mes);
   const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
   const onCambiarCelda = async (asesorId, fecha, valor) => {
@@ -1492,7 +1510,7 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
       <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios}/>
       <GestionAsesoresActivosTurnos users={users} setUsers={setUsers}/>
       <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
-      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay asesores activos. Actívalos arriba, en "Asesores activos en la malla".</div> :
+      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay personas activas en la malla. Actívalas arriba, en "Personas activas en la malla".</div> :
         <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom}/>}
     </div>
   );
