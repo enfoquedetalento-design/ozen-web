@@ -4035,7 +4035,10 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       return { id:i.id, tipo:i.tipo, valorTotal:Number(i.valor), descuento:Number(i.descuento||0), pagos:i.pagos||[], esOriginal, valorOriginalItem: esOriginal?Number(i.valor):0, fecha: !esOriginal ? (i.fecha_item||todayStr) : undefined };
     }));
     setEditObservacion(venta.observacion||"");
-    setEditNumeroFactura(venta.numero_factura||"");
+    // Nota crédito con piso: siempre se pide un N.º de factura NUEVO, así que arranca vacío (no se
+    // prellena con el de la factura original, que nunca se toca). En la corrección libre del mismo
+    // día sí se prellena, porque ahí se sigue editando el mismo N.º de la venta.
+    setEditNumeroFactura(puedeCorregirError ? "" : (venta.numero_factura||""));
     setEditErrorMsg("");
     setEditItemTipo("producto");
     setEditItemValor("");
@@ -4106,18 +4109,8 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       const original = editItems[editingItemIdx];
       const actualizado = { ...original, tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos, ...(original.esOriginal ? {} : { fecha:editItemFecha }) };
       setEditItems(prev=>prev.map((it,i)=>i===editingItemIdx?actualizado:it));
-      // Si se subió el valor del renglón ORIGINAL directamente (sin agregar uno nuevo), eso
-      // también genera una Notacrédito real — limpiar el N.º de factura para forzar el nuevo
-      // código. Esto SOLO aplica al flujo con piso (puedeCorregirError) — la corrección libre del
-      // mismo día (cuenta tienda) sigue editando el N.º de factura de la misma venta, sin crear
-      // ningún registro espejo, así que ahí NUNCA se debe limpiar este campo.
-      if(puedeCorregirError && original.esOriginal && (actualizado.valorTotal-actualizado.descuento) !== (original.valorTotal-original.descuento)) setEditNumeroFactura("");
     } else {
       setEditItems(prev=>[...prev, { id:`nuevo_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos, esOriginal:false, fecha:editItemFecha }]);
-      // Al agregar un renglón nuevo se limpia el N.º de factura para forzar el código NUEVO de la
-      // Notacrédito — pero solo en el flujo con piso. En la corrección libre del mismo día (cuenta
-      // tienda) NO se limpia: ahí no hay registro espejo, el campo sigue siendo el de la misma venta.
-      if(puedeCorregirError) setEditNumeroFactura("");
     }
     cancelarEdicionItem();
   };
@@ -4144,21 +4137,22 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
         setEditErrorMsg(`El nuevo valor ($${total.toLocaleString("es-CO")}) no puede quedar por debajo de lo ya registrado ($${piso.toLocaleString("es-CO")}).`);
         return;
       }
-      // Nota crédito con piso (master/admin_finanzas) que además cambia el valor real: genera un
-      // registro espejo aparte (el excedente) que necesita su PROPIO N.º de factura (Siigo) — la
-      // factura original no se toca. La corrección libre del mismo día (sin piso) sigue editando
-      // el N.º de factura de la misma venta, como antes.
-      const hayExcedente = puedeCorregirError && total !== valorAnterior;
-      if(hayExcedente && !editNumeroFactura.trim()){
-        setEditErrorMsg("Falta el nuevo N.º de factura (Siigo) — es obligatorio para guardar la Notacrédito.");
+      // Nota crédito con piso (master/admin_finanzas): la factura original NUNCA se toca desde
+      // aquí — el N.º de Siigo que se escribe en el renglón es obligatorio y siempre queda como
+      // el de la Notacrédito (registro espejo aparte), sin importar si al final hay diferencia de
+      // valor o no. La corrección libre del mismo día (sin piso) sigue editando el N.º de factura
+      // de la misma venta, como antes.
+      if(puedeCorregirError && !editNumeroFactura.trim()){
+        setEditErrorMsg("Falta el N.º de factura (Siigo) — es obligatorio para guardar la Notacrédito.");
         return;
       }
+      const hayExcedente = puedeCorregirError && total !== valorAnterior;
       setEditErrorMsg("");
       setGuardando(true);
       const payload = { observacion:editObservacion.trim(), valor_bruto:bruto, descuento_total:desc, total, updated_at:new Date().toISOString() };
-      // Respaldo: si por agregar y luego quitar un renglón el campo quedó vacío sin que en
-      // realidad haya Notacrédito, NUNCA se borra el N.º de factura ya guardado — se conserva.
-      if(!hayExcedente) payload.numero_factura = editNumeroFactura.trim() || venta.numero_factura || null;
+      // La factura original solo se edita en la corrección libre del mismo día (sin piso). En la
+      // Notacrédito con piso, nunca se toca — el N.º nuevo va aparte, en el ajuste.
+      if(!puedeCorregirError) payload.numero_factura = editNumeroFactura.trim() || venta.numero_factura || null;
       // Solo en la corrección libre del mismo día (sin piso) se resetea valor_original, para que
       // el valor corregido quede como si siempre hubiera sido el original (es un typo, no plata
       // real que entró después). En la Nota crédito de master/admin_finanzas NO se resetea: el
@@ -4443,13 +4437,6 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
           // Nota crédito posterior se muestra aparte, sin agrandar la fila (cuenta en Métricas en
           // su propia fecha, no en la fecha de esta venta).
           const valorOriginalMostrar = Number(v.valor_original ?? v.total);
-          // Si esta corrección va a generar una Notacrédito real (piso, valor distinto al actual),
-          // necesita su PROPIO N.º de factura — queda como un registro espejo aparte (ver
-          // notaCreditosFiltradas), la factura original no se toca ni se anota aquí.
-          const editBruto = modoErrorId===v.id ? editItems.reduce((a,i)=>a+i.valorTotal,0) : 0;
-          const editDesc = modoErrorId===v.id ? editItems.reduce((a,i)=>a+i.descuento,0) : 0;
-          const editTotalNuevo = editBruto - editDesc;
-          const editHayExcedente = modoErrorId===v.id && puedeCorregirError && editTotalNuevo !== Number(v.total);
           return (
             <Card key={v.id} p="0" style={{ overflow:"hidden" }}>
               <button onClick={()=>toggleExpand(v.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
@@ -4552,6 +4539,9 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                             )}
                             <Field label="Fecha" type="date" value={editItemFecha} onChange={setEditItemFecha} disabled={editItemEditandoOriginal}/>
                             {editItemEditandoOriginal && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:-8, marginBottom:10 }}>Es el renglón original — la fecha se queda fija en la de la venta.</div>}
+                            {puedeCorregirError && (
+                              <Field label="N.º de factura (Siigo) — obligatorio *" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1235"/>
+                            )}
                             {editItemBajoPiso && <div style={{ fontFamily:font.body, fontSize:11, color:C.red, marginTop:-8, marginBottom:10 }}>El valor no puede quedar por debajo de ${editItemPisoOriginal.toLocaleString("es-CO")} (lo ya registrado).</div>}
                             <Field label="Tipo" value={editItemTipo} onChange={setEditItemTipo} options={VENTAS_TIPOS.filter(t=>t.value!=="flexipago")}/>
                             {editItemEsFlexipago ? (
@@ -4625,16 +4615,15 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                             </div>
                           </div>
                           <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
-                          {editItems.some(i=>i.tipo==="flexipago") ? (
+                          {editItems.some(i=>i.tipo==="flexipago") && (
                             <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"6px 0 10px" }}>📦 Esta venta tiene un renglón Flexipago — no factura hasta completar el pago.</div>
-                          ) : editHayExcedente ? (
-                            <>
-                              <Field label="Nuevo N.º de factura (Siigo) — obligatorio *" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1235"/>
-                              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:-8, marginBottom:10 }}>
-                                Esta Notacrédito queda como un registro aparte con este número — la factura original #{v.numero_factura||"—"} no cambia.
-                              </div>
-                            </>
-                          ) : (
+                          )}
+                          {puedeCorregirError && (
+                            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"-4px 0 10px" }}>
+                              La factura original #{v.numero_factura||"—"} no cambia — el N.º de Siigo que escribas arriba, en el renglón, queda como el de esta Notacrédito.
+                            </div>
+                          )}
+                          {!puedeCorregirError && !editItems.some(i=>i.tipo==="flexipago") && (
                             <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
                           )}
                           {editErrorMsg && (
@@ -4643,7 +4632,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                             </div>
                           )}
                           <div style={{ display:"flex", gap:8 }}>
-                            <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || (editHayExcedente && !editNumeroFactura.trim())} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
+                            <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || (puedeCorregirError && !editNumeroFactura.trim())} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
                             <Btn onClick={()=>{ setEditando(null); setEditErrorMsg(""); setModoErrorId(null); }} variant="ghost" sm>Cancelar</Btn>
                           </div>
                         </div>
