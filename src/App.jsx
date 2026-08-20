@@ -34,64 +34,49 @@ const fmtFechaHora = (iso) => iso ? new Date(iso).toLocaleString("es-CO", { day:
 const diasEntre = (fechaIni, fechaFin) => Math.round((new Date(fechaFin+"T00:00:00") - new Date(fechaIni+"T00:00:00")) / 86400000);
 
 // ── Puntualidad ───────────────────────────────────────────────────────────────
-// Fechas de corte: desde cada fecha (inclusive) rigen los horarios de esa fila.
-// Los registros con fecha anterior siguen evaluándose con el horario que regía
-// en ese momento, congelado para siempre, sin importar qué cambie el código después.
-const CUTOVER_DATE = "2026-07-15";
-const CUTOVER_DATE_2 = "2026-08-01"; // nuevo horario de cierre (T2)
-
-// Horarios de entrada esperados en minutos desde medianoche: [Lunes-Jueves, Viernes-Sábado]
-// Vigentes hasta el 14 de julio de 2026 (inclusive)
-const SHIFT_HOURS_OLD = {
-  T1:  [600, 600],   // 10:00am todos los días (excepto Chipichape, ver abajo)
-  T2:  [730, 760],   // 12:10pm L-J / 12:40pm V-S
-  T3:  [630, 630],   // 10:30am todos los días
-  T4:  [690, 690],   // 11:30am todos los días
-  TOF: [540, 540],   // 9:00am todos los días (oficina)
-};
-// Vigentes del 15 de julio al 31 de julio de 2026 (inclusive)
-const SHIFT_HOURS_NEW = {
-  T1:  [600, 600],   // 10:00am todos los días (excepto Chipichape, ver abajo)
-  T2:  [750, 780],   // 12:30pm L-J / 1:00pm V-S
-  T3:  [630, 630],   // 10:30am todos los días
-  T4:  [690, 690],   // 11:30am todos los días
-  TOF: [540, 540],   // 9:00am todos los días (oficina)
-};
-// Vigentes desde el 1 de agosto de 2026 — nuevo horario de cierre:
-// Lunes a jueves 12:00m-8:00pm, Viernes y sábado 12:30pm-8:30pm
-const SHIFT_HOURS_V3 = {
-  T1:  [600, 600],   // 10:00am todos los días (excepto Chipichape, ver abajo)
-  T2:  [720, 750],   // 12:00m L-J / 12:30pm V-S
-  T3:  [630, 630],   // 10:30am todos los días
-  T4:  [690, 690],   // 11:30am todos los días
-  TOF: [540, 540],   // 9:00am todos los días (oficina)
-};
-// Excepción: Chipichape T1 entra a las 9:00am en vez de 10:00am (igual en todos los periodos)
-const CHIPICHAPE_T1_ENTRY = 540;
-
-const getExpectedEntry = (shift, date, store) => {
+// Los horarios esperados de entrada viven en la tabla `turnos_horarios` (editable desde
+// Turnos ▸ Administrar ▸ Horarios), versionados por fecha de vigencia — así un cambio de
+// horario aplica hacia adelante sin alterar cómo se evaluaron los registros pasados.
+// Cada fila es de una "familia" de turno (T1, T2, T3, T4, TOF — la parte que comparten
+// UT1/JT1/CT1, etc.) y puede ser genérica (tienda_id null, aplica a todas las tiendas) o
+// específica de una tienda (ej. Chipichape T1 entra 1 hora antes que las demás T1).
+const familiaDeTurno = (shift) => {
   if (!shift) return null;
-  const SHIFT_HOURS = date >= CUTOVER_DATE_2 ? SHIFT_HOURS_V3 : date >= CUTOVER_DATE ? SHIFT_HOURS_NEW : SHIFT_HOURS_OLD;
-  const shiftUpper = shift.toUpperCase();
-  if (shiftUpper.includes("TOF")) return SHIFT_HOURS.TOF[0];
-
+  if (shift.toUpperCase().includes("TOF")) return "TOF";
   const match = shift.match(/T(\d)/i);
-  if (!match) return null;
-  const key = `T${match[1]}`;
-  if (!SHIFT_HOURS[key]) return null;
+  return match ? `T${match[1]}` : null;
+};
 
-  // Excepción Chipichape T1
-  if (key === "T1" && store === "chipichape") return CHIPICHAPE_T1_ENTRY;
-
+const getExpectedEntry = (shift, date, store, turnosHorarios) => {
+  const familia = familiaDeTurno(shift);
+  if (!familia) return null;
+  const candidatos = (turnosHorarios||[]).filter(h => h.familia===familia && h.vigente_desde<=date);
+  if (candidatos.length===0) return null;
+  const especificas = candidatos.filter(h=>h.tienda_id===store);
+  const pool = especificas.length ? especificas : candidatos.filter(h=>!h.tienda_id);
+  if (pool.length===0) return null;
+  const mejor = pool.reduce((a,b)=> b.vigente_desde > a.vigente_desde ? b : a);
   const dow = new Date(date + "T12:00:00").getDay(); // 0=dom,1=lun,...,5=vie,6=sab
   const isVS = dow === 5 || dow === 6;
-  return isVS ? SHIFT_HOURS[key][1] : SHIFT_HOURS[key][0];
+  const hhmm = isVS ? mejor.entrada_vs : mejor.entrada_lj;
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(":").map(Number);
+  return h*60+m;
 };
 
-const calcPuntualidad = (entryTime, shift, date, store) => {
+// `entradaCustom` ("HH:MM") anula el horario estándar del turno SOLO para ese día/persona —
+// se usa para autorizaciones puntuales (ej. entrar más tarde un día por una jornada reducida)
+// sin tener que crear un turno nuevo. Viene de `turnos_asignaciones.entrada_custom`.
+const calcPuntualidad = (entryTime, shift, date, store, turnosHorarios, entradaCustom) => {
   if (!entryTime) return null;
-  const expected = getExpectedEntry(shift, date, store);
-  if (expected === null) return null;
+  let expected;
+  if (entradaCustom) {
+    const [h, m] = entradaCustom.split(":").map(Number);
+    expected = h*60+m;
+  } else {
+    expected = getExpectedEntry(shift, date, store, turnosHorarios);
+  }
+  if (expected === null || expected === undefined) return null;
   const [h, m] = entryTime.split(":").map(Number);
   const diff = (h * 60 + m) - expected;
   if (diff <= 5) return { puntual: true, diff: 0 };
@@ -575,7 +560,7 @@ function DashboardScreen({ records, stores, isMobile }) {
 }
 
 // ── SCREEN: Records ───────────────────────────────────────────────────────────
-function RecordsScreen({ records, stores, users, isMobile }) {
+function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turnosAsignaciones }) {
   const [storeFilter, setStoreFilter] = useState("all");
   const [userFilter, setUserFilter]   = useState("all");
   const [dateFrom, setDateFrom]       = useState(todayStr);
@@ -648,7 +633,8 @@ function RecordsScreen({ records, stores, users, isMobile }) {
 
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
         {jornadas.map(j=>{
-          const punt=calcPuntualidad(j.entrada?.time,j.shift,j.date,j.store);
+          const asigDia=(turnosAsignaciones||[]).find(a=>a.asesor_id===j.userId&&a.fecha===j.date);
+          const punt=calcPuntualidad(j.entrada?.time,j.shift,j.date,j.store,turnosHorarios,asigDia?.entrada_custom);
           return (
             <Card key={j.key} p="14px">
               <div style={{ marginBottom:10 }}>
@@ -1020,10 +1006,69 @@ function TurnosEspecialesScreen({ turnosGlobales, setTurnosGlobales }) {
   );
 }
 
-// ── SCREEN: Turnos · Administrar (asesores + tiendas + turnos especiales, en un solo lugar) ──
-function TurnosAdminScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales }) {
+// ── SCREEN: Turnos · Horarios (fecha de vigencia por familia de turno T1-T4/TOF) ──
+const FAMILIAS_TURNO = ["T1","T2","T3","T4","TOF"];
+function TurnosHorariosScreen({ stores, turnosHorarios, setTurnosHorarios }) {
+  const soloLectura = useReadOnly();
+  const [showForm,setShowForm]=useState(false);
+  const vacio = { familia:"T1", tienda_id:"", vigente_desde:todayStr, entrada_lj:"", entrada_vs:"", salida_lj:"", salida_vs:"" };
+  const [form,setForm]=useState(vacio);
+  const guardar=async()=>{
+    if(!form.entrada_lj||!form.entrada_vs){ alert("Falta la hora de entrada L-J y V-S."); return; }
+    const payload={ familia:form.familia, tienda_id:form.tienda_id||null, vigente_desde:form.vigente_desde, entrada_lj:form.entrada_lj, entrada_vs:form.entrada_vs, salida_lj:form.salida_lj||null, salida_vs:form.salida_vs||null };
+    const{data,error}=await supabase.from("turnos_horarios").insert(payload).select().single();
+    if(!error&&data){ setTurnosHorarios(prev=>[...prev,data]); setForm(vacio); setShowForm(false); } else if(error){ alert(`No se pudo guardar: ${error.message}`); }
+  };
+  const eliminar=async(id)=>{
+    if(!window.confirm("¿Eliminar este cambio de horario? Los registros ya evaluados no cambian, pero deja de aplicar hacia adelante.")) return;
+    const{error}=await supabase.from("turnos_horarios").delete().eq("id",id);
+    if(!error) setTurnosHorarios(prev=>prev.filter(h=>h.id!==id)); else alert(`No se pudo eliminar: ${error.message}`);
+  };
+  const porFamilia = FAMILIAS_TURNO.map(fam=>({ familia:fam, filas:turnosHorarios.filter(h=>h.familia===fam).sort((a,b)=>b.vigente_desde.localeCompare(a.vigente_desde)) }));
+  return (
+    <div>
+      <PageHeader title="Horarios" subtitle="Hora de entrada esperada por turno — define si un registro cuenta como puntual" action={soloLectura?null:<Btn onClick={()=>setShowForm(!showForm)} sm>{showForm?"Cancelar":"+ Nuevo cambio"}</Btn>}/>
+      {!soloLectura && showForm && (
+        <Card glow style={{marginBottom:16}}>
+          <Field label="Turno (familia)" value={form.familia} onChange={v=>setForm(f=>({...f,familia:v}))} options={FAMILIAS_TURNO.map(f=>({value:f,label:f}))}/>
+          <Field label="Tienda (opcional — vacío aplica a todas)" value={form.tienda_id} onChange={v=>setForm(f=>({...f,tienda_id:v}))} options={[{value:"",label:"Todas las tiendas"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
+          <Field label="Vigente desde" type="date" value={form.vigente_desde} onChange={v=>setForm(f=>({...f,vigente_desde:v}))}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Field label="Entrada Lun-Jue" type="time" value={form.entrada_lj} onChange={v=>setForm(f=>({...f,entrada_lj:v}))}/>
+            <Field label="Entrada Vie-Sáb" type="time" value={form.entrada_vs} onChange={v=>setForm(f=>({...f,entrada_vs:v}))}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Field label="Salida Lun-Jue (referencia)" type="time" value={form.salida_lj} onChange={v=>setForm(f=>({...f,salida_lj:v}))}/>
+            <Field label="Salida Vie-Sáb (referencia)" type="time" value={form.salida_vs} onChange={v=>setForm(f=>({...f,salida_vs:v}))}/>
+          </div>
+          <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 Desde la fecha que pongas, este horario aplica hacia adelante. Los registros de días anteriores siguen evaluándose con el horario que regía antes — no cambian.</div>
+          <Btn onClick={guardar} full>Guardar</Btn>
+        </Card>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        {porFamilia.map(({familia,filas})=>(
+          <Card key={familia} p="12px 14px">
+            <div style={{fontFamily:font.body,fontSize:13,fontWeight:700,color:C.goldLight,marginBottom:8}}>{familia}</div>
+            {filas.length===0 && <div style={{fontFamily:font.body,fontSize:12,color:C.border}}>Sin horario definido.</div>}
+            {filas.map(h=>(
+              <div key={h.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+                <Badge color={C.textMuted} sm>{h.tienda_id ? (stores[h.tienda_id]?.name||h.tienda_id) : "Todas las tiendas"}</Badge>
+                <span style={{fontFamily:font.body,fontSize:12,color:C.text}}>desde {h.vigente_desde}</span>
+                <span style={{fontFamily:font.mono,fontSize:12,color:C.text}}>Entra {h.entrada_lj} (L-J) · {h.entrada_vs} (V-S)</span>
+                {!soloLectura && <button onClick={()=>eliminar(h.id)} style={{marginLeft:"auto",background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:12}}>🗑</button>}
+              </div>
+            ))}
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── SCREEN: Turnos · Administrar (asesores + tiendas + turnos especiales + horarios) ──
+function TurnosAdminScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, turnosHorarios, setTurnosHorarios }) {
   const [sub,setSub]=useState("asesores");
-  const subTabs=[{id:"asesores",label:"Asesores"},{id:"tiendas",label:"Tiendas"},{id:"especiales",label:"Turnos especiales"}];
+  const subTabs=[{id:"asesores",label:"Asesores"},{id:"tiendas",label:"Tiendas"},{id:"especiales",label:"Turnos especiales"},{id:"horarios",label:"Horarios"}];
   return (
     <div>
       <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
@@ -1034,6 +1079,7 @@ function TurnosAdminScreen({ users, setUsers, stores, setStores, turnosGlobales,
       {sub==="asesores"   && <UsersScreen users={users} setUsers={setUsers}/>}
       {sub==="tiendas"    && <StoresScreen stores={stores} setStores={setStores}/>}
       {sub==="especiales" && <TurnosEspecialesScreen turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales}/>}
+      {sub==="horarios"   && <TurnosHorariosScreen stores={stores} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
     </div>
   );
 }
@@ -1081,12 +1127,35 @@ function TurnosLeyenda({ stores, turnosGlobales }) {
   );
 }
 
+// ── Turnos: mini formulario para autorizar un horario especial de entrada, un solo día ──
+function ModalHorarioCustom({ info, onGuardar, onCerrar }) {
+  const [entrada,setEntrada]=useState(info.asig?.entrada_custom||"");
+  const [nota,setNota]=useState(info.asig?.nota_custom||"");
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:16 }}>
+      <Card glow style={{ maxWidth:360, width:"100%" }}>
+        <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color:C.goldLight, marginBottom:4 }}>Horario especial — solo este día</div>
+        <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginBottom:14 }}>{info.nombreAsesor} · {info.fecha}. No cambia su turno de siempre ({info.shiftLabel}), solo la hora de entrada esperada ese día — útil para autorizaciones puntuales (ej. jornada reducida).</div>
+        <Field label="Hora de entrada especial" type="time" value={entrada} onChange={setEntrada}/>
+        <Field label="Nota (opcional)" value={nota} onChange={setNota} placeholder="Ej: autorizado 4 horas"/>
+        <div style={{ display:"flex", gap:8, marginTop:4 }}>
+          <Btn onClick={()=>onGuardar(entrada,nota)} variant="success" sm full>Guardar</Btn>
+          {info.asig?.entrada_custom && <Btn onClick={()=>onGuardar("","")} variant="danger" sm full>Quitar</Btn>}
+          <Btn onClick={onCerrar} variant="ghost" sm full>Cancelar</Btn>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // ── Turnos: rejilla mensual (asesores en columnas, días en filas) ─────────────
-function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, editable, onCambiarCelda }) {
+function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, editable, onCambiarCelda, onGuardarCustom }) {
   const colWidth = Math.max(70, ...advisors.map(a=>primerNombre(a.name).length*8+28), 70);
   const storeGroups = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
+  const [modalInfo,setModalInfo]=useState(null);
   return (
     <div style={{ overflowX:"auto", border:`1px solid ${C.border}`, borderRadius:10 }}>
+      {modalInfo && <ModalHorarioCustom info={modalInfo} onCerrar={()=>setModalInfo(null)} onGuardar={(entrada,nota)=>{ onGuardarCustom(modalInfo.asesorId, modalInfo.fecha, entrada, nota); setModalInfo(null); }}/>}
       <table style={{ borderCollapse:"collapse", width:"100%", minWidth:140+advisors.length*colWidth }}>
         <thead>
           <tr>
@@ -1109,11 +1178,16 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, editab
                 return (
                   <td key={a.id} style={{ borderBottom:`1px solid ${C.border}`, borderLeft:`1px solid ${C.border}`, padding:3 }}>
                     {editable ? (
-                      <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ width:"100%", minHeight:28, borderRadius:5, border:`1px solid ${C.border}`, background:turno?turno.color:C.surfaceAlt, color:turno?"#fff":C.textMuted, fontFamily:font.body, fontSize:11, fontWeight:turno?700:400, padding:"3px 2px", cursor:"pointer", outline:"none" }}>
-                        <option value="">—</option>
-                        <optgroup label="Especiales">{turnosGlobales.map(g=><option key={g.id} value={`g:${g.id}`}>{g.nombre}</option>)}</optgroup>
-                        {storeGroups.map(s=>(<optgroup key={s.id} label={s.name}>{s.shifts.filter(sh=>sh.activo!==false).map(sh=><option key={sh.id} value={`t:${s.id}|${encodeURIComponent(sh.nombre)}`}>{sh.nombre}</option>)}</optgroup>))}
-                      </select>
+                      <div style={{ display:"flex", alignItems:"center", gap:2 }}>
+                        <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ flex:1, minWidth:0, minHeight:28, borderRadius:5, border:`1px solid ${C.border}`, background:turno?turno.color:C.surfaceAlt, color:turno?"#fff":C.textMuted, fontFamily:font.body, fontSize:11, fontWeight:turno?700:400, padding:"3px 2px", cursor:"pointer", outline:"none" }}>
+                          <option value="">—</option>
+                          <optgroup label="Especiales">{turnosGlobales.map(g=><option key={g.id} value={`g:${g.id}`}>{g.nombre}</option>)}</optgroup>
+                          {storeGroups.map(s=>(<optgroup key={s.id} label={s.name}>{s.shifts.filter(sh=>sh.activo!==false).map(sh=><option key={sh.id} value={`t:${s.id}|${encodeURIComponent(sh.nombre)}`}>{sh.nombre}</option>)}</optgroup>))}
+                        </select>
+                        {asig?.tienda_id && (
+                          <button onClick={()=>setModalInfo({ asesorId:a.id, fecha, asig, nombreAsesor:a.name, shiftLabel:asig.shift||"" })} title={asig.entrada_custom?`Horario especial: ${asig.entrada_custom}`:"Autorizar horario especial este día"} style={{ background:"none", border:"none", cursor:"pointer", fontSize:12, flexShrink:0, opacity:asig.entrada_custom?1:0.45 }}>⏰</button>
+                        )}
+                      </div>
                     ) : <TurnoBadgeCelda turno={turno}/>}
                   </td>
                 );
@@ -1168,6 +1242,30 @@ function SelectorMes({ anio, mes, prev, next }) {
   );
 }
 
+// ── Turnos: quién aparece como columna en la malla — activar/desactivar sin salir de Editar ──
+function GestionAsesoresActivosTurnos({ users, setUsers }) {
+  const [abierto,setAbierto]=useState(false);
+  const asesores=[...users].filter(u=>u.role==="advisor").sort((a,b)=>(b.active?1:0)-(a.active?1:0)||a.name.localeCompare(b.name));
+  const activos=asesores.filter(a=>a.active).length;
+  const toggle=async(u)=>{ const{data,error}=await supabase.from("usuarios").update({active:!u.active}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); else if(error) alert(`No se pudo actualizar: ${error.message}`); };
+  return (
+    <Card p="10px 14px" style={{ marginBottom:16 }}>
+      <button onClick={()=>setAbierto(!abierto)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", display:"flex", alignItems:"center", gap:8, width:"100%" }}>
+        <span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:600, color:C.text }}>👥 Asesores activos en la malla ({activos}/{asesores.length})</span>
+        <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11, color:C.goldLight }}>{abierto?"Ocultar ▲":"Gestionar ▾"}</span>
+      </button>
+      {abierto && (
+        <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:12 }}>
+          {asesores.map(a=>(
+            <button key={a.id} onClick={()=>toggle(a)} style={{ padding:"5px 12px", borderRadius:99, border:`1px solid ${a.active?C.green:C.border}`, background:a.active?`${C.green}18`:"transparent", color:a.active?C.green:C.textMuted, fontFamily:font.body, fontSize:11.5, fontWeight:600, cursor:"pointer" }}>{a.active?"✓ ":"✕ "}{a.name}</button>
+          ))}
+          {asesores.length===0 && <span style={{fontFamily:font.body,fontSize:12,color:C.textMuted}}>No hay asesores creados todavía.</span>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ── SCREEN: Turnos · Ver ────────────────────────────────────────────────────────
 function TurnosVerScreen({ users, stores, turnosGlobales, asignaciones }) {
   const { anio, mes, prev, next } = useMesSeleccionado();
@@ -1187,7 +1285,7 @@ function TurnosVerScreen({ users, stores, turnosGlobales, asignaciones }) {
 }
 
 // ── SCREEN: Turnos · Editar ──────────────────────────────────────────────────────
-function TurnosEditarScreen({ users, stores, turnosGlobales, asignaciones, setAsignaciones }) {
+function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, asignaciones, setAsignaciones }) {
   const { anio, mes, prev, next } = useMesSeleccionado();
   const advisors = users.filter(u=>u.role==="advisor"&&u.active);
   const dias = fechasDelMesTurnos(anio, mes);
@@ -1211,19 +1309,27 @@ function TurnosEditarScreen({ users, stores, turnosGlobales, asignaciones, setAs
       else if(error) alert(`No se pudo guardar el turno: ${error.message}`);
     }
   };
+  const onGuardarCustom = async (asesorId, fecha, entradaCustom, notaCustom) => {
+    const existing = asigMap.get(`${asesorId}|${fecha}`);
+    if(!existing) return;
+    const{data,error}=await supabase.from("turnos_asignaciones").update({ entrada_custom:entradaCustom||null, nota_custom:notaCustom||null }).eq("id",existing.id).select().single();
+    if(!error&&data) setAsignaciones(prev=>prev.map(a=>a.id===data.id?data:a));
+    else if(error) alert(`No se pudo guardar: ${error.message}`);
+  };
   return (
     <div>
       <PageHeader title="Turnos" subtitle="Los cambios se guardan al instante"/>
       <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales}/>
+      <GestionAsesoresActivosTurnos users={users} setUsers={setUsers}/>
       <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
-      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay asesores activos. Actívalos en Turnos ▸ Administrar ▸ Asesores.</div> :
-        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} editable onCambiarCelda={onCambiarCelda}/>}
+      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay asesores activos. Actívalos arriba, en "Asesores activos en la malla".</div> :
+        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom}/>}
     </div>
   );
 }
 
 // ── SCREEN: Turnos (contenedor con sub-pestañas Ver / Editar / Administrar) ────
-function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, puedeAdministrar }) {
+function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, turnosHorarios, setTurnosHorarios, puedeAdministrar }) {
   const soloLectura = useReadOnly();
   const [sub,setSub]=useState("ver");
   const subTabs=[
@@ -1240,14 +1346,14 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
         ))}
       </div>
       {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} asignaciones={asignaciones}/>}
-      {sub==="editar"      && !soloLectura && <TurnosEditarScreen users={users} stores={stores} turnosGlobales={turnosGlobales} asignaciones={asignaciones} setAsignaciones={setAsignaciones}/>}
-      {sub==="administrar" && puedeAdministrar && <TurnosAdminScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales}/>}
+      {sub==="editar"      && !soloLectura && <TurnosEditarScreen users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} asignaciones={asignaciones} setAsignaciones={setAsignaciones}/>}
+      {sub==="administrar" && puedeAdministrar && <TurnosAdminScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
     </div>
   );
 }
 
 // ── SCREEN: CheckIn ───────────────────────────────────────────────────────────
-function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignaciones }) {
+function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignaciones, turnosHorarios }) {
   const [selStore,setSelStore]=useState(""),[selShift,setSelShift]=useState(""),[locked,setLocked]=useState(false),[showCamera,setShowCamera]=useState(false),[recording,setRecording]=useState(false),[toast,setToast]=useState(null);
   useEffect(()=>{ const h=records.filter(r=>r.user_id===user.id&&r.date===todayStr&&r.event!=="omitido"); if(h.length>0){setSelStore(h[0].store);setSelShift(h[0].shift);setLocked(true);} },[records]);
   // Si hoy ya tiene un turno asignado en la rejilla de Turnos (incluye apoyo en pareja — ambos
@@ -1262,7 +1368,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
   const refreshTodayRecs=async()=>{ const{data}=await supabase.from("registros").select("*").eq("user_id",user.id).eq("date",todayStr); if(data)onRefresh(data); };
   const handleCapture=async(photoBase64)=>{ setShowCamera(false);setRecording(true); let photo_url=null; try{ const blob=await fetch(photoBase64).then(r=>r.blob()); const fileName=`${user.id}_${Date.now()}.jpg`; const{data:up}=await supabase.storage.from("fotos-registro").upload(fileName,blob,{contentType:"image/jpeg"}); if(up){const{data:ud}=supabase.storage.from("fotos-registro").getPublicUrl(fileName);photo_url=ud.publicUrl;} }catch(e){console.error(e);} const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:selStore,shift:selShift,event:nextEvent,date:todayStr,time:fmtTime(new Date()),photo_url}).select().single(); if(!error){onRecord(data);setLocked(true);await refreshTodayRecs();} setRecording(false);setToast(`✓ ${EVENT_LABELS[nextEvent]} registrada`);setTimeout(()=>setToast(null),3000); };
 
-  const puntHoy = calcPuntualidad(todayRecs.find(r=>r.event==="entrada")?.time, selShift, todayStr, selStore);
+  const puntHoy = calcPuntualidad(todayRecs.find(r=>r.event==="entrada")?.time, selShift, todayStr, selStore, turnosHorarios, asigHoy?.entrada_custom);
 
   return (
     <div>
@@ -1306,7 +1412,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
 }
 
 // ── SCREEN: History ───────────────────────────────────────────────────────────
-function HistoryScreen({ user, records, stores }) {
+function HistoryScreen({ user, records, stores, turnosHorarios, turnosAsignaciones }) {
   const [viewPhoto,setViewPhoto]=useState(null);
   const myRecs=records.filter(r=>r.user_id===user.id);
   const jornadasMap = {};
@@ -1340,7 +1446,8 @@ function HistoryScreen({ user, records, stores }) {
       <PageHeader title="Mi Historial" subtitle="Mis registros de asistencia"/>
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
         {jornadas.map(j => {
-          const punt = calcPuntualidad(j.entrada?.time, j.shift, j.date, j.store);
+          const asigDia = (turnosAsignaciones||[]).find(a=>a.asesor_id===j.userId&&a.fecha===j.date);
+          const punt = calcPuntualidad(j.entrada?.time, j.shift, j.date, j.store, turnosHorarios, asigDia?.entrada_custom);
           return (
           <Card key={j.key} p="14px">
             <div style={{ marginBottom:10 }}>
@@ -5501,7 +5608,7 @@ export default function App() {
   const [ventasAbonos,setVentasAbonos]=useState([]),[cajaAperturas,setCajaAperturas]=useState([]),[cajaCierres,setCajaCierres]=useState([]),[cajaRecolecciones,setCajaRecolecciones]=useState([]),[cajaGastos,setCajaGastos]=useState([]);
   const [cajaSolicitudesBorrado,setCajaSolicitudesBorrado]=useState([]);
   const [ventasAjustes,setVentasAjustes]=useState([]);
-  const [turnosGlobales,setTurnosGlobales]=useState([]),[turnosAsignaciones,setTurnosAsignaciones]=useState([]);
+  const [turnosGlobales,setTurnosGlobales]=useState([]),[turnosAsignaciones,setTurnosAsignaciones]=useState([]),[turnosHorarios,setTurnosHorarios]=useState([]);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
   const [mostrarAccesoTiendas,setMostrarAccesoTiendas]=useState(false);
@@ -5526,7 +5633,7 @@ export default function App() {
   }, []);
 
   const loadAll=async()=>{
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj},{data:csb},{data:tg},{data:tas}]=await Promise.all([
+    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj},{data:csb},{data:tg},{data:tas},{data:th}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
       supabase.from("registros").select("*").order("date",{ascending:false}),
@@ -5548,6 +5655,7 @@ export default function App() {
       supabase.from("ventas_caja_solicitudes_borrado").select("*").order("fecha_solicitud",{ascending:false}),
       supabase.from("turnos_globales").select("*"),
       supabase.from("turnos_asignaciones").select("*"),
+      supabase.from("turnos_horarios").select("*"),
     ]);
     const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
     setStores(sm);setUsers(u||[]);setRecords(r||[]);
@@ -5569,6 +5677,7 @@ export default function App() {
     setCajaSolicitudesBorrado(csb||[]);
     setTurnosGlobales(tg||[]);
     setTurnosAsignaciones(tas||[]);
+    setTurnosHorarios(th||[]);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
@@ -5614,8 +5723,8 @@ export default function App() {
         if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
-        if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile}/>;
-        if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} puedeAdministrar={user.role!=="visualizador"}/>;
+        if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
+        if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeAdministrar={user.role!=="visualizador"}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
     } else if(esCuentaTienda(user)){
@@ -5624,8 +5733,8 @@ export default function App() {
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
       if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile}/>;
     } else {
-      if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones}/>;
-      if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores}/>;
+      if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>;
+      if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
       if(tab==="schedule") return <ScheduleScreen user={user} stores={stores} turnosGlobales={turnosGlobales} asignaciones={turnosAsignaciones}/>;
     }
     return null;
