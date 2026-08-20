@@ -4107,13 +4107,17 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       const actualizado = { ...original, tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos, ...(original.esOriginal ? {} : { fecha:editItemFecha }) };
       setEditItems(prev=>prev.map((it,i)=>i===editingItemIdx?actualizado:it));
       // Si se subió el valor del renglón ORIGINAL directamente (sin agregar uno nuevo), eso
-      // también genera un excedente real — limpiar el N.º de factura para forzar el nuevo código.
-      if(original.esOriginal && (actualizado.valorTotal-actualizado.descuento) !== (original.valorTotal-original.descuento)) setEditNumeroFactura("");
+      // también genera una Notacrédito real — limpiar el N.º de factura para forzar el nuevo
+      // código. Esto SOLO aplica al flujo con piso (puedeCorregirError) — la corrección libre del
+      // mismo día (cuenta tienda) sigue editando el N.º de factura de la misma venta, sin crear
+      // ningún registro espejo, así que ahí NUNCA se debe limpiar este campo.
+      if(puedeCorregirError && original.esOriginal && (actualizado.valorTotal-actualizado.descuento) !== (original.valorTotal-original.descuento)) setEditNumeroFactura("");
     } else {
       setEditItems(prev=>[...prev, { id:`nuevo_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos, esOriginal:false, fecha:editItemFecha }]);
-      // Al agregar un renglón nuevo (excedente) se limpia el N.º de factura — ya no aplica el de
-      // la factura original, hay que escribir el NUEVO código de Siigo para este excedente.
-      setEditNumeroFactura("");
+      // Al agregar un renglón nuevo se limpia el N.º de factura para forzar el código NUEVO de la
+      // Notacrédito — pero solo en el flujo con piso. En la corrección libre del mismo día (cuenta
+      // tienda) NO se limpia: ahí no hay registro espejo, el campo sigue siendo el de la misma venta.
+      if(puedeCorregirError) setEditNumeroFactura("");
     }
     cancelarEdicionItem();
   };
@@ -4152,7 +4156,9 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       setEditErrorMsg("");
       setGuardando(true);
       const payload = { observacion:editObservacion.trim(), valor_bruto:bruto, descuento_total:desc, total, updated_at:new Date().toISOString() };
-      if(!hayExcedente) payload.numero_factura = editNumeroFactura.trim()||null;
+      // Respaldo: si por agregar y luego quitar un renglón el campo quedó vacío sin que en
+      // realidad haya Notacrédito, NUNCA se borra el N.º de factura ya guardado — se conserva.
+      if(!hayExcedente) payload.numero_factura = editNumeroFactura.trim() || venta.numero_factura || null;
       // Solo en la corrección libre del mismo día (sin piso) se resetea valor_original, para que
       // el valor corregido quede como si siempre hubiera sido el original (es un typo, no plata
       // real que entró después). En la Nota crédito de master/admin_finanzas NO se resetea: el
