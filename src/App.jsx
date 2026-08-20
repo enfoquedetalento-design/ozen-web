@@ -2409,6 +2409,16 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
     return { venta, abonos:abonosOrdenados, valorFlex, antes, totalHoy, completa, mediosHoy };
   });
 
+  // Notacrédito: excedentes cuya fecha REAL (fecha_item del renglón, vía ventas_ajustes) cae en la
+  // fecha que se está viendo, sin importar el día en que se registró la factura original — es un
+  // registro aparte para que quede visible que hubo una Notacrédito, con el valor del excedente
+  // (no el valor original de la factura). El monto ya suma como venta normal en su ítem
+  // correspondiente; esta tarjeta es solo para que quede el rastro.
+  const notaCreditoHoyTienda = (ventasAjustes||[]).filter(aj=>aj.fecha===fecha && !aj.es_correccion_error).map(aj=>{
+    const venta = ventas.find(v=>v.id===aj.venta_id);
+    return venta && venta.tienda_id===tiendaId ? { venta, ajuste:aj } : null;
+  }).filter(Boolean);
+
   // Meta del día de hoy para la tienda seleccionada (si ya se asignó por día en Métricas) y
   // cuánto falta para completarla — el dato que se quiere ver de primeras al registrar ventas.
   const todayDiaNum = Number(todayStr.slice(8,10));
@@ -2695,7 +2705,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
         </div>
       </div>
 
-      <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, margin:"24px 0 10px" }}>Ventas de hoy en esta tienda ({ventasHoy.length + abonosHoyTienda.length})</div>
+      <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, margin:"24px 0 10px" }}>Ventas de hoy en esta tienda ({ventasHoy.length + abonosHoyTienda.length + notaCreditoHoyTienda.length})</div>
       <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
         {ventasHoy.map(v=>{
           const itemsDeVenta = (ventasItems||[]).filter(it=>it.venta_id===v.id);
@@ -2741,7 +2751,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
                 <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight }}>${(esFlexipagoAbierto?abonadoHoyMismo:valorOriginalMostrar).toLocaleString("es-CO")}</div>
                 {!esFlexipagoAbierto && totalExcedente>0 && (
                   <span style={{ fontFamily:font.body, fontSize:10, color:C.blue, whiteSpace:"nowrap" }} title={excedentesVenta.map(a=>`+$${Number(a.diferencia).toLocaleString("es-CO")} el ${a.fecha}`).join(" · ")}>
-                    +${totalExcedente.toLocaleString("es-CO")} exc.{excedentesVenta.length===1?` ${excedentesVenta[0].fecha}`:` (${excedentesVenta.length})`}
+                    Notacrédito +${totalExcedente.toLocaleString("es-CO")}{excedentesVenta.length===1?` (${excedentesVenta[0].fecha})`:` (${excedentesVenta.length})`}
                   </span>
                 )}
               </div>
@@ -2778,7 +2788,22 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
             </div>
           </Card>
         ))}
-        {ventasHoy.length===0 && abonosHoyTienda.length===0 && <div style={{ textAlign:"center", padding:30, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin ventas registradas hoy en esta tienda.</div>}
+        {notaCreditoHoyTienda.map(({venta, ajuste})=>(
+          <Card key={`nc-${ajuste.id}`} p="10px 14px" style={{ borderLeft:`3px solid ${C.amber}` }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
+                <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{venta.numero_factura?`#${venta.numero_factura}`:"—"}</span>
+                <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                  {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
+                </span>
+              </div>
+              <Badge color={C.amber} sm>🧾 Notacrédito</Badge>
+              <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${Number(ajuste.diferencia||0).toLocaleString("es-CO")}</div>
+            </div>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>Excedente por Notacrédito sobre la factura del {venta.fecha}.</div>
+          </Card>
+        ))}
+        {ventasHoy.length===0 && abonosHoyTienda.length===0 && notaCreditoHoyTienda.length===0 && <div style={{ textAlign:"center", padding:30, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin ventas registradas hoy en esta tienda.</div>}
       </div>
     </div>
     </>
@@ -2923,6 +2948,26 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       return (v.cliente_nombre||"").toLowerCase().includes(q) || (v.cliente_documento||"").toLowerCase().includes(q) || (v.numero_factura||"").toLowerCase().includes(q);
     })
     .sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||"") || (b.created_at||"").localeCompare(a.created_at||""));
+
+  // Notacrédito: un registro aparte por cada excedente aplicado (copia de los datos de la factura
+  // original, pero con el valor del excedente y en su fecha REAL) — para que quede visible en la
+  // lista que hubo una Notacrédito, respetando los mismos filtros de arriba (fecha filtra por la
+  // fecha real del ajuste, no por la fecha de la factura original).
+  const notaCreditosFiltradas = (ajustes||[])
+    .filter(aj => !aj.es_correccion_error)
+    .map(aj => ({ ajuste:aj, venta: ventas.find(v=>v.id===aj.venta_id) }))
+    .filter(({venta}) => !!venta)
+    .filter(({venta}) => (!tiendaFija || venta.tienda_id===tiendaFija))
+    .filter(({venta}) => (!filtroTienda || venta.tienda_id===filtroTienda))
+    .filter(({ajuste}) => (!filtroFecha || ajuste.fecha===filtroFecha))
+    .filter(({venta}) => (!filtroVendedor || venta.vendedor_id===filtroVendedor))
+    .filter(() => !filtroFlexipago)
+    .filter(({venta}) => {
+      const q = busqueda.trim().toLowerCase();
+      if(!q) return true;
+      return (venta.cliente_nombre||"").toLowerCase().includes(q) || (venta.cliente_documento||"").toLowerCase().includes(q) || (venta.numero_factura||"").toLowerCase().includes(q);
+    })
+    .sort((a,b)=> (b.ajuste.fecha||"").localeCompare(a.ajuste.fecha||""));
 
   const fetchDetalle = async (ventaId) => {
     setDetalle(prev=>({...prev, [ventaId]:{...(prev[ventaId]||{}), cargando:true}}));
@@ -3312,7 +3357,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
 
   return (
     <div style={{ maxWidth:820 }}>
-      <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas`} />
+      <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}`} />
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
           <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"end" }}>
@@ -3405,7 +3450,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                   <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight }}>${valorOriginalMostrar.toLocaleString("es-CO")}</div>
                   {totalExcedente>0 && (
                     <span style={{ fontFamily:font.body, fontSize:10, color:C.blue, whiteSpace:"nowrap" }} title={excedentesVenta.map(a=>`+$${Number(a.diferencia).toLocaleString("es-CO")} el ${a.fecha}`).join(" · ")}>
-                      +${totalExcedente.toLocaleString("es-CO")} exc.{excedentesVenta.length===1?` ${excedentesVenta[0].fecha}`:` (${excedentesVenta.length})`}
+                      Notacrédito +${totalExcedente.toLocaleString("es-CO")}{excedentesVenta.length===1?` (${excedentesVenta[0].fecha})`:` (${excedentesVenta.length})`}
                     </span>
                   )}
                 </div>
@@ -3773,8 +3818,30 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
             </Card>
           );
         })}
-        {ventasFiltradas.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>No hay ventas que coincidan con los filtros.</div>}
+        {ventasFiltradas.length===0 && notaCreditosFiltradas.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>No hay ventas que coincidan con los filtros.</div>}
       </div>
+
+      {notaCreditosFiltradas.length>0 && (
+        <div style={{ marginTop:20 }}>
+          <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:8 }}>Notas crédito ({notaCreditosFiltradas.length})</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {notaCreditosFiltradas.map(({ajuste, venta})=>(
+              <Card key={`nc-${ajuste.id}`} p="10px 14px" style={{ borderLeft:`3px solid ${C.amber}` }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
+                    <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{venta.numero_factura?`#${venta.numero_factura}`:"—"}</span>
+                    <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                      {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
+                    </span>
+                  </div>
+                  <Badge color={C.amber} sm title={`Factura original del ${venta.fecha}`}>🧾 Notacrédito · {ajuste.fecha}</Badge>
+                  <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${Number(ajuste.diferencia||0).toLocaleString("es-CO")}</div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4556,10 +4623,11 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     const ingresoNeto = cajaZeros();
     const servicios = cajaZeros();
     const flexipagoDia = cajaZeros();
-    // Excedentes de nota crédito de ventas registradas ESTE día, pero cuya plata en realidad entró
-    // otro día — se muestran aquí solo informativamente (no suman al total de este día, ya suman
-    // en su propia fecha real más abajo). Análogo a cómo se muestran los abonos de Flexipago.
-    const excedenteAviso = cajaZeros();
+    // Notacrédito: el día en que se aplicó un excedente (fecha_item), mostramos el valor ORIGINAL
+    // de la(s) factura(s) corregidas ese día — es solo informativo, no suma ni resta del total de
+    // este día (el excedente en sí ya suma arriba, en "Ventas", como una venta más). Si hubo más
+    // de una Notacrédito ese día, se suman los valores originales de cada factura.
+    const notaCreditoDia = cajaZeros();
     let flexipagoCerradoHoy = 0;
 
     ventasItems.forEach(i=>{
@@ -4573,9 +4641,22 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
         } else if(i.tipo==="arreglo"||i.tipo==="marcacion"||i.tipo==="grabado"){
           (i.pagos||[]).forEach(p=>{ if(CAJA_MEDIOS.includes(p.medio_pago)) servicios[p.medio_pago]+=Number(p.valor||0); });
         }
-      } else if(esExcedente && v.fecha===fecha){
-        (i.pagos||[]).forEach(p=>{ if(CAJA_MEDIOS.includes(p.medio_pago)) excedenteAviso[p.medio_pago]+=Number(p.valor||0); });
       }
+    });
+
+    // Facturas que recibieron una Notacrédito con fecha_item === este día — mostramos el valor
+    // original (venta.valor_original), desglosado por medio según los renglones ORIGINALES de esa
+    // factura (no los renglones de excedente).
+    const ventasConNotaCreditoHoy = new Set();
+    ventasItems.forEach(i=>{
+      const v = ventasTiendaMap[i.venta_id];
+      if(!v) return;
+      if(i.es_original===false && i.fecha_item===fecha) ventasConNotaCreditoHoy.add(v.id);
+    });
+    ventasConNotaCreditoHoy.forEach(ventaId=>{
+      ventasItems.filter(i=>i.venta_id===ventaId && i.es_original!==false).forEach(i=>{
+        (i.pagos||[]).forEach(p=>{ if(CAJA_MEDIOS.includes(p.medio_pago)) notaCreditoDia[p.medio_pago]+=Number(p.valor||0); });
+      });
     });
 
     // Flexipagos: se revisan TODAS las ventas flexipago de la tienda (sin importar el día de venta),
@@ -4604,7 +4685,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       });
     });
 
-    return { ingresoNeto, servicios, flexipagoDia, excedenteAviso, flexipagoCerradoHoy, totalIngresoNeto:cajaTotal(ingresoNeto), totalServicios:cajaTotal(servicios), totalFlexipagoDia:cajaTotal(flexipagoDia), totalExcedenteAviso:cajaTotal(excedenteAviso) };
+    return { ingresoNeto, servicios, flexipagoDia, notaCreditoDia, flexipagoCerradoHoy, totalIngresoNeto:cajaTotal(ingresoNeto), totalServicios:cajaTotal(servicios), totalFlexipagoDia:cajaTotal(flexipagoDia), totalNotaCreditoDia:cajaTotal(notaCreditoDia) };
   };
 
   const resumenHoy = resumenDia(ciFecha);
@@ -4837,11 +4918,11 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.flexipagoDia[m])}</td>)}
                     <td style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.totalFlexipagoDia)}</td>
                   </tr>
-                  {resumenHoy.totalExcedenteAviso>0 && (
+                  {resumenHoy.totalNotaCreditoDia>0 && (
                     <tr>
-                      <td style={{ padding:"2px 6px", fontFamily:font.body, color:C.amber }}>Excedente de nota crédito, entró en otra fecha (no suma al total)</td>
-                      {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right", color:C.amber }}>{fmtCOP(resumenHoy.excedenteAviso[m])}</td>)}
-                      <td style={{ padding:"2px 6px", textAlign:"right", color:C.amber }}>{fmtCOP(resumenHoy.totalExcedenteAviso)}</td>
+                      <td style={{ padding:"2px 6px", fontFamily:font.body, color:C.amber }}>Notacrédito — valor original de la factura corregida (no suma ni resta)</td>
+                      {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right", color:C.amber }}>{fmtCOP(resumenHoy.notaCreditoDia[m])}</td>)}
+                      <td style={{ padding:"2px 6px", textAlign:"right", color:C.amber }}>{fmtCOP(resumenHoy.totalNotaCreditoDia)}</td>
                     </tr>
                   )}
                 </tbody>
@@ -4946,7 +5027,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     </div>
                     <div style={{ fontFamily:font.mono, fontSize:10.5, color:C.textMuted }}>
                       Ventas {fmtCOP(rd.totalIngresoNeto)} · Servicios {fmtCOP(rd.totalServicios)} · <span style={{ color:C.goldLight, fontWeight:700 }}>Total {fmtCOP(totalDia)}</span>
-                      {rd.totalExcedenteAviso>0 && <span style={{ color:C.amber }}> · +{fmtCOP(rd.totalExcedenteAviso)} exc. entró otro día</span>}
+                      {rd.totalNotaCreditoDia>0 && <span style={{ color:C.amber }}> · Notacrédito {fmtCOP(rd.totalNotaCreditoDia)}</span>}
                     </div>
                   </div>
                 );
