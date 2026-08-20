@@ -50,12 +50,8 @@ const familiaDeTurno = (shift) => {
 const getExpectedEntry = (shift, date, store, turnosHorarios) => {
   const familia = familiaDeTurno(shift);
   if (!familia) return null;
-  const candidatos = (turnosHorarios||[]).filter(h => h.familia===familia && h.vigente_desde<=date);
-  if (candidatos.length===0) return null;
-  const especificas = candidatos.filter(h=>h.tienda_id===store);
-  const pool = especificas.length ? especificas : candidatos.filter(h=>!h.tienda_id);
-  if (pool.length===0) return null;
-  const mejor = pool.reduce((a,b)=> b.vigente_desde > a.vigente_desde ? b : a);
+  const mejor = filaHorarioVigente(familia, store, turnosHorarios, date);
+  if (!mejor) return null;
   const dow = new Date(date + "T12:00:00").getDay(); // 0=dom,1=lun,...,5=vie,6=sab
   const isVS = dow === 5 || dow === 6;
   const hhmm = isVS ? mejor.entrada_vs : mejor.entrada_lj;
@@ -402,7 +398,7 @@ const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id
 // Usuarios (control total de contraseñas) ya no va en esta lista de pestañas — es solo para
 // master, y se abre aparte con un ícono discreto en el pie del menú (ver Sidebar/MobileHeader).
 const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
-const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Malla Horaria" }];
+const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Turnos" }];
 const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar venta" },{ id:"lista",icon:"📋",label:"Lista de ventas" },{ id:"metricas",icon:"📊",label:"Métricas" },{ id:"caja",icon:"💰",label:"Caja" }];
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas";
 // Quién puede elegir el área "Ventas" desde el selector. Admin y Visualizador entran en modo
@@ -1013,6 +1009,10 @@ function TurnosHorariosScreen({ stores, turnosHorarios, setTurnosHorarios }) {
   const [showForm,setShowForm]=useState(false);
   const vacio = { familia:"T1", tienda_id:"", vigente_desde:todayStr, entrada_lj:"", entrada_vs:"", salida_lj:"", salida_vs:"" };
   const [form,setForm]=useState(vacio);
+  const [editingId,setEditingId]=useState(null);
+  const [editForm,setEditForm]=useState(vacio);
+  const [historialAbierto,setHistorialAbierto]=useState(null); // id de la fila cuyo historial se está mostrando
+  const [historial,setHistorial]=useState({}); // { [horarioId]: [...filas] }
   const guardar=async()=>{
     if(!form.entrada_lj||!form.entrada_vs){ alert("Falta la hora de entrada L-J y V-S."); return; }
     const payload={ familia:form.familia, tienda_id:form.tienda_id||null, vigente_desde:form.vigente_desde, entrada_lj:form.entrada_lj, entrada_vs:form.entrada_vs, salida_lj:form.salida_lj||null, salida_vs:form.salida_vs||null };
@@ -1023,6 +1023,23 @@ function TurnosHorariosScreen({ stores, turnosHorarios, setTurnosHorarios }) {
     if(!window.confirm("¿Eliminar este cambio de horario? Los registros ya evaluados no cambian, pero deja de aplicar hacia adelante.")) return;
     const{error}=await supabase.from("turnos_horarios").delete().eq("id",id);
     if(!error) setTurnosHorarios(prev=>prev.filter(h=>h.id!==id)); else alert(`No se pudo eliminar: ${error.message}`);
+  };
+  const empezarEdicion=(h)=>{ setEditingId(h.id); setEditForm({ familia:h.familia, tienda_id:h.tienda_id||"", vigente_desde:h.vigente_desde, entrada_lj:h.entrada_lj||"", entrada_vs:h.entrada_vs||"", salida_lj:h.salida_lj||"", salida_vs:h.salida_vs||"" }); };
+  const guardarEdicion=async(id)=>{
+    if(!editForm.entrada_lj||!editForm.entrada_vs){ alert("Falta la hora de entrada L-J y V-S."); return; }
+    const original = turnosHorarios.find(h=>h.id===id);
+    if(original){
+      // Deja rastro: guarda cómo estaba ANTES de aplicar el cambio.
+      await supabase.from("turnos_horarios_historial").insert({ horario_id:id, familia:original.familia, tienda_id:original.tienda_id, vigente_desde:original.vigente_desde, entrada_lj:original.entrada_lj, entrada_vs:original.entrada_vs, salida_lj:original.salida_lj, salida_vs:original.salida_vs });
+    }
+    const payload={ familia:editForm.familia, tienda_id:editForm.tienda_id||null, vigente_desde:editForm.vigente_desde, entrada_lj:editForm.entrada_lj, entrada_vs:editForm.entrada_vs, salida_lj:editForm.salida_lj||null, salida_vs:editForm.salida_vs||null };
+    const{data,error}=await supabase.from("turnos_horarios").update(payload).eq("id",id).select().single();
+    if(!error&&data){ setTurnosHorarios(prev=>prev.map(h=>h.id===id?data:h)); setEditingId(null); setHistorial(prev=>{ const c={...prev}; delete c[id]; return c; }); } else if(error){ alert(`No se pudo guardar: ${error.message}`); }
+  };
+  const verHistorial=async(id)=>{
+    if(historialAbierto===id){ setHistorialAbierto(null); return; }
+    setHistorialAbierto(id);
+    if(!historial[id]){ const{data}=await supabase.from("turnos_horarios_historial").select("*").eq("horario_id",id).order("reemplazado_en",{ascending:false}); setHistorial(prev=>({...prev,[id]:data||[]})); }
   };
   const porFamilia = FAMILIAS_TURNO.map(fam=>({ familia:fam, filas:turnosHorarios.filter(h=>h.familia===fam).sort((a,b)=>b.vigente_desde.localeCompare(a.vigente_desde)) }));
   return (
@@ -1051,11 +1068,46 @@ function TurnosHorariosScreen({ stores, turnosHorarios, setTurnosHorarios }) {
             <div style={{fontFamily:font.body,fontSize:13,fontWeight:700,color:C.goldLight,marginBottom:8}}>{familia}</div>
             {filas.length===0 && <div style={{fontFamily:font.body,fontSize:12,color:C.border}}>Sin horario definido.</div>}
             {filas.map(h=>(
-              <div key={h.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
-                <Badge color={C.textMuted} sm>{h.tienda_id ? (stores[h.tienda_id]?.name||h.tienda_id) : "Todas las tiendas"}</Badge>
-                <span style={{fontFamily:font.body,fontSize:12,color:C.text}}>desde {h.vigente_desde}</span>
-                <span style={{fontFamily:font.mono,fontSize:12,color:C.text}}>Entra {h.entrada_lj} (L-J) · {h.entrada_vs} (V-S)</span>
-                {!soloLectura && <button onClick={()=>eliminar(h.id)} style={{marginLeft:"auto",background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:12}}>🗑</button>}
+              <div key={h.id} style={{padding:"6px 0",borderTop:`1px solid ${C.border}`}}>
+                {editingId===h.id ? (
+                  <div>
+                    <Field label="Tienda (opcional — vacío aplica a todas)" value={editForm.tienda_id} onChange={v=>setEditForm(f=>({...f,tienda_id:v}))} options={[{value:"",label:"Todas las tiendas"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
+                    <Field label="Vigente desde" type="date" value={editForm.vigente_desde} onChange={v=>setEditForm(f=>({...f,vigente_desde:v}))}/>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                      <Field label="Entrada L-J" type="time" value={editForm.entrada_lj} onChange={v=>setEditForm(f=>({...f,entrada_lj:v}))}/>
+                      <Field label="Entrada V-S" type="time" value={editForm.entrada_vs} onChange={v=>setEditForm(f=>({...f,entrada_vs:v}))}/>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                      <Field label="Salida L-J" type="time" value={editForm.salida_lj} onChange={v=>setEditForm(f=>({...f,salida_lj:v}))}/>
+                      <Field label="Salida V-S" type="time" value={editForm.salida_vs} onChange={v=>setEditForm(f=>({...f,salida_vs:v}))}/>
+                    </div>
+                    <div style={{display:"flex",gap:8}}>
+                      <Btn onClick={()=>guardarEdicion(h.id)} variant="success" sm full>Guardar cambio</Btn>
+                      <Btn onClick={()=>setEditingId(null)} variant="ghost" sm full>Cancelar</Btn>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                    <Badge color={C.textMuted} sm>{h.tienda_id ? (stores[h.tienda_id]?.name||h.tienda_id) : "Todas las tiendas"}</Badge>
+                    <span style={{fontFamily:font.body,fontSize:12,color:C.text}}>desde {h.vigente_desde}</span>
+                    <span style={{fontFamily:font.mono,fontSize:12,color:C.text}}>Entra {h.entrada_lj} (L-J) · {h.entrada_vs} (V-S)</span>
+                    <button onClick={()=>verHistorial(h.id)} style={{background:"none",border:"none",color:C.goldLight,cursor:"pointer",fontSize:11,fontFamily:font.body}}>{historialAbierto===h.id?"Ocultar historial":"Ver historial"}</button>
+                    {!soloLectura && <div style={{marginLeft:"auto",display:"flex",gap:8}}>
+                      <button onClick={()=>empezarEdicion(h)} style={{background:"none",border:"none",color:C.textMuted,cursor:"pointer",fontSize:12}}>✏</button>
+                      <button onClick={()=>eliminar(h.id)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:12}}>🗑</button>
+                    </div>}
+                  </div>
+                )}
+                {historialAbierto===h.id && (
+                  <div style={{marginTop:8,paddingLeft:8,borderLeft:`2px solid ${C.border}`,display:"flex",flexDirection:"column",gap:4}}>
+                    {(historial[h.id]||[]).length===0 && <span style={{fontFamily:font.body,fontSize:11,color:C.textMuted}}>Sin cambios anteriores registrados.</span>}
+                    {(historial[h.id]||[]).map(v=>(
+                      <div key={v.id} style={{fontFamily:font.body,fontSize:11,color:C.textMuted}}>
+                        Antes: desde {v.vigente_desde} · entra {v.entrada_lj} (L-J) / {v.entrada_vs} (V-S) — reemplazado el {fmtFechaHora(v.reemplazado_en)}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </Card>
@@ -1098,49 +1150,112 @@ const resolverTurno = (asig, stores, turnosGlobales) => {
   return null;
 };
 const valorCelda = (asig) => { if(!asig) return ""; if(asig.turno_global_id) return `g:${asig.turno_global_id}`; if(asig.tienda_id) return `t:${asig.tienda_id}|${encodeURIComponent(asig.shift||"")}`; return ""; };
+// Elige texto blanco o azul oscuro según qué tan claro sea el color de fondo, para que
+// siempre haya contraste legible (ej. un turno especial en blanco/amarillo pálido).
+const colorTextoContraste = (hex) => {
+  if(!hex) return "#fff";
+  const h = hex.replace("#","");
+  if(h.length!==6) return "#fff";
+  const r=parseInt(h.substring(0,2),16), g=parseInt(h.substring(2,4),16), b=parseInt(h.substring(4,6),16);
+  const luminancia = (0.299*r + 0.587*g + 0.114*b)/255;
+  return luminancia > 0.65 ? C.goldDark : "#fff";
+};
 function TurnoBadgeCelda({ turno, size }) {
   if(!turno) return <div style={{ width:"100%", minHeight:size==="sm"?24:28 }}/>;
+  const txt = colorTextoContraste(turno.color);
   return (
-    <div style={{ width:"100%", minHeight:size==="sm"?24:28, borderRadius:5, background:turno.color, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:size==="sm"?10.5:11.5, fontWeight:700, padding:"3px 4px", textShadow:"0 1px 1px rgba(0,0,0,0.25)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{turno.label}</div>
+    <div style={{ width:"100%", minHeight:size==="sm"?24:28, borderRadius:5, background:turno.color, color:txt, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:size==="sm"?10.5:11.5, fontWeight:700, padding:"3px 4px", textShadow:txt==="#fff"?"0 1px 1px rgba(0,0,0,0.25)":"none", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{turno.label}</div>
   );
 }
-// ── Turnos: leyenda de colores (tiendas + turnos especiales) ──────────────────
-function TurnosLeyenda({ stores, turnosGlobales }) {
+// Busca, para una familia de turno + tienda + fecha dadas, la fila de `turnos_horarios` que
+// aplica (la más reciente vigente_desde<=fecha; prioriza una fila específica de esa tienda
+// sobre la genérica). Se usa tanto para calcular puntualidad como para mostrar la leyenda.
+const filaHorarioVigente = (familia, store, turnosHorarios, fecha=todayStr) => {
+  if(!familia) return null;
+  const candidatos = (turnosHorarios||[]).filter(h => h.familia===familia && h.vigente_desde<=fecha);
+  if(!candidatos.length) return null;
+  const especificas = candidatos.filter(h=>h.tienda_id===store);
+  const pool = especificas.length ? especificas : candidatos.filter(h=>!h.tienda_id);
+  if(!pool.length) return null;
+  return pool.reduce((a,b)=> b.vigente_desde > a.vigente_desde ? b : a);
+};
+const fmtHora12 = (hhmm) => { if(!hhmm) return "?"; const [h,m]=hhmm.split(":").map(Number); const per=h>=12?"pm":"am"; const h12=h%12===0?12:h%12; return m? `${h12}:${String(m).padStart(2,"0")}${per}` : `${h12}${per}`; };
+const formatearHorarioFila = (fila) => {
+  if(!fila) return null;
+  const lj = `${fmtHora12(fila.entrada_lj)}–${fmtHora12(fila.salida_lj)}`;
+  const vs = `${fmtHora12(fila.entrada_vs)}–${fmtHora12(fila.salida_vs)}`;
+  return lj===vs ? lj : `${lj} (L-J) / ${vs} (V-S)`;
+};
+// ── Turnos: leyenda de colores (tiendas + turnos especiales), con horario legible ─
+function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios }) {
   const tiendasConColor = Object.values(stores).filter(s=>s.color);
   if(tiendasConColor.length===0 && turnosGlobales.length===0) return null;
   return (
-    <Card p="12px 14px" style={{ marginBottom:16, display:"flex", flexWrap:"wrap", gap:14 }}>
-      {tiendasConColor.map(s=>(
-        <div key={s.id} style={{ display:"flex", alignItems:"center", gap:6 }}>
-          <span style={{ width:11, height:11, borderRadius:3, background:s.color, flexShrink:0 }}/>
-          <span style={{ fontFamily:font.body, fontSize:11.5, color:C.text, fontWeight:600 }}>{s.name}</span>
-          {(s.shifts||[]).some(sh=>sh.activo!==false) && <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>({s.shifts.filter(sh=>sh.activo!==false).map(sh=>sh.nombre).join(", ")})</span>}
-        </div>
-      ))}
-      {turnosGlobales.map(g=>(
-        <div key={g.id} style={{ display:"flex", alignItems:"center", gap:6 }}>
-          <span style={{ width:11, height:11, borderRadius:3, background:g.color, flexShrink:0 }}/>
-          <span style={{ fontFamily:font.body, fontSize:11.5, color:C.text, fontWeight:600 }}>{g.nombre}</span>
-        </div>
-      ))}
+    <Card p="12px 14px" style={{ marginBottom:16 }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+        {tiendasConColor.map(s=>{
+          const activos=(s.shifts||[]).filter(sh=>sh.activo!==false);
+          if(!activos.length) return null;
+          return (
+            <div key={s.id}>
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:5 }}>
+                <span style={{ width:11, height:11, borderRadius:3, background:s.color, flexShrink:0 }}/>
+                <span style={{ fontFamily:font.body, fontSize:12, color:C.text, fontWeight:700 }}>{s.name}</span>
+              </div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:8, paddingLeft:17 }}>
+                {activos.map(sh=>{
+                  const fila = filaHorarioVigente(familiaDeTurno(sh.nombre), s.id, turnosHorarios);
+                  return (
+                    <div key={sh.id} style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>
+                      <span style={{ color:C.text, fontWeight:600 }}>{sh.nombre}</span>{" "}
+                      {fila ? formatearHorarioFila(fila) : "sin horario definido"}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+        {turnosGlobales.length>0 && (
+          <div style={{ display:"flex", flexWrap:"wrap", gap:14, paddingTop: tiendasConColor.length?8:0, borderTop: tiendasConColor.length?`1px solid ${C.border}`:"none" }}>
+            {turnosGlobales.map(g=>(
+              <div key={g.id} style={{ display:"flex", alignItems:"center", gap:6 }}>
+                <span style={{ width:11, height:11, borderRadius:3, background:g.color, flexShrink:0 }}/>
+                <span style={{ fontFamily:font.body, fontSize:11.5, color:C.text, fontWeight:600 }}>{g.nombre}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </Card>
   );
 }
 
-// ── Turnos: mini formulario para autorizar un horario especial de entrada, un solo día ──
-function ModalHorarioCustom({ info, onGuardar, onCerrar }) {
+// ── Turnos: mini formulario para autorizar un horario especial de entrada/salida, un solo día ──
+function ModalHorarioCustom({ info, turnosHorarios, onGuardar, onCerrar }) {
   const [entrada,setEntrada]=useState(info.asig?.entrada_custom||"");
+  const [salida,setSalida]=useState(info.asig?.salida_custom||"");
   const [nota,setNota]=useState(info.asig?.nota_custom||"");
+  const familia = familiaDeTurno(info.shiftLabel);
+  const filaEstandar = filaHorarioVigente(familia, info.asig?.tienda_id, turnosHorarios, info.fecha);
+  const dow = new Date(info.fecha+"T12:00:00").getDay();
+  const esVS = dow===5||dow===6;
+  const estandarTxt = filaEstandar ? `${fmtHora12(esVS?filaEstandar.entrada_vs:filaEstandar.entrada_lj)}–${fmtHora12(esVS?filaEstandar.salida_vs:filaEstandar.salida_lj)}` : "sin definir";
+  const yaTieneCustom = !!(info.asig?.entrada_custom || info.asig?.salida_custom);
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:16 }}>
       <Card glow style={{ maxWidth:360, width:"100%" }}>
         <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color:C.goldLight, marginBottom:4 }}>Horario especial — solo este día</div>
-        <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginBottom:14 }}>{info.nombreAsesor} · {info.fecha}. No cambia su turno de siempre ({info.shiftLabel}), solo la hora de entrada esperada ese día — útil para autorizaciones puntuales (ej. jornada reducida).</div>
-        <Field label="Hora de entrada especial" type="time" value={entrada} onChange={setEntrada}/>
+        <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginBottom:6 }}>{info.nombreAsesor} · {info.fecha}. Sigue siendo su turno de siempre ({info.shiftLabel}), solo cambia la hora ese día — para autorizaciones puntuales (ej. jornada reducida).</div>
+        <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, marginBottom:14, background:C.surfaceAlt, borderRadius:7, padding:"7px 10px" }}>Horario normal de {info.shiftLabel}: <strong>{estandarTxt}</strong></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <Field label="Entrada especial" type="time" value={entrada} onChange={setEntrada}/>
+          <Field label="Salida especial" type="time" value={salida} onChange={setSalida}/>
+        </div>
         <Field label="Nota (opcional)" value={nota} onChange={setNota} placeholder="Ej: autorizado 4 horas"/>
         <div style={{ display:"flex", gap:8, marginTop:4 }}>
-          <Btn onClick={()=>onGuardar(entrada,nota)} variant="success" sm full>Guardar</Btn>
-          {info.asig?.entrada_custom && <Btn onClick={()=>onGuardar("","")} variant="danger" sm full>Quitar</Btn>}
+          <Btn onClick={()=>onGuardar(entrada,salida,nota)} variant="success" sm full>Guardar</Btn>
+          {yaTieneCustom && <Btn onClick={()=>onGuardar("","","")} variant="danger" sm full>Quitar</Btn>}
           <Btn onClick={onCerrar} variant="ghost" sm full>Cancelar</Btn>
         </div>
       </Card>
@@ -1149,13 +1264,13 @@ function ModalHorarioCustom({ info, onGuardar, onCerrar }) {
 }
 
 // ── Turnos: rejilla mensual (asesores en columnas, días en filas) ─────────────
-function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, editable, onCambiarCelda, onGuardarCustom }) {
+function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnosHorarios, editable, onCambiarCelda, onGuardarCustom }) {
   const colWidth = Math.max(70, ...advisors.map(a=>primerNombre(a.name).length*8+28), 70);
   const storeGroups = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
   const [modalInfo,setModalInfo]=useState(null);
   return (
     <div style={{ overflowX:"auto", border:`1px solid ${C.border}`, borderRadius:10 }}>
-      {modalInfo && <ModalHorarioCustom info={modalInfo} onCerrar={()=>setModalInfo(null)} onGuardar={(entrada,nota)=>{ onGuardarCustom(modalInfo.asesorId, modalInfo.fecha, entrada, nota); setModalInfo(null); }}/>}
+      {modalInfo && <ModalHorarioCustom info={modalInfo} turnosHorarios={turnosHorarios} onCerrar={()=>setModalInfo(null)} onGuardar={(entrada,salida,nota)=>{ onGuardarCustom(modalInfo.asesorId, modalInfo.fecha, entrada, salida, nota); setModalInfo(null); }}/>}
       <table style={{ borderCollapse:"collapse", width:"100%", minWidth:140+advisors.length*colWidth }}>
         <thead>
           <tr>
@@ -1179,13 +1294,13 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, editab
                   <td key={a.id} style={{ borderBottom:`1px solid ${C.border}`, borderLeft:`1px solid ${C.border}`, padding:3 }}>
                     {editable ? (
                       <div style={{ display:"flex", alignItems:"center", gap:2 }}>
-                        <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ flex:1, minWidth:0, minHeight:28, borderRadius:5, border:`1px solid ${C.border}`, background:turno?turno.color:C.surfaceAlt, color:turno?"#fff":C.textMuted, fontFamily:font.body, fontSize:11, fontWeight:turno?700:400, padding:"3px 2px", cursor:"pointer", outline:"none" }}>
+                        <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ flex:1, minWidth:0, minHeight:28, borderRadius:5, border:`1px solid ${C.border}`, background:turno?turno.color:C.surfaceAlt, color:turno?colorTextoContraste(turno.color):C.textMuted, fontFamily:font.body, fontSize:11, fontWeight:turno?700:400, padding:"3px 2px", cursor:"pointer", outline:"none" }}>
                           <option value="">—</option>
                           <optgroup label="Especiales">{turnosGlobales.map(g=><option key={g.id} value={`g:${g.id}`}>{g.nombre}</option>)}</optgroup>
                           {storeGroups.map(s=>(<optgroup key={s.id} label={s.name}>{s.shifts.filter(sh=>sh.activo!==false).map(sh=><option key={sh.id} value={`t:${s.id}|${encodeURIComponent(sh.nombre)}`}>{sh.nombre}</option>)}</optgroup>))}
                         </select>
                         {asig?.tienda_id && (
-                          <button onClick={()=>setModalInfo({ asesorId:a.id, fecha, asig, nombreAsesor:a.name, shiftLabel:asig.shift||"" })} title={asig.entrada_custom?`Horario especial: ${asig.entrada_custom}`:"Autorizar horario especial este día"} style={{ background:"none", border:"none", cursor:"pointer", fontSize:12, flexShrink:0, opacity:asig.entrada_custom?1:0.45 }}>⏰</button>
+                          <button onClick={()=>setModalInfo({ asesorId:a.id, fecha, asig, nombreAsesor:a.name, shiftLabel:asig.shift||"" })} title={(asig.entrada_custom||asig.salida_custom)?`Horario especial: ${asig.entrada_custom||"?"}–${asig.salida_custom||"?"}`:"Autorizar horario especial este día"} style={{ background:"none", border:"none", cursor:"pointer", fontSize:12, flexShrink:0, opacity:(asig.entrada_custom||asig.salida_custom)?1:0.45 }}>⏰</button>
                         )}
                       </div>
                     ) : <TurnoBadgeCelda turno={turno}/>}
@@ -1266,26 +1381,26 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
   );
 }
 
-// ── SCREEN: Turnos · Ver ────────────────────────────────────────────────────────
-function TurnosVerScreen({ users, stores, turnosGlobales, asignaciones }) {
+// ── SCREEN: Turnos · Ver (esta es la que ven también los asesores, como "Turnos") ──
+function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asignaciones }) {
   const { anio, mes, prev, next } = useMesSeleccionado();
   const advisors = users.filter(u=>u.role==="advisor"&&u.active);
   const dias = fechasDelMesTurnos(anio, mes);
   const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
   return (
     <div>
-      <PageHeader title="Turnos" subtitle="Rejilla del mes — solo consulta"/>
-      <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales}/>
+      <PageHeader title="Rejilla del mes" subtitle="Solo consulta"/>
+      <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios}/>
       <TurnosMiniResumen advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales}/>
       <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
       {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay asesores activos. Actívalos en Turnos ▸ Administrar ▸ Asesores.</div> :
-        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} editable={false}/>}
+        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable={false}/>}
     </div>
   );
 }
 
-// ── SCREEN: Turnos · Editar ──────────────────────────────────────────────────────
-function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, asignaciones, setAsignaciones }) {
+// ── SCREEN: Turnos · Borrador (antes "Editar") ─────────────────────────────────
+function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHorarios, asignaciones, setAsignaciones }) {
   const { anio, mes, prev, next } = useMesSeleccionado();
   const advisors = users.filter(u=>u.role==="advisor"&&u.active);
   const dias = fechasDelMesTurnos(anio, mes);
@@ -1309,21 +1424,21 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, asignacio
       else if(error) alert(`No se pudo guardar el turno: ${error.message}`);
     }
   };
-  const onGuardarCustom = async (asesorId, fecha, entradaCustom, notaCustom) => {
+  const onGuardarCustom = async (asesorId, fecha, entradaCustom, salidaCustom, notaCustom) => {
     const existing = asigMap.get(`${asesorId}|${fecha}`);
     if(!existing) return;
-    const{data,error}=await supabase.from("turnos_asignaciones").update({ entrada_custom:entradaCustom||null, nota_custom:notaCustom||null }).eq("id",existing.id).select().single();
+    const{data,error}=await supabase.from("turnos_asignaciones").update({ entrada_custom:entradaCustom||null, salida_custom:salidaCustom||null, nota_custom:notaCustom||null }).eq("id",existing.id).select().single();
     if(!error&&data) setAsignaciones(prev=>prev.map(a=>a.id===data.id?data:a));
     else if(error) alert(`No se pudo guardar: ${error.message}`);
   };
   return (
     <div>
-      <PageHeader title="Turnos" subtitle="Los cambios se guardan al instante"/>
-      <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales}/>
+      <PageHeader title="Borrador de turnos" subtitle="Los cambios se guardan al instante"/>
+      <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios}/>
       <GestionAsesoresActivosTurnos users={users} setUsers={setUsers}/>
       <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
       {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay asesores activos. Actívalos arriba, en "Asesores activos en la malla".</div> :
-        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom}/>}
+        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom}/>}
     </div>
   );
 }
@@ -1333,8 +1448,8 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
   const soloLectura = useReadOnly();
   const [sub,setSub]=useState("ver");
   const subTabs=[
-    { id:"ver", label:"📅 Ver" },
-    ...(soloLectura?[]:[{ id:"editar", label:"✏️ Editar" }]),
+    { id:"ver", label:"📅 Turnos" },
+    ...(soloLectura?[]:[{ id:"editar", label:"📝 Borrador" }]),
     ...(puedeAdministrar?[{ id:"administrar", label:"⚙️ Administrar" }]:[]),
   ];
   useEffect(()=>{ if(!subTabs.some(t=>t.id===sub)) setSub("ver"); },[soloLectura, puedeAdministrar]);
@@ -1345,8 +1460,8 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
           <button key={t.id} onClick={()=>setSub(t.id)} style={{ padding:"7px 16px", borderRadius:99, border:`1px solid ${sub===t.id?C.gold:C.border}`, background:sub===t.id?`${C.gold}18`:"transparent", color:sub===t.id?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>{t.label}</button>
         ))}
       </div>
-      {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} asignaciones={asignaciones}/>}
-      {sub==="editar"      && !soloLectura && <TurnosEditarScreen users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} asignaciones={asignaciones} setAsignaciones={setAsignaciones}/>}
+      {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones}/>}
+      {sub==="editar"      && !soloLectura && <TurnosEditarScreen users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} setAsignaciones={setAsignaciones}/>}
       {sub==="administrar" && puedeAdministrar && <TurnosAdminScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
     </div>
   );
@@ -1357,8 +1472,8 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
   const [selStore,setSelStore]=useState(""),[selShift,setSelShift]=useState(""),[locked,setLocked]=useState(false),[showCamera,setShowCamera]=useState(false),[recording,setRecording]=useState(false),[toast,setToast]=useState(null);
   useEffect(()=>{ const h=records.filter(r=>r.user_id===user.id&&r.date===todayStr&&r.event!=="omitido"); if(h.length>0){setSelStore(h[0].store);setSelShift(h[0].shift);setLocked(true);} },[records]);
   // Si hoy ya tiene un turno asignado en la rejilla de Turnos (incluye apoyo en pareja — ambos
-  // quedan con el mismo tienda+turno ese día), se precarga solo — el asesor ya no tiene que
-  // elegirlo a mano. Sigue siendo editable por si el plan cambió ese día.
+  // quedan con el mismo tienda+turno ese día), se precarga y queda fijo — ya no lo elige a mano.
+  // Solo puede elegir libremente si ese día no tiene ninguna asignación en la rejilla.
   const asigHoy = (asignaciones||[]).find(a=>a.asesor_id===user.id && a.fecha===todayStr && a.tienda_id);
   useEffect(()=>{ if(locked||selStore) return; if(asigHoy){ setSelStore(asigHoy.tienda_id); setSelShift(asigHoy.shift||""); } },[asigHoy, locked, selStore]);
   const todayRecs=records.filter(r=>r.user_id===user.id&&r.date===todayStr);
@@ -1376,9 +1491,9 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
       {toast&&<div style={{position:"fixed",top:16,right:16,left:16,background:C.greenDim,border:`1px solid ${C.green}`,borderRadius:10,padding:"12px 16px",color:C.green,fontFamily:font.body,fontSize:13,fontWeight:600,zIndex:200,textAlign:"center"}}>{toast}</div>}
       <PageHeader title="Marcar Asistencia" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} />
       <Card style={{marginBottom:12}}>
-        {!locked && asigHoy && <div style={{marginBottom:10}}><Badge color={C.gold} sm>📅 Turno de hoy precargado desde Turnos</Badge></div>}
-        <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}} disabled={locked} options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
-        {selStore&&stores[selStore]?.shifts?.some(s=>s.activo!==false)&&<Field label="Turno" value={selShift} onChange={setSelShift} disabled={locked} options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).filter(s=>s.activo!==false).map(s=>({value:s.nombre,label:s.nombre}))]}/>}
+        {!locked && asigHoy && <div style={{marginBottom:10}}><Badge color={C.gold} sm>🔒 Turno de hoy — definido en Turnos</Badge></div>}
+        <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
+        {selStore&&stores[selStore]?.shifts?.some(s=>s.activo!==false)&&<Field label="Turno" value={selShift} onChange={setSelShift} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).filter(s=>s.activo!==false).map(s=>({value:s.nombre,label:s.nombre}))]}/>}
       </Card>
 
       {nextEvent ? (
@@ -1466,27 +1581,6 @@ function HistoryScreen({ user, records, stores, turnosHorarios, turnosAsignacion
           </Card>
         );})}
         {jornadas.length===0&&<div style={{textAlign:"center",padding:60,color:C.textMuted,fontFamily:font.body}}>Sin registros aún.</div>}
-      </div>
-    </div>
-  );
-}
-
-// ── SCREEN: Schedule (malla horaria personal — rejilla de Turnos filtrada al asesor) ──
-function ScheduleScreen({ user, stores, turnosGlobales, asignaciones }) {
-  const { anio, mes, prev, next } = useMesSeleccionado();
-  const dias = fechasDelMesTurnos(anio, mes);
-  const asigMap = new Map((asignaciones||[]).filter(a=>a.asesor_id===user.id).map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
-  return (
-    <div>
-      <PageHeader title="Malla Horaria" subtitle="Tu programación del mes"/>
-      <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
-      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-        {dias.map(fecha=>{ const turno=resolverTurno(asigMap.get(`${user.id}|${fecha}`), stores, turnosGlobales); const dom=esDomingo(fecha); return (
-          <Card key={fecha} p="10px 14px" style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ minWidth:110, fontFamily:font.body, fontSize:12.5, color:dom?C.green:C.text, fontWeight:dom?700:500 }}>{nombreDia(fecha)} {Number(fecha.slice(8,10))}</div>
-            <div style={{ flex:1 }}>{turno ? <TurnoBadgeCelda turno={turno}/> : <span style={{fontFamily:font.body,fontSize:12,color:C.border}}>Sin asignar</span>}</div>
-          </Card>
-        );})}
       </div>
     </div>
   );
@@ -5364,7 +5458,7 @@ export default function App() {
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
-      if(tab==="schedule") return <ScheduleScreen user={user} stores={stores} turnosGlobales={turnosGlobales} asignaciones={turnosAsignaciones}/>;
+      if(tab==="schedule") return <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={turnosAsignaciones}/>;
     }
     return null;
   };
