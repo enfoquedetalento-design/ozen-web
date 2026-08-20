@@ -3720,6 +3720,12 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   const [editItemDescuentoTipo, setEditItemDescuentoTipo] = useState("valor");
   const [editItemPagos, setEditItemPagos] = useState([]); // [{medio_pago, valor, numero_autorizacion}]
   const [editItemMedioNuevo, setEditItemMedioNuevo] = useState("");
+  // Nota crédito: fecha real de un renglón nuevo (excedente) que se está agregando o editando —
+  // en un renglón original la fecha queda fija (la de la venta), no aplica este campo.
+  const [editItemFecha, setEditItemFecha] = useState(todayStr);
+  // null = componiendo un renglón nuevo para agregar; número = editando en el puesto ese índice
+  // de editItems (reemplaza en vez de agregar al guardar).
+  const [editingItemIdx, setEditingItemIdx] = useState(null);
   const [editObservacion, setEditObservacion] = useState("");
   const [editNumeroFactura, setEditNumeroFactura] = useState("");
 
@@ -3882,11 +3888,13 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   };
 
   const iniciarCorreccionError = (venta) => {
-    const confirmacion = window.prompt(`Vas a corregir la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nA diferencia de la Notacrédito normal, aquí el valor puede subir o bajar libremente y no necesita aprobación. Úsalo SOLO si el número se digitó mal desde el principio.\n\nEscribe CORREGIR para confirmar.`);
+    const confirmacion = window.prompt(puedeCorregirError
+      ? `Vas a hacer una Nota crédito sobre la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nPuedes corregir el tipo, valor y medio de pago de cada renglón, o agregar un renglón nuevo (excedente) con su propia fecha. El valor total no puede quedar por debajo de lo ya registrado.\n\nEscribe CORREGIR para confirmar.`
+      : `Vas a corregir la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nComo es de hoy mismo, el valor puede subir o bajar libremente. Úsalo SOLO si el número se digitó mal desde el principio.\n\nEscribe CORREGIR para confirmar.`);
     if(confirmacion!=="CORREGIR") return;
     setModoErrorId(venta.id);
     setEditando(venta.id);
-    setEditItems((detalle[venta.id]?.items||[]).map(i=>({ tipo:i.tipo, valorTotal:Number(i.valor), descuento:Number(i.descuento||0), pagos:i.pagos||[] })));
+    setEditItems((detalle[venta.id]?.items||[]).map(i=>({ id:i.id, tipo:i.tipo, valorTotal:Number(i.valor), descuento:Number(i.descuento||0), pagos:i.pagos||[], esOriginal:true, valorOriginalItem:Number(i.valor) })));
     setEditObservacion(venta.observacion||"");
     setEditNumeroFactura(venta.numero_factura||"");
     setEditErrorMsg("");
@@ -3896,7 +3904,34 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     setEditItemDescuentoTipo("valor");
     setEditItemPagos([]);
     setEditItemMedioNuevo("");
-    setAjusteFecha(todayStr);
+    setEditItemFecha(todayStr);
+    setEditingItemIdx(null);
+  };
+
+  // Abre el formulario de arriba en modo edición sobre un renglón ya en la lista (original o
+  // recién agregado). En uno original la fecha queda fija en la de la venta; en uno nuevo se
+  // puede cambiar libremente.
+  const iniciarEdicionItem = (idx, venta) => {
+    const it = editItems[idx];
+    if(!it) return;
+    setEditingItemIdx(idx);
+    setEditItemTipo(it.tipo);
+    setEditItemValor(String(it.valorTotal));
+    setEditItemDescuento(String(it.descuento||0));
+    setEditItemDescuentoTipo("valor");
+    setEditItemPagos(it.pagos||[]);
+    setEditItemMedioNuevo("");
+    setEditItemFecha(it.esOriginal ? venta.fecha : (it.fecha||todayStr));
+  };
+  const cancelarEdicionItem = () => {
+    setEditingItemIdx(null);
+    setEditItemTipo("producto");
+    setEditItemValor("");
+    setEditItemDescuento("");
+    setEditItemDescuentoTipo("valor");
+    setEditItemPagos([]);
+    setEditItemMedioNuevo("");
+    setEditItemFecha(todayStr);
   };
 
   const editItemEsFlexipago = editItemTipo === "flexipago";
@@ -3918,19 +3953,29 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   const setEditItemPagoValor = (idx, v) => setEditItemPagos(prev=>prev.map((p,i)=>i===idx?{...p,valor:v}:p));
   const setEditItemPagoAutorizacion = (idx, v) => setEditItemPagos(prev=>prev.map((p,i)=>i===idx?{...p,numero_autorizacion:v}:p));
 
+  // Renglón original: si master/admin_finanzas está haciendo la Nota crédito, no puede bajar del
+  // valor bruto con el que se registró. La corrección libre del mismo día (cuenta tienda) no
+  // tiene este piso — sigue pudiendo subir o bajar sin límite.
+  const editItemEditandoOriginal = editingItemIdx!==null && editItems[editingItemIdx]?.esOriginal;
+  const editItemPisoOriginal = editItemEditandoOriginal ? editItems[editingItemIdx].valorOriginalItem : 0;
+  const editItemBajoPiso = puedeCorregirError && editItemEditandoOriginal && editItemValorNum < editItemPisoOriginal;
+
   const agregarEditItem = () => {
-    if(editItemEsFlexipago){
-      if(editItemValorNum<=0) return;
-      setEditItems(prev=>[...prev, { tipo:"flexipago", valorTotal:editItemValorNum, descuento:0, pagos:[] }]);
-      setEditItemValor("");
-      return;
-    }
-    if(editItemValorNum<=0 || editItemPagos.length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT) return;
+    if(editItemValorNum<=0 || editItemPagos.length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT || editItemBajoPiso) return;
     const pagos = editItemPagos.map(p=>({ medio_pago:p.medio_pago, valor:Number(p.valor||0), numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?(p.numero_autorizacion||"").trim():null }));
-    setEditItems(prev=>[...prev, { tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos }]);
-    setEditItemValor(""); setEditItemDescuento(""); setEditItemDescuentoTipo("valor"); setEditItemPagos([]);
+    if(editingItemIdx!==null){
+      const original = editItems[editingItemIdx];
+      const actualizado = { ...original, tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos, ...(original.esOriginal ? {} : { fecha:editItemFecha }) };
+      setEditItems(prev=>prev.map((it,i)=>i===editingItemIdx?actualizado:it));
+    } else {
+      setEditItems(prev=>[...prev, { id:`nuevo_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos, esOriginal:false, fecha:editItemFecha }]);
+    }
+    cancelarEdicionItem();
   };
-  const quitarEditItem = (idx) => setEditItems(prev=>prev.filter((_,i)=>i!==idx));
+  const quitarEditItem = (idx) => {
+    setEditItems(prev=>prev.filter((_,i)=>i!==idx));
+    if(idx===editingItemIdx) cancelarEdicionItem();
+  };
 
   const guardarEdicion = async (venta) => {
     const esModoError = modoErrorId===venta.id;
@@ -3938,16 +3983,25 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     // Es el único modo donde el valor puede subir O bajar libremente.
     if(esModoError){
       if(editItems.length===0) return;
-      setGuardando(true);
       const bruto = editItems.reduce((a,i)=>a+i.valorTotal,0);
       const desc = editItems.reduce((a,i)=>a+i.descuento,0);
       const total = bruto - desc;
-      const esFlexipagoEdit = editItems.some(i=>i.tipo==="flexipago");
       const valorAnterior = Number(venta.total);
-      const payload = { observacion:editObservacion.trim(), numero_factura:editNumeroFactura.trim()||null, valor_bruto:bruto, descuento_total:desc, total, es_flexipago:esFlexipagoEdit, updated_at:new Date().toISOString() };
-      // En modo error se resetea el piso: el valor corregido queda como si siempre hubiera sido
-      // el original, para no dejar un "excedente" fantasma en Métricas.
-      if(esModoError) payload.valor_original = total;
+      // Nota crédito (master/admin_finanzas): el piso es siempre lo ya registrado, igual que la
+      // Notacrédito normal. La corrección libre del mismo día (cuenta tienda) no tiene piso.
+      const piso = Number(venta.valor_original ?? venta.total);
+      if(puedeCorregirError && total < piso){
+        setEditErrorMsg(`El nuevo valor ($${total.toLocaleString("es-CO")}) no puede quedar por debajo de lo ya registrado ($${piso.toLocaleString("es-CO")}).`);
+        return;
+      }
+      setEditErrorMsg("");
+      setGuardando(true);
+      const payload = { observacion:editObservacion.trim(), numero_factura:editNumeroFactura.trim()||null, valor_bruto:bruto, descuento_total:desc, total, updated_at:new Date().toISOString() };
+      // Solo en la corrección libre del mismo día (sin piso) se resetea valor_original, para que
+      // el valor corregido quede como si siempre hubiera sido el original (es un typo, no plata
+      // real que entró después). En la Nota crédito de master/admin_finanzas NO se resetea: el
+      // piso original se conserva para siempre, igual que en la Notacrédito normal.
+      if(!puedeCorregirError) payload.valor_original = total;
       const { data:ventaAct } = await supabase.from("ventas").update(payload).eq("id",venta.id).select().single();
       await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
       const filasItems = editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos }));
@@ -3956,10 +4010,16 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       for(const s of aprobadasSinAplicar){
         await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
       }
-      // Se deja un rastro en el historial de ajustes, marcado como corrección por error para que
-      // Métricas no lo cuente como un excedente real (eso ya quedó reflejado arriba en valor_original).
-      if(esModoError && total!==valorAnterior){
-        const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:(puedeEditarFechaAjuste && ajusteFecha) || todayStr, valor_anterior:valorAnterior, valor_nuevo:total, diferencia:total-valorAnterior, motivo:`Corrección por error${editObservacion.trim()?": "+editObservacion.trim():""}`, aplicado_por:user.name, es_correccion_error:true }).select().single();
+      if(total!==valorAnterior){
+        // Nota crédito con piso: el excedente es plata real, así que SÍ debe contar en Métricas —
+        // se registra con la fecha real del renglón nuevo (no es_correccion_error). La corrección
+        // libre del mismo día sigue sin contar aparte (ya quedó reflejada arriba en valor_original).
+        const primerNuevo = editItems.find(i=>!i.esOriginal);
+        const fechaAjuste = puedeCorregirError ? (primerNuevo?.fecha || todayStr) : todayStr;
+        const motivo = puedeCorregirError
+          ? `Nota crédito${editObservacion.trim()?": "+editObservacion.trim():""}`
+          : `Corrección por error${editObservacion.trim()?": "+editObservacion.trim():""}`;
+        const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:fechaAjuste, valor_anterior:valorAnterior, valor_nuevo:total, diferencia:total-valorAnterior, motivo, aplicado_por:user.name, es_correccion_error:!puedeCorregirError }).select().single();
         if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
       }
       setGuardando(false);
@@ -4281,15 +4341,19 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                         </div>
                       ) : modoErrorId===v.id ? (
                         <div style={{ marginBottom:10 }}>
-                          <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.red}18`, border:`1px solid ${C.red}` }}>
-                            ⚠️ Modo corrección por error: aquí el valor puede subir o bajar libremente. Úsalo solo si el número se digitó mal.
+                          <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:puedeCorregirError?`${C.gold}18`:`${C.red}18`, border:`1px solid ${puedeCorregirError?C.gold:C.red}` }}>
+                            {puedeCorregirError
+                              ? "🧾 Nota crédito: puedes corregir tipo, valor, medio de pago, pero el valor no puede ser menor al valor original."
+                              : "⚠️ Modo corrección por error: aquí el valor puede subir o bajar libremente. Úsalo solo si el número se digitó mal."}
                           </div>
                           <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:10 }}>
                             {editItems.map((i,idx)=>(
-                              <div key={idx} style={{ display:"flex", flexDirection:"column", gap:4, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
+                              <div key={i.id||idx} style={{ display:"flex", flexDirection:"column", gap:4, background:editingItemIdx===idx?`${C.gold}14`:C.surfaceAlt, border:`1px solid ${editingItemIdx===idx?C.gold:C.border}`, borderRadius:7, padding:"8px 10px" }}>
                                 <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                                   <Badge color={i.tipo==="producto"?C.green:i.tipo==="flexipago"?C.blue:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
+                                  {!i.esOriginal && <Badge color={C.blue} sm>excedente · {i.fecha||todayStr}</Badge>}
                                   <div style={{ flex:1, fontFamily:font.mono, fontSize:12, color:C.text, textAlign:"right" }}>${i.valorTotal.toLocaleString("es-CO")}{i.descuento>0 && ` (desc $${i.descuento.toLocaleString("es-CO")})`}</div>
+                                  <button onClick={()=>iniciarEdicionItem(idx,v)} title="Editar este renglón" style={{ background:"none", border:"none", cursor:"pointer", color:"inherit" }}>✏️</button>
                                   <button onClick={()=>quitarEditItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
                                 </div>
                                 {i.tipo!=="flexipago" && (
@@ -4302,7 +4366,13 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                               </div>
                             ))}
                           </div>
-                          <div style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"12px", marginBottom:10 }}>
+                          <div style={{ border:`1px solid ${editingItemIdx!==null?C.gold:C.border}`, borderRadius:8, padding:"12px", marginBottom:10 }}>
+                            {editingItemIdx!==null && (
+                              <div style={{ fontFamily:font.body, fontSize:11, color:C.goldLight, marginBottom:8 }}>Editando {editItemEditandoOriginal ? "el renglón original" : "un renglón nuevo (excedente)"} — <button onClick={cancelarEdicionItem} style={{ background:"none", border:"none", color:C.textMuted, textDecoration:"underline", cursor:"pointer", padding:0, fontFamily:font.body, fontSize:11 }}>cancelar edición</button></div>
+                            )}
+                            <Field label="Fecha" type="date" value={editItemFecha} onChange={setEditItemFecha} disabled={editItemEditandoOriginal || !puedeCorregirError}/>
+                            {editItemEditandoOriginal && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:-8, marginBottom:10 }}>Es el renglón original — la fecha se queda fija en la de la venta.</div>}
+                            {editItemBajoPiso && <div style={{ fontFamily:font.body, fontSize:11, color:C.red, marginTop:-8, marginBottom:10 }}>El valor no puede quedar por debajo de ${editItemPisoOriginal.toLocaleString("es-CO")} (lo ya registrado).</div>}
                             <Field label="Tipo" value={editItemTipo} onChange={setEditItemTipo} options={VENTAS_TIPOS.filter(t=>t.value!=="flexipago")}/>
                             {editItemEsFlexipago ? (
                               <>
@@ -4369,7 +4439,10 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                                 )}
                               </>
                             )}
-                            <Btn onClick={agregarEditItem} disabled={editItemEsFlexipago ? editItemValorNum<=0 : (editItemValorNum<=0 || editItemPagos.length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT)} sm full>+ Agregar</Btn>
+                            <div style={{ display:"flex", gap:8 }}>
+                              <Btn onClick={agregarEditItem} disabled={editItemValorNum<=0 || editItemPagos.length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT || editItemBajoPiso} sm full>{editingItemIdx!==null ? "Guardar cambios del renglón" : "+ Agregar"}</Btn>
+                              {editingItemIdx!==null && <Btn onClick={cancelarEdicionItem} variant="ghost" sm>Cancelar</Btn>}
+                            </div>
                           </div>
                           <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
                           {editItems.some(i=>i.tipo==="flexipago") ? (
@@ -4377,8 +4450,10 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                           ) : (
                             <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
                           )}
-                          {puedeEditarFechaAjuste && (
-                            <Field label="Fecha real del ajuste" type="date" value={ajusteFecha} onChange={setAjusteFecha}/>
+                          {editErrorMsg && (
+                            <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.red}18`, border:`1px solid ${C.red}`, color:C.red }}>
+                              {editErrorMsg}
+                            </div>
                           )}
                           <div style={{ display:"flex", gap:8 }}>
                             <Btn onClick={()=>guardarEdicion(v)} disabled={guardando} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
