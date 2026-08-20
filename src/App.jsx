@@ -2219,6 +2219,37 @@ const FLEXIPAGO_AVISO_ITEMS = [
   { texto:"Este acuerdo se rige por las normas comerciales y civiles vigentes en Colombia." },
 ];
 
+// Tarjeta de un registro de Nota crédito (el "espejo" del excedente, con su propio N.º de
+// factura) — usada tanto en "Ventas de hoy" como en "Lista de ventas". Es expandible: al abrirla
+// se ve de qué factura original viene y cuál era su valor original, sin afectar la suma (esto es
+// solo informativo).
+function NotaCreditoCard({ ajuste, venta }) {
+  const [abierto, setAbierto] = useState(false);
+  const valorOriginalFactura = Number(venta.valor_original ?? venta.total);
+  return (
+    <Card p="10px 14px" style={{ borderLeft:`3px solid ${C.amber}` }}>
+      <button onClick={()=>setAbierto(a=>!a)} style={{ width:"100%", background:"none", border:"none", padding:0, cursor:"pointer", textAlign:"left" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
+            <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{ajuste.numero_factura?`#${ajuste.numero_factura}`:"—"}</span>
+            <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+              {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
+            </span>
+          </div>
+          <Badge color={C.amber} sm>🧾 Notacrédito</Badge>
+          <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${Number(ajuste.diferencia||0).toLocaleString("es-CO")}</div>
+          <span style={{ color:C.textMuted, fontSize:11, flexShrink:0 }}>{abierto?"▲":"▼"}</span>
+        </div>
+      </button>
+      {abierto && (
+        <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${C.border}`, fontFamily:font.body, fontSize:11.5, color:C.textMuted, lineHeight:1.5 }}>
+          Viene de una Nota crédito sobre la factura original <strong style={{ color:C.text }}>#{venta.numero_factura||"—"}</strong> del {venta.fecha} — valor original de esa factura: <strong style={{ color:C.text }}>${valorOriginalFactura.toLocaleString("es-CO")}</strong>.
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, ventasAjustes, metas, isMobile, soloLectura }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   // OJO: el valor por defecto debe salir de tiendasVenta() (las que sí venden), no de todas las
@@ -2789,19 +2820,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
           </Card>
         ))}
         {notaCreditoHoyTienda.map(({venta, ajuste})=>(
-          <Card key={`nc-${ajuste.id}`} p="10px 14px" style={{ borderLeft:`3px solid ${C.amber}` }}>
-            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-              <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
-                <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{venta.numero_factura?`#${venta.numero_factura}`:"—"}</span>
-                <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                  {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
-                </span>
-              </div>
-              <Badge color={C.amber} sm>🧾 Notacrédito</Badge>
-              <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${Number(ajuste.diferencia||0).toLocaleString("es-CO")}</div>
-            </div>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>Excedente por Notacrédito sobre la factura del {venta.fecha}.</div>
-          </Card>
+          <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta}/>
         ))}
         {ventasHoy.length===0 && abonosHoyTienda.length===0 && notaCreditoHoyTienda.length===0 && <div style={{ textAlign:"center", padding:30, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin ventas registradas hoy en esta tienda.</div>}
       </div>
@@ -3021,7 +3040,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
 
   const iniciarCorreccionError = (venta) => {
     const confirmacion = window.prompt(puedeCorregirError
-      ? `Vas a hacer una Nota crédito sobre la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nPuedes corregir el tipo, valor y medio de pago de cada renglón, o agregar un renglón nuevo (excedente) con su propia fecha. El valor total no puede quedar por debajo de lo ya registrado.\n\nEscribe CORREGIR para confirmar.`
+      ? `Vas a hacer una Nota crédito sobre la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nPuedes corregir el tipo, valor y medio de pago de cada renglón, o agregar un renglón nuevo (excedente) con su propia fecha. El valor total no puede quedar por debajo de lo ya registrado. Si el valor cambia, vas a necesitar un N.º de factura (Siigo) NUEVO para el excedente — la factura original no cambia.\n\nEscribe CORREGIR para confirmar.`
       : `Vas a corregir la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nComo es de hoy mismo, el valor puede subir o bajar libremente. Úsalo SOLO si el número se digitó mal desde el principio.\n\nEscribe CORREGIR para confirmar.`);
     if(confirmacion!=="CORREGIR") return;
     setModoErrorId(venta.id);
@@ -3106,8 +3125,14 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       const original = editItems[editingItemIdx];
       const actualizado = { ...original, tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos, ...(original.esOriginal ? {} : { fecha:editItemFecha }) };
       setEditItems(prev=>prev.map((it,i)=>i===editingItemIdx?actualizado:it));
+      // Si se subió el valor del renglón ORIGINAL directamente (sin agregar uno nuevo), eso
+      // también genera un excedente real — limpiar el N.º de factura para forzar el nuevo código.
+      if(original.esOriginal && (actualizado.valorTotal-actualizado.descuento) !== (original.valorTotal-original.descuento)) setEditNumeroFactura("");
     } else {
       setEditItems(prev=>[...prev, { id:`nuevo_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos, esOriginal:false, fecha:editItemFecha }]);
+      // Al agregar un renglón nuevo (excedente) se limpia el N.º de factura — ya no aplica el de
+      // la factura original, hay que escribir el NUEVO código de Siigo para este excedente.
+      setEditNumeroFactura("");
     }
     cancelarEdicionItem();
   };
@@ -3134,9 +3159,19 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
         setEditErrorMsg(`El nuevo valor ($${total.toLocaleString("es-CO")}) no puede quedar por debajo de lo ya registrado ($${piso.toLocaleString("es-CO")}).`);
         return;
       }
+      // Nota crédito con piso (master/admin_finanzas) que además cambia el valor real: genera un
+      // registro espejo aparte (el excedente) que necesita su PROPIO N.º de factura (Siigo) — la
+      // factura original no se toca. La corrección libre del mismo día (sin piso) sigue editando
+      // el N.º de factura de la misma venta, como antes.
+      const hayExcedente = puedeCorregirError && total !== valorAnterior;
+      if(hayExcedente && !editNumeroFactura.trim()){
+        setEditErrorMsg("Falta el nuevo N.º de factura (Siigo) para el excedente.");
+        return;
+      }
       setEditErrorMsg("");
       setGuardando(true);
-      const payload = { observacion:editObservacion.trim(), numero_factura:editNumeroFactura.trim()||null, valor_bruto:bruto, descuento_total:desc, total, updated_at:new Date().toISOString() };
+      const payload = { observacion:editObservacion.trim(), valor_bruto:bruto, descuento_total:desc, total, updated_at:new Date().toISOString() };
+      if(!hayExcedente) payload.numero_factura = editNumeroFactura.trim()||null;
       // Solo en la corrección libre del mismo día (sin piso) se resetea valor_original, para que
       // el valor corregido quede como si siempre hubiera sido el original (es un typo, no plata
       // real que entró después). En la Nota crédito de master/admin_finanzas NO se resetea: el
@@ -3152,14 +3187,15 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       }
       if(total!==valorAnterior){
         // Nota crédito con piso: el excedente es plata real, así que SÍ debe contar en Métricas —
-        // se registra con la fecha real del renglón nuevo (no es_correccion_error). La corrección
-        // libre del mismo día sigue sin contar aparte (ya quedó reflejada arriba en valor_original).
+        // se registra con la fecha real del renglón nuevo (no es_correccion_error), y con su
+        // propio N.º de factura como registro espejo. La corrección libre del mismo día sigue sin
+        // contar aparte (ya quedó reflejada arriba en valor_original).
         const primerNuevo = editItems.find(i=>!i.esOriginal);
         const fechaAjuste = puedeCorregirError ? (primerNuevo?.fecha || todayStr) : todayStr;
         const motivo = puedeCorregirError
           ? `Nota crédito${editObservacion.trim()?": "+editObservacion.trim():""}`
           : `Corrección por error${editObservacion.trim()?": "+editObservacion.trim():""}`;
-        const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:fechaAjuste, valor_anterior:valorAnterior, valor_nuevo:total, diferencia:total-valorAnterior, motivo, aplicado_por:user.name, es_correccion_error:!puedeCorregirError }).select().single();
+        const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:fechaAjuste, valor_anterior:valorAnterior, valor_nuevo:total, diferencia:total-valorAnterior, motivo, aplicado_por:user.name, es_correccion_error:!puedeCorregirError, numero_factura:hayExcedente?editNumeroFactura.trim():null }).select().single();
         if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
       }
       setGuardando(false);
@@ -3422,6 +3458,13 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
           const excedentesVenta = (ajustes||[]).filter(a=>a.venta_id===v.id && !a.es_correccion_error);
           const totalExcedente = excedentesVenta.reduce((s,a)=>s+Number(a.diferencia||0),0);
           const valorOriginalMostrar = Number(v.valor_original ?? v.total);
+          // Si esta corrección va a generar un excedente real (Nota crédito con piso, valor
+          // distinto al actual), necesita su PROPIO N.º de factura — queda como un registro
+          // espejo aparte, la factura original no se toca.
+          const editBruto = modoErrorId===v.id ? editItems.reduce((a,i)=>a+i.valorTotal,0) : 0;
+          const editDesc = modoErrorId===v.id ? editItems.reduce((a,i)=>a+i.descuento,0) : 0;
+          const editTotalNuevo = editBruto - editDesc;
+          const editHayExcedente = modoErrorId===v.id && puedeCorregirError && editTotalNuevo !== Number(v.total);
           return (
             <Card key={v.id} p="0" style={{ overflow:"hidden" }}>
               <button onClick={()=>toggleExpand(v.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
@@ -3604,6 +3647,13 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                           <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
                           {editItems.some(i=>i.tipo==="flexipago") ? (
                             <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"6px 0 10px" }}>📦 Esta venta tiene un renglón Flexipago — no factura hasta completar el pago.</div>
+                          ) : editHayExcedente ? (
+                            <>
+                              <Field label="Nuevo N.º de factura (Siigo) del excedente" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1235"/>
+                              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:-8, marginBottom:10 }}>
+                                Este excedente queda como un registro aparte con este número — la factura original #{v.numero_factura||"—"} no cambia.
+                              </div>
+                            </>
                           ) : (
                             <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
                           )}
@@ -3613,7 +3663,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                             </div>
                           )}
                           <div style={{ display:"flex", gap:8 }}>
-                            <Btn onClick={()=>guardarEdicion(v)} disabled={guardando} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
+                            <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || (editHayExcedente && !editNumeroFactura.trim())} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
                             <Btn onClick={()=>{ setEditando(null); setEditErrorMsg(""); setModoErrorId(null); }} variant="ghost" sm>Cancelar</Btn>
                           </div>
                         </div>
@@ -3826,18 +3876,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
           <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:8 }}>Notas crédito ({notaCreditosFiltradas.length})</div>
           <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
             {notaCreditosFiltradas.map(({ajuste, venta})=>(
-              <Card key={`nc-${ajuste.id}`} p="10px 14px" style={{ borderLeft:`3px solid ${C.amber}` }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
-                    <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{venta.numero_factura?`#${venta.numero_factura}`:"—"}</span>
-                    <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                      {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
-                    </span>
-                  </div>
-                  <Badge color={C.amber} sm title={`Factura original del ${venta.fecha}`}>🧾 Notacrédito · {ajuste.fecha}</Badge>
-                  <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${Number(ajuste.diferencia||0).toLocaleString("es-CO")}</div>
-                </div>
-              </Card>
+              <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta}/>
             ))}
           </div>
         </div>
