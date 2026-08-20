@@ -3224,26 +3224,33 @@ function NotaCreditoCard({ ajuste, venta, ventasItems }) {
   const tipoColor = VENTAS_TIPO_COLORES[tiposRaw[0]] || C.blue;
   const tipoIcon = VENTAS_TIPO_ICONOS[tiposRaw[0]] || "🛍️";
   const medioIcon = VENTAS_MEDIO_ICONOS[itemsDelAjuste[0]?.pagos?.[0]?.medio_pago] || "💰";
+  // Colapsado se ve igual que cualquier tarjeta de venta normal (factura, nombre, valor) — el
+  // detalle de que viene de una Notacrédito (tipo, medio, "🧾 Notacrédito", factura original)
+  // solo aparece al desplegarla, igual que el detalle de renglones de una venta normal.
   return (
     <Card p="10px 14px" style={{ borderLeft:`3px solid ${tipoColor}` }}>
       <button onClick={()=>setAbierto(a=>!a)} style={{ width:"100%", background:"none", border:"none", padding:0, cursor:"pointer", textAlign:"left" }}>
         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-          <div style={{ flex:1, minWidth:140, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
-            <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{ajuste.numero_factura?`#${ajuste.numero_factura}`:"—"}</span>
+          <Badge color={C.gold} sm>{ajuste.numero_factura?`#${ajuste.numero_factura}`:"—"}</Badge>
+          <div style={{ flex:1, minWidth:140, overflow:"hidden" }}>
             <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
               {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
             </span>
           </div>
-          {tiposTexto && <Badge color={tipoColor} sm title={tiposTexto}>{tipoIcon} {tiposTexto}</Badge>}
-          {mediosTexto && <Badge color={C.blue} sm title={mediosTexto}>{medioIcon} {mediosTexto}</Badge>}
-          <Badge color={C.amber} sm>🧾 Notacrédito</Badge>
           <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${Number(ajuste.diferencia||0).toLocaleString("es-CO")}</div>
           <span style={{ color:C.textMuted, fontSize:11, flexShrink:0 }}>{abierto?"▲":"▼"}</span>
         </div>
       </button>
       {abierto && (
-        <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${C.border}`, fontFamily:font.body, fontSize:11.5, color:C.textMuted, lineHeight:1.5 }}>
-          Viene de una Nota crédito sobre la factura original <strong style={{ color:C.text }}>#{venta.numero_factura||"—"}</strong> del {venta.fecha} — valor original de esa factura: <strong style={{ color:C.text }}>${valorOriginalFactura.toLocaleString("es-CO")}</strong>.
+        <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:8 }}>
+            {tiposTexto && <Badge color={tipoColor} sm title={tiposTexto}>{tipoIcon} {tiposTexto}</Badge>}
+            {mediosTexto && <Badge color={C.blue} sm title={mediosTexto}>{medioIcon} {mediosTexto}</Badge>}
+            <Badge color={C.amber} sm>🧾 Notacrédito</Badge>
+          </div>
+          <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, lineHeight:1.5 }}>
+            Viene de una Nota crédito sobre la factura original <strong style={{ color:C.text }}>#{venta.numero_factura||"—"}</strong> del {venta.fecha} — valor original de esa factura: <strong style={{ color:C.text }}>${valorOriginalFactura.toLocaleString("es-CO")}</strong>.
+          </div>
         </div>
       )}
     </Card>
@@ -4174,7 +4181,6 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
         setEditErrorMsg("Falta el N.º de factura (Siigo) — es obligatorio para guardar la Notacrédito.");
         return;
       }
-      const hayExcedente = modoNotacredito && total !== valorAnterior;
       setEditErrorMsg("");
       setGuardando(true);
       const payload = { observacion:editObservacion.trim(), valor_bruto:bruto, descuento_total:desc, total, updated_at:new Date().toISOString() };
@@ -4197,17 +4203,29 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       for(const s of aprobadasSinAplicar){
         await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
       }
-      if(total!==valorAnterior){
-        // Notacrédito Siigo: el excedente es plata real, así que SÍ debe contar en Métricas — se
-        // registra con la fecha real del renglón nuevo (no es_correccion_error), y con su propio
-        // N.º de factura como registro espejo. Corregir factura sigue sin contar aparte (ya quedó
-        // reflejada arriba en valor_original).
-        const primerNuevo = editItems.find(i=>!i.esOriginal);
-        const fechaAjuste = modoNotacredito ? (primerNuevo?.fecha || todayStr) : todayStr;
-        const motivo = modoNotacredito
-          ? `Nota crédito${editObservacion.trim()?": "+editObservacion.trim():""}`
-          : `Corrección por error${editObservacion.trim()?": "+editObservacion.trim():""}`;
-        const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:fechaAjuste, valor_anterior:valorAnterior, valor_nuevo:total, diferencia:total-valorAnterior, motivo, aplicado_por:user.name, es_correccion_error:!modoNotacredito, numero_factura:hayExcedente?editNumeroFactura.trim():null }).select().single();
+      const primerNuevo = editItems.find(i=>!i.esOriginal);
+      const fechaAjuste = modoNotacredito ? (primerNuevo?.fecha || todayStr) : todayStr;
+      if(modoNotacredito){
+        // El valor de ESTA Notacrédito es lo que sumen los renglones nuevos con esta fecha
+        // específica (no total-valorAnterior de la sesión) — así, si se reedita solo para
+        // corregir el N.º de Siigo sin tocar el valor, el registro sigue existiendo y el número
+        // no se pierde (antes, si el total no cambiaba frente al de la venta, no se tocaba nada).
+        const itemsDeEstaFecha = editItems.filter(i=>!i.esOriginal && (i.fecha||todayStr)===fechaAjuste);
+        const diferenciaFecha = itemsDeEstaFecha.reduce((s,i)=>s+i.valorTotal-i.descuento,0);
+        const motivo = `Nota crédito${editObservacion.trim()?": "+editObservacion.trim():""}`;
+        const ajusteExistente = (ajustes||[]).find(a=>a.venta_id===venta.id && a.fecha===fechaAjuste && !a.es_correccion_error);
+        if(ajusteExistente){
+          const { data:ajusteAct } = await supabase.from("ventas_ajustes").update({ valor_nuevo:piso+diferenciaFecha, diferencia:diferenciaFecha, motivo, numero_factura:editNumeroFactura.trim(), aplicado_por:user.name }).eq("id",ajusteExistente.id).select().single();
+          if(ajusteAct) setAjustes(prev=>prev.map(a=>a.id===ajusteAct.id?ajusteAct:a));
+        } else if(diferenciaFecha!==0){
+          const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:fechaAjuste, valor_anterior:piso, valor_nuevo:piso+diferenciaFecha, diferencia:diferenciaFecha, motivo, aplicado_por:user.name, es_correccion_error:false, numero_factura:editNumeroFactura.trim() }).select().single();
+          if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
+        }
+      } else if(total!==valorAnterior){
+        // Corregir factura: el ajuste es solo una nota de auditoría del cambio de valor, no un
+        // registro espejo — se sigue creando solo si el total realmente cambió.
+        const motivo = `Corrección por error${editObservacion.trim()?": "+editObservacion.trim():""}`;
+        const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:fechaAjuste, valor_anterior:valorAnterior, valor_nuevo:total, diferencia:total-valorAnterior, motivo, aplicado_por:user.name, es_correccion_error:true, numero_factura:null }).select().single();
         if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
       }
       setGuardando(false);
