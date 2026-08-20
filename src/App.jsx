@@ -5478,18 +5478,28 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // Resumen de ventas del día para el Cierre: ingreso neto, servicios, y flexipagos del día (informativo)
   const resumenDia = (fecha) => {
     const ventasTienda = Object.values(ventasTiendaMap);
-    const idsFecha = new Set(ventasTienda.filter(v=>v.fecha===fecha).map(v=>v.id));
     const ingresoNeto = cajaZeros();
     const servicios = cajaZeros();
     const flexipagoDia = cajaZeros();
+    // Excedentes de nota crédito de ventas registradas ESTE día, pero cuya plata en realidad entró
+    // otro día — se muestran aquí solo informativamente (no suman al total de este día, ya suman
+    // en su propia fecha real más abajo). Análogo a cómo se muestran los abonos de Flexipago.
+    const excedenteAviso = cajaZeros();
     let flexipagoCerradoHoy = 0;
 
     ventasItems.forEach(i=>{
-      if(!idsFecha.has(i.venta_id)) return;
-      if(i.tipo==="producto"){
-        (i.pagos||[]).forEach(p=>{ if(CAJA_MEDIOS.includes(p.medio_pago)) ingresoNeto[p.medio_pago]+=Number(p.valor||0); });
-      } else if(i.tipo==="arreglo"||i.tipo==="marcacion"||i.tipo==="grabado"){
-        (i.pagos||[]).forEach(p=>{ if(CAJA_MEDIOS.includes(p.medio_pago)) servicios[p.medio_pago]+=Number(p.valor||0); });
+      const v = ventasTiendaMap[i.venta_id];
+      if(!v || i.tipo==="flexipago") return;
+      const esExcedente = i.es_original===false && !!i.fecha_item;
+      const fechaEfectiva = esExcedente ? i.fecha_item : v.fecha;
+      if(fechaEfectiva===fecha){
+        if(i.tipo==="producto"){
+          (i.pagos||[]).forEach(p=>{ if(CAJA_MEDIOS.includes(p.medio_pago)) ingresoNeto[p.medio_pago]+=Number(p.valor||0); });
+        } else if(i.tipo==="arreglo"||i.tipo==="marcacion"||i.tipo==="grabado"){
+          (i.pagos||[]).forEach(p=>{ if(CAJA_MEDIOS.includes(p.medio_pago)) servicios[p.medio_pago]+=Number(p.valor||0); });
+        }
+      } else if(esExcedente && v.fecha===fecha){
+        (i.pagos||[]).forEach(p=>{ if(CAJA_MEDIOS.includes(p.medio_pago)) excedenteAviso[p.medio_pago]+=Number(p.valor||0); });
       }
     });
 
@@ -5519,7 +5529,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       });
     });
 
-    return { ingresoNeto, servicios, flexipagoDia, flexipagoCerradoHoy, totalIngresoNeto:cajaTotal(ingresoNeto), totalServicios:cajaTotal(servicios), totalFlexipagoDia:cajaTotal(flexipagoDia) };
+    return { ingresoNeto, servicios, flexipagoDia, excedenteAviso, flexipagoCerradoHoy, totalIngresoNeto:cajaTotal(ingresoNeto), totalServicios:cajaTotal(servicios), totalFlexipagoDia:cajaTotal(flexipagoDia), totalExcedenteAviso:cajaTotal(excedenteAviso) };
   };
 
   const resumenHoy = resumenDia(ciFecha);
@@ -5752,6 +5762,13 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.flexipagoDia[m])}</td>)}
                     <td style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.totalFlexipagoDia)}</td>
                   </tr>
+                  {resumenHoy.totalExcedenteAviso>0 && (
+                    <tr>
+                      <td style={{ padding:"2px 6px", fontFamily:font.body, color:C.amber }}>Excedente de nota crédito, entró en otra fecha (no suma al total)</td>
+                      {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right", color:C.amber }}>{fmtCOP(resumenHoy.excedenteAviso[m])}</td>)}
+                      <td style={{ padding:"2px 6px", textAlign:"right", color:C.amber }}>{fmtCOP(resumenHoy.totalExcedenteAviso)}</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -5854,6 +5871,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     </div>
                     <div style={{ fontFamily:font.mono, fontSize:10.5, color:C.textMuted }}>
                       Ventas {fmtCOP(rd.totalIngresoNeto)} · Servicios {fmtCOP(rd.totalServicios)} · <span style={{ color:C.goldLight, fontWeight:700 }}>Total {fmtCOP(totalDia)}</span>
+                      {rd.totalExcedenteAviso>0 && <span style={{ color:C.amber }}> · +{fmtCOP(rd.totalExcedenteAviso)} exc. entró otro día</span>}
                     </div>
                   </div>
                 );
