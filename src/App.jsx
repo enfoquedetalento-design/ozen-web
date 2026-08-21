@@ -5633,11 +5633,15 @@ const BASE_CAJA_FIJA = 100000;
 // Cuando se le pasa "color" (el color asignado a la tienda), todo el cuadro se pinta con ese
 // color — pero el contenido de adentro (campos, historiales) queda sobre un panel oscuro
 // insertado, para que siga tan legible como siempre sin importar qué tan claro sea el color.
-const CajaCard = ({ icon, titulo, children, color }) => {
+const cajaHeaderSelectStyle = { background:"rgba(0,0,0,0.28)", border:"1px solid rgba(255,255,255,0.28)", borderRadius:5, color:"#fff", fontSize:10.5, fontFamily:font.body, padding:"2px 6px", fontWeight:600 };
+const CajaCard = ({ icon, titulo, children, color, headerExtra }) => {
   const txt = color ? colorTextoContraste(color) : C.goldLight;
   return (
     <div style={{ background:color||C.surface, border:`1px solid ${color?oscurecerColor(color,22):C.border}`, borderRadius:8, padding:"10px 14px", marginBottom:10 }}>
-      <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:txt, textTransform:"uppercase", letterSpacing:"0.04em", marginBottom:8, textShadow:color&&txt==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none" }}>{icon} {titulo}</div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:8 }}>
+        <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:txt, textTransform:"uppercase", letterSpacing:"0.04em", textShadow:color&&txt==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none" }}>{icon} {titulo}</div>
+        {headerExtra}
+      </div>
       {color ? <div style={{ background:"rgba(13,17,23,0.78)", borderRadius:6, padding:"8px 8px 2px" }}>{children}</div> : children}
     </div>
   );
@@ -5684,6 +5688,37 @@ const CajaReciboLinea = ({ label, value, bold, color, small, indent, totalLine }
     <span style={{ fontFamily:font.mono, fontSize: small?10.5:12, fontWeight: bold?700:400, color: color || (bold?C.goldLight:C.text), whiteSpace:"nowrap" }}>{value}</span>
   </div>
 );
+// Barra divisoria de sub-sección dentro de una tarjeta (p.ej. "Dinero recibido por método de pago",
+// "Ventas", "Servicios" dentro de Cierre) — imita las barras de encabezado del diseño de Felipe.
+const CajaSubHeader = ({ label }) => (
+  <div style={{ background:"rgba(255,255,255,0.06)", borderRadius:4, padding:"4px 8px", margin:"10px 0 4px", fontFamily:font.body, fontSize:10, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
+);
+// Fila de formulario "a modo factura": título/etiqueta a la izquierda, el campo editable compacto a
+// la derecha — mismo look que CajaReciboLinea pero con un input/select real en vez de texto. Usada
+// para que Apertura, Cierre, Novedades y Recolección se vean como una sola lista consistente.
+const cajaInputStyleRow = { ...cajaInputStyle, width:"auto", flex:"0 1 190px", textAlign:"right" };
+const CajaFieldRow = ({ label, value, onChange, options, placeholder, type="text", wide }) => (
+  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding:"4px 0" }}>
+    {label && <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, flexShrink:0 }}>{label}</div>}
+    {options ? (
+      <select value={value} onChange={e=>onChange(e.target.value)} style={cajaInputStyleRow}>
+        {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    ) : (
+      <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={wide ? { ...cajaInputStyleRow, flex:"1 1 240px" } : cajaInputStyleRow}/>
+    )}
+  </div>
+);
+const CajaMoneyRow = ({ label, value, onChange, placeholder }) => {
+  const digits = String(value||"").replace(/[^\d]/g,"");
+  const mostrado = digits ? `$${Number(digits).toLocaleString("es-CO")}` : "";
+  return (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding:"4px 0" }}>
+      {label && <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, flexShrink:0 }}>{label}</div>}
+      <input type="text" inputMode="numeric" value={mostrado} onChange={e=>onChange(e.target.value.replace(/[^\d]/g,""))} placeholder={placeholder||"$0"} style={cajaInputStyleRow}/>
+    </div>
+  );
+};
 
 function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, solicitudesBorrado, setSolicitudesBorrado, puedeRecoleccion, soloLectura, isMobile }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
@@ -5847,6 +5882,10 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     // de una Notacrédito ese día, se suman los valores originales de cada factura.
     const notaCreditoDia = cajaZeros();
     let flexipagoCerradoHoy = 0;
+    // "Descuentos" del día — suma informativa de los descuentos/bonos que ya traía cada renglón
+    // (campo `descuento`, existente desde antes). Es puramente para mostrarlo en el rediseño de
+    // Felipe: no resta de ningún total ni afecta ningún cálculo existente, solo se muestra aparte.
+    let descuentoDia = 0;
 
     ventasItems.forEach(i=>{
       const v = ventasTiendaMap[i.venta_id];
@@ -5854,6 +5893,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       const esExcedente = i.es_original===false && !!i.fecha_item;
       const fechaEfectiva = esExcedente ? i.fecha_item : v.fecha;
       if(fechaEfectiva===fecha){
+        descuentoDia += Number(i.descuento||0);
         if(i.tipo==="producto"){
           (i.pagos||[]).forEach(p=>{ if(CAJA_MEDIOS.includes(p.medio_pago)) ingresoNeto[p.medio_pago]+=Number(p.valor||0); });
         } else if(i.tipo==="arreglo"||i.tipo==="marcacion"||i.tipo==="grabado"){
@@ -5903,7 +5943,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       });
     });
 
-    return { ingresoNeto, servicios, flexipagoDia, notaCreditoDia, flexipagoCerradoHoy, totalIngresoNeto:cajaTotal(ingresoNeto), totalServicios:cajaTotal(servicios), totalFlexipagoDia:cajaTotal(flexipagoDia), totalNotaCreditoDia:cajaTotal(notaCreditoDia) };
+    return { ingresoNeto, servicios, flexipagoDia, notaCreditoDia, flexipagoCerradoHoy, totalIngresoNeto:cajaTotal(ingresoNeto), totalServicios:cajaTotal(servicios), totalFlexipagoDia:cajaTotal(flexipagoDia), totalNotaCreditoDia:cajaTotal(notaCreditoDia), totalDescuentosDia:descuentoDia };
   };
 
   const resumenHoy = resumenDia(ciFecha);
@@ -6045,6 +6085,10 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   };
 
   const fmtFechaHora = (iso) => new Date(iso).toLocaleString("es-CO",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+  // Solo para mostrar (rediseño Felipe): nombre de la tienda ya elegida arriba, y las novedades
+  // (gastos) cuya fecha coincide con la fecha de cierre — no cambian ningún cálculo existente.
+  const tiendaNombreActual = stores[tiendaId]?.name || "";
+  const novedadesDelDia = gastosTienda.filter(g=>g.fecha===ciFecha);
 
   return (
     <div>
@@ -6064,92 +6108,117 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       <div key={cajaVista} className="ozen-pane-anim-tab">
       {cajaVista==="registrar" && !soloLectura ? (
         <>
-          {/* Rediseño Felipe: Apertura y Cierre en dos columnas lado a lado (formato "factura", título
-              al frente y valor a la derecha), Agregar novedad como tarjeta aparte. Solo cambia la
-              presentación — todos los valores y cálculos vienen exactamente de las mismas variables
-              que antes (resumenHoy, totalEnCajaAhora, etc.), no se tocó ninguna lógica. */}
+          {/* Rediseño Felipe (v2, fiel al mockup real): columna izquierda = una sola tarjeta Cierre
+              (con el selector Parcial/Final en el encabezado, tabla combinada de "dinero recibido
+              por método de pago", Ventas, Servicios, Descuentos, Nota crédito, Novedades del día).
+              Columna derecha = 4 tarjetas apiladas: Apertura, Última Recolección, Novedades del
+              período, Agregar novedad. Solo presentación — mismas variables/cálculos de siempre;
+              únicas adiciones: `tiendaNombreActual` (nombre de la tienda ya elegida arriba, para la
+              fila "Turno") y `resumenHoy.totalDescuentosDia` (suma informativa de descuentos que ya
+              traía cada renglón, no afecta ningún total). */}
           <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, alignItems:"start" }}>
-            <CajaCard icon="🔓" titulo="Apertura de turno" color={tiendaColor}>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, alignItems:"end" }}>
-                <CajaField label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
-                <CajaMoney label="Base de caja" value={apBaseCaja} onChange={setApBaseCaja}/>
-              </div>
-              <div style={{ marginTop:8 }}>
-                <CajaField label="Quién abre *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-              </div>
-              {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:6 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
-              <div style={{ marginTop:8 }}>
-                <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"Registrar apertura"}</CajaBtn>
-              </div>
+            <div>
+              <CajaCard
+                icon="🔒"
+                titulo={ciTipo==="parcial" ? "Cierre Parcial" : "Cierre Final"}
+                color={tiendaColor}
+                headerExtra={
+                  <select value={ciTipo} onChange={e=>setCiTipo(e.target.value)} style={cajaHeaderSelectStyle}>
+                    <option value="parcial">Parcial</option>
+                    <option value="definitivo">Final</option>
+                  </select>
+                }
+              >
+                <CajaFieldRow label="Fecha" type="date" value={ciFecha} onChange={setCiFecha}/>
+                <CajaFieldRow label="Asesor *" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+                <CajaReciboLinea label="Turno" value={tiendaNombreActual||"—"} small/>
+                <CajaMoneyRow label="Base" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
+                {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
 
-              <div style={{ marginTop:10, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
-                <CajaReciboLinea label="Última recolección" value={ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · ${ultimaRecoleccion.recibe_nombre||"—"} · ${fmtCOP(ultimaRecoleccion.valor)}` : "Sin registro previo"} small/>
-                <CajaReciboLinea label="Efectivo por recoger (sin base)" value={fmtCOP(Math.max(0, efectivoPendienteTotal + gastosNetoAcumulado))}/>
-                {efectivoHoyPendiente>0 && <CajaReciboLinea label="De hoy" value={fmtCOP(efectivoHoyPendiente)} small indent/>}
-                {costosAcumulados>0 && <CajaReciboLinea label="Costos (novedades)" value={`−${fmtCOP(costosAcumulados)}`} color={C.red}/>}
-                {ingresosAcumulados>0 && <CajaReciboLinea label="Ingresos (novedades)" value={`+${fmtCOP(ingresosAcumulados)}`} color={C.green}/>}
-                <CajaReciboLinea label="Total efectivo con base" value={fmtCOP(totalEnCajaAhora)} bold totalLine/>
-              </div>
-            </CajaCard>
+                <CajaSubHeader label="Dinero recibido por método de pago"/>
+                {CAJA_MEDIOS.map(m=><CajaReciboLinea key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m])}/>)}
+                <CajaReciboLinea label="Ingreso del día" value={fmtCOP(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios)} bold totalLine/>
 
-            <CajaCard icon="🔒" titulo="Cierre de turno" color={tiendaColor}>
-              <CajaField label="Fecha" type="date" value={ciFecha} onChange={setCiFecha}/>
-              {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
+                <CajaSubHeader label="Ventas"/>
+                <CajaReciboLinea label="Ventas" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy)}/>
+                <CajaReciboLinea label="Flexipagos redimidos" value={fmtCOP(resumenHoy.flexipagoCerradoHoy)}/>
+                <CajaReciboLinea label="Total ventas" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold totalLine/>
 
-              <div style={{ marginTop:10, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
-                <CajaReciboLinea label="Ventas (productos + flexipagos cerrados ese día)" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold/>
-                {CAJA_MEDIOS.map(m=><CajaReciboLinea key={`v-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m])} small indent/>)}
+                <CajaSubHeader label="Servicios"/>
+                <CajaReciboLinea label="Servicios" value={fmtCOP(resumenHoy.totalServicios)}/>
+                <CajaReciboLinea label="Abonos Flexipagos (no suma al total)" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted}/>
+                <CajaReciboLinea label="Total Servicios" value={fmtCOP(resumenHoy.totalServicios)} bold totalLine/>
 
-                <CajaReciboLinea label="Servicios (arreglo, marcación, grabado)" value={fmtCOP(resumenHoy.totalServicios)} bold/>
-                {CAJA_MEDIOS.map(m=><CajaReciboLinea key={`s-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.servicios[m])} small indent/>)}
+                {resumenHoy.totalDescuentosDia>0 && <CajaReciboLinea label="Descuentos" value={fmtCOP(resumenHoy.totalDescuentosDia)}/>}
+                {resumenHoy.totalNotaCreditoDia>0 && <CajaReciboLinea label="Nota crédito (no suma ni resta)" value={fmtCOP(resumenHoy.totalNotaCreditoDia)} color={C.amber}/>}
+                {resumenHoy.flexipagoCerradoHoy>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:6 }}>Incluye {fmtCOP(resumenHoy.flexipagoCerradoHoy)} de flexipagos que se terminaron de pagar hoy.</div>}
 
-                <CajaReciboLinea label="Total (Ventas + Servicios)" value={fmtCOP(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios)} bold totalLine/>
+                <CajaFieldRow label="Nota / novedades" wide value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta (opcional)"/>
 
-                <CajaReciboLinea label="Flexipagos abonados hoy que siguen pendientes (no suma al total)" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted}/>
-                {resumenHoy.totalFlexipagoDia>0 && CAJA_MEDIOS.map(m=><CajaReciboLinea key={`f-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.flexipagoDia[m])} small indent color={C.textMuted}/>)}
-
-                {resumenHoy.totalNotaCreditoDia>0 && (
-                  <>
-                    <CajaReciboLinea label="Notacrédito — valor original de la factura corregida (no suma ni resta)" value={fmtCOP(resumenHoy.totalNotaCreditoDia)} color={C.amber}/>
-                    {CAJA_MEDIOS.map(m=><CajaReciboLinea key={`n-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.notaCreditoDia[m])} small indent color={C.amber}/>)}
-                  </>
-                )}
-              </div>
-              {resumenHoy.flexipagoCerradoHoy>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:6 }}>Incluye {fmtCOP(resumenHoy.flexipagoCerradoHoy)} de flexipagos que se terminaron de pagar hoy.</div>}
-
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, alignItems:"end", marginTop:10, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
-                <CajaField label="Quién cierra *" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-                <CajaField label="Tipo" value={ciTipo} onChange={setCiTipo} options={[{value:"parcial",label:"Parcial"},{value:"definitivo",label:"Definitivo"}]}/>
-                <CajaMoney label="Base de caja al cierre" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
-                <CajaField label="Novedades" value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta (opcional)"/>
-              </div>
-              <div style={{ marginTop:8 }}>
-                <CajaBtn onClick={guardarCierre} disabled={guardandoCi || !tiendaId || !ciAsesorId}>{guardandoCi?"...":"Registrar cierre"}</CajaBtn>
-              </div>
-            </CajaCard>
-          </div>
-
-          <CajaCard icon="📝" titulo="Agregar novedad" color={tiendaColor}>
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 2fr auto", gap:8, alignItems:"end" }}>
-              <CajaMoney label="Novedad — valor" value={gaValor} onChange={setGaValor}/>
-              <CajaField label="Tipo" value={gaTipo} onChange={setGaTipo} options={[{value:"costo",label:"Costo (resta)"},{value:"ingreso",label:"Ingreso (suma)"}]}/>
-              <CajaField label="Motivo" placeholder="Ej: se usó para un limpiavidrios / vueltas no reclamadas" value={gaMotivo} onChange={setGaMotivo}/>
-              <CajaBtn onClick={guardarGasto} disabled={guardandoGa}>{guardandoGa?"...":"Agregar"}</CajaBtn>
-            </div>
-            {gastosTienda.length>0 && (
-              <div style={{ marginTop:6, display:"flex", flexDirection:"column", gap:2 }}>
-                {gastosTienda.slice(0,4).map(g=>(
-                  <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:11, color:C.textMuted, gap:6 }}>
-                    <span>{fmtFechaHora(g.created_at)} · {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}</span>
-                    <span style={{ display:"flex", alignItems:"center", gap:6 }}>
-                      <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
-                      {puedeAprobarNovedad && g.estado!=="aprobado" && <button onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Aprobar</button>}
-                    </span>
+                <CajaSubHeader label="Novedades del día"/>
+                {novedadesDelDia.length>0 ? (
+                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                    {novedadesDelDia.map((g,idx)=>(
+                      <div key={g.id} style={{ fontFamily:font.body, fontSize:11, color:C.text, display:"flex", justifyContent:"space-between", gap:6 }}>
+                        <span>{idx+1}. {g.motivo}</span>
+                        <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
-          </CajaCard>
+                ) : <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Sin novedades ese día.</div>}
+
+                <div style={{ marginTop:10, display:"flex", justifyContent:"flex-end" }}>
+                  <CajaBtn onClick={guardarCierre} disabled={guardandoCi || !tiendaId || !ciAsesorId}>{guardandoCi?"...":"Registrar cierre"}</CajaBtn>
+                </div>
+              </CajaCard>
+            </div>
+
+            <div>
+              <CajaCard icon="🔓" titulo="Apertura de turno" color={tiendaColor}>
+                <CajaFieldRow label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
+                <CajaFieldRow label="Asesor *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+                <CajaReciboLinea label="Turno" value={tiendaNombreActual||"—"} small/>
+                <CajaMoneyRow label="Base" value={apBaseCaja} onChange={setApBaseCaja}/>
+                {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
+                <CajaReciboLinea label="Efectivo" value={fmtCOP(Math.max(0, efectivoPendienteTotal + gastosNetoAcumulado))}/>
+                <CajaReciboLinea label="Total" value={fmtCOP(totalEnCajaAhora)} bold totalLine/>
+                <div style={{ marginTop:10, display:"flex", justifyContent:"flex-end" }}>
+                  <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"Registrar apertura"}</CajaBtn>
+                </div>
+              </CajaCard>
+
+              <CajaCard icon="📥" titulo="Última Recolección" color={tiendaColor}>
+                <CajaReciboLinea label="Fecha" value={ultimaRecoleccion ? fmtFechaHora(ultimaRecoleccion.created_at) : "—"}/>
+                <CajaReciboLinea label="Por" value={ultimaRecoleccion ? (ultimaRecoleccion.recibe_nombre||"—") : "Sin registro previo"}/>
+              </CajaCard>
+
+              <CajaCard icon="📋" titulo="Novedades del período" color={tiendaColor}>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginBottom:6 }}>Costos en rojo, ingresos en verde — todo lo registrado desde la última recolección.</div>
+                {gastosDesdeRecoleccion.length>0 ? (
+                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                    {gastosDesdeRecoleccion.slice(0,8).map((g,idx)=>(
+                      <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:11, color:C.text, gap:6 }}>
+                        <span>{idx+1}. {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}</span>
+                        <span style={{ display:"flex", alignItems:"center", gap:6 }}>
+                          <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+                          {puedeAprobarNovedad && g.estado!=="aprobado" && <button onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Aprobar</button>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Sin novedades registradas.</div>}
+              </CajaCard>
+
+              <CajaCard icon="➕" titulo="Agregar novedad" color={tiendaColor}>
+                <CajaFieldRow label="Tipo" value={gaTipo} onChange={setGaTipo} options={[{value:"costo",label:"Costo"},{value:"ingreso",label:"Ingreso"}]}/>
+                <CajaMoneyRow label="Valor" value={gaValor} onChange={setGaValor}/>
+                <CajaFieldRow label="Motivo" wide placeholder="Ej: se usó para un limpiavidrios / vueltas no reclamadas" value={gaMotivo} onChange={setGaMotivo}/>
+                <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>
+                  <CajaBtn onClick={guardarGasto} disabled={guardandoGa}>{guardandoGa?"...":"Agregar +"}</CajaBtn>
+                </div>
+              </CajaCard>
+            </div>
+          </div>
 
           <CajaCard icon="🚚" titulo="Recolección de efectivo" color={tiendaColor}>
             {!puedeRecoleccion ? (
@@ -6157,31 +6226,31 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             ) : (
               <>
                 <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginBottom:6 }}>Sugerido (días anteriores a hoy): {fmtCOP(efectivoAnteriores)} ventas en efectivo {gastosNetoAcumulado>=0?"+":"−"} {fmtCOP(Math.abs(gastosNetoAcumulado))} novedades = {fmtCOP(efectivoARecolectar)}. Ajusta si al contar sale distinto. El efectivo de hoy no se incluye aquí — si necesitas recogerlo, usa el check de abajo.</div>
-                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr 1fr", gap:8, alignItems:"end" }}>
-                  <CajaField label="Fecha" type="date" value={reFecha} onChange={setReFecha}/>
-                  <CajaField label="Entrega *" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-                  <CajaField label="Recibe *" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
-                  <CajaMoney label="Valor a recoger (días anteriores)" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
-                  <CajaMoney label="Base que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
-                </div>
+                <CajaFieldRow label="Fecha" type="date" value={reFecha} onChange={setReFecha}/>
+                <CajaFieldRow label="Entrega *" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+                <CajaFieldRow label="Recibe *" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
+                <CajaMoneyRow label="Valor a recoger (días anteriores)" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
+                <CajaMoneyRow label="Base que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
                 {reFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
                 {reFecha===todayStr && (
                   <div style={{ marginTop:8, padding:"8px 10px", background:C.surfaceAlt, borderRadius:7, border:`1px solid ${C.border}` }}>
-                    <label style={{ display:"flex", alignItems:"center", gap:7, fontFamily:font.body, fontSize:12, color:C.text, cursor:"pointer" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+                      <label style={{ display:"flex", alignItems:"center", gap:7, fontFamily:font.body, fontSize:12, color:C.text, cursor:"pointer" }}>
+                        Recoges efectivo de hoy
+                        {efectivoHoyPendiente<=0 && <span style={{ color:C.textMuted }}> (aún no hay efectivo de hoy)</span>}
+                      </label>
                       <input type="checkbox" checked={reIncluyeHoy} onChange={e=>{ setReIncluyeHoy(e.target.checked); if(!e.target.checked) setReValorHoy(""); }} disabled={efectivoHoyPendiente<=0}/>
-                      Recoges efectivo de hoy
-                      {efectivoHoyPendiente<=0 && <span style={{ color:C.textMuted }}> (aún no hay efectivo de hoy)</span>}
-                    </label>
+                    </div>
                     {reIncluyeHoy && (
-                      <div style={{ marginTop:6, display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr auto", gap:8, alignItems:"end" }}>
-                        <CajaMoney label={`Valor a retirar de hoy (máx. ${fmtCOP(efectivoHoyPendiente)})`} value={reValorHoy} onChange={setReValorHoy}/>
-                        <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted }}>Acumulado hoy: {fmtCOP(efectivoHoyPendiente)}</div>
+                      <div style={{ marginTop:6 }}>
+                        <CajaMoneyRow label={`Valor a retirar de hoy (máx. ${fmtCOP(efectivoHoyPendiente)})`} value={reValorHoy} onChange={setReValorHoy}/>
+                        <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, textAlign:"right" }}>Acumulado hoy: {fmtCOP(efectivoHoyPendiente)}</div>
                       </div>
                     )}
                   </div>
                 )}
-                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"2fr auto", gap:8, alignItems:"end", marginTop:8 }}>
-                  <CajaField label="Comentarios" value={reComentarios} onChange={setReComentarios} placeholder="Opcional"/>
+                <CajaFieldRow label="Comentarios" wide value={reComentarios} onChange={setReComentarios} placeholder="Opcional"/>
+                <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>
                   <CajaBtn onClick={guardarRecoleccion} disabled={guardandoRe || !tiendaId || !reEntregaId || !reRecibeId || !reValor}>{guardandoRe?"...":"Registrar"}</CajaBtn>
                 </div>
               </>
