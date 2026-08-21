@@ -5617,12 +5617,18 @@ const BASE_CAJA_FIJA = 100000;
 
 // Versiones compactas de Card/Field/CurrencyField, solo para Caja: la pantalla se usa muchas
 // veces al día y necesita mucha más densidad que el resto de la app (menos relleno, menos alto por campo).
-const CajaCard = ({ icon, titulo, children }) => (
-  <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", marginBottom:10 }}>
-    <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, textTransform:"uppercase", letterSpacing:"0.04em", marginBottom:8 }}>{icon} {titulo}</div>
-    {children}
-  </div>
-);
+// Cuando se le pasa "color" (el color asignado a la tienda), todo el cuadro se pinta con ese
+// color — pero el contenido de adentro (campos, historiales) queda sobre un panel oscuro
+// insertado, para que siga tan legible como siempre sin importar qué tan claro sea el color.
+const CajaCard = ({ icon, titulo, children, color }) => {
+  const txt = color ? colorTextoContraste(color) : C.goldLight;
+  return (
+    <div style={{ background:color||C.surface, border:`1px solid ${color?oscurecerColor(color,22):C.border}`, borderRadius:8, padding:"10px 14px", marginBottom:10 }}>
+      <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:txt, textTransform:"uppercase", letterSpacing:"0.04em", marginBottom:8, textShadow:color&&txt==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none" }}>{icon} {titulo}</div>
+      {color ? <div style={{ background:"rgba(13,17,23,0.78)", borderRadius:6, padding:"8px 8px 2px" }}>{children}</div> : children}
+    </div>
+  );
+};
 const cajaInputStyle = { width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:5, padding:"5px 8px", color:C.text, fontSize:12.5, fontFamily:font.body, outline:"none", boxSizing:"border-box" };
 const cajaLabelStyle = { fontSize:9.5, color:C.textMuted, fontFamily:font.body, marginBottom:2, textTransform:"uppercase", letterSpacing:"0.05em" };
 const CajaField = ({ label, value, onChange, options, placeholder, type="text" }) => (
@@ -5655,6 +5661,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const tiendasList = tiendasVenta(stores);
   const [tiendaId, setTiendaId] = useState(tiendaFija || tiendasList[0]?.id || "");
+  // Color asignado a la tienda que se está viendo — se usa para pintar los cuadros de Caja.
+  const tiendaColor = stores[tiendaId]?.color;
   const [cajaVista, setCajaVista] = useState(soloLectura ? "historial" : "registrar"); // 'registrar' | 'historial'
   const asesores = users.filter(u=>u.role==="advisor" && u.active);
   const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin"||u.role==="admin_finanzas") && u.active);
@@ -6028,7 +6036,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       <div key={cajaVista} className="ozen-pane-anim-tab">
       {cajaVista==="registrar" && !soloLectura ? (
         <>
-          <CajaCard icon="🔓" titulo="Apertura de turno">
+          <CajaCard icon="🔓" titulo="Apertura de turno" color={tiendaColor}>
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1.3fr 1fr auto", gap:8, alignItems:"end" }}>
               <CajaField label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
               <CajaField label="Quién abre *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
@@ -6066,7 +6074,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             )}
           </CajaCard>
 
-          <CajaCard icon="🔒" titulo="Cierre de turno">
+          <CajaCard icon="🔒" titulo="Cierre de turno" color={tiendaColor}>
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"200px 1fr", gap:8, alignItems:"end", marginBottom:8 }}>
               <CajaField label="Fecha" type="date" value={ciFecha} onChange={setCiFecha}/>
               {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
@@ -6122,7 +6130,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             </div>
           </CajaCard>
 
-          <CajaCard icon="🚚" titulo="Recolección de efectivo">
+          <CajaCard icon="🚚" titulo="Recolección de efectivo" color={tiendaColor}>
             {!puedeRecoleccion ? (
               <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>No tienes permiso para registrar una recolección. Puedes verlas en Historial.</div>
             ) : (
@@ -6162,7 +6170,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       ) : (
         <>
           {puedeBorrarCaja && solicitudesPendientes.length>0 && (
-            <CajaCard icon="🗑️" titulo="Solicitudes de borrado pendientes">
+            <CajaCard icon="🗑️" titulo="Solicitudes de borrado pendientes" color={tiendaColor}>
               <div style={{ display:"flex", flexDirection:"column" }}>
                 {solicitudesPendientes.map(s=>(
                   <div key={s.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"4px 2px", borderBottom:`1px solid ${C.border}` }}>
@@ -6177,7 +6185,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             </CajaCard>
           )}
 
-          <CajaCard icon="🔓" titulo="Historial de apertura">
+          <CajaCard icon="🔓" titulo="Historial de apertura" color={tiendaColor}>
             <div style={{ display:"flex", flexDirection:"column" }}>
               {aperturasTienda.slice(0,30).map(a=>(
                 <div key={a.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
@@ -6193,7 +6201,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             </div>
           </CajaCard>
 
-          <CajaCard icon="🔒" titulo="Historial de cierre">
+          <CajaCard icon="🔒" titulo="Historial de cierre" color={tiendaColor}>
             <div style={{ display:"flex", flexDirection:"column" }}>
               {cierresTienda.slice(0,30).map(c=>{
                 const rd = resumenDia(c.fecha);
@@ -6219,7 +6227,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             </div>
           </CajaCard>
 
-          <CajaCard icon="🚚" titulo="Historial de recolección">
+          <CajaCard icon="🚚" titulo="Historial de recolección" color={tiendaColor}>
             <div style={{ display:"flex", flexDirection:"column" }}>
               {recoleccionesTienda.slice(0,30).map(r=>(
                 <div key={r.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
