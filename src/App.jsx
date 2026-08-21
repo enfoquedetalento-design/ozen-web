@@ -5669,6 +5669,21 @@ const CajaMoney = ({ label, value, onChange, placeholder }) => {
 const CajaBtn = ({ onClick, children, disabled }) => (
   <button onClick={disabled?undefined:onClick} style={{ padding:"5px 12px", borderRadius:5, border:"none", background:C.gold, color:"#fff", fontSize:12, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.5:1, whiteSpace:"nowrap" }}>{children}</button>
 );
+// Línea "a modo factura" — título al frente, valor a la derecha. Usada en las tarjetas de Apertura
+// y Cierre de turno para el rediseño en dos columnas (ver diseño de Felipe). Solo presentación:
+// no calcula nada, únicamente muestra los valores que ya vienen calculados desde afuera.
+const CajaReciboLinea = ({ label, value, bold, color, small, indent, totalLine }) => (
+  <div style={{
+    display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:10,
+    padding: indent ? "1.5px 0 1.5px 14px" : "2.5px 0",
+    marginTop: totalLine ? 5 : 0,
+    paddingTop: totalLine ? 6 : undefined,
+    borderTop: totalLine ? `1px solid ${C.border}` : "none",
+  }}>
+    <span style={{ fontFamily:font.body, fontSize: small?10:11.5, color: color || (small?C.textMuted:C.text), fontWeight: bold?700:400 }}>{label}</span>
+    <span style={{ fontFamily:font.mono, fontSize: small?10.5:12, fontWeight: bold?700:400, color: color || (bold?C.goldLight:C.text), whiteSpace:"nowrap" }}>{value}</span>
+  </div>
+);
 
 function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, solicitudesBorrado, setSolicitudesBorrado, puedeRecoleccion, soloLectura, isMobile }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
@@ -6049,24 +6064,73 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       <div key={cajaVista} className="ozen-pane-anim-tab">
       {cajaVista==="registrar" && !soloLectura ? (
         <>
-          <CajaCard icon="🔓" titulo="Apertura de turno" color={tiendaColor}>
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1.3fr 1fr auto", gap:8, alignItems:"end" }}>
-              <CajaField label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
-              <CajaField label="Quién abre *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-              <CajaMoney label="Base de caja" value={apBaseCaja} onChange={setApBaseCaja}/>
-              <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"Registrar"}</CajaBtn>
-            </div>
-            {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
+          {/* Rediseño Felipe: Apertura y Cierre en dos columnas lado a lado (formato "factura", título
+              al frente y valor a la derecha), Agregar novedad como tarjeta aparte. Solo cambia la
+              presentación — todos los valores y cálculos vienen exactamente de las mismas variables
+              que antes (resumenHoy, totalEnCajaAhora, etc.), no se tocó ninguna lógica. */}
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, alignItems:"start" }}>
+            <CajaCard icon="🔓" titulo="Apertura de turno" color={tiendaColor}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, alignItems:"end" }}>
+                <CajaField label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
+                <CajaMoney label="Base de caja" value={apBaseCaja} onChange={setApBaseCaja}/>
+              </div>
+              <div style={{ marginTop:8 }}>
+                <CajaField label="Quién abre *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+              </div>
+              {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:6 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
+              <div style={{ marginTop:8 }}>
+                <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"Registrar apertura"}</CajaBtn>
+              </div>
 
-            <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, padding:"6px 0", marginTop:8, borderTop:`1px solid ${C.border}`, display:"flex", flexWrap:"wrap", rowGap:2, columnGap:14 }}>
-              <span><span style={{ color:C.textMuted }}>Última recolección: </span>{ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · ${ultimaRecoleccion.recibe_nombre||"—"} · ${fmtCOP(ultimaRecoleccion.valor)}` : "sin registro previo"}</span>
-              <span><span style={{ color:C.textMuted }}>Efectivo por recoger (sin base): </span><b style={{ fontFamily:font.mono }}>{fmtCOP(Math.max(0, efectivoPendienteTotal + gastosNetoAcumulado))}</b>{efectivoHoyPendiente>0 && <span style={{ color:C.textMuted }}> (de hoy: {fmtCOP(efectivoHoyPendiente)})</span>}</span>
-              {costosAcumulados>0 && <span><span style={{ color:C.textMuted }}>Costos: </span><b style={{ fontFamily:font.mono, color:C.red }}>−{fmtCOP(costosAcumulados)}</b></span>}
-              {ingresosAcumulados>0 && <span><span style={{ color:C.textMuted }}>Ingresos: </span><b style={{ fontFamily:font.mono, color:C.green }}>+{fmtCOP(ingresosAcumulados)}</b></span>}
-              <span><span style={{ color:C.textMuted }}>Total efectivo con base: </span><b style={{ fontFamily:font.mono, color:C.goldLight }}>{fmtCOP(totalEnCajaAhora)}</b></span>
-            </div>
+              <div style={{ marginTop:10, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
+                <CajaReciboLinea label="Última recolección" value={ultimaRecoleccion ? `${fmtFechaHora(ultimaRecoleccion.created_at)} · ${ultimaRecoleccion.recibe_nombre||"—"} · ${fmtCOP(ultimaRecoleccion.valor)}` : "Sin registro previo"} small/>
+                <CajaReciboLinea label="Efectivo por recoger (sin base)" value={fmtCOP(Math.max(0, efectivoPendienteTotal + gastosNetoAcumulado))}/>
+                {efectivoHoyPendiente>0 && <CajaReciboLinea label="De hoy" value={fmtCOP(efectivoHoyPendiente)} small indent/>}
+                {costosAcumulados>0 && <CajaReciboLinea label="Costos (novedades)" value={`−${fmtCOP(costosAcumulados)}`} color={C.red}/>}
+                {ingresosAcumulados>0 && <CajaReciboLinea label="Ingresos (novedades)" value={`+${fmtCOP(ingresosAcumulados)}`} color={C.green}/>}
+                <CajaReciboLinea label="Total efectivo con base" value={fmtCOP(totalEnCajaAhora)} bold totalLine/>
+              </div>
+            </CajaCard>
 
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 2fr auto", gap:8, alignItems:"end", marginTop:6 }}>
+            <CajaCard icon="🔒" titulo="Cierre de turno" color={tiendaColor}>
+              <CajaField label="Fecha" type="date" value={ciFecha} onChange={setCiFecha}/>
+              {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
+
+              <div style={{ marginTop:10, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
+                <CajaReciboLinea label="Ventas (productos + flexipagos cerrados ese día)" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold/>
+                {CAJA_MEDIOS.map(m=><CajaReciboLinea key={`v-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m])} small indent/>)}
+
+                <CajaReciboLinea label="Servicios (arreglo, marcación, grabado)" value={fmtCOP(resumenHoy.totalServicios)} bold/>
+                {CAJA_MEDIOS.map(m=><CajaReciboLinea key={`s-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.servicios[m])} small indent/>)}
+
+                <CajaReciboLinea label="Total (Ventas + Servicios)" value={fmtCOP(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios)} bold totalLine/>
+
+                <CajaReciboLinea label="Flexipagos abonados hoy que siguen pendientes (no suma al total)" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted}/>
+                {resumenHoy.totalFlexipagoDia>0 && CAJA_MEDIOS.map(m=><CajaReciboLinea key={`f-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.flexipagoDia[m])} small indent color={C.textMuted}/>)}
+
+                {resumenHoy.totalNotaCreditoDia>0 && (
+                  <>
+                    <CajaReciboLinea label="Notacrédito — valor original de la factura corregida (no suma ni resta)" value={fmtCOP(resumenHoy.totalNotaCreditoDia)} color={C.amber}/>
+                    {CAJA_MEDIOS.map(m=><CajaReciboLinea key={`n-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.notaCreditoDia[m])} small indent color={C.amber}/>)}
+                  </>
+                )}
+              </div>
+              {resumenHoy.flexipagoCerradoHoy>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:6 }}>Incluye {fmtCOP(resumenHoy.flexipagoCerradoHoy)} de flexipagos que se terminaron de pagar hoy.</div>}
+
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, alignItems:"end", marginTop:10, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
+                <CajaField label="Quién cierra *" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+                <CajaField label="Tipo" value={ciTipo} onChange={setCiTipo} options={[{value:"parcial",label:"Parcial"},{value:"definitivo",label:"Definitivo"}]}/>
+                <CajaMoney label="Base de caja al cierre" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
+                <CajaField label="Novedades" value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta (opcional)"/>
+              </div>
+              <div style={{ marginTop:8 }}>
+                <CajaBtn onClick={guardarCierre} disabled={guardandoCi || !tiendaId || !ciAsesorId}>{guardandoCi?"...":"Registrar cierre"}</CajaBtn>
+              </div>
+            </CajaCard>
+          </div>
+
+          <CajaCard icon="📝" titulo="Agregar novedad" color={tiendaColor}>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 2fr auto", gap:8, alignItems:"end" }}>
               <CajaMoney label="Novedad — valor" value={gaValor} onChange={setGaValor}/>
               <CajaField label="Tipo" value={gaTipo} onChange={setGaTipo} options={[{value:"costo",label:"Costo (resta)"},{value:"ingreso",label:"Ingreso (suma)"}]}/>
               <CajaField label="Motivo" placeholder="Ej: se usó para un limpiavidrios / vueltas no reclamadas" value={gaMotivo} onChange={setGaMotivo}/>
@@ -6085,62 +6149,6 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 ))}
               </div>
             )}
-          </CajaCard>
-
-          <CajaCard icon="🔒" titulo="Cierre de turno" color={tiendaColor}>
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"200px 1fr", gap:8, alignItems:"end", marginBottom:8 }}>
-              <CajaField label="Fecha" type="date" value={ciFecha} onChange={setCiFecha}/>
-              {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
-            </div>
-            <div style={{ overflowX:"auto" }}>
-              <table style={{ width:"100%", borderCollapse:"collapse", minWidth:420 }}>
-                <thead>
-                  <tr style={{ fontFamily:font.body, fontSize:9.5, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.04em" }}>
-                    <td style={{ padding:"2px 6px" }}></td>
-                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right" }}>{CAJA_MEDIO_LABEL[m]}</td>)}
-                    <td style={{ padding:"2px 6px", textAlign:"right" }}>Total</td>
-                  </tr>
-                </thead>
-                <tbody style={{ fontFamily:font.mono, fontSize:11.5, color:C.text }}>
-                  <tr>
-                    <td style={{ padding:"2px 6px", fontFamily:font.body }}>Ventas (productos + flexipagos cerrados ese día)</td>
-                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.ingresoNeto[m])}</td>)}
-                    <td style={{ padding:"2px 6px", textAlign:"right", fontWeight:700, color:C.goldLight }}>{fmtCOP(resumenHoy.totalIngresoNeto)}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding:"2px 6px", fontFamily:font.body }}>Servicios (arreglo, marcación, grabado)</td>
-                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right" }}>{fmtCOP(resumenHoy.servicios[m])}</td>)}
-                    <td style={{ padding:"2px 6px", textAlign:"right", fontWeight:700 }}>{fmtCOP(resumenHoy.totalServicios)}</td>
-                  </tr>
-                  <tr style={{ borderTop:`1px solid ${C.border}` }}>
-                    <td style={{ padding:"3px 6px", fontFamily:font.body, fontWeight:700, color:C.text }}>Total (Ventas + Servicios)</td>
-                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"3px 6px", textAlign:"right", fontWeight:700 }}>{fmtCOP(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m])}</td>)}
-                    <td style={{ padding:"3px 6px", textAlign:"right", fontWeight:700, color:C.goldLight }}>{fmtCOP(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios)}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding:"2px 6px", fontFamily:font.body, color:C.textMuted }}>Flexipagos abonados hoy que siguen pendientes (no suma al total)</td>
-                    {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.flexipagoDia[m])}</td>)}
-                    <td style={{ padding:"2px 6px", textAlign:"right", color:C.textMuted }}>{fmtCOP(resumenHoy.totalFlexipagoDia)}</td>
-                  </tr>
-                  {resumenHoy.totalNotaCreditoDia>0 && (
-                    <tr>
-                      <td style={{ padding:"2px 6px", fontFamily:font.body, color:C.amber }}>Notacrédito — valor original de la factura corregida (no suma ni resta)</td>
-                      {CAJA_MEDIOS.map(m=><td key={m} style={{ padding:"2px 6px", textAlign:"right", color:C.amber }}>{fmtCOP(resumenHoy.notaCreditoDia[m])}</td>)}
-                      <td style={{ padding:"2px 6px", textAlign:"right", color:C.amber }}>{fmtCOP(resumenHoy.totalNotaCreditoDia)}</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {resumenHoy.flexipagoCerradoHoy>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:3 }}>Incluye {fmtCOP(resumenHoy.flexipagoCerradoHoy)} de flexipagos que se terminaron de pagar hoy.</div>}
-
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1.2fr auto", gap:8, alignItems:"end", marginTop:8 }}>
-              <CajaField label="Quién cierra *" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-              <CajaField label="Tipo" value={ciTipo} onChange={setCiTipo} options={[{value:"parcial",label:"Parcial"},{value:"definitivo",label:"Definitivo"}]}/>
-              <CajaMoney label="Base de caja al cierre" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
-              <CajaField label="Novedades" value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta (opcional)"/>
-              <CajaBtn onClick={guardarCierre} disabled={guardandoCi || !tiendaId || !ciAsesorId}>{guardandoCi?"...":"Registrar"}</CajaBtn>
-            </div>
           </CajaCard>
 
           <CajaCard icon="🚚" titulo="Recolección de efectivo" color={tiendaColor}>
