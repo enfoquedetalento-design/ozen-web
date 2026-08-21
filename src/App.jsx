@@ -208,6 +208,15 @@ function useInactivityLogout(onTimeout, minutos = 5) {
   }, [onTimeout, minutos]);
 }
 
+// Exige mantener presionado (mouse o dedo) durante un rato antes de ejecutar la acción — sin
+// ningún aviso visual de que hay que hacerlo, a propósito. Un clic/toque rápido no hace nada.
+function useLongPress(callback, duracionMs = 700) {
+  const timerRef = useRef(null);
+  const empezar = () => { timerRef.current = setTimeout(callback, duracionMs); };
+  const cancelar = () => { if (timerRef.current) clearTimeout(timerRef.current); timerRef.current = null; };
+  return { onMouseDown: empezar, onMouseUp: cancelar, onMouseLeave: cancelar, onTouchStart: empezar, onTouchEnd: cancelar, onTouchCancel: cancelar };
+}
+
 // ── Responsive ────────────────────────────────────────────────────────────────
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -239,6 +248,21 @@ const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={
 const Card = ({ children, style={}, glow, p="20px" }) => (
   <div style={{ background:C.surface, borderRadius:10, border:`1px solid ${glow?C.borderGold:C.border}`, padding:p, boxShadow:glow?`0 0 20px ${C.gold}15`:"0 1px 3px rgba(0,0,0,0.3)", ...style }}>{children}</div>
 );
+
+// Envoltorio para desplegar/ocultar contenido con animación (menús, filas expandibles, "ver más").
+// Usa el truco de grid-template-rows 0fr↔1fr: anima suavemente a la altura real del contenido sin
+// tener que medirla con JS. El contenido solo se monta la primera vez que se abre (así una fila que
+// nunca se despliega no gasta cómputo de más) pero se queda montado después para que el cierre
+// también se vea animado, no de golpe.
+function Collapse({ open, children }) {
+  const [montado, setMontado] = useState(open);
+  useEffect(()=>{ if(open) setMontado(true); }, [open]);
+  return (
+    <div className="ozen-collapse" style={{ gridTemplateRows: open ? "1fr" : "0fr" }}>
+      <div style={{ overflow:"hidden", minHeight:0 }}>{montado ? children : null}</div>
+    </div>
+  );
+}
 
 // Campo de valor en pesos colombianos: mientras se escribe muestra $000.000,
 // pero guarda (y entrega vía onChange) solo los dígitos, como los demás campos numéricos.
@@ -457,12 +481,13 @@ const passwordVencida = (u) => {
 
 function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas }) {
   const tabs = tabsPara(user, area);
+  const presionarLogo = useLongPress(onAbrirUsuarios);
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C.border}`, textAlign:"center" }}>
         {/* El logo, para master, también es la entrada a Usuarios — a propósito no lleva ningún
-            aviso visual de que se puede hacer clic ahí. */}
-        <img src="/logo-icon.png" alt="OZEN" onClick={user.role==="master"?onAbrirUsuarios:undefined} style={{ width:44, height:44, borderRadius:"50%", cursor:user.role==="master"?"pointer":"default" }} />
+            aviso visual, y hay que mantenerlo presionado (no un clic normal) para entrar. */}
+        <img src="/logo-icon.png" alt="OZEN" draggable={false} onContextMenu={e=>user.role==="master"&&e.preventDefault()} {...(user.role==="master"?presionarLogo:{})} style={{ width:44, height:44, borderRadius:"50%", cursor:user.role==="master"?"pointer":"default", userSelect:"none", WebkitTouchCallout:"none" }} />
       </div>
       <nav style={{ flex:1, padding:"12px 10px", display:"flex", flexDirection:"column", gap:2 }}>
         {tabs.map(t => { const active=tab===t.id; return (
@@ -505,10 +530,12 @@ function BottomNav({ tab, setTab, user, area }) {
 }
 
 function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas }) {
+  const presionarLogo = useLongPress(onAbrirUsuarios);
   return (
     <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
-      {/* El logo, para master, también es la entrada a Usuarios — sin ningún aviso visual. */}
-      <img src="/logo-icon.png" alt="OZEN" onClick={user.role==="master"?onAbrirUsuarios:undefined} style={{ width:34, height:34, borderRadius:"50%" }} />
+      {/* El logo, para master, también es la entrada a Usuarios — sin ningún aviso visual, y hay
+          que mantenerlo presionado (no un toque normal) para entrar. */}
+      <img src="/logo-icon.png" alt="OZEN" draggable={false} onContextMenu={e=>user.role==="master"&&e.preventDefault()} {...(user.role==="master"?presionarLogo:{})} style={{ width:34, height:34, borderRadius:"50%", userSelect:"none", WebkitTouchCallout:"none" }} />
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         {puedeUsarAreas(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
         {esAdminFinanzas(user) && <button onClick={onAbrirAccesoTiendas} title="Acceso tiendas" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🏬</button>}
@@ -1157,10 +1184,12 @@ function TurnosAdminScreen({ users, setUsers, stores, setStores, turnosGlobales,
           <button key={t.id} onClick={()=>setSub(t.id)} style={{padding:"6px 14px",borderRadius:99,border:`1px solid ${sub===t.id?C.gold:C.border}`,background:sub===t.id?`${C.gold}18`:"transparent",color:sub===t.id?C.goldLight:C.textMuted,fontFamily:font.body,fontSize:12,fontWeight:600,cursor:"pointer"}}>{t.label}</button>
         ))}
       </div>
-      {sub==="asesores"   && <UsersScreen users={users} setUsers={setUsers}/>}
-      {sub==="tiendas"    && <StoresScreen stores={stores} setStores={setStores}/>}
-      {sub==="especiales" && <TurnosEspecialesScreen turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales}/>}
-      {sub==="horarios"   && <TurnosHorariosScreen stores={stores} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
+      <div key={sub} className="ozen-pane-anim-tab">
+        {sub==="asesores"   && <UsersScreen users={users} setUsers={setUsers}/>}
+        {sub==="tiendas"    && <StoresScreen stores={stores} setStores={setStores}/>}
+        {sub==="especiales" && <TurnosEspecialesScreen turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales}/>}
+        {sub==="horarios"   && <TurnosHorariosScreen stores={stores} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
+      </div>
     </div>
   );
 }
@@ -1263,7 +1292,7 @@ function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios }) {
         <span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:600, color:C.text }}>Horarios ({totalTurnos})</span>
         <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11, color:C.goldLight }}>{abierta?"Ocultar ▲":"Ver ▾"}</span>
       </button>
-      {abierta && (
+      <Collapse open={abierta}>
         <div style={{ display:"flex", marginTop:10, overflowX:"auto", whiteSpace:"nowrap" }}>
           {tiendasConTurnos.map((s,si)=>{
             const activos=s.shifts.filter(sh=>sh.activo!==false);
@@ -1283,13 +1312,13 @@ function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios }) {
             );
           })}
         </div>
-      )}
-      {abierta && turnosGlobales.length>0 && (
-        <div style={{ marginTop:10, fontFamily:font.body, fontSize:12, lineHeight:1.6 }}>
-          <span style={{ color:C.text, fontWeight:700 }}>Especiales: </span>
-          <span style={{ color:C.textMuted }}>{turnosGlobales.map(g=>g.nombre).join("  ·  ")}</span>
-        </div>
-      )}
+        {turnosGlobales.length>0 && (
+          <div style={{ marginTop:10, fontFamily:font.body, fontSize:12, lineHeight:1.6 }}>
+            <span style={{ color:C.text, fontWeight:700 }}>Especiales: </span>
+            <span style={{ color:C.textMuted }}>{turnosGlobales.map(g=>g.nombre).join("  ·  ")}</span>
+          </div>
+        )}
+      </Collapse>
     </Card>
   );
 }
@@ -1465,7 +1494,7 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
         <span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:600, color:C.text }}>👥 Personas activas en la malla ({activos}/{personas.length})</span>
         <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11, color:C.goldLight }}>{abierto?"Ocultar ▲":"Gestionar ▾"}</span>
       </button>
-      {abierto && (
+      <Collapse open={abierto}>
         <div style={{ marginTop:12 }}>
           <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:10 }}>
             <input value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder="Buscar por nombre..." style={{ flex:1, minWidth:160, boxSizing:"border-box", padding:"8px 11px", borderRadius:7, border:`1px solid ${C.border}`, background:C.surfaceAlt, color:C.text, fontFamily:font.body, fontSize:12.5, outline:"none" }}/>
@@ -1504,7 +1533,7 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
             </table>
           </div>
         </div>
-      )}
+      </Collapse>
     </Card>
   );
 }
@@ -1572,8 +1601,11 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
 }
 
 // ── SCREEN: Turnos (contenedor con sub-pestañas Ver / Editar / Administrar) ────
-function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, turnosHorarios, setTurnosHorarios, puedeGestionar }) {
+function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, turnosHorarios, setTurnosHorarios, puedeGestionar, onSubChange }) {
   const [sub,setSub]=useState("ver");
+  // Avisa hacia arriba en qué sub-pestaña está (App la usa para alargar el cierre de sesión por
+  // inactividad mientras se edita el Borrador o Administrar, que puede tomar rato).
+  useEffect(()=>{ onSubChange?.(sub); return ()=>onSubChange?.(null); },[sub]);
   // Borrador y Administrar son solo para quien puede GESTIONAR turnos (master/admin_finanzas) —
   // "admin" y "visualizador" solo ven la rejilla, igual que "admin" en Ventas.
   const subTabs=[
@@ -1589,9 +1621,11 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
           <button key={t.id} onClick={()=>setSub(t.id)} style={{ padding:"7px 16px", borderRadius:99, border:`1px solid ${sub===t.id?C.gold:C.border}`, background:sub===t.id?`${C.gold}18`:"transparent", color:sub===t.id?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>{t.label}</button>
         ))}
       </div>
-      {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones}/>}
-      {sub==="editar"      && puedeGestionar && <TurnosEditarScreen users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} setAsignaciones={setAsignaciones}/>}
-      {sub==="administrar" && puedeGestionar && <TurnosAdminScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
+      <div key={sub} className="ozen-pane-anim-tab">
+        {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones}/>}
+        {sub==="editar"      && puedeGestionar && <TurnosEditarScreen users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} setAsignaciones={setAsignaciones}/>}
+        {sub==="administrar" && puedeGestionar && <TurnosAdminScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
+      </div>
     </div>
   );
 }
@@ -1607,8 +1641,10 @@ function MiAsistenciaScreen({ user, records, onRecord, onRefresh, stores, asigna
           <button key={t.id} onClick={()=>setSub(t.id)} style={{ padding:"7px 16px", borderRadius:99, border:`1px solid ${sub===t.id?C.gold:C.border}`, background:sub===t.id?`${C.gold}18`:"transparent", color:sub===t.id?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>{t.label}</button>
         ))}
       </div>
-      {sub==="marcar"    && <CheckInScreen user={user} records={records} onRecord={onRecord} onRefresh={onRefresh} stores={stores} asignaciones={asignaciones} turnosHorarios={turnosHorarios}/>}
-      {sub==="historial" && <HistoryScreen user={user} records={records} stores={stores} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>}
+      <div key={sub} className="ozen-pane-anim-tab">
+        {sub==="marcar"    && <CheckInScreen user={user} records={records} onRecord={onRecord} onRefresh={onRefresh} stores={stores} asignaciones={asignaciones} turnosHorarios={turnosHorarios}/>}
+        {sub==="historial" && <HistoryScreen user={user} records={records} stores={stores} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>}
+      </div>
     </div>
   );
 }
@@ -1909,9 +1945,11 @@ function JuntaEquipoTab({ lideres, setLideres, areas, setAreas, liderAreas, setL
         <Btn onClick={()=>setVista("lideres")} variant={vista==="lideres"?"primary":"ghost"} sm>👤 Por líder</Btn>
         <Btn onClick={()=>setVista("areas")} variant={vista==="areas"?"primary":"ghost"} sm>🗂️ Por área</Btn>
       </div>
-      {vista==="lideres"
-        ? <JuntaVistaPorLider lideres={lideres} setLideres={setLideres} areas={areas} setAreas={setAreas} liderAreas={liderAreas} setLiderAreas={setLiderAreas} isMobile={isMobile}/>
-        : <JuntaVistaPorArea areas={areas} setAreas={setAreas} lideres={lideres} liderAreas={liderAreas}/>}
+      <div key={vista} className="ozen-pane-anim-tab">
+        {vista==="lideres"
+          ? <JuntaVistaPorLider lideres={lideres} setLideres={setLideres} areas={areas} setAreas={setAreas} liderAreas={liderAreas} setLiderAreas={setLiderAreas} isMobile={isMobile}/>
+          : <JuntaVistaPorArea areas={areas} setAreas={setAreas} lideres={lideres} liderAreas={liderAreas}/>}
+      </div>
     </div>
   );
 }
@@ -2383,7 +2421,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
         </Card>
       )}
 
-      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+      <div key={vistaEstado} className="ozen-pane-anim-tab" style={{ display:"flex", flexDirection:"column", gap:6 }}>
         {gruposOrdenados.map(g=>{
           const base = g[0];
           const vencida = esGrupoVencido(g);
@@ -2761,8 +2799,8 @@ function AreaSelector({ user, onChoose, onLogout }) {
   return (
     <div style={{ minHeight:"100vh", background:`radial-gradient(1100px 520px at 50% -10%, ${C.goldLight}14, transparent 60%), ${C.dark}`, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
       <style>{`
-        @keyframes ozenPopIn { from { opacity:0; transform:translateY(14px) scale(0.98); } to { opacity:1; transform:translateY(0) scale(1); } }
-        .ozen-modulo-card { animation:ozenPopIn .38s cubic-bezier(.2,.8,.2,1) both; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+        @keyframes ozenPopIn { from { opacity:0; transform:translateY(16px) scale(0.94); } to { opacity:1; transform:translateY(0) scale(1); } }
+        .ozen-modulo-card { animation:ozenPopIn .48s cubic-bezier(.34,1.56,.64,1) both; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
         .ozen-modulo-card:hover { transform:translateY(-3px) scale(1.01); }
         .ozen-modulo-card:active { transform:translateY(-1px) scale(0.995); }
         .ozen-modulo-arrow { transition:transform .18s ease, opacity .18s ease; opacity:0.4; }
@@ -2771,7 +2809,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
         .ozen-modulo-card:hover .ozen-modulo-icon { transform:scale(1.08) rotate(-2deg); }
       `}</style>
       <div style={{ width:"100%", maxWidth:540 }}>
-        <div style={{ textAlign:"center", marginBottom:32, animation:"ozenPopIn .38s ease both" }}>
+        <div style={{ textAlign:"center", marginBottom:32, animation:"ozenPopIn .5s cubic-bezier(.34,1.56,.64,1) both" }}>
           <img src="/logo-horizontal.png" alt="OZEN" style={{ width:260, height:"auto", marginBottom:14 }} />
           <div style={{ fontFamily:font.body, fontSize:13.5, color:C.textMuted }}>Hola, {user.name.split(" ")[0]} — ¿qué quieres abrir?</div>
         </div>
@@ -3280,7 +3318,7 @@ function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
         <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${Number(ajuste.diferencia||0).toLocaleString("es-CO")}</div>
         <span style={{ color:C.textMuted, fontSize:11, flexShrink:0 }}>{abierto?"▲":"▼"}</span>
       </button>
-      {abierto && (
+      <Collapse open={abierto}>
         <div style={{ padding:"0 12px 12px", borderTop:`1px solid ${C.border}` }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", margin:"8px 0" }}>
             {tiposTexto && <Badge color={tipoColor} sm title={tiposTexto}>{tipoIcon} {tiposTexto}</Badge>}
@@ -3288,7 +3326,7 @@ function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
           </div>
           {infoFacturaOriginal}
         </div>
-      )}
+      </Collapse>
     </Card>
   );
 }
@@ -4553,7 +4591,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                 <span style={{ color:C.textMuted, fontSize:11 }}>{expandido===v.id?"▲":"▼"}</span>
               </button>
 
-              {expandido===v.id && (
+              <Collapse open={expandido===v.id}>
                 <div style={{ padding:"0 12px 12px", borderTop:`1px solid ${C.border}` }}>
                   {d?.cargando ? (
                     <div style={{ padding:14, color:C.textMuted, fontFamily:font.body, fontSize:12 }}>Cargando...</div>
@@ -4934,7 +4972,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
                     </>
                   )}
                 </div>
-              )}
+              </Collapse>
             </Card>
           )};
         });
@@ -5439,7 +5477,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                     <span style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{fmtCOP(metaAsesorCalculada(a.id))}</span>
                     <span style={{ color:C.textMuted, fontSize:10 }}>{abierto?"▲":"▼"}</span>
                   </button>
-                  {abierto && (
+                  <Collapse open={abierto}>
                     <div style={{ padding:"0 10px 10px" }}>
                       <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8, flexWrap:"wrap" }}>
                         <label style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12, color:C.text, cursor:"pointer" }}>
@@ -5471,7 +5509,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                       {sumaDiasTienda>diasDisponibles && <div style={{ fontFamily:font.body, fontSize:11, color:C.red, marginTop:4 }}>Los días por tienda suman {sumaDiasTienda}, pero solo hay {diasDisponibles} días disponibles.</div>}
                       <div style={{ marginTop:8 }}><Btn onClick={()=>guardarDetalleAsesor(a.id)} disabled={guardandoDetalle===a.id || sumaDiasTienda>diasDisponibles} sm>{guardandoDetalle===a.id?"Guardando...":"Guardar"}</Btn></div>
                     </div>
-                  )}
+                  </Collapse>
                 </div>
               );
             })}
@@ -5987,6 +6025,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       </div>
       {msg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"7px 10px", color:C.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{msg}</div>}
 
+      <div key={cajaVista} className="ozen-pane-anim-tab">
       {cajaVista==="registrar" && !soloLectura ? (
         <>
           <CajaCard icon="🔓" titulo="Apertura de turno">
@@ -6197,6 +6236,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
           </CajaCard>
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -6204,6 +6244,14 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 // ── APP SHELL ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
+  // Para que el panel principal sepa si el cambio que se acaba de hacer fue de MÓDULO (área) o solo
+  // de PESTAÑA dentro del mismo módulo — cada uno usa una animación distinta (ver globalAnimStyles).
+  const prevAreaRef = useRef(area);
+  const esCambioModulo = prevAreaRef.current !== area;
+  useEffect(()=>{ prevAreaRef.current = area; }, [area]);
+  // TurnosScreen avisa aquí en qué sub-pestaña está (ver/editar/administrar) — se usa solo para
+  // alargar el cierre de sesión por inactividad mientras se edita Borrador o Administrar.
+  const [turnosSub, setTurnosSub] = useState(null);
   const [juntaLideres,setJuntaLideres]=useState([]),[juntaCompromisos,setJuntaCompromisos]=useState([]),[juntaAcuerdos,setJuntaAcuerdos]=useState([]);
   const [juntaAreas,setJuntaAreas]=useState([]),[juntaLiderAreas,setJuntaLiderAreas]=useState([]);
   const [ventas,setVentas]=useState([]),[ventasItems,setVentasItems]=useState([]),[ventasMetas,setVentasMetas]=useState([]),[ventasMetasAsesor,setVentasMetasAsesor]=useState([]);
@@ -6294,10 +6342,24 @@ export default function App() {
 
   // Cuenta de tienda: es el equipo compartido que queda abierto en el mostrador toda la
   // jornada, así que se le da el margen de una jornada completa (7 horas) antes de cerrar
-  // sesión por inactividad. El resto de cuentas (uso personal) sigue en 5 minutos.
-  useInactivityLogout(logout, esCuentaTienda(user||{}) ? 7*60 : 5);
+  // sesión por inactividad. El resto de cuentas (uso personal) sigue en 5 minutos — salvo en
+  // zonas donde se sabe que se pasa rato largo editando sin soltar el mouse todo el tiempo:
+  // Junta (dura horas, con ratos de solo escuchar), Turnos → Borrador/Administrar (edición
+  // larga), y Ventas para master/admin_finanzas (edición y cierres que toman su tiempo) —
+  // en esos casos se da margen de 2 horas.
+  const margenExtendido = area==="junta"
+    || (tab==="turnos" && (turnosSub==="editar" || turnosSub==="administrar"))
+    || (area==="ventas" && (user?.role==="master" || user?.role==="admin_finanzas"));
+  const minutosInactividad = esCuentaTienda(user||{}) ? 7*60 : (margenExtendido ? 120 : 5);
+  useInactivityLogout(logout, minutosInactividad);
 
-  if(booting) return <div style={{minHeight:"100vh",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,color:C.textMuted,fontSize:14}}>Cargando...</div>;
+  if(booting) return (
+    <div style={{minHeight:"100vh",background:C.dark,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,fontFamily:font.body,color:C.textMuted,fontSize:14}}>
+      <style>{`@keyframes ozenBootPulse { 0%,100% { opacity:.5; transform:scale(.97); } 50% { opacity:1; transform:scale(1); } }`}</style>
+      <img src="/logo-horizontal.png" alt="OZEN" style={{ width:150, height:"auto", animation:"ozenBootPulse 1.3s cubic-bezier(.34,1.2,.5,1) infinite" }} />
+      <div>Cargando...</div>
+    </div>
+  );
   if(!user) return <LoginScreen onLogin={login}/>;
 
   if(passwordVencida(user)) return (
@@ -6328,7 +6390,7 @@ export default function App() {
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
-        if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={puedeGestionarTurnos(user)}/>;
+        if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={puedeGestionarTurnos(user)} onSubChange={setTurnosSub}/>;
         if(tab==="mi_asistencia") return <MiAsistenciaScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
@@ -6347,21 +6409,34 @@ export default function App() {
 
   const soloLectura = user.role==="visualizador";
 
+  // Dos animaciones DISTINTAS para el contenido principal, según qué cambió:
+  // - Cambiar de módulo (área) se siente como abrir un espacio nuevo: entra desde abajo con un
+  //   respiro (rebote incluido), un poco más lento — igual de familia que el pop-in del selector
+  //   de módulos, pero pensado para el panel completo.
+  // - Cambiar de pestaña dentro del mismo módulo es una acción frecuente: un desplazamiento lateral
+  //   corto y rápido, con solo una pizca de rebote — se siente vivo sin ser lento ni repetitivo.
   const globalAnimStyles = (
     <style>{`
-      @keyframes ozenFadeSlideIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
-      .ozen-pane-anim { animation: ozenFadeSlideIn .22s ease; }
+      @keyframes ozenPaneModulo { from { opacity:0; transform:translateY(18px) scale(.97); } 60% { opacity:1; } to { opacity:1; transform:translateY(0) scale(1); } }
+      @keyframes ozenPaneTab { from { opacity:0; transform:translateX(14px); } to { opacity:1; transform:translateX(0); } }
+      .ozen-pane-anim-modulo { animation: ozenPaneModulo .42s cubic-bezier(.34,1.56,.64,1) both; }
+      .ozen-pane-anim-tab { animation: ozenPaneTab .28s cubic-bezier(.34,1.2,.5,1) both; }
+      .ozen-collapse { display:grid; transition:grid-template-rows .38s cubic-bezier(.34,1.56,.64,1); }
+      @keyframes ozenModalOverlay { from { opacity:0; } to { opacity:1; } }
+      @keyframes ozenModalPop { from { opacity:0; transform:scale(.92) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
+      .ozen-modal-overlay { animation: ozenModalOverlay .18s ease both; }
+      .ozen-modal-pop { animation: ozenModalPop .38s cubic-bezier(.34,1.56,.64,1) both; }
     `}</style>
   );
 
   const modalCambiarPassword = mostrarCambiarPassword && (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:1000}}>
-      <CambiarPasswordForm user={user} onUpdated={(u)=>{setUser(u);setMostrarCambiarPassword(false);}} onCancel={()=>setMostrarCambiarPassword(false)}/>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:1000}} className="ozen-modal-overlay">
+      <div className="ozen-modal-pop"><CambiarPasswordForm user={user} onUpdated={(u)=>{setUser(u);setMostrarCambiarPassword(false);}} onCancel={()=>setMostrarCambiarPassword(false)}/></div>
     </div>
   );
 
   const modalUsuarios = mostrarUsuarios && (
-    <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}}>
+    <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}} className="ozen-pane-anim-modulo">
       <div style={{maxWidth:900,margin:"0 auto"}}>
         <Btn onClick={()=>setMostrarUsuarios(false)} variant="ghost" sm style={{marginBottom:14}}>← Volver</Btn>
         <UsuariosScreen users={users} setUsers={setUsers} stores={stores}/>
@@ -6370,7 +6445,7 @@ export default function App() {
   );
 
   const modalAccesoTiendas = mostrarAccesoTiendas && (
-    <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}}>
+    <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}} className="ozen-pane-anim-modulo">
       <div style={{maxWidth:900,margin:"0 auto"}}>
         <Btn onClick={()=>setMostrarAccesoTiendas(false)} variant="ghost" sm style={{marginBottom:14}}>← Volver</Btn>
         <TiendasAccesoScreen users={users} setUsers={setUsers} stores={stores}/>
@@ -6383,7 +6458,7 @@ export default function App() {
       <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden"}}>
         {globalAnimStyles}
         <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)}/>
-        <main style={{flex:1,overflowY:"auto",padding:16}}><div key={`${area}-${tab}`} className="ozen-pane-anim">{renderScreen()}</div></main>
+        <main style={{flex:1,overflowY:"auto",padding:16}}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></main>
         <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
         {modalCambiarPassword}
         {modalUsuarios}
@@ -6397,7 +6472,7 @@ export default function App() {
       <div style={{display:"flex",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
         {globalAnimStyles}
         <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)}/>
-        <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}><div key={`${area}-${tab}`} className="ozen-pane-anim">{renderScreen()}</div></main>
+        <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></main>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
