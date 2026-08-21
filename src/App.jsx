@@ -4640,6 +4640,32 @@ const fmtCOP = (n) => `$${Math.round(n||0).toLocaleString("es-CO")}`;
 // La meta personal siempre se calcula sobre 30 días, sin importar si el mes tiene 28-31.
 const DIAS_META = 30;
 
+// A partir de la malla real de Turnos, calcula cuántos días trabajó un asesor en cada tienda ese
+// mes — para precargar (no reemplazar) el campo manual "días por tienda" de la meta personal.
+// Los días de descanso (el código especial cuyo nombre incluye "descanso") se suman a la tienda
+// donde más turnos reales tuvo ese mes, porque siguen siendo días "de esa tienda". Los demás
+// códigos especiales (incapacidad, vacaciones, etc.) no se cuentan aquí — esos se siguen
+// manejando como novedad manual, igual que antes.
+const diasTiendaDesdeMalla = (asesorId, mesKey, turnosAsignaciones, turnosGlobales) => {
+  const esDescanso = (turnoGlobalId) => {
+    const g = (turnosGlobales||[]).find(t=>t.id===turnoGlobalId);
+    return !!g && /descanso/i.test(g.nombre||"");
+  };
+  const asigMes = (turnosAsignaciones||[]).filter(a=>a.asesor_id===asesorId && a.fecha && a.fecha.slice(0,7)===mesKey);
+  const porTienda = {};
+  let descansos = 0;
+  asigMes.forEach(a=>{
+    if(a.tienda_id) porTienda[a.tienda_id] = (porTienda[a.tienda_id]||0) + 1;
+    else if(a.turno_global_id && esDescanso(a.turno_global_id)) descansos++;
+  });
+  const entries = Object.entries(porTienda);
+  if(descansos>0 && entries.length>0){
+    const top = entries.reduce((best,cur)=> cur[1]>best[1] ? cur : best);
+    porTienda[top[0]] = (porTienda[top[0]]||0) + descansos;
+  }
+  return porTienda;
+};
+
 // Un flexipago suma como ingreso el día que se TERMINA de pagar (con su valor completo),
 // sin importar cuándo se creó la venta ni en cuántos días/medios se fue abonando.
 // Mientras no esté completo, no suma nada a ingresos (aunque ya tenga abonos).
@@ -4662,7 +4688,7 @@ const calcularCierresFlexipago = (ventas, ventasItems, ventasAbonos) => {
   return cierres;
 };
 
-function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile }) {
+function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile, turnosAsignaciones, turnosGlobales }) {
   const hoy = toColombiaDate();
   const [anio, setAnio] = useState(hoy.getFullYear());
   const [mesIdx, setMesIdx] = useState(hoy.getMonth());
@@ -4725,16 +4751,21 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
       const novedadesExistentes = (existente?.novedades && existente.novedades.length>0)
         ? existente.novedades
         : (existente?.tipo_novedad ? [{ tipo:existente.tipo_novedad, dias:existente.dias_novedad||0 }] : []);
+      const diasTiendaGuardados = existente?.dias_tienda || {};
+      // Si todavía no hay días por tienda guardados para este asesor este mes, se precargan
+      // (no se reemplazan) calculándolos desde la malla real de Turnos — sigue siendo editable.
+      const hayGuardados = Object.values(diasTiendaGuardados).some(v=>Number(v||0)>0);
+      const diasTiendaAuto = hayGuardados ? {} : diasTiendaDesdeMalla(a.id, mesKey, turnosAsignaciones, turnosGlobales);
       obj[a.id] = {
         mesCompleto: existente ? existente.mes_completo : true,
         diasIngreso: String(existente?.dias_ingreso||""),
         novedades: novedadesExistentes.map(n=>({ tipo:n.tipo, dias:String(n.dias||"") })),
-        diasTienda: Object.fromEntries(tiendasList.map(t=>[t.id, String((existente?.dias_tienda||{})[t.id]||"")])),
+        diasTienda: Object.fromEntries(tiendasList.map(t=>[t.id, String(diasTiendaGuardados[t.id] || diasTiendaAuto[t.id] || "")])),
       };
     });
     setDetalleInputs(obj);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mesKey, metasAsesor.length, asesores.length]);
+  }, [mesKey, metasAsesor.length, asesores.length, turnosAsignaciones, turnosGlobales]);
 
   const setMetaDiaValor = (tiendaId, diaNum, value) => setMetaDiasInputs(prev=>({...prev, [tiendaId]: {...prev[tiendaId], [diaNum]:value}}));
   const sumaMetaDias = (tiendaId) => Object.values(metaDiasInputs[tiendaId]||{}).reduce((s,v)=>s+Number(v||0),0);
@@ -5077,6 +5108,11 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
               const diasNovedadTotal = (d.novedades||[]).reduce((s,n)=>s+Number(n.dias||0),0);
               const diasDisponibles = (d.mesCompleto ? DIAS_META : Number(d.diasIngreso||0)) - diasNovedadTotal;
               const sumaDiasTienda = Object.values(d.diasTienda||{}).reduce((s,v)=>s+Number(v||0),0);
+              // Si lo que se está mostrando en "días por tienda" todavía no se ha guardado, es la
+              // sugerencia calculada desde la malla de Turnos — se avisa para que se revise antes
+              // de confirmar (no reemplaza el registro guardado si ya existe).
+              const existenteMeta = metasAsesor.find(m=>m.mes===mesKey && m.vendedor_id===a.id);
+              const diasTiendaEsAuto = !Object.values(existenteMeta?.dias_tienda||{}).some(v=>Number(v||0)>0) && sumaDiasTienda>0;
               return (
                 <div key={a.id} style={{ border:`1px solid ${abierto?C.gold:C.border}`, borderRadius:7, overflow:"hidden" }}>
                   <button onClick={()=>setAsesorExpandido(abierto?null:a.id)} style={{ width:"100%", display:"flex", alignItems:"center", gap:8, padding:"7px 10px", background:"none", border:"none", cursor:"pointer", textAlign:"left" }}>
@@ -5107,7 +5143,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                       ))}
                       <Btn onClick={()=>agregarNovedadAsesor(a.id)} variant="ghost" sm>+ Agregar novedad</Btn>
 
-                      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${Math.min(tiendasList.length||1,4)}, 1fr)`, gap:8, marginTop:10 }}>
+                      {diasTiendaEsAuto && <div style={{ fontFamily:font.body, fontSize:11, color:C.goldLight, marginTop:8 }}>📅 Calculado desde la malla de Turnos — revisa y dale "Guardar" para confirmarlo.</div>}
+                      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${Math.min(tiendasList.length||1,4)}, 1fr)`, gap:8, marginTop:diasTiendaEsAuto?4:10 }}>
                         {tiendasList.map(t=>(
                           <Field key={t.id} label={t.name} value={d.diasTienda?.[t.id]||""} onChange={v=>setDetalleTienda(a.id,t.id,v.replace(/[^\d]/g,""))} placeholder="días"/>
                         ))}
@@ -5965,7 +6002,7 @@ export default function App() {
       } else if(area==="ventas"){
         if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
-        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
+        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
         if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile}/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
@@ -5977,7 +6014,7 @@ export default function App() {
     } else if(esCuentaTienda(user)){
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={false} soloLectura={false}/>;
-      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile}/>;
+      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
       if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile}/>;
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>;
