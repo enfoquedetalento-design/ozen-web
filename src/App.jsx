@@ -420,6 +420,10 @@ const esCuentaTienda = (user) => user.role==="tienda";
 // pueden aparecer como columna en la malla y que se les asigne un turno propio para marcar
 // asistencia — no se fusiona su cuenta con ninguna de asesor, solo se les habilita la malla.
 const esAdminAsignableATurnos = (u) => ["master","admin","admin_finanzas","visualizador"].includes(u.role);
+// Quién puede EDITAR el Borrador o entrar a Administrar (asesores/tiendas/horarios) en Turnos —
+// solo master. admin_finanzas es un admin normal con acceso extra a Ventas, no a Turnos, así
+// que en Turnos se comporta igual que "admin"/"visualizador": solo puede ver la rejilla.
+const puedeGestionarTurnos = (user) => user.role==="master";
 const ROLE_ORDEN_TURNOS = ["master","admin","admin_finanzas","visualizador"];
 const esUsuarioDeTurnos = (u) => u.role==="advisor" || esAdminAsignableATurnos(u);
 // Los asesores usan el campo general `active` (ya existente). Los admin usan un campo propio
@@ -645,7 +649,13 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
         {jornadas.map(j=>{
           const asigDia=(turnosAsignaciones||[]).find(a=>a.asesor_id===j.userId&&a.fecha===j.date);
-          const punt=calcPuntualidad(j.entrada?.time,j.shift,j.date,j.store,turnosHorarios,asigDia?.entrada_custom);
+          // Si hay un turno oficial asignado en el Borrador para ese día, la puntualidad se
+          // evalúa contra ESE (aunque la persona haya marcado otro por error) — no contra lo
+          // autorreportado. Si no hay asignación (o es un turno especial sin tienda), se usa lo
+          // que quedó en el registro, como antes.
+          const shiftReal = asigDia?.tienda_id ? (asigDia.shift||j.shift) : j.shift;
+          const storeReal = asigDia?.tienda_id || j.store;
+          const punt=calcPuntualidad(j.entrada?.time,shiftReal,j.date,storeReal,turnosHorarios,asigDia?.entrada_custom);
           return (
             <Card key={j.key} p="14px">
               <div style={{ marginBottom:10 }}>
@@ -1562,15 +1572,16 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
 }
 
 // ── SCREEN: Turnos (contenedor con sub-pestañas Ver / Editar / Administrar) ────
-function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, turnosHorarios, setTurnosHorarios, puedeAdministrar }) {
-  const soloLectura = useReadOnly();
+function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, turnosHorarios, setTurnosHorarios, puedeGestionar }) {
   const [sub,setSub]=useState("ver");
+  // Borrador y Administrar son solo para quien puede GESTIONAR turnos (master/admin_finanzas) —
+  // "admin" y "visualizador" solo ven la rejilla, igual que "admin" en Ventas.
   const subTabs=[
     { id:"ver", label:"📅 Turnos" },
-    ...(soloLectura?[]:[{ id:"editar", label:"📝 Borrador" }]),
-    ...(puedeAdministrar?[{ id:"administrar", label:"⚙️ Administrar" }]:[]),
+    ...(puedeGestionar?[{ id:"editar", label:"📝 Borrador" }]:[]),
+    ...(puedeGestionar?[{ id:"administrar", label:"⚙️ Administrar" }]:[]),
   ];
-  useEffect(()=>{ if(!subTabs.some(t=>t.id===sub)) setSub("ver"); },[soloLectura, puedeAdministrar]);
+  useEffect(()=>{ if(!subTabs.some(t=>t.id===sub)) setSub("ver"); },[puedeGestionar]);
   return (
     <div>
       <div style={{ display:"flex", gap:6, marginBottom:18, flexWrap:"wrap" }}>
@@ -1579,8 +1590,8 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
         ))}
       </div>
       {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones}/>}
-      {sub==="editar"      && !soloLectura && <TurnosEditarScreen users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} setAsignaciones={setAsignaciones}/>}
-      {sub==="administrar" && puedeAdministrar && <TurnosAdminScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
+      {sub==="editar"      && puedeGestionar && <TurnosEditarScreen users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} setAsignaciones={setAsignaciones}/>}
+      {sub==="administrar" && puedeGestionar && <TurnosAdminScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
     </div>
   );
 }
@@ -1697,7 +1708,10 @@ function HistoryScreen({ user, records, stores, turnosHorarios, turnosAsignacion
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
         {jornadas.map(j => {
           const asigDia = (turnosAsignaciones||[]).find(a=>a.asesor_id===j.userId&&a.fecha===j.date);
-          const punt = calcPuntualidad(j.entrada?.time, j.shift, j.date, j.store, turnosHorarios, asigDia?.entrada_custom);
+          // Igual que en Registros: si hay turno oficial asignado, manda sobre lo autorreportado.
+          const shiftReal = asigDia?.tienda_id ? (asigDia.shift||j.shift) : j.shift;
+          const storeReal = asigDia?.tienda_id || j.store;
+          const punt = calcPuntualidad(j.entrada?.time, shiftReal, j.date, storeReal, turnosHorarios, asigDia?.entrada_custom);
           return (
           <Card key={j.key} p="14px">
             <div style={{ marginBottom:10 }}>
@@ -6277,7 +6291,7 @@ export default function App() {
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
-        if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeAdministrar={user.role!=="visualizador"}/>;
+        if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={puedeGestionarTurnos(user)}/>;
         if(tab==="mi_asistencia") return <MiAsistenciaScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
