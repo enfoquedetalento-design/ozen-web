@@ -425,15 +425,15 @@ const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id
 // Usuarios (control total de contraseñas) ya no va en esta lista de pestañas — es solo para
 // master, y se abre aparte con un ícono discreto en el pie del menú (ver Sidebar/MobileHeader).
 const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
-const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Turnos" }];
+const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Turnos" },{ id:"firmar",icon:"✍️",label:"Firmar documento" }];
 const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar venta" },{ id:"lista",icon:"📋",label:"Lista de ventas" },{ id:"metricas",icon:"📊",label:"Métricas" },{ id:"caja",icon:"💰",label:"Caja" }];
 const ADMIN_TABS_FIRMAS     = [{ id:"firmar",icon:"✍️",label:"Firmar documento" }];
-const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas";
+const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas" || user.role==="admin_turnos";
 // Quién puede elegir el área "Ventas" desde el selector. Admin y Visualizador entran en modo
 // solo lectura (ver ventasSoloLectura); master y admin_finanzas entran completo.
-const puedeUsarVentasArea = (user) => user.role==="master" || user.role==="admin_finanzas" || user.role==="admin" || user.role==="visualizador";
+const puedeUsarVentasArea = (user) => user.role==="master" || user.role==="admin_finanzas" || user.role==="admin" || user.role==="visualizador" || user.role==="admin_turnos";
 // Quién solo puede VER Ventas (lista, métricas, caja) sin registrar ni corregir nada.
-const ventasSoloLectura = (user) => user.role==="admin" || user.role==="visualizador";
+const ventasSoloLectura = (user) => user.role==="admin" || user.role==="visualizador" || user.role==="admin_turnos";
 // Admin (no admin_finanzas) sí puede ENTRAR a la pantalla de Registrar venta para verla, pero
 // en modo solo lectura — no puede guardar. Visualizador ni siquiera ve esa pestaña.
 const puedeVerRegistrar = (user) => user.role!=="visualizador";
@@ -443,12 +443,13 @@ const esCuentaTienda = (user) => user.role==="tienda";
 // Turnos: además de los asesores, los admin (master/admin/admin_finanzas/visualizador) también
 // pueden aparecer como columna en la malla y que se les asigne un turno propio para marcar
 // asistencia — no se fusiona su cuenta con ninguna de asesor, solo se les habilita la malla.
-const esAdminAsignableATurnos = (u) => ["master","admin","admin_finanzas","visualizador"].includes(u.role);
+const esAdminAsignableATurnos = (u) => ["master","admin","admin_finanzas","admin_turnos","visualizador"].includes(u.role);
 // Quién puede EDITAR el Borrador o entrar a Administrar (asesores/tiendas/horarios) en Turnos —
-// solo master. admin_finanzas es un admin normal con acceso extra a Ventas, no a Turnos, así
-// que en Turnos se comporta igual que "admin"/"visualizador": solo puede ver la rejilla.
-const puedeGestionarTurnos = (user) => user.role==="master";
-const ROLE_ORDEN_TURNOS = ["master","admin","admin_finanzas","visualizador"];
+// master y admin_turnos (un admin normal con acceso completo a Turnos, y solo a eso). admin_finanzas
+// es un admin normal con acceso extra a VENTAS, no a Turnos, así que ahí se comporta igual que
+// "admin"/"visualizador": solo puede ver la rejilla.
+const puedeGestionarTurnos = (user) => user.role==="master" || user.role==="admin_turnos";
+const ROLE_ORDEN_TURNOS = ["master","admin","admin_finanzas","admin_turnos","visualizador"];
 const esUsuarioDeTurnos = (u) => u.role==="advisor" || esAdminAsignableATurnos(u);
 // Los asesores usan el campo general `active` (ya existente). Los admin usan un campo propio
 // `activo_en_turnos` para no interferir con el `active` general que ya se usa en otras pantallas
@@ -750,12 +751,13 @@ function UsersScreen({ users, setUsers }) {
 }
 
 // ── SCREEN: Usuarios (solo master) ─────────────────────────────────────────────
-const ROLE_LABEL = { master:"Master", admin:"Administrador", admin_finanzas:"Admin Finanzas", visualizador:"Visualizador", advisor:"Asesor", tienda:"Cuenta de tienda" };
-const ROLE_COLOR = { master:C.red, admin:C.gold, admin_finanzas:C.blue, visualizador:C.amber, advisor:C.blue, tienda:C.textMuted };
+const ROLE_LABEL = { master:"Master", admin:"Administrador", admin_finanzas:"Admin Finanzas", admin_turnos:"Admin Turnos", visualizador:"Visualizador", advisor:"Asesor", tienda:"Cuenta de tienda" };
+const ROLE_COLOR = { master:C.red, admin:C.gold, admin_finanzas:C.blue, admin_turnos:C.green, visualizador:C.amber, advisor:C.blue, tienda:C.textMuted };
 const ROLE_PERMISOS = {
   master: "Acceso total: Asistencia, Junta, Ventas y el módulo de Usuarios (ve y cambia todas las contraseñas).",
   admin: "Asistencia y Junta completos (panel, registros, turnos —incluye crear/editar/eliminar asesores y tiendas—, informes). En Ventas solo puede ver (lista, métricas, caja) — no puede registrar ni corregir nada.",
   admin_finanzas: "Todo lo de un Administrador (Asistencia y Junta), más Ventas completo: registrar, lista, métricas, asignar metas, aprobar notas crédito y corregir por error.",
+  admin_turnos: "Todo lo de un Administrador (Asistencia y Junta, Ventas solo lectura), más acceso completo a Turnos: editar el Borrador y entrar a Administrar (asesores, tiendas, turnos especiales, horarios).",
   visualizador: "Puede ver Asistencia, Junta y Ventas, sin poder editar ni registrar nada en ninguno de los tres.",
   advisor: "Marca su propia asistencia y ve su historial/malla. Si se usa para vender, aparece para elegir como quién hizo la venta.",
   tienda: "Login compartido de una tienda: solo entra a Ventas (Registrar, Lista, Métricas, Caja) de esa tienda, con la fecha fija en hoy.",
@@ -770,16 +772,27 @@ function UsuariosScreen({ users, setUsers, stores }) {
   // datos — así si alguien cambió su propia contraseña desde otra sesión, aparece
   // aquí sin que master tenga que adivinar o darle refrescar manualmente.
   useEffect(()=>{ traerFrescos(); },[]);
-  const ordenados=[...users].sort((a,b)=>(a.role==="master"?0:a.role==="admin"?1:2)-(b.role==="master"?0:b.role==="admin"?1:2) || a.name.localeCompare(b.name));
-  const roleOptions=[{value:"advisor",label:"Asesor"},{value:"admin",label:"Administrador"},{value:"admin_finanzas",label:"Admin Finanzas"},{value:"visualizador",label:"Visualizador"},{value:"tienda",label:"Cuenta de tienda"},{value:"master",label:"Master"}];
+  const ordenRol = (r) => r==="master"?0 : (r==="admin"||r==="admin_turnos")?1 : 2;
+  const ordenados=[...users].sort((a,b)=>ordenRol(a.role)-ordenRol(b.role) || a.name.localeCompare(b.name));
+  const roleOptions=[{value:"advisor",label:"Asesor"},{value:"admin",label:"Administrador"},{value:"admin_finanzas",label:"Admin Finanzas"},{value:"admin_turnos",label:"Admin Turnos"},{value:"visualizador",label:"Visualizador"},{value:"tienda",label:"Cuenta de tienda"},{value:"master",label:"Master"}];
   const add=async()=>{ if(!form.name.trim()||!form.documento.trim())return; if(form.role==="tienda"&&!form.tienda_id)return; setLoading(true); const{data,error}=await supabase.from("usuarios").insert({name:form.name.trim(),documento:form.documento.trim(),password:form.documento.trim(),role:form.role,tienda_id:form.role==="tienda"?form.tienda_id:null,active:true}).select().single(); if(!error&&data){setUsers(prev=>[...prev,data]);setForm({name:"",documento:"",role:"advisor",tienda_id:""});setShowForm(false);} setLoading(false); };
   const toggle=async(u)=>{ const{data}=await supabase.from("usuarios").update({active:!u.active}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
   const saveEdit=async(id)=>{ if(!editVal.name.trim()||!editVal.documento.trim())return; if(editVal.role==="tienda"&&!editVal.tienda_id)return; const{data}=await supabase.from("usuarios").update({name:editVal.name.trim(),documento:editVal.documento.trim(),role:editVal.role,tienda_id:editVal.role==="tienda"?(editVal.tienda_id||null):null}).eq("id",id).select().single(); if(data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setEditing(null);} };
   const deleteUsuario=async(id)=>{
     const { count } = await supabase.from("registros").select("id", { count: "exact", head: true }).eq("user_id", id);
-    if (count > 0) { alert(`Este usuario tiene ${count} registro(s) de asistencia. Eliminarlo borraría ese historial para siempre. Usa el botón "✕" para desactivarlo en su lugar.`); return; }
-    if (!window.confirm("Este usuario no tiene registros de asistencia. ¿Eliminarlo de todas formas? Esto no se puede deshacer.")) return;
-    await supabase.from("usuarios").delete().eq("id",id); setUsers(prev=>prev.filter(u=>u.id!==id));
+    const mensaje = count > 0
+      ? `Este usuario tiene ${count} registro(s) de asistencia. Si lo eliminas, también se borra ese historial para siempre (y cualquier turno asignado o meta de ventas que tenga). Esto no se puede deshacer. ¿Eliminarlo de todas formas?`
+      : "¿Eliminar este usuario? Esto no se puede deshacer.";
+    if (!window.confirm(mensaje)) return;
+    // Antes de borrar el usuario hay que borrar lo que depende de él (si no, la base de datos
+    // rechaza el borrado por las llaves foráneas) — registros de asistencia, turnos que se le
+    // hayan asignado en la malla, y su meta personal de ventas si tenía.
+    await supabase.from("registros").delete().eq("user_id", id);
+    await supabase.from("turnos_asignaciones").delete().eq("asesor_id", id);
+    await supabase.from("ventas_metas_asesor").delete().eq("vendedor_id", id);
+    const { error } = await supabase.from("usuarios").delete().eq("id", id);
+    if (error) { alert(`No se pudo eliminar: ${error.message}`); return; }
+    setUsers(prev=>prev.filter(u=>u.id!==id));
   };
   const guardarPassword=async(id)=>{ if(!nuevaPass.trim())return; const{data,error}=await supabase.from("usuarios").update({password:nuevaPass.trim(),password_updated_at:new Date().toISOString()}).eq("id",id).select().single(); if(!error&&data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setCambiandoPass(null);setNuevaPass("");alert("Contraseña actualizada.");} };
   const liberarDispositivo=async(u)=>{ if(!window.confirm(`¿Liberar el dispositivo autorizado de "${u.name}"? El próximo dispositivo que ingrese con esta cuenta quedará autorizado.`))return; const{data}=await supabase.from("usuarios").update({device_token:null}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
@@ -5665,7 +5678,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const tiendaColor = stores[tiendaId]?.color;
   const [cajaVista, setCajaVista] = useState(soloLectura ? "historial" : "registrar"); // 'registrar' | 'historial'
   const asesores = users.filter(u=>u.role==="advisor" && u.active);
-  const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin"||u.role==="admin_finanzas") && u.active);
+  const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin"||u.role==="admin_finanzas"||u.role==="admin_turnos") && u.active);
 
   // Solo master puede registrar con una fecha distinta a hoy (para poner al día algo atrasado).
   const puedeFechaLibre = user.role==="master";
@@ -6411,6 +6424,7 @@ export default function App() {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
       if(tab==="schedule") return <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={turnosAsignaciones}/>;
+      if(tab==="firmar")   return <FirmarDocumentoScreen/>;
     }
     return null;
   };
