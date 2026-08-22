@@ -3968,6 +3968,10 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
   // Nota crédito posterior se muestra aparte, sin agrandar la fila (cuenta en Métricas en
   // su propia fecha, no en la fecha de esta venta).
   const valorOriginalMostrar = Number(v.valor_original ?? v.total);
+  // Mientras el Flexipago no se ha completado, lo que "realmente ingresó" es lo abonado hasta
+  // ahora — no el valor total comprometido, que todavía no ha entrado por completo. Apenas se
+  // completa, ahí sí se muestra el valor total de la venta.
+  const valorHeaderMostrar = (v.es_flexipago && !flexipagoCompletado) ? totalAbonado : valorOriginalMostrar;
   return (
     <Card p="0" style={{ overflow:"hidden" }}>
       <button onClick={toggleExpand} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
@@ -3993,7 +3997,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
           >{estadoFlexipago.texto}</Badge>
         )}
         <div style={{ display:"flex", alignItems:"baseline", gap:5, flexShrink:0 }}>
-          <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight }}>${valorOriginalMostrar.toLocaleString("es-CO")}</div>
+          <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight }}>${valorHeaderMostrar.toLocaleString("es-CO")}</div>
         </div>
         <span style={{ color:C.textMuted, fontSize:11 }}>{expandido?"▲":"▼"}</span>
       </button>
@@ -6201,17 +6205,43 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 <CajaMoneyRow compact label="Base" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
                 {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:11.5, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master puede usar una fecha distinta a hoy."}</div>}
 
-                {/* Las 3 secciones van en el mismo orden de siempre, pero ahora cada una se oculta
-                    por completo (encabezado incluido) si su total da $0 ese día — dentro de la que
-                    sí se muestra, una línea puntual también se oculta si su valor es $0.
-                    "Ingreso del día" = TODA la plata que de verdad entró en caja hoy por cada
-                    método de pago: ventas normales, servicios, y los DOS tipos de abono de
-                    Flexipago — el que no completa la venta (abono normal) y el que sí la completa
-                    (abono final). Por eso se resta flexipagoCerradoHoyMedios[m] (el valor TOTAL del
-                    flexipago, que ya quedó sumado en ingresoNeto[m] para que "Ventas" lo reconozca
-                    completo) y se suma abonoFlexipagoFinalMedios[m] en su lugar — que es solo lo
-                    que entró HOY con ese abono, no el valor completo del flexipago (definición
-                    confirmada por Felipe). */}
+                {/* Estructura pensada para contrastar contra el cierre de Siigo (ver captura que
+                    mandó Santiago): Sección 2 debe coincidir con "Totales por medio de pago" de
+                    Siigo, y Sección 4 es la plata real que entró a caja ese día — son dos lecturas
+                    distintas de la misma información, por eso van separadas. Cada sección se oculta
+                    por completo (encabezado incluido) si su total da $0 ese día; dentro de la que
+                    sí se muestra, una línea puntual también se oculta si su valor es $0. */}
+
+                {/* Sección 2 — "Formas de pago ventas": debe coincidir con Siigo. Por cada medio,
+                    ventas normales + el abono que CIERRA un Flexipago ese día (Siigo lo factura
+                    como una venta normal por ese medio, no como abono) — el valor total del
+                    flexipago NO se reparte por medio, sino que se muestra aparte como "Flexipago
+                    redimido" (así como Siigo lo separa en su columna "Ventas a crédito"). Por eso
+                    NO se incluyen aquí servicios ni abonos que no completan la venta — Siigo no los
+                    registra (ver nota de Santiago). */}
+                {resumenHoy.totalIngresoNeto>0 && (
+                  <>
+                    <CajaSubHeader compact label="Formas de pago ventas"/>
+                    {CAJA_MEDIOS.filter(m=>(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.abonoFlexipagoFinalMedios[m])>0).map(m=><CajaReciboLinea compact key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.abonoFlexipagoFinalMedios[m])} small/>)}
+                    {(resumenHoy.flexipagoCerradoHoy-resumenHoy.totalAbonoFlexipagoFinal)>0 && <CajaReciboLinea compact label="Flexipago redimido" value={fmtCOP(resumenHoy.flexipagoCerradoHoy-resumenHoy.totalAbonoFlexipagoFinal)} small/>}
+                    <CajaReciboLinea compact label="Total ventas" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold totalLine/>
+                  </>
+                )}
+
+                {/* Sección 3 — Descuentos y notas crédito, solo informativo. */}
+                {(resumenHoy.totalDescuentosDia+resumenHoy.totalNotaCreditoDia)>0 && (
+                  <>
+                    <CajaSubHeader compact label="Descuentos y notas crédito"/>
+                    {resumenHoy.totalDescuentosDia>0 && <CajaReciboLinea compact label="Descuentos" value={fmtCOP(resumenHoy.totalDescuentosDia)} small/>}
+                    {resumenHoy.totalNotaCreditoDia>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(resumenHoy.totalNotaCreditoDia)} color={C.amber} small/>}
+                  </>
+                )}
+
+                {/* Sección 4 — "Ingreso del día": la plata REAL que entró a la caja ese día, para
+                    contrastar contra el efectivo/transacciones/tarjeta físicos — incluye ventas,
+                    servicios y los DOS tipos de abono de Flexipago (el que no completa la venta y
+                    el que sí la completa), cada uno por SU valor real de hoy, no el valor total del
+                    flexipago (que en gran parte ya había entrado en días anteriores). */}
                 {(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia+resumenHoy.totalAbonoFlexipagoFinal)>0 && (
                   <>
                     <CajaSubHeader compact label="Ingreso del día"/>
@@ -6219,28 +6249,6 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     <CajaReciboLinea compact label="Total ingreso del día" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia+resumenHoy.totalAbonoFlexipagoFinal)} bold totalLine/>
                   </>
                 )}
-
-                {resumenHoy.totalIngresoNeto>0 && (
-                  <>
-                    <CajaSubHeader compact label="Ventas"/>
-                    <CajaReciboLinea compact label="Ventas" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy)} small/>
-                    {resumenHoy.flexipagoCerradoHoy>0 && <CajaReciboLinea compact label="Ventas Flexipago" value={fmtCOP(resumenHoy.flexipagoCerradoHoy)} small/>}
-                    <CajaReciboLinea compact label="Total ventas" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold totalLine/>
-                  </>
-                )}
-
-                {(resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia+resumenHoy.totalAbonoFlexipagoFinal)>0 && (
-                  <>
-                    <CajaSubHeader compact label="Servicios"/>
-                    {resumenHoy.totalServicios>0 && <CajaReciboLinea compact label="Servicios" value={fmtCOP(resumenHoy.totalServicios)} small/>}
-                    {resumenHoy.totalFlexipagoDia>0 && <CajaReciboLinea compact label="Abonos Flexipago" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted} small/>}
-                    {resumenHoy.totalAbonoFlexipagoFinal>0 && <CajaReciboLinea compact label="Abono Flexipago Final" value={fmtCOP(resumenHoy.totalAbonoFlexipagoFinal)} color={C.textMuted} small/>}
-                    <CajaReciboLinea compact label="Total Servicios" value={fmtCOP(resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia)} bold totalLine/>
-                  </>
-                )}
-
-                {resumenHoy.totalDescuentosDia>0 && <CajaReciboLinea compact label="Descuentos" value={fmtCOP(resumenHoy.totalDescuentosDia)}/>}
-                {resumenHoy.totalNotaCreditoDia>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(resumenHoy.totalNotaCreditoDia)} color={C.amber}/>}
 
                 <CajaFieldRow compact wide label="Nota" value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta (opcional)"/>
 
