@@ -3344,6 +3344,33 @@ function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
   );
 }
 
+// Tarjeta simple (no editable) para un abono de Flexipago que entró en un día distinto al de la
+// venta original — mismo caso que ya se resolvía en "Ventas de hoy" (VentasRegistrarScreen): el
+// dinero se recibió ese día aunque la factura se haya creado antes, así que en Lista de ventas
+// filtrada por esa fecha también debe aparecer un registro (antes solo se veía en Caja).
+function AbonoFlexipagoCard({ venta, abonos }) {
+  const totalDia = abonos.reduce((s,a)=>s+Number(a.valor||0),0);
+  const mediosTexto = [...new Set(abonos.map(a=>VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago))].join(", ");
+  return (
+    <Card p="10px 14px" style={{ borderLeft:`3px solid ${C.blue}` }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+        <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
+          <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{venta.numero_factura?`#${venta.numero_factura}`:"—"}</span>
+          <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+            {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
+          </span>
+        </div>
+        {mediosTexto && <Badge color={C.blue} sm>{mediosTexto}</Badge>}
+        <Badge color={C.blue} sm>💳 Abono Flexipago</Badge>
+        <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${totalDia.toLocaleString("es-CO")}</div>
+      </div>
+      <div style={{ marginTop:5, fontFamily:font.body, fontSize:11.5, color:C.textMuted, lineHeight:1.5 }}>
+        Abono a un Flexipago de la factura <strong style={{ color:C.text }}>#{venta.numero_factura||"—"}</strong> del {venta.fecha}.
+      </div>
+    </Card>
+  );
+}
+
 function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, ventasAjustes, metas, isMobile, soloLectura }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   // OJO: el valor por defecto debe salir de tiendasVenta() (las que sí venden), no de todas las
@@ -4083,6 +4110,27 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     })
     .sort((a,b)=> (b.ajuste.fecha||"").localeCompare(a.ajuste.fecha||""));
 
+  // Abonos de Flexipago que entraron un día distinto al de la venta original — mismo caso que ya
+  // se resolvía en "Ventas de hoy" (VentasRegistrarScreen): el dinero se recibió ese día aunque la
+  // factura se haya creado antes. Solo se arma esta lista cuando hay un filtro de fecha activo, para
+  // no inundar la vista general (sin filtro) con abonos de todo el historial de cada Flexipago.
+  const abonosFiltrados = (() => {
+    if(!filtroFecha) return [];
+    const grupos = {};
+    (ventasAbonos||[]).filter(a=>a.fecha===filtroFecha).forEach(a=>{
+      const venta = ventas.find(v=>v.id===a.venta_id);
+      if(!venta || venta.fecha===filtroFecha) return; // mismo día que la venta: ya sale en la fila normal
+      if(tiendaFija && venta.tienda_id!==tiendaFija) return;
+      if(filtroTienda && venta.tienda_id!==filtroTienda) return;
+      if(filtroVendedor && venta.vendedor_id!==filtroVendedor) return;
+      const q = busqueda.trim().toLowerCase();
+      if(q && !((venta.cliente_nombre||"").toLowerCase().includes(q) || (venta.cliente_documento||"").toLowerCase().includes(q) || (venta.numero_factura||"").toLowerCase().includes(q))) return;
+      if(!grupos[venta.id]) grupos[venta.id] = { venta, abonos:[] };
+      grupos[venta.id].abonos.push(a);
+    });
+    return Object.values(grupos);
+  })();
+
   const fetchDetalle = async (ventaId) => {
     setDetalle(prev=>({...prev, [ventaId]:{...(prev[ventaId]||{}), cargando:true}}));
     const [{data:items},{data:abonos},{data:solicitudes}] = await Promise.all([
@@ -4510,7 +4558,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
 
   return (
     <div style={{ maxWidth:820 }}>
-      <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}`} />
+      <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}${abonosFiltrados.length>0?` · ${abonosFiltrados.length} abonos Flexipago`:""}`} />
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
           <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"end" }}>
@@ -4995,10 +5043,14 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
           fecha: ajuste.fecha,
           el: <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta} ventasItems={ventasItems}/>,
         }));
-        const combinados = [...elementosVentas, ...elementosNC].sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||""));
+        const elementosAbonos = abonosFiltrados.map(({venta, abonos})=>({
+          fecha: filtroFecha,
+          el: <AbonoFlexipagoCard key={`ab-${venta.id}`} venta={venta} abonos={abonos}/>,
+        }));
+        const combinados = [...elementosVentas, ...elementosNC, ...elementosAbonos].sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||""));
         return combinados.map(e=>e.el);
         })()}
-        {ventasFiltradas.length===0 && notaCreditosFiltradas.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>No hay ventas que coincidan con los filtros.</div>}
+        {ventasFiltradas.length===0 && notaCreditosFiltradas.length===0 && abonosFiltrados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>No hay ventas que coincidan con los filtros.</div>}
       </div>
     </div>
   );
@@ -6161,22 +6213,34 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 <CajaMoneyRow compact label="Base" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
                 {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:11.5, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master puede usar una fecha distinta a hoy."}</div>}
 
-                {/* 3 secciones fijas y siempre visibles en el mismo orden (los encabezados y los
-                    totales nunca se ocultan) — dentro de cada una, una línea puntual se oculta solo
-                    si su valor es $0 (p.ej. no hubo flexipagos redimidos o abonados ese día). */}
-                <CajaSubHeader compact label="Ingreso del día"/>
-                {CAJA_MEDIOS.filter(m=>(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])>0).map(m=><CajaReciboLinea compact key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])} small/>)}
-                <CajaReciboLinea compact label="Total ingreso del día" value={fmtCOP(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia)} bold totalLine/>
+                {/* Las 3 secciones van en el mismo orden de siempre, pero ahora cada una se oculta
+                    por completo (encabezado incluido) si su total da $0 ese día — dentro de la que
+                    sí se muestra, una línea puntual también se oculta si su valor es $0. */}
+                {(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia)>0 && (
+                  <>
+                    <CajaSubHeader compact label="Ingreso del día"/>
+                    {CAJA_MEDIOS.filter(m=>(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])>0).map(m=><CajaReciboLinea compact key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])} small/>)}
+                    <CajaReciboLinea compact label="Total ingreso del día" value={fmtCOP(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia)} bold totalLine/>
+                  </>
+                )}
 
-                <CajaSubHeader compact label="Ventas"/>
-                <CajaReciboLinea compact label="Ventas" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy)} small/>
-                {resumenHoy.flexipagoCerradoHoy>0 && <CajaReciboLinea compact label="Flexipagos redimidos" value={fmtCOP(resumenHoy.flexipagoCerradoHoy)} small/>}
-                <CajaReciboLinea compact label="Total ventas" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold totalLine/>
+                {resumenHoy.totalIngresoNeto>0 && (
+                  <>
+                    <CajaSubHeader compact label="Ventas"/>
+                    <CajaReciboLinea compact label="Ventas" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy)} small/>
+                    {resumenHoy.flexipagoCerradoHoy>0 && <CajaReciboLinea compact label="Flexipagos redimidos" value={fmtCOP(resumenHoy.flexipagoCerradoHoy)} small/>}
+                    <CajaReciboLinea compact label="Total ventas" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold totalLine/>
+                  </>
+                )}
 
-                <CajaSubHeader compact label="Servicios"/>
-                <CajaReciboLinea compact label="Servicios" value={fmtCOP(resumenHoy.totalServicios)} small/>
-                {resumenHoy.totalFlexipagoDia>0 && <CajaReciboLinea compact label="Abonos Flexipagos" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted} small/>}
-                <CajaReciboLinea compact label="Total Servicios" value={fmtCOP(resumenHoy.totalServicios)} bold totalLine/>
+                {(resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia)>0 && (
+                  <>
+                    <CajaSubHeader compact label="Servicios"/>
+                    <CajaReciboLinea compact label="Servicios" value={fmtCOP(resumenHoy.totalServicios)} small/>
+                    {resumenHoy.totalFlexipagoDia>0 && <CajaReciboLinea compact label="Abonos Flexipagos" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted} small/>}
+                    <CajaReciboLinea compact label="Total Servicios" value={fmtCOP(resumenHoy.totalServicios)} bold totalLine/>
+                  </>
+                )}
 
                 {resumenHoy.totalDescuentosDia>0 && <CajaReciboLinea compact label="Descuentos" value={fmtCOP(resumenHoy.totalDescuentosDia)}/>}
                 {resumenHoy.totalNotaCreditoDia>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(resumenHoy.totalNotaCreditoDia)} color={C.amber}/>}
