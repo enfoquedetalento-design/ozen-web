@@ -5636,15 +5636,34 @@ const BASE_CAJA_FIJA = 100000;
 const cajaHeaderSelectStyle = { background:"rgba(0,0,0,0.28)", border:"1px solid rgba(255,255,255,0.28)", borderRadius:5, color:"#fff", fontSize:10.5, fontFamily:font.body, padding:"2px 6px", fontWeight:600 };
 // `compact` = versión más apretada (menos padding/márgenes) para cuando varias tarjetas van
 // apiladas en columna y necesitan caber en un solo pantallazo (p.ej. la columna de Apertura en Caja).
+// Cuando hay `color` (tienda seleccionada en Caja) usamos un look "liquid glass": vidrio esmerilado
+// translúcido con un tinte del color de la tienda sobre el fondo oscuro de siempre, en vez del
+// bloque de color sólido de antes. El contenido ya no necesita un panel oscuro interno para
+// legibilidad — el fondo sigue siendo oscuro (solo con el tinte), así que el texto normal de la
+// app (C.text/C.goldLight/C.textMuted) siempre contrasta bien, sea cual sea el color de la tienda.
 const CajaCard = ({ icon, titulo, children, color, headerExtra, compact }) => {
-  const txt = color ? colorTextoContraste(color) : C.goldLight;
+  const glass = !!color;
   return (
-    <div style={{ background:color||C.surface, border:`1px solid ${color?oscurecerColor(color,22):C.border}`, borderRadius:8, padding:compact?"7px 12px":"10px 14px", marginBottom:compact?6:10 }}>
+    <div style={{
+      background: glass
+        ? `linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 24%), linear-gradient(160deg, ${color}3d 0%, ${C.surface}e8 55%, ${C.dark}f2 100%)`
+        : C.surface,
+      backdropFilter: glass ? "blur(18px) saturate(180%)" : undefined,
+      WebkitBackdropFilter: glass ? "blur(18px) saturate(180%)" : undefined,
+      border: glass ? "1px solid rgba(255,255,255,0.14)" : `1px solid ${C.border}`,
+      borderRadius:12,
+      boxShadow: glass ? `inset 0 1px 0 rgba(255,255,255,0.16), 0 8px 24px rgba(0,0,0,0.35), 0 0 0 1px ${color}26` : "none",
+      padding:compact?"7px 12px":"10px 14px",
+      marginBottom:compact?6:10,
+    }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:compact?4:8 }}>
-        <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:txt, textTransform:"uppercase", letterSpacing:"0.04em", textShadow:color&&txt==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none" }}>{icon} {titulo}</div>
+        <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, textTransform:"uppercase", letterSpacing:"0.04em" }}>
+          {glass && <span style={{ width:7, height:7, borderRadius:"50%", background:color, boxShadow:`0 0 6px ${color}` }}/>}
+          {icon} {titulo}
+        </div>
         {headerExtra}
       </div>
-      {color ? <div style={{ background:"rgba(13,17,23,0.78)", borderRadius:6, padding:compact?"5px 6px 1px":"8px 8px 2px" }}>{children}</div> : children}
+      {children}
     </div>
   );
 };
