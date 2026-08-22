@@ -5646,13 +5646,13 @@ const CajaCard = ({ icon, titulo, children, color, headerExtra, compact }) => {
   return (
     <div style={{
       background: glass
-        ? `linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 24%), linear-gradient(160deg, ${color}3d 0%, ${C.surface}e8 55%, ${C.dark}f2 100%)`
+        ? `radial-gradient(130% 65% at 0% 0%, rgba(255,255,255,0.16), transparent 60%), radial-gradient(130% 65% at 100% 0%, rgba(255,255,255,0.16), transparent 60%), linear-gradient(180deg, ${color}80 0%, ${color}45 32%, ${C.surface}f0 68%, ${C.dark}fa 100%)`
         : C.surface,
-      backdropFilter: glass ? "blur(18px) saturate(180%)" : undefined,
-      WebkitBackdropFilter: glass ? "blur(18px) saturate(180%)" : undefined,
-      border: glass ? "1px solid rgba(255,255,255,0.14)" : `1px solid ${C.border}`,
+      backdropFilter: glass ? "blur(16px) saturate(220%)" : undefined,
+      WebkitBackdropFilter: glass ? "blur(16px) saturate(220%)" : undefined,
+      border: glass ? `1px solid ${color}70` : `1px solid ${C.border}`,
       borderRadius:12,
-      boxShadow: glass ? `inset 0 1px 0 rgba(255,255,255,0.16), 0 8px 24px rgba(0,0,0,0.35), 0 0 0 1px ${color}26` : "none",
+      boxShadow: glass ? `inset 0 1px 0 rgba(255,255,255,0.22), 0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px ${color}40` : "none",
       padding:compact?"7px 12px":"10px 14px",
       marginBottom:compact?6:10,
     }}>
@@ -6161,31 +6161,22 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 <CajaMoneyRow compact label="Base" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
                 {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:11.5, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master puede usar una fecha distinta a hoy."}</div>}
 
-                <CajaSubHeader compact label="Dinero recibido por método de pago"/>
-                {CAJA_MEDIOS.filter(m=>(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])>0).map(m=><CajaReciboLinea compact key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])}/>)}
-                <CajaReciboLinea compact label="Ingreso del día" value={fmtCOP(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia)} bold totalLine/>
+                {/* 3 secciones fijas y siempre visibles en el mismo orden — nada se colapsa ni
+                    aparece/desaparece según haya o no flexipagos, para que el cuadro se vea igual
+                    de organizado todos los días. */}
+                <CajaSubHeader compact label="Ingreso del día"/>
+                {CAJA_MEDIOS.filter(m=>(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])>0).map(m=><CajaReciboLinea compact key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])} small/>)}
+                <CajaReciboLinea compact label="Total ingreso del día" value={fmtCOP(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia)} bold totalLine/>
 
-                {/* Ventas y Servicios se resumen en una sola línea cada uno; solo se abren en detalle
-                    si hubo flexipagos ese día (redimidos o abonados), que es cuando el desglose
-                    realmente aporta algo — así el cuadro se mantiene corto la mayoría de los días. */}
-                {resumenHoy.flexipagoCerradoHoy>0 ? (
-                  <>
-                    <CajaReciboLinea compact label="Ventas (productos)" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy)} small/>
-                    <CajaReciboLinea compact label="Flexipagos redimidos" value={fmtCOP(resumenHoy.flexipagoCerradoHoy)} small/>
-                    <CajaReciboLinea compact label="Total ventas" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold totalLine/>
-                  </>
-                ) : (
-                  <CajaReciboLinea compact label="Ventas" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold totalLine/>
-                )}
-                {resumenHoy.totalFlexipagoDia>0 ? (
-                  <>
-                    <CajaReciboLinea compact label="Servicios" value={fmtCOP(resumenHoy.totalServicios)} small/>
-                    <CajaReciboLinea compact label="Abonos Flexipagos (no suma aquí)" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted} small/>
-                    <CajaReciboLinea compact label="Total Servicios" value={fmtCOP(resumenHoy.totalServicios)} bold totalLine/>
-                  </>
-                ) : (
-                  <CajaReciboLinea compact label="Servicios" value={fmtCOP(resumenHoy.totalServicios)} bold totalLine/>
-                )}
+                <CajaSubHeader compact label="Ventas"/>
+                <CajaReciboLinea compact label="Ventas" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy)} small/>
+                <CajaReciboLinea compact label="Flexipagos redimidos" value={fmtCOP(resumenHoy.flexipagoCerradoHoy)} small/>
+                <CajaReciboLinea compact label="Total ventas" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold totalLine/>
+
+                <CajaSubHeader compact label="Servicios"/>
+                <CajaReciboLinea compact label="Servicios" value={fmtCOP(resumenHoy.totalServicios)} small/>
+                <CajaReciboLinea compact label="Abonos Flexipagos" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted} small/>
+                <CajaReciboLinea compact label="Total Servicios" value={fmtCOP(resumenHoy.totalServicios)} bold totalLine/>
 
                 {resumenHoy.totalDescuentosDia>0 && <CajaReciboLinea compact label="Descuentos" value={fmtCOP(resumenHoy.totalDescuentosDia)}/>}
                 {resumenHoy.totalNotaCreditoDia>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(resumenHoy.totalNotaCreditoDia)} color={C.amber}/>}
