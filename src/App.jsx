@@ -6161,21 +6161,21 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 <CajaMoneyRow compact label="Base" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
                 {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:11.5, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master puede usar una fecha distinta a hoy."}</div>}
 
-                {/* 3 secciones fijas y siempre visibles en el mismo orden — nada se colapsa ni
-                    aparece/desaparece según haya o no flexipagos, para que el cuadro se vea igual
-                    de organizado todos los días. */}
+                {/* 3 secciones fijas y siempre visibles en el mismo orden (los encabezados y los
+                    totales nunca se ocultan) — dentro de cada una, una línea puntual se oculta solo
+                    si su valor es $0 (p.ej. no hubo flexipagos redimidos o abonados ese día). */}
                 <CajaSubHeader compact label="Ingreso del día"/>
                 {CAJA_MEDIOS.filter(m=>(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])>0).map(m=><CajaReciboLinea compact key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])} small/>)}
                 <CajaReciboLinea compact label="Total ingreso del día" value={fmtCOP(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia)} bold totalLine/>
 
                 <CajaSubHeader compact label="Ventas"/>
                 <CajaReciboLinea compact label="Ventas" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy)} small/>
-                <CajaReciboLinea compact label="Flexipagos redimidos" value={fmtCOP(resumenHoy.flexipagoCerradoHoy)} small/>
+                {resumenHoy.flexipagoCerradoHoy>0 && <CajaReciboLinea compact label="Flexipagos redimidos" value={fmtCOP(resumenHoy.flexipagoCerradoHoy)} small/>}
                 <CajaReciboLinea compact label="Total ventas" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold totalLine/>
 
                 <CajaSubHeader compact label="Servicios"/>
                 <CajaReciboLinea compact label="Servicios" value={fmtCOP(resumenHoy.totalServicios)} small/>
-                <CajaReciboLinea compact label="Abonos Flexipagos" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted} small/>
+                {resumenHoy.totalFlexipagoDia>0 && <CajaReciboLinea compact label="Abonos Flexipagos" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted} small/>}
                 <CajaReciboLinea compact label="Total Servicios" value={fmtCOP(resumenHoy.totalServicios)} bold totalLine/>
 
                 {resumenHoy.totalDescuentosDia>0 && <CajaReciboLinea compact label="Descuentos" value={fmtCOP(resumenHoy.totalDescuentosDia)}/>}
