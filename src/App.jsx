@@ -5929,11 +5929,18 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     const notaCreditoDia = cajaZeros();
     let flexipagoCerradoHoy = 0;
     // Igual que flexipagoCerradoHoy pero desglosado por medio de pago — lo necesita "Ingreso del
-    // día" para poder RESTAR justo esa parte (el redimido ya quedó sumado en ingresoNeto[medio]
-    // arriba, junto con las ventas normales, porque contablemente sigue siendo dinero real que
-    // entró por ese medio — pero según la definición de Felipe, "Ingreso del día" excluye los
-    // flexipagos redimidos, así que hay que poder quitarlos de nuevo por medio de pago).
+    // día" para poder RESTAR justo esa parte (el valor TOTAL del flexipago ya quedó sumado en
+    // ingresoNeto[medio] arriba, junto con las ventas normales — "Ventas"/"Total ventas" sí
+    // reconocen el valor completo el día que se cierra). Para "Ingreso del día" ese valor total se
+    // resta de nuevo y se reemplaza por abonoFlexipagoFinalMedios (ver abajo): lo que de verdad
+    // entró HOY en caja no es el valor completo del flexipago, es solo el abono final.
     const flexipagoCerradoHoyMedios = cajaZeros();
+    // Abono que CIERRA un Flexipago (a diferencia de un abono parcial que no lo completa): lo que
+    // realmente entró en caja hoy por ese abono, desglosado por medio de pago. Junto con
+    // flexipagoDia (los abonos parciales), es lo que Felipe pidió sumar en "Ingreso del día" —
+    // "los dos abonos de flexipago, el normal y el final" — porque ambos son plata real que entró
+    // hoy, sin importar si la venta completa quedó saldada o no.
+    const abonoFlexipagoFinalMedios = cajaZeros();
     // "Descuentos" del día — suma informativa de los descuentos/bonos que ya traía cada renglón
     // (campo `descuento`, existente desde antes). Es puramente para mostrarlo en el rediseño de
     // Felipe: no resta de ningún total ni afecta ningún cálculo existente, solo se muestra aparte.
@@ -5982,12 +5989,17 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
         const completaHoy = antes < valorTotal && acumulado >= valorTotal && ab.fecha===fecha;
         if(completaHoy && CAJA_MEDIOS.includes(ab.medio_pago)){
           // Este es el abono que cierra el flexipago: su valor TOTAL ya entra al ingreso neto de
-          // hoy (agrupado según el medio de ESE abono). No se muestra también en "Flexipagos de
+          // hoy (agrupado según el medio de ESE abono) — así "Ventas"/"Total ventas" reconocen la
+          // venta completa el día que se termina de pagar. No se muestra también en "Flexipagos de
           // ese día" — mostrarlo ahí además del ingreso neto hacía parecer que esa plata no
           // contaba, cuando en realidad es justo la que cerró la venta.
           ingresoNeto[ab.medio_pago] += valorTotal;
           flexipagoCerradoHoy += valorTotal;
           flexipagoCerradoHoyMedios[ab.medio_pago] += valorTotal;
+          // Pero lo que de verdad entró en CAJA hoy es solo el valor de este abono (no el valor
+          // total del flexipago, que en gran parte ya había entrado en días anteriores) — esto es
+          // lo que "Ingreso del día" necesita sumar.
+          abonoFlexipagoFinalMedios[ab.medio_pago] += Number(ab.valor||0);
         } else if(ab.fecha===fecha && CAJA_MEDIOS.includes(ab.medio_pago)){
           // Abono de hoy que NO cierra el flexipago: es plata que entró pero la venta todavía no
           // se reconoce como completa, así que se muestra aparte y no suma al ingreso neto.
@@ -5996,7 +6008,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       });
     });
 
-    return { ingresoNeto, servicios, flexipagoDia, notaCreditoDia, flexipagoCerradoHoy, flexipagoCerradoHoyMedios, totalIngresoNeto:cajaTotal(ingresoNeto), totalServicios:cajaTotal(servicios), totalFlexipagoDia:cajaTotal(flexipagoDia), totalNotaCreditoDia:cajaTotal(notaCreditoDia), totalDescuentosDia:descuentoDia };
+    return { ingresoNeto, servicios, flexipagoDia, notaCreditoDia, flexipagoCerradoHoy, flexipagoCerradoHoyMedios, abonoFlexipagoFinalMedios, totalIngresoNeto:cajaTotal(ingresoNeto), totalServicios:cajaTotal(servicios), totalFlexipagoDia:cajaTotal(flexipagoDia), totalNotaCreditoDia:cajaTotal(notaCreditoDia), totalDescuentosDia:descuentoDia, totalAbonoFlexipagoFinal:cajaTotal(abonoFlexipagoFinalMedios) };
   };
 
   const resumenHoy = resumenDia(ciFecha);
@@ -6192,16 +6204,19 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 {/* Las 3 secciones van en el mismo orden de siempre, pero ahora cada una se oculta
                     por completo (encabezado incluido) si su total da $0 ese día — dentro de la que
                     sí se muestra, una línea puntual también se oculta si su valor es $0.
-                    "Ingreso del día" = todo lo que entró por cada método de pago (efectivo,
-                    transferencia, etc.), sumando Ventas y Servicios — lo ÚNICO que se excluye son
-                    los flexipagos redimidos ese día (definición confirmada por Felipe). Por eso se
-                    resta flexipagoCerradoHoyMedios[m], que es la parte de ingresoNeto[m] que vino
-                    de un flexipago que se terminó de pagar hoy. */}
-                {(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia)>0 && (
+                    "Ingreso del día" = TODA la plata que de verdad entró en caja hoy por cada
+                    método de pago: ventas normales, servicios, y los DOS tipos de abono de
+                    Flexipago — el que no completa la venta (abono normal) y el que sí la completa
+                    (abono final). Por eso se resta flexipagoCerradoHoyMedios[m] (el valor TOTAL del
+                    flexipago, que ya quedó sumado en ingresoNeto[m] para que "Ventas" lo reconozca
+                    completo) y se suma abonoFlexipagoFinalMedios[m] en su lugar — que es solo lo
+                    que entró HOY con ese abono, no el valor completo del flexipago (definición
+                    confirmada por Felipe). */}
+                {(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia+resumenHoy.totalAbonoFlexipagoFinal)>0 && (
                   <>
                     <CajaSubHeader compact label="Ingreso del día"/>
-                    {CAJA_MEDIOS.filter(m=>(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])>0).map(m=><CajaReciboLinea compact key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])} small/>)}
-                    <CajaReciboLinea compact label="Total ingreso del día" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia)} bold totalLine/>
+                    {CAJA_MEDIOS.filter(m=>(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m]+resumenHoy.abonoFlexipagoFinalMedios[m])>0).map(m=><CajaReciboLinea compact key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m]+resumenHoy.abonoFlexipagoFinalMedios[m])} small/>)}
+                    <CajaReciboLinea compact label="Total ingreso del día" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia+resumenHoy.totalAbonoFlexipagoFinal)} bold totalLine/>
                   </>
                 )}
 
@@ -6209,17 +6224,18 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                   <>
                     <CajaSubHeader compact label="Ventas"/>
                     <CajaReciboLinea compact label="Ventas" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy)} small/>
-                    {resumenHoy.flexipagoCerradoHoy>0 && <CajaReciboLinea compact label="Flexipagos redimidos" value={fmtCOP(resumenHoy.flexipagoCerradoHoy)} small/>}
+                    {resumenHoy.flexipagoCerradoHoy>0 && <CajaReciboLinea compact label="Ventas Flexipago" value={fmtCOP(resumenHoy.flexipagoCerradoHoy)} small/>}
                     <CajaReciboLinea compact label="Total ventas" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold totalLine/>
                   </>
                 )}
 
-                {(resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia)>0 && (
+                {(resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia+resumenHoy.totalAbonoFlexipagoFinal)>0 && (
                   <>
                     <CajaSubHeader compact label="Servicios"/>
-                    <CajaReciboLinea compact label="Servicios" value={fmtCOP(resumenHoy.totalServicios)} small/>
-                    {resumenHoy.totalFlexipagoDia>0 && <CajaReciboLinea compact label="Abonos Flexipagos" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted} small/>}
-                    <CajaReciboLinea compact label="Total Servicios" value={fmtCOP(resumenHoy.totalServicios)} bold totalLine/>
+                    {resumenHoy.totalServicios>0 && <CajaReciboLinea compact label="Servicios" value={fmtCOP(resumenHoy.totalServicios)} small/>}
+                    {resumenHoy.totalFlexipagoDia>0 && <CajaReciboLinea compact label="Abonos Flexipago" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted} small/>}
+                    {resumenHoy.totalAbonoFlexipagoFinal>0 && <CajaReciboLinea compact label="Abono Flexipago Final" value={fmtCOP(resumenHoy.totalAbonoFlexipagoFinal)} color={C.textMuted} small/>}
+                    <CajaReciboLinea compact label="Total Servicios" value={fmtCOP(resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia)} bold totalLine/>
                   </>
                 )}
 
