@@ -5957,6 +5957,44 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const efectivoARecolectar = Math.max(0, efectivoAnteriores + gastosNetoAcumulado);
   const totalEnCajaAhora = Number(apBaseCaja||0) + efectivoPendienteTotal + gastosNetoAcumulado;
 
+  // ── Base afectada por gastos sin cubrir ─────────────────────────────────────
+  // Si una novedad tipo "costo" no alcanza a cubrirse con el efectivo YA acumulado en ese momento
+  // (revisado día por día desde la última recolección), el resto sale de la base — ese hueco NO se
+  // repara solo aunque después entre más efectivo (eso solo pasa al recoger, y solo si se acepta
+  // completar la base). Se camina día por día, en orden, para que ventas de días POSTERIORES no
+  // tapen huecos de días anteriores — cada costo solo se cubre con lo acumulado HASTA ese momento.
+  const baseLineaVigente = Number(ultimaRecoleccion?.base_caja ?? BASE_CAJA_FIJA);
+  let baseDeficit = 0;
+  {
+    const gastosOrdenados = [...gastosDesdeRecoleccion].sort((a,b)=> new Date(a.created_at)-new Date(b.created_at));
+    let cursor = fechaCorte ? sumarDias(fechaCorte, 1) : (gastosOrdenados[0]?.fecha || null);
+    let pool = 0, guard = 0;
+    while(cursor && cursor<=todayStr && guard<730){
+      pool += efectivoDelDia(cursor);
+      gastosOrdenados.filter(g=>g.fecha===cursor).forEach(g=>{
+        const valor = Number(g.valor||0);
+        if(g.tipo==="ingreso"){ pool += valor; }
+        else if(pool>=valor){ pool -= valor; }
+        else { baseDeficit += (valor - pool); pool = 0; }
+      });
+      cursor = sumarDias(cursor, 1);
+      guard++;
+    }
+  }
+  // Lo que de verdad hay en la base ahora mismo: la última base registrada, menos el hueco.
+  const baseVigente = Math.max(0, baseLineaVigente - baseDeficit);
+
+  // Mientras haya hueco, los 3 cuadros de "Base" se bloquean mostrando este valor en vivo — se
+  // resincronizan solos si el hueco cambia (nueva novedad, nueva venta que lo cubre parcialmente).
+  useEffect(()=>{
+    if(baseDeficit>0){
+      setApBaseCaja(String(baseVigente));
+      setCiBaseCaja(String(baseVigente));
+      setReBaseCaja(String(baseVigente));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseDeficit, baseVigente, tiendaId]);
+
   useEffect(()=>{
     if(!reValorTocado) setReValor(String(efectivoARecolectar||""));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -6129,14 +6167,31 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     const valorHoyNum = reIncluyeHoy ? Number(reValorHoy||0) : 0;
     if(reIncluyeHoy && valorHoyNum<=0){ setMsg("Marcaste que recoges efectivo de hoy — falta el valor a retirar."); return; }
     if(reIncluyeHoy && valorHoyNum>efectivoHoyPendiente){ setMsg(`No puedes retirar más de lo acumulado hoy (${fmtCOP(efectivoHoyPendiente)}).`); return; }
+
+    // Si hay un hueco de base sin cubrir, preguntamos si se completa a la base normal con el
+    // efectivo que se está recogiendo ahora mismo (recomendado por Santiago). Si dice que no, la
+    // base registrada se queda en el valor reducido (baseVigente) — ese hueco sigue como la base
+    // de referencia hasta la próxima recolección, no se olvida.
+    let valorFinal = Number(reValor||0) + valorHoyNum;
+    let baseCajaFinal = Number(reBaseCaja||0);
+    if(baseDeficit>0){
+      const completar = window.confirm(`La base quedó en ${fmtCOP(baseVigente)} por gastos sin cubrir (hueco de ${fmtCOP(baseDeficit)}). ¿Completar la base a ${fmtCOP(BASE_CAJA_FIJA)} con el efectivo que estás recogiendo ahora?`);
+      if(completar){
+        const montoParaCompletar = Math.max(0, BASE_CAJA_FIJA - baseVigente);
+        const descuento = Math.max(0, Math.min(montoParaCompletar, valorFinal));
+        valorFinal -= descuento;
+        baseCajaFinal = baseVigente + descuento;
+      }
+    }
+
     setGuardandoRe(true); setMsg("");
     const entrega = users.find(u=>u.id===reEntregaId);
     const recibe = users.find(u=>u.id===reRecibeId);
     const { data, error } = await supabase.from("ventas_caja_recolecciones").insert({
       tienda_id:tiendaId, fecha:reFecha, entrega_usuario_id:reEntregaId, entrega_nombre:entrega?.name||"",
-      recibe_usuario_id:reRecibeId, recibe_nombre:recibe?.name||"", valor:Number(reValor||0)+valorHoyNum,
+      recibe_usuario_id:reRecibeId, recibe_nombre:recibe?.name||"", valor:valorFinal,
       valor_hoy:valorHoyNum, incluye_hoy:reIncluyeHoy,
-      base_caja:Number(reBaseCaja||0), comentarios:reComentarios.trim()||null, registrado_por:user.name,
+      base_caja:baseCajaFinal, comentarios:reComentarios.trim()||null, registrado_por:user.name,
     }).select().single();
     setGuardandoRe(false);
     if(data){ setRecolecciones(prev=>[data,...prev]); setReValor(""); setReComentarios(""); setReIncluyeHoy(false); setReValorHoy(""); }
@@ -6244,7 +6299,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 <CajaCampoPick compact label="Fecha" type="date" value={ciFecha} onChange={setCiFecha}/>
                 <CajaCampoPick compact label="Asesor *" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                 <CajaReciboLinea compact label="Turno" value={tiendaNombreActual||"—"} small/>
-                <CajaMoneyRow compact narrow label="Base" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
+                {baseDeficit>0 ? (
+                  <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={C.red} small/>
+                ) : (
+                  <CajaMoneyRow compact narrow label="Base" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
+                )}
+                {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
                 {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:11.5, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master puede usar una fecha distinta a hoy."}</div>}
 
                 {/* Estructura pensada para contrastar contra el cierre de Siigo (ver captura que
@@ -6328,7 +6388,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 <CajaCampoPick compact label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
                 <CajaCampoPick compact label="Asesor *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                 <CajaReciboLinea compact label="Turno" value={tiendaNombreActual||"—"} small/>
-                <CajaMoneyRow compact narrow label="Base" value={apBaseCaja} onChange={setApBaseCaja}/>
+                {baseDeficit>0 ? (
+                  <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={C.red} small/>
+                ) : (
+                  <CajaMoneyRow compact narrow label="Base" value={apBaseCaja} onChange={setApBaseCaja}/>
+                )}
+                {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10, color:C.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
                 {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master puede usar una fecha distinta a hoy."}</div>}
                 <CajaReciboLinea compact label="Efectivo" value={fmtCOP(Math.max(0, efectivoPendienteTotal + gastosNetoAcumulado))}/>
                 <CajaReciboLinea compact label="Total" value={fmtCOP(totalEnCajaAhora)} bold totalLine/>
@@ -6373,12 +6438,16 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                   <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>No tienes permiso para registrar una recolección. Puedes verlas en Historial.</div>
                 ) : (
                   <>
-                    <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginBottom:6 }}>Sugerido (días anteriores a hoy): {fmtCOP(efectivoAnteriores)} ventas en efectivo {gastosNetoAcumulado>=0?"+":"−"} {fmtCOP(Math.abs(gastosNetoAcumulado))} novedades = {fmtCOP(efectivoARecolectar)}. Ajusta si al contar sale distinto. El efectivo de hoy no se incluye aquí — si necesitas recogerlo, usa el check de abajo.</div>
                     <CajaCampoPick compact label="Fecha" type="date" value={reFecha} onChange={setReFecha}/>
                     <CajaCampoPick compact label="Entrega *" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                     <CajaCampoPick compact label="Recibe *" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
                     <CajaCampoPick compact money label="Valor a recoger (días anteriores)" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
-                    <CajaMoneyRow compact narrow label="Base que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
+                    {baseDeficit>0 ? (
+                      <CajaReciboLinea compact label="Base que queda" value={fmtCOP(baseVigente)} color={C.red} small/>
+                    ) : (
+                      <CajaMoneyRow compact narrow label="Base que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
+                    )}
+                    {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.red, marginTop:2 }}>Hay un hueco de {fmtCOP(baseDeficit)} en la base por gastos sin cubrir. Al registrar, se pregunta si se completa con este efectivo.</div>}
                     {reFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
                     {reFecha===todayStr && (
                       <div style={{ marginTop:8, padding:"8px 10px", background:C.surfaceAlt, borderRadius:7, border:`1px solid ${C.border}` }}>
