@@ -5633,7 +5633,7 @@ const BASE_CAJA_FIJA = 100000;
 // Cuando se le pasa "color" (el color asignado a la tienda), todo el cuadro se pinta con ese
 // color — pero el contenido de adentro (campos, historiales) queda sobre un panel oscuro
 // insertado, para que siga tan legible como siempre sin importar qué tan claro sea el color.
-const cajaHeaderSelectStyle = { background:"rgba(0,0,0,0.28)", border:"1px solid rgba(255,255,255,0.28)", borderRadius:5, color:"#fff", fontSize:10.5, fontFamily:font.body, padding:"2px 6px", fontWeight:600 };
+const cajaHeaderSelectStyle = { background:"rgba(0,0,0,0.28)", border:"1px solid rgba(255,255,255,0.28)", borderRadius:5, color:"#fff", fontSize:12, fontFamily:font.body, padding:"3px 7px", fontWeight:600 };
 // `compact` = versión más apretada (menos padding/márgenes) para cuando varias tarjetas van
 // apiladas en columna y necesitan caber en un solo pantallazo (p.ej. la columna de Apertura en Caja).
 // Cuando hay `color` (tienda seleccionada en Caja) usamos un look "liquid glass": vidrio esmerilado
@@ -5657,7 +5657,7 @@ const CajaCard = ({ icon, titulo, children, color, headerExtra, compact }) => {
       marginBottom:compact?6:10,
     }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:compact?4:8 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, textTransform:"uppercase", letterSpacing:"0.04em" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.goldLight, textTransform:"uppercase", letterSpacing:"0.04em" }}>
           {glass && <span style={{ width:7, height:7, borderRadius:"50%", background:color, boxShadow:`0 0 6px ${color}` }}/>}
           {icon} {titulo}
         </div>
@@ -5705,25 +5705,25 @@ const CajaReciboLinea = ({ label, value, bold, color, small, indent, totalLine, 
     paddingTop: totalLine ? (compact?4:6) : undefined,
     borderTop: totalLine ? `1px solid ${C.border}` : "none",
   }}>
-    <span style={{ fontFamily:font.body, fontSize: small?10:11.5, color: color || (small?C.textMuted:C.text), fontWeight: bold?700:400 }}>{label}</span>
-    <span style={{ fontFamily:font.mono, fontSize: small?10.5:12, fontWeight: bold?700:400, color: color || (bold?C.goldLight:C.text), whiteSpace:"nowrap" }}>{value}</span>
+    <span style={{ fontFamily:font.body, fontSize: small?11.5:13, color: color || (small?C.textMuted:C.text), fontWeight: bold?700:400 }}>{label}</span>
+    <span style={{ fontFamily:font.mono, fontSize: small?12:13.5, fontWeight: bold?700:400, color: color || (bold?C.goldLight:C.text), whiteSpace:"nowrap" }}>{value}</span>
   </div>
 );
 // Barra divisoria de sub-sección dentro de una tarjeta (p.ej. "Dinero recibido por método de pago",
 // "Ventas", "Servicios" dentro de Cierre) — imita las barras de encabezado del diseño de Felipe.
 const CajaSubHeader = ({ label, compact }) => (
-  <div style={{ background:"rgba(255,255,255,0.06)", borderRadius:4, padding: compact?"2px 6px":"4px 8px", margin: compact?"6px 0 2px":"10px 0 4px", fontFamily:font.body, fontSize:10, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
+  <div style={{ background:"rgba(255,255,255,0.06)", borderRadius:4, padding: compact?"2px 6px":"4px 8px", margin: compact?"6px 0 2px":"10px 0 4px", fontFamily:font.body, fontSize:11, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
 );
 // Fila de formulario "a modo factura": título/etiqueta a la izquierda, el campo editable compacto a
 // la derecha — mismo look que CajaReciboLinea pero con un input/select real en vez de texto. Usada
 // para que Apertura, Cierre, Novedades y Recolección se vean como una sola lista consistente.
-const cajaInputStyleRow = { ...cajaInputStyle, width:"auto", flex:"0 1 190px", textAlign:"right" };
-const cajaInputStyleRowCompact = { ...cajaInputStyleRow, padding:"3px 6px", fontSize:11.5 };
+const cajaInputStyleRow = { ...cajaInputStyle, width:"auto", flex:"0 1 190px", textAlign:"right", fontSize:13 };
+const cajaInputStyleRowCompact = { ...cajaInputStyleRow, padding:"4px 7px", fontSize:12.5 };
 const CajaFieldRow = ({ label, value, onChange, options, placeholder, type="text", wide, compact }) => {
   const base = compact ? cajaInputStyleRowCompact : cajaInputStyleRow;
   return (
-    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"1.5px 0":"4px 0" }}>
-      {label && <div style={{ fontFamily:font.body, fontSize: compact?10.5:11.5, color:C.text, flexShrink:0 }}>{label}</div>}
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
+      {label && <div style={{ fontFamily:font.body, fontSize: compact?12:13, color:C.text, flexShrink:0 }}>{label}</div>}
       {options ? (
         <select value={value} onChange={e=>onChange(e.target.value)} style={base}>
           {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
@@ -5738,8 +5738,8 @@ const CajaMoneyRow = ({ label, value, onChange, placeholder, compact }) => {
   const digits = String(value||"").replace(/[^\d]/g,"");
   const mostrado = digits ? `$${Number(digits).toLocaleString("es-CO")}` : "";
   return (
-    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"1.5px 0":"4px 0" }}>
-      {label && <div style={{ fontFamily:font.body, fontSize: compact?10.5:11.5, color:C.text, flexShrink:0 }}>{label}</div>}
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
+      {label && <div style={{ fontFamily:font.body, fontSize: compact?12:13, color:C.text, flexShrink:0 }}>{label}</div>}
       <input type="text" inputMode="numeric" value={mostrado} onChange={e=>onChange(e.target.value.replace(/[^\d]/g,""))} placeholder={placeholder||"$0"} style={compact?cajaInputStyleRowCompact:cajaInputStyleRow}/>
     </div>
   );
@@ -6159,7 +6159,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 <CajaFieldRow compact label="Asesor *" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                 <CajaReciboLinea compact label="Turno" value={tiendaNombreActual||"—"} small/>
                 <CajaMoneyRow compact label="Base" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
-                {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master puede usar una fecha distinta a hoy."}</div>}
+                {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:11.5, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master puede usar una fecha distinta a hoy."}</div>}
 
                 <CajaSubHeader compact label="Dinero recibido por método de pago"/>
                 {CAJA_MEDIOS.filter(m=>(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])>0).map(m=><CajaReciboLinea compact key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])}/>)}
@@ -6197,7 +6197,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     <CajaSubHeader compact label="Novedades del día"/>
                     <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
                       {novedadesDelDia.map((g,idx)=>(
-                        <div key={g.id} style={{ fontFamily:font.body, fontSize:10.5, color:C.text, display:"flex", justifyContent:"space-between", gap:6 }}>
+                        <div key={g.id} style={{ fontFamily:font.body, fontSize:12, color:C.text, display:"flex", justifyContent:"space-between", gap:6 }}>
                           <span>{idx+1}. {g.motivo}</span>
                           <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
                         </div>
@@ -6232,20 +6232,20 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
               </CajaCard>
 
               <CajaCard compact icon="📋" titulo="Novedades del período" color={tiendaColor}>
-                <div style={{ fontFamily:font.body, fontSize:9.5, color:C.textMuted, marginBottom:3 }}>Costos en rojo, ingresos en verde — desde la última recolección.</div>
+                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:4 }}>Costos en rojo, ingresos en verde — desde la última recolección.</div>
                 {gastosDesdeRecoleccion.length>0 ? (
-                  <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
+                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
                     {gastosDesdeRecoleccion.slice(0,5).map((g,idx)=>(
-                      <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:10.5, color:C.text, gap:6 }}>
+                      <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, gap:6 }}>
                         <span>{idx+1}. {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}</span>
                         <span style={{ display:"flex", alignItems:"center", gap:6 }}>
                           <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
-                          {puedeAprobarNovedad && g.estado!=="aprobado" && <button onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:9.5, padding:"1px 5px" }}>Aprobar</button>}
+                          {puedeAprobarNovedad && g.estado!=="aprobado" && <button onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:11, padding:"2px 6px" }}>Aprobar</button>}
                         </span>
                       </div>
                     ))}
                   </div>
-                ) : <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted }}>Sin novedades registradas.</div>}
+                ) : <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin novedades registradas.</div>}
               </CajaCard>
 
               <CajaCard compact icon="➕" titulo="Agregar novedad" color={tiendaColor}>
