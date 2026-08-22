@@ -3371,7 +3371,1020 @@ function AbonoFlexipagoCard({ venta, abonos }) {
   );
 }
 
-function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, ventasAjustes, metas, isMobile, soloLectura }) {
+// Tarjeta completa de una venta: header desplegable + detalle con toda la edición (Notacrédito
+// Siigo, Corregir factura, abonos, corrección de medio de pago, solicitudes, borrar, reabrir
+// Flexipago vencido). Es el MISMO componente en Lista de ventas y en "Ventas de hoy" — así ambos
+// lados se ven y funcionan exactamente igual, con detalle desplegable al hacer click en los dos.
+function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes }) {
+  const v = venta; // alias — el resto de esta lógica viene tal cual de Lista de ventas
+
+  const [expandido, setExpandido] = useState(false);
+  const [detalle, setDetalle] = useState(null);
+  const d = detalle;
+
+  const [mostrarSolicitud, setMostrarSolicitud] = useState(false);
+  const [motivoSolicitud, setMotivoSolicitud] = useState("");
+
+  const [editando, setEditando] = useState(false);
+  const [editItems, setEditItems] = useState([]);
+  const [editItemTipo, setEditItemTipo] = useState("producto");
+  const [editItemValor, setEditItemValor] = useState("");
+  const [editItemDescuento, setEditItemDescuento] = useState("");
+  const [editItemDescuentoTipo, setEditItemDescuentoTipo] = useState("valor");
+  const [editItemPagos, setEditItemPagos] = useState([]); // [{medio_pago, valor, numero_autorizacion}]
+  const [editItemMedioNuevo, setEditItemMedioNuevo] = useState("");
+  // Nota crédito: fecha real de un renglón nuevo (excedente) que se está agregando o editando —
+  // en un renglón original la fecha queda fija (la de la venta), no aplica este campo.
+  const [editItemFecha, setEditItemFecha] = useState(todayStr);
+  // null = componiendo un renglón nuevo para agregar; número = editando en el puesto ese índice
+  // de editItems (reemplaza en vez de agregar al guardar).
+  const [editingItemIdx, setEditingItemIdx] = useState(null);
+  const [editObservacion, setEditObservacion] = useState("");
+  const [editNumeroFactura, setEditNumeroFactura] = useState("");
+
+  // Notacrédito aprobada (no confundir con "corregir por error", que sigue siendo libre): el
+  // piso es siempre venta.valor_original — el nuevo valor nunca puede quedar por debajo de eso.
+  const [ncItems, setNcItems] = useState([]); // venta normal: [{id, tipo, valor, descuento}]
+  const [ncCliente, setNcCliente] = useState({ tipoDoc:"CC", documento:"", nombre:"", telefono:"" }); // flexipago
+  const [ncCodigos, setNcCodigos] = useState([{ codigo:"", valor:"" }]); // flexipago
+  const [ncAbonoMedio, setNcAbonoMedio] = useState("efectivo"); // flexipago
+  // Fecha real del excedente/ajuste (puede ser distinta a hoy: ej. dinero que entró hace unos
+  // días y se está registrando apenas ahora). Solo master/admin_finanzas pueden cambiarla —
+  // igual que con abonoFecha — el resto siempre queda con la fecha de hoy.
+  const [ajusteFecha, setAjusteFecha] = useState(todayStr);
+  const puedeEditarFechaAjuste = ["master","admin_finanzas"].includes(user.role);
+
+  const [abonoForm, setAbonoForm] = useState(false);
+  const [abonoValor, setAbonoValor] = useState("");
+  const [abonoMedio, setAbonoMedio] = useState("efectivo");
+  const [abonoAutorizacion, setAbonoAutorizacion] = useState("");
+  // Solo master/admin_finanzas pueden cambiar la fecha del abono (para registrar abonos
+  // atrasados con su fecha real) — el resto siempre abona con la fecha de hoy.
+  const [abonoFecha, setAbonoFecha] = useState(todayStr);
+  const [guardando, setGuardando] = useState(false);
+  const [editErrorMsg, setEditErrorMsg] = useState("");
+
+  // Dos botones, dos cosas distintas:
+  // - "Notacrédito Siigo": cuando la corrección SÍ genera un número de factura nuevo en Siigo —
+  //   tiene piso (no baja del valor original), pide el N.º de factura nuevo, y deja un registro
+  //   espejo aparte. Solo master/admin_finanzas.
+  // - "Corregir factura": cuando fue un error al REGISTRAR (nada cambió en Siigo) — sube o baja
+  //   libremente, sin necesitar número de factura nuevo, sin registro espejo, sin necesitar
+  //   solicitud aprobada. Master/admin_finanzas en cualquier fecha, o la cuenta de tienda para lo
+  //   registrado hoy mismo.
+  const puedeCorregirError = !soloLectura && ["master","admin_finanzas"].includes(user.role);
+  const [modoErrorId, setModoErrorId] = useState(false);
+  // true = la sesión de corrección abierta ahora mismo es "Notacrédito Siigo"; false = es
+  // "Corregir factura". Se fija al abrir cada sesión (según qué botón se usó), no por rol solo.
+  const [modoNotacredito, setModoNotacredito] = useState(false);
+
+  // Reabrir un Flexipago vencido (pasados los 60 días) — solo si la tienda decide honrarlo con
+  // el cliente igual. Deja rastro de quién lo reabrió y cuándo, igual que en Junta.
+  const puedeReabrirVencido = !soloLectura && ["master","admin_finanzas"].includes(user.role);
+  const reabrirFlexipagoVencido = async (venta) => {
+    const confirmacion = window.prompt(`Vas a REABRIR el Flexipago vencido de la factura #${venta.numero_factura||"—"}${venta.cliente_nombre?` (cliente: ${venta.cliente_nombre})`:""}.\n\nEsto permite seguir abonando y completar la venta aunque ya pasaron los ${FLEXIPAGO_PLAZO_DIAS} días. Úsalo solo si la tienda decidió honrarlo con el cliente.\n\nEscribe REABRIR para confirmar.`);
+    if(confirmacion!=="REABRIR") return;
+    const { data } = await supabase.from("ventas").update({ flexipago_reabierto_por:user.name, flexipago_reabierto_en:new Date().toISOString() }).eq("id",venta.id).select().single();
+    if(data) setVentas(prev=>prev.map(v2=>v2.id===venta.id?data:v2));
+  };
+
+  // Corrección directa de un abono ya registrado (solo master) — para cuando quedó con la fecha,
+  // el valor o el medio de pago equivocado y no hay forma de arreglarlo desde el flujo normal.
+  const [editandoAbonoId, setEditandoAbonoId] = useState(null);
+  const [eaFecha, setEaFecha] = useState("");
+  const [eaValor, setEaValor] = useState("");
+  const [eaMedio, setEaMedio] = useState("efectivo");
+  const [guardandoEa, setGuardandoEa] = useState(false);
+
+  // Corregir SOLO el medio de pago de un renglón ya registrado (ej: el asesor marcó tarjeta
+  // pero fue efectivo) — el valor no se toca nunca aquí, solo cómo se pagó. Requiere la misma
+  // solicitud de corrección aprobada que el resto de correcciones.
+  const [corrigiendoPago, setCorrigiendoPago] = useState(null); // {itemId, pagoIdx}
+  const [cpMedio, setCpMedio] = useState("efectivo");
+  const [cpAutorizacion, setCpAutorizacion] = useState("");
+  const [guardandoCp, setGuardandoCp] = useState(false);
+  const iniciarCorreccionMedio = (item, pagoIdx) => {
+    const p = (item.pagos||[])[pagoIdx];
+    setCorrigiendoPago({ itemId:item.id, pagoIdx });
+    setCpMedio(p?.medio_pago||"efectivo");
+    setCpAutorizacion(p?.numero_autorizacion||"");
+  };
+  const guardarCorreccionMedio = async (venta) => {
+    if(!corrigiendoPago) return;
+    const item = (d?.items||[]).find(i=>i.id===corrigiendoPago.itemId);
+    if(!item) return;
+    setGuardandoCp(true);
+    const nuevosPagos = (item.pagos||[]).map((p,idx)=> idx===corrigiendoPago.pagoIdx ? { ...p, medio_pago:cpMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(cpMedio)?(cpAutorizacion||"").trim():null } : p);
+    const { data } = await supabase.from("ventas_items").update({ pagos:nuevosPagos }).eq("id",item.id).select().single();
+    if(data){
+      setDetalle(prev=>({...prev, items:(prev?.items||[]).map(i=>i.id===data.id?data:i)}));
+      const aprobadasSinAplicar = (d?.solicitudes||[]).filter(s=>s.estado==="aprobada" && !s.aplicada_at);
+      for(const s of aprobadasSinAplicar){
+        await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
+      }
+      if(aprobadasSinAplicar.length>0){
+        setDetalle(prev=>({...prev, solicitudes:(prev?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s) }));
+      }
+    }
+    setGuardandoCp(false);
+    setCorrigiendoPago(null);
+  };
+
+  const iniciarEdicionAbono = (a) => { setEditandoAbonoId(a.id); setEaFecha(a.fecha); setEaValor(String(a.valor)); setEaMedio(a.medio_pago); };
+  const guardarEdicionAbono = async () => {
+    if(!eaFecha || !eaValor){ return; }
+    setGuardandoEa(true);
+    const { data, error } = await supabase.from("ventas_abonos").update({ fecha:eaFecha, valor:Number(eaValor), medio_pago:eaMedio }).eq("id", editandoAbonoId).select().single();
+    setGuardandoEa(false);
+    if(data){
+      setDetalle(prev=>({ ...prev, abonos:(prev?.abonos||[]).map(x=>x.id===data.id?data:x) }));
+      if(setVentasAbonos) setVentasAbonos(prev=>prev.map(a=>a.id===data.id?data:a));
+      setEditandoAbonoId(null);
+    }
+  };
+
+  const fetchDetalle = async () => {
+    setDetalle(prev=>({...(prev||{}), cargando:true}));
+    const [{data:items},{data:abonos},{data:solicitudes}] = await Promise.all([
+      supabase.from("ventas_items").select("*").eq("venta_id",venta.id),
+      supabase.from("ventas_abonos").select("*").eq("venta_id",venta.id).order("fecha",{ascending:true}),
+      supabase.from("ventas_solicitudes_correccion").select("*").eq("venta_id",venta.id).order("fecha_solicitud",{ascending:false}),
+    ]);
+    setDetalle({ items:items||[], abonos:abonos||[], solicitudes:solicitudes||[], cargando:false });
+  };
+  const toggleExpand = () => {
+    if(expandido){ setExpandido(false); return; }
+    setExpandido(true);
+    if(!detalle) fetchDetalle();
+  };
+
+  const enviarSolicitud = async () => {
+    if(!motivoSolicitud.trim()) return;
+    const { data } = await supabase.from("ventas_solicitudes_correccion").insert({ venta_id:venta.id, solicitado_por:user.name, motivo:motivoSolicitud.trim(), estado:"pendiente" }).select().single();
+    if(data){
+      setDetalle(prev=>({...prev, solicitudes:[data, ...(prev?.solicitudes||[])]}));
+      setMostrarSolicitud(false); setMotivoSolicitud("");
+    }
+  };
+
+  const resolverSolicitud = async (solicitud, nuevoEstado) => {
+    const { data } = await supabase.from("ventas_solicitudes_correccion").update({ estado:nuevoEstado, resuelto_por:user.name, fecha_resolucion:new Date().toISOString() }).eq("id",solicitud.id).select().single();
+    if(data){
+      setDetalle(prev=>({...prev, solicitudes:prev.solicitudes.map(s=>s.id===data.id?data:s)}));
+    }
+  };
+
+  const iniciarEdicion = (venta) => {
+    // Aplicar una Notacrédito ya aprobada. Para flexipago: solo se pueden cambiar los datos del
+    // cliente, los códigos de producto/valores y el medio del abono inicial (el tipo se queda
+    // fijo en Flexipago). Para ventas normales: solo se pueden cambiar tipo+valor de lo ya
+    // registrado — no se agregan renglones nuevos. En ambos casos el piso es valor_original.
+    setEditando(true);
+    setEditErrorMsg("");
+    setAjusteFecha(todayStr);
+    if(venta.es_flexipago){
+      const itemFlex = (d?.items||[]).find(i=>i.tipo==="flexipago");
+      setNcCliente({ tipoDoc: venta.cliente_tipo_doc||"CC", documento: venta.cliente_documento||"", nombre: venta.cliente_nombre||"", telefono: venta.cliente_telefono||"" });
+      setNcCodigos(itemFlex?.codigos_producto?.length ? itemFlex.codigos_producto.map(c=>({ codigo:c.codigo||"", valor:String(c.valor||"") })) : [{ codigo:"", valor:"" }]);
+      const primerAbono = (d?.abonos||[])[0];
+      setNcAbonoMedio(primerAbono?.medio_pago || "efectivo");
+    } else {
+      setNcItems((d?.items||[]).map(i=>({ id:i.id, tipo:i.tipo, valor:String(i.valor), descuento:Number(i.descuento||0) })));
+    }
+  };
+
+  const abrirModoCorreccion = (venta, esNotacredito) => {
+    setModoNotacredito(esNotacredito);
+    setModoErrorId(true);
+    setEditando(true);
+    // es_original/fecha_item quedan guardados en la fila desde la vez que se creó ese renglón —
+    // así un excedente sigue siendo excedente (editable, con fecha propia) en futuras Notas
+    // crédito, no solo en la sesión donde se agregó. Filas viejas (antes de esta columna) caen
+    // en es_original=true por el default de la base, que es el comportamiento correcto para ellas.
+    setEditItems((d?.items||[]).map(i=>{
+      const esOriginal = i.es_original!==false;
+      return { id:i.id, tipo:i.tipo, valorTotal:Number(i.valor), descuento:Number(i.descuento||0), pagos:i.pagos||[], esOriginal, valorOriginalItem: esOriginal?Number(i.valor):0, fecha: !esOriginal ? (i.fecha_item||todayStr) : undefined };
+    }));
+    setEditObservacion(venta.observacion||"");
+    // Notacrédito Siigo: siempre se pide un N.º de factura NUEVO, así que arranca vacío (no se
+    // prellena con el de la factura original, que nunca se toca). En Corregir factura sí se
+    // prellena, porque ahí se sigue editando el mismo N.º de la venta.
+    setEditNumeroFactura(esNotacredito ? "" : (venta.numero_factura||""));
+    setEditErrorMsg("");
+    setEditItemTipo("producto");
+    setEditItemValor("");
+    setEditItemDescuento("");
+    setEditItemDescuentoTipo("valor");
+    setEditItemPagos([]);
+    setEditItemMedioNuevo("");
+    setEditItemFecha(todayStr);
+    setEditingItemIdx(null);
+  };
+  const iniciarNotacredito = (venta) => {
+    const confirmacion = window.prompt(`Vas a hacer una Notacrédito Siigo sobre la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nUsa esto SOLO si en Siigo la corrección genera un número de factura nuevo. Puedes corregir el tipo, valor y medio de pago de cada renglón, o agregar un renglón nuevo con su propia fecha. El valor total no puede quedar por debajo de lo ya registrado, y vas a necesitar el N.º de factura (Siigo) NUEVO — es obligatorio, la factura original no cambia.\n\nEscribe CORREGIR para confirmar.`);
+    if(confirmacion!=="CORREGIR") return;
+    abrirModoCorreccion(venta, true);
+  };
+  const iniciarCorregirFactura = (venta) => {
+    const confirmacion = window.prompt(`Vas a corregir la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nUsa esto cuando NO cambió nada en Siigo — fue un error al registrar en nuestro sistema. El valor puede subir o bajar libremente, sin necesitar un número de factura nuevo ni aprobación.\n\nEscribe CORREGIR para confirmar.`);
+    if(confirmacion!=="CORREGIR") return;
+    abrirModoCorreccion(venta, false);
+  };
+
+  // Abre el formulario de arriba en modo edición sobre un renglón ya en la lista (original o
+  // recién agregado). En uno original la fecha queda fija en la de la venta; en uno nuevo se
+  // puede cambiar libremente.
+  const iniciarEdicionItem = (idx, venta) => {
+    const it = editItems[idx];
+    if(!it) return;
+    setEditingItemIdx(idx);
+    setEditItemTipo(it.tipo);
+    setEditItemValor(String(it.valorTotal));
+    setEditItemDescuento(String(it.descuento||0));
+    setEditItemDescuentoTipo("valor");
+    setEditItemPagos(it.pagos||[]);
+    setEditItemMedioNuevo("");
+    setEditItemFecha(it.esOriginal ? venta.fecha : (it.fecha||todayStr));
+  };
+  const cancelarEdicionItem = () => {
+    setEditingItemIdx(null);
+    setEditItemTipo("producto");
+    setEditItemValor("");
+    setEditItemDescuento("");
+    setEditItemDescuentoTipo("valor");
+    setEditItemPagos([]);
+    setEditItemMedioNuevo("");
+    setEditItemFecha(todayStr);
+  };
+
+  const editItemEsFlexipago = editItemTipo === "flexipago";
+  const editItemValorNum = Number(editItemValor||0);
+  const editItemDescuentoInput = Number(editItemDescuento||0);
+  const editItemDescuentoNum = editItemDescuentoTipo==="porcentaje" ? Math.round(editItemValorNum*editItemDescuentoInput/100) : editItemDescuentoInput;
+  const editItemNeto = editItemValorNum - editItemDescuentoNum;
+  const editItemSumaMedios = editItemPagos.reduce((a,p)=>a+Number(p.valor||0),0);
+  const editItemFalta = editItemNeto - editItemSumaMedios;
+  const editItemFaltaAUT = editItemPagos.some(p=>VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && !(p.numero_autorizacion||"").trim());
+
+  const agregarMedioAEditItem = (medio) => {
+    const m = medio || editItemMedioNuevo;
+    if(!m) return;
+    setEditItemPagos(prev=>[...prev, { medio_pago:m, valor:"", numero_autorizacion:"" }]);
+    setEditItemMedioNuevo("");
+  };
+  const quitarMedioDeEditItem = (idx) => setEditItemPagos(prev=>prev.filter((_,i)=>i!==idx));
+  const setEditItemPagoValor = (idx, v2) => setEditItemPagos(prev=>prev.map((p,i)=>i===idx?{...p,valor:v2}:p));
+  const setEditItemPagoAutorizacion = (idx, v2) => setEditItemPagos(prev=>prev.map((p,i)=>i===idx?{...p,numero_autorizacion:v2}:p));
+
+  // Renglón original: si master/admin_finanzas está haciendo la Nota crédito, no puede bajar del
+  // valor bruto con el que se registró. La corrección libre del mismo día (cuenta tienda) no
+  // tiene este piso — sigue pudiendo subir o bajar sin límite.
+  const editItemEditandoOriginal = editingItemIdx!==null && editItems[editingItemIdx]?.esOriginal;
+  const editItemPisoOriginal = editItemEditandoOriginal ? editItems[editingItemIdx].valorOriginalItem : 0;
+  const editItemBajoPiso = modoNotacredito && editItemEditandoOriginal && editItemValorNum < editItemPisoOriginal;
+
+  const agregarEditItem = () => {
+    if(editItemValorNum<=0 || editItemPagos.length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT || editItemBajoPiso) return;
+    const pagos = editItemPagos.map(p=>({ medio_pago:p.medio_pago, valor:Number(p.valor||0), numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?(p.numero_autorizacion||"").trim():null }));
+    if(editingItemIdx!==null){
+      const original = editItems[editingItemIdx];
+      const actualizado = { ...original, tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos, ...(original.esOriginal ? {} : { fecha:editItemFecha }) };
+      setEditItems(prev=>prev.map((it,i)=>i===editingItemIdx?actualizado:it));
+    } else {
+      setEditItems(prev=>[...prev, { id:`nuevo_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos, esOriginal:false, fecha:editItemFecha }]);
+    }
+    cancelarEdicionItem();
+  };
+  const quitarEditItem = (idx) => {
+    // El renglón original nunca se elimina en Notacrédito Siigo (solo se edita). En Corregir
+    // factura no hay distinción entre renglones — cualquiera se puede quitar, como antes.
+    if(modoNotacredito && editItems[idx]?.esOriginal) return;
+    setEditItems(prev=>prev.filter((_,i)=>i!==idx));
+    if(idx===editingItemIdx) cancelarEdicionItem();
+  };
+
+  const guardarEdicion = async (venta) => {
+    const esModoError = modoErrorId;
+    // "Corregir por error" se edita completo, como antes (se reemplazan todos los renglones).
+    // Es el único modo donde el valor puede subir O bajar libremente.
+    if(esModoError){
+      if(editItems.length===0) return;
+      const bruto = editItems.reduce((a,i)=>a+i.valorTotal,0);
+      const desc = editItems.reduce((a,i)=>a+i.descuento,0);
+      const total = bruto - desc;
+      const valorAnterior = Number(venta.total);
+      // Notacrédito Siigo: el piso es siempre lo ya registrado. Corregir factura no tiene piso —
+      // sube o baja libremente, como antes.
+      const piso = Number(venta.valor_original ?? venta.total);
+      if(modoNotacredito && total < piso){
+        setEditErrorMsg(`El nuevo valor ($${total.toLocaleString("es-CO")}) no puede quedar por debajo de lo ya registrado ($${piso.toLocaleString("es-CO")}).`);
+        return;
+      }
+      // Notacrédito Siigo: la factura original NUNCA se toca desde aquí — el N.º de Siigo que se
+      // escribe en el renglón es obligatorio y siempre queda como el de la Notacrédito (registro
+      // espejo aparte), sin importar si al final hay diferencia de valor o no. Corregir factura
+      // sigue editando el N.º de factura de la misma venta directamente, como antes.
+      if(modoNotacredito && !editNumeroFactura.trim()){
+        setEditErrorMsg("Falta el N.º de factura (Siigo) — es obligatorio para guardar la Notacrédito.");
+        return;
+      }
+      setEditErrorMsg("");
+      setGuardando(true);
+      const payload = { observacion:editObservacion.trim(), valor_bruto:bruto, descuento_total:desc, total, updated_at:new Date().toISOString() };
+      // La factura original solo se edita en Corregir factura. En Notacrédito Siigo nunca se
+      // toca — el N.º nuevo va aparte, en el ajuste.
+      if(!modoNotacredito) payload.numero_factura = editNumeroFactura.trim() || venta.numero_factura || null;
+      // Solo en Corregir factura se resetea valor_original, para que el valor corregido quede
+      // como si siempre hubiera sido el original (es un typo, no plata real que entró después).
+      // En Notacrédito Siigo NO se resetea: el piso original se conserva para siempre.
+      if(!modoNotacredito) payload.valor_original = total;
+      const { data:ventaAct } = await supabase.from("ventas").update(payload).eq("id",venta.id).select().single();
+      await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
+      // En Corregir factura no hay concepto de renglón original/nuevo con fecha propia — se
+      // reemplaza todo plano, como antes de la Notacrédito Siigo.
+      const filasItems = modoNotacredito
+        ? editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, es_original:i.esOriginal!==false, fecha_item:i.esOriginal===false?(i.fecha||todayStr):null }))
+        : editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, es_original:true, fecha_item:null }));
+      const { data:itemsNuevos } = await supabase.from("ventas_items").insert(filasItems).select();
+      const aprobadasSinAplicar = (d?.solicitudes||[]).filter(s=>s.estado==="aprobada" && !s.aplicada_at);
+      for(const s of aprobadasSinAplicar){
+        await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
+      }
+      const primerNuevo = editItems.find(i=>!i.esOriginal);
+      const fechaAjuste = modoNotacredito ? (primerNuevo?.fecha || todayStr) : todayStr;
+      if(modoNotacredito){
+        // El valor de ESTA Notacrédito es lo que sumen los renglones nuevos con esta fecha
+        // específica (no total-valorAnterior de la sesión) — así, si se reedita solo para
+        // corregir el N.º de Siigo sin tocar el valor, el registro sigue existiendo y el número
+        // no se pierde (antes, si el total no cambiaba frente al de la venta, no se tocaba nada).
+        const itemsDeEstaFecha = editItems.filter(i=>!i.esOriginal && (i.fecha||todayStr)===fechaAjuste);
+        const diferenciaFecha = itemsDeEstaFecha.reduce((s,i)=>s+i.valorTotal-i.descuento,0);
+        const motivo = `Nota crédito${editObservacion.trim()?": "+editObservacion.trim():""}`;
+        const ajusteExistente = (ajustes||[]).find(a=>a.venta_id===venta.id && a.fecha===fechaAjuste && !a.es_correccion_error);
+        if(ajusteExistente){
+          const { data:ajusteAct } = await supabase.from("ventas_ajustes").update({ valor_nuevo:piso+diferenciaFecha, diferencia:diferenciaFecha, motivo, numero_factura:editNumeroFactura.trim(), aplicado_por:user.name }).eq("id",ajusteExistente.id).select().single();
+          if(ajusteAct) setAjustes(prev=>prev.map(a=>a.id===ajusteAct.id?ajusteAct:a));
+        } else if(diferenciaFecha!==0){
+          const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:fechaAjuste, valor_anterior:piso, valor_nuevo:piso+diferenciaFecha, diferencia:diferenciaFecha, motivo, aplicado_por:user.name, es_correccion_error:false, numero_factura:editNumeroFactura.trim() }).select().single();
+          if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
+        }
+      } else if(total!==valorAnterior){
+        // Corregir factura: el ajuste es solo una nota de auditoría del cambio de valor, no un
+        // registro espejo — se sigue creando solo si el total realmente cambió.
+        const motivo = `Corrección por error${editObservacion.trim()?": "+editObservacion.trim():""}`;
+        const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:fechaAjuste, valor_anterior:valorAnterior, valor_nuevo:total, diferencia:total-valorAnterior, motivo, aplicado_por:user.name, es_correccion_error:true, numero_factura:null }).select().single();
+        if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
+      }
+      setGuardando(false);
+      if(ventaAct){
+        setVentas(prev=>prev.map(v2=>v2.id===venta.id?ventaAct:v2));
+        setDetalle(prev=>({...prev, items:itemsNuevos||[], solicitudes:(prev?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s) }));
+        if(setVentasItems) setVentasItems(prev=>[...prev.filter(i=>i.venta_id!==venta.id), ...(itemsNuevos||[])]);
+      }
+      setEditando(false);
+      setModoErrorId(false);
+      return;
+    }
+
+    // Notacrédito ya aprobada. El piso siempre es venta.valor_original: el nuevo valor nunca
+    // puede quedar por debajo de lo que ya se había registrado.
+    const piso = Number(venta.valor_original ?? venta.total);
+    const aprobadasSinAplicar = (d?.solicitudes||[]).filter(s=>s.estado==="aprobada" && !s.aplicada_at);
+
+    if(venta.es_flexipago){
+      // Flexipago: el tipo se queda fijo. Solo se cambian los datos del cliente, los códigos de
+      // producto (y sus valores, cuya suma no puede bajar del piso) y el medio del abono inicial.
+      const codigosLimpios = ncCodigos.filter(c=>c.codigo.trim()||c.valor.trim());
+      if(codigosLimpios.length===0){ setEditErrorMsg("Agrega al menos un código de producto."); return; }
+      const nuevaSuma = ncCodigos.reduce((s,c)=>s+Number(c.valor||0),0);
+      if(nuevaSuma < piso){ setEditErrorMsg(`La suma de los productos ($${nuevaSuma.toLocaleString("es-CO")}) no puede quedar por debajo de lo ya registrado ($${piso.toLocaleString("es-CO")}).`); return; }
+      if(!ncCliente.documento.trim() || !ncCliente.nombre.trim()){ setEditErrorMsg("Faltan los datos del cliente."); return; }
+      setEditErrorMsg("");
+      setGuardando(true);
+      const { data:ventaAct } = await supabase.from("ventas").update({
+        cliente_tipo_doc:ncCliente.tipoDoc, cliente_documento:ncCliente.documento.trim(), cliente_nombre:ncCliente.nombre.trim(), cliente_telefono:ncCliente.telefono.trim(),
+        valor_bruto:nuevaSuma, total:nuevaSuma, observacion:editObservacion.trim(), updated_at:new Date().toISOString(),
+      }).eq("id",venta.id).select().single();
+      const itemFlex = (d?.items||[]).find(i=>i.tipo==="flexipago");
+      let itemAct = null;
+      if(itemFlex){
+        const { data } = await supabase.from("ventas_items").update({ valor:nuevaSuma, codigos_producto:codigosLimpios }).eq("id",itemFlex.id).select().single();
+        itemAct = data;
+      }
+      const primerAbono = (d?.abonos||[])[0];
+      let abonoAct = null;
+      if(primerAbono && primerAbono.medio_pago!==ncAbonoMedio){
+        const { data } = await supabase.from("ventas_abonos").update({ medio_pago:ncAbonoMedio }).eq("id",primerAbono.id).select().single();
+        abonoAct = data;
+      }
+      for(const s of aprobadasSinAplicar){
+        await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
+      }
+      setGuardando(false);
+      if(ventaAct){
+        setVentas(prev=>prev.map(v2=>v2.id===venta.id?ventaAct:v2));
+        setDetalle(prev=>({...prev,
+          items:(prev?.items||[]).map(i=>i.id===itemAct?.id?itemAct:i),
+          abonos:(prev?.abonos||[]).map(a=>a.id===abonoAct?.id?abonoAct:a),
+          solicitudes:(prev?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s),
+        }));
+        if(itemAct && setVentasItems) setVentasItems(prev=>prev.map(i=>i.id===itemAct.id?itemAct:i));
+        if(abonoAct && setVentasAbonos) setVentasAbonos(prev=>prev.map(a=>a.id===abonoAct.id?abonoAct:a));
+      }
+      setEditando(false);
+      return;
+    }
+
+    // Venta normal: se edita el tipo y el valor de los renglones ya registrados (no se agregan
+    // renglones nuevos). La suma nueva no puede quedar por debajo del piso.
+    const nuevoBruto = ncItems.reduce((s,i)=>s+Number(i.valor||0),0);
+    const descuentoOriginal = ncItems.reduce((s,i)=>s+Number(i.descuento||0),0);
+    const nuevoTotal = nuevoBruto - descuentoOriginal;
+    if(nuevoTotal < piso){
+      setEditErrorMsg(`El nuevo valor ($${nuevoTotal.toLocaleString("es-CO")}) no puede quedar por debajo de lo ya registrado ($${piso.toLocaleString("es-CO")}).`);
+      return;
+    }
+    setEditErrorMsg("");
+    setGuardando(true);
+    const valorAnterior = Number(venta.total);
+    const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), numero_factura:editNumeroFactura.trim()||null, valor_bruto:nuevoBruto, descuento_total:descuentoOriginal, total:nuevoTotal, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
+    const itemsActualizados = [];
+    for(const it of ncItems){
+      const { data } = await supabase.from("ventas_items").update({ tipo:it.tipo, valor:Number(it.valor||0) }).eq("id",it.id).select().single();
+      if(data) itemsActualizados.push(data);
+    }
+    for(const s of aprobadasSinAplicar){
+      await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
+    }
+    // El excedente (lo que subió hoy respecto a lo que ya tenía) queda registrado con la fecha de
+    // HOY para Métricas — el valor original se queda contando en su día de venta (no se toca acá,
+    // ver recortePorVenta en VentasMetricasScreen). Así "Ventas de hoy" solo ve lo que entró hoy.
+    if(nuevoTotal !== valorAnterior){
+      const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:(puedeEditarFechaAjuste && ajusteFecha) || todayStr, valor_anterior:valorAnterior, valor_nuevo:nuevoTotal, diferencia:nuevoTotal-valorAnterior, motivo:editObservacion.trim()||null, aplicado_por:user.name }).select().single();
+      if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
+    }
+    setGuardando(false);
+    if(ventaAct){
+      setVentas(prev=>prev.map(v2=>v2.id===venta.id?ventaAct:v2));
+      setDetalle(prev=>({...prev,
+        items:(prev?.items||[]).map(i=>itemsActualizados.find(x=>x.id===i.id)||i),
+        solicitudes:(prev?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s),
+      }));
+      if(setVentasItems && itemsActualizados.length) setVentasItems(prev=>prev.map(i=>itemsActualizados.find(x=>x.id===i.id)||i));
+    }
+    setEditando(false);
+  };
+
+  const eliminarVenta = async (venta) => {
+    const confirmacion = window.prompt(`Esto borra para siempre la venta #${venta.numero_factura||"—"} (${venta.vendedor_nombre}, $${Number(venta.total).toLocaleString("es-CO")}) y todo lo que tenga: renglones, abonos y solicitudes. No se puede deshacer.\n\nEscribe BORRAR para confirmar.`);
+    if(confirmacion!=="BORRAR") return;
+    await supabase.from("ventas_solicitudes_correccion").delete().eq("venta_id",venta.id);
+    await supabase.from("ventas_abonos").delete().eq("venta_id",venta.id);
+    await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
+    const { error } = await supabase.from("ventas").delete().eq("id",venta.id);
+    if(!error){
+      setVentas(prev=>prev.filter(x=>x.id!==venta.id));
+      setDetalle(null);
+    }
+  };
+
+  const [abonoNumeroFactura, setAbonoNumeroFactura] = useState("");
+  const agregarAbono = async (venta, valorFlexipagoVenta, totalAbonadoActual) => {
+    if(!abonoValor || Number(abonoValor)<=0) return;
+    if(VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && !abonoAutorizacion.trim()) return;
+    // El total abonado que llega por parámetro viene del render (puede quedar desactualizado si
+    // se registran varios abonos seguidos muy rápido, antes de que la pantalla alcance a
+    // refrescarse). Para decidir si este abono cierra el Flexipago, se vuelve a sumar lo
+    // realmente guardado en la base justo antes de insertar — así no se le escapa pedir el N.º
+    // de factura cuando sí corresponde, ni queda un saldo fantasma que solo se corrige al recargar.
+    const { data: abonosActuales } = await supabase.from("ventas_abonos").select("valor").eq("venta_id", venta.id);
+    const totalAbonadoReal = (abonosActuales||[]).reduce((a,x)=>a+Number(x.valor||0), 0);
+    const completaPago = (valorFlexipagoVenta - totalAbonadoReal - Number(abonoValor)) <= 0;
+    if(completaPago && !venta.numero_factura && !abonoNumeroFactura.trim()){
+      alert("Este abono deja el Flexipago completamente pagado — falta el N.º de factura (Siigo) para poder guardarlo. Escríbelo en el campo que apareció y guarda de nuevo.");
+      return;
+    }
+    // Solo master/admin_finanzas pueden poner una fecha distinta a hoy (para abonos atrasados
+    // que se registran después de que pasaron). El resto siempre abona con la fecha de hoy.
+    const fechaAbono = (esAdmin && abonoFecha) ? abonoFecha : todayStr;
+    const { data, error } = await supabase.from("ventas_abonos").insert({ venta_id:venta.id, fecha:fechaAbono, valor:Number(abonoValor), registrado_por:user.name, medio_pago:abonoMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(abonoMedio)?abonoAutorizacion.trim():null }).select().single();
+    if(error){ alert(`No se pudo guardar el abono: ${error.message}`); return; }
+    if(data){
+      setDetalle(prev=>({...prev, abonos:[...(prev?.abonos||[]), data]}));
+      if(setVentasAbonos) setVentasAbonos(prev=>[...prev, data]);
+      if(completaPago && !venta.numero_factura && abonoNumeroFactura.trim()){
+        const { data:ventaAct } = await supabase.from("ventas").update({ numero_factura:abonoNumeroFactura.trim() }).eq("id",venta.id).select().single();
+        if(ventaAct) setVentas(prev=>prev.map(v2=>v2.id===venta.id?ventaAct:v2));
+      }
+      setAbonoForm(false); setAbonoValor(""); setAbonoMedio("efectivo"); setAbonoAutorizacion(""); setAbonoNumeroFactura(""); setAbonoFecha(todayStr);
+    }
+  };
+
+  const imprimirVenta = (venta, d) => {
+    const tienda = stores[venta.tienda_id]?.name || venta.tienda_id;
+    const totalAbonado = (d?.abonos||[]).reduce((a,x)=>a+Number(x.valor),0);
+    const valorFlex = (d?.items||[]).filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor),0);
+    const saldo = valorFlex - totalAbonado;
+    const itemsHtml = (d?.items||[]).map(i=>{
+      const fila = `<tr><td>${VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label||i.tipo}</td><td style="text-align:right">${fmtCOP(i.valor)}</td><td style="text-align:right">${Number(i.descuento)>0?fmtCOP(i.descuento):"—"}</td><td>${i.tipo==="flexipago"?(saldo<=0?"Completado":"—"):(i.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago).join(" + ")}</td></tr>`;
+      const codigos = (i.codigos_producto||[]).filter(c=>c.codigo||c.valor);
+      const desglose = codigos.length ? `<tr><td colspan="4" style="padding:2px 8px 8px;font-size:11px;color:#666;">${codigos.map(c=>`Código ${c.codigo||"—"}: ${c.valor?fmtCOP(Number(c.valor)):"—"}`).join(" · ")}</td></tr>` : "";
+      return fila + desglose;
+    }).join("");
+    const abonosHtml = (d?.abonos||[]).map(a=>`<tr><td>${a.fecha}</td><td>${VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}</td><td style="text-align:right">${fmtCOP(a.valor)}</td></tr>`).join("");
+    const avisoHtml = FLEXIPAGO_AVISO_ITEMS.map(it=>`<p style="margin:3px 0;text-align:left;">${it.n?`<b>${it.n}. ${it.titulo}:</b> `:""}${it.texto}</p>`).join("");
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Venta ${venta.numero_factura||""}</title>
+      <style>
+        body{font-family:Arial,Helvetica,sans-serif;padding:28px;color:#111;}
+        h1{font-size:18px;margin:0 0 4px;}
+        table{width:100%;border-collapse:collapse;margin-top:10px;}
+        th,td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:13px;text-align:left;}
+        .total{font-size:16px;font-weight:bold;margin-top:12px;}
+        .muted{color:#666;font-size:12px;}
+        hr{border:none;border-top:1px solid #ccc;margin:14px 0;}
+        .aviso{margin-top:22px;border:1px solid #ccc;border-radius:6px;padding:10px 14px;background:#fafafa;}
+        .aviso-titulo{font-size:12px;font-weight:bold;margin-bottom:6px;}
+        .aviso p{font-size:10.5px;color:#333;line-height:1.4;}
+      </style></head><body>
+      <img src="/logo-azul.png" alt="OZEN" style="height:50px;margin-bottom:8px;"/>
+      <h1>Comprobante Flexipago</h1>
+      <div class="muted">Factura Siigo: ${venta.numero_factura||"—"} · Tienda: ${tienda} · Fecha: ${venta.fecha}</div>
+      <div class="muted">Asesor: ${venta.vendedor_nombre||""}</div>
+      <hr/>
+      <div><strong>Cliente:</strong> ${venta.cliente_nombre||"—"} · ${venta.cliente_tipo_doc||""} ${venta.cliente_documento||""} · Tel: ${venta.cliente_telefono||""}</div>
+      <table><thead><tr><th>Producto/Servicio</th><th style="text-align:right">Valor</th><th style="text-align:right">Descuento</th><th>Medio</th></tr></thead><tbody>${itemsHtml}</tbody></table>
+      <div class="total">Total venta: ${fmtCOP(venta.total)}</div>
+      <h3 style="margin-top:20px;">Plan Flexipago — Abonos</h3>
+      <table><thead><tr><th>Fecha</th><th>Medio</th><th style="text-align:right">Valor</th></tr></thead><tbody>${abonosHtml || '<tr><td colspan="3">Sin abonos registrados</td></tr>'}</tbody></table>
+      <div class="total">Saldo pendiente: ${fmtCOP(saldo)}</div>
+      ${venta.observacion?`<div class="muted" style="margin-top:14px;">Nota: ${venta.observacion}</div>`:""}
+      <div class="aviso"><div class="aviso-titulo">${FLEXIPAGO_AVISO_TITULO}</div>${avisoHtml}</div>
+    </body></html>`;
+    const w = window.open("", "_blank", "width=720,height=900");
+    if(!w){ alert("El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes para este sitio e intenta de nuevo."); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(()=>{ w.print(); }, 300);
+  };
+
+  const abiertoEdicion = editando;
+  const puedeEditar = !soloLectura && (d?.solicitudes||[]).some(s=>s.estado==="aprobada" && !s.aplicada_at);
+  // Los totales/estado del Flexipago se calculan desde ventasItems/ventasAbonos (siempre
+  // cargados) en vez del detalle (que solo se carga al abrir la tarjeta) — así el badge de
+  // estado y el bloqueo de edición son correctos aunque todavía no se haya abierto.
+  const abonosVenta = v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id).sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id))) : [];
+  const totalAbonado = abonosVenta.reduce((a,x)=>a+Number(x.valor||0),0);
+  const valorFlexipago = v.es_flexipago ? (ventasItems||[]).filter(i=>i.venta_id===v.id && i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor||0)-Number(i.descuento||0),0) : 0;
+  const saldoPendiente = valorFlexipago - totalAbonado;
+  const flexipagoCompletado = v.es_flexipago && valorFlexipago>0 && saldoPendiente<=0;
+  // Regla del aviso legal: 60 días calendario desde el primer abono para completar el pago.
+  const primerAbonoFecha = abonosVenta.length>0 ? abonosVenta[0].fecha : null;
+  const diasDesdeAbono = primerAbonoFecha ? diasEntre(primerAbonoFecha, todayStr) : null;
+  const fechaLimite = primerAbonoFecha ? sumarDias(primerAbonoFecha, FLEXIPAGO_PLAZO_DIAS) : null;
+  const fechaLimiteCorta = fechaLimite ? new Date(fechaLimite+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"}) : "";
+  const flexipagoVencido = v.es_flexipago && saldoPendiente>0 && diasDesdeAbono!==null && diasDesdeAbono>FLEXIPAGO_PLAZO_DIAS && !v.flexipago_reabierto_en;
+  const diasRestantes60 = diasDesdeAbono!==null ? FLEXIPAGO_PLAZO_DIAS - diasDesdeAbono : null;
+  // Avisos previos al vencimiento: a los 30 días (mitad del plazo) y en los últimos 5 días, para
+  // que el asesor le recuerde al cliente que venga por su pedido antes de perderlo.
+  const flexipagoUrgente = v.es_flexipago && saldoPendiente>0 && !flexipagoVencido && diasRestantes60!==null && diasRestantes60<=5;
+  const flexipagoAviso30 = v.es_flexipago && saldoPendiente>0 && !flexipagoVencido && !flexipagoUrgente && diasDesdeAbono!==null && diasDesdeAbono>=30;
+  // Un solo badge de estado (en vez de varios apilados) para que todas las filas se vean
+  // igual de "gruesas" — cambia de color y texto según el estado, pero siempre es uno solo.
+  let estadoFlexipago = null;
+  if(v.es_flexipago){
+    if(flexipagoCompletado) estadoFlexipago = { color:C.green, texto:"✅ Completado" };
+    else if(flexipagoVencido) estadoFlexipago = { color:C.red, texto:"⛔ Vencido" };
+    else if(v.flexipago_reabierto_en) estadoFlexipago = { color:C.amber, texto:"🔓 Reabierto" };
+    else if(saldoPendiente>0 && diasRestantes60!==null) estadoFlexipago = { color: flexipagoUrgente?C.red:flexipagoAviso30?C.amber:C.blue, texto:`📦 Vence en ${diasRestantes60}d · ${fechaLimiteCorta}` };
+    else estadoFlexipago = { color:C.blue, texto:"📦 Flexipago" };
+  }
+  // La cuenta de tienda puede corregir por error y eliminar SIN pedir permiso, pero solo
+  // para lo que se registró hoy mismo. Para días anteriores, tiene que pedir Notacrédito.
+  const esHoyTienda = esCuentaTienda(user) && v.fecha===todayStr && !soloLectura;
+  const puedeCorregirErrorAqui = puedeCorregirError || esHoyTienda;
+  const puedeEliminarAqui = esAdmin || esHoyTienda;
+  // Lo que realmente ingresó el día de la venta es valor_original — el excedente de una
+  // Nota crédito posterior se muestra aparte, sin agrandar la fila (cuenta en Métricas en
+  // su propia fecha, no en la fecha de esta venta).
+  const valorOriginalMostrar = Number(v.valor_original ?? v.total);
+  return (
+    <Card p="0" style={{ overflow:"hidden" }}>
+      <button onClick={toggleExpand} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
+        <Badge color={C.gold} sm>#{v.numero_factura||"—"}</Badge>
+        <div style={{ flex:1, minWidth:140, minHeight:30 }}>
+          <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha} · {stores[v.tienda_id]?.name||v.tienda_id}</span></div>
+          {(v.cliente_nombre || v.cliente_documento || v.cliente_telefono) && (
+            <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, lineHeight:1.3 }}>
+              {v.cliente_nombre||""}{v.cliente_nombre && (v.cliente_documento||v.cliente_telefono) ? " · " : ""}{v.cliente_tipo_doc||""} {v.cliente_documento||""}{v.cliente_documento && v.cliente_telefono ? " · " : ""}{v.cliente_telefono ? `Tel: ${v.cliente_telefono}` : ""}
+            </div>
+          )}
+        </div>
+        {estadoFlexipago && (
+          <Badge
+            color={estadoFlexipago.color}
+            sm
+            title={
+              flexipagoCompletado ? "Ya se pagó completo — no se puede editar más." :
+              flexipagoVencido ? `Pasaron ${diasDesdeAbono} días desde el primer abono (máximo ${FLEXIPAGO_PLAZO_DIAS}). No se puede abonar ni editar.` :
+              v.flexipago_reabierto_en ? `Reabierto por ${v.flexipago_reabierto_por} el ${fmtFechaHora(v.flexipago_reabierto_en)}` :
+              fechaLimite ? `Vence el ${fechaLimiteCorta} (${FLEXIPAGO_PLAZO_DIAS} días desde el primer abono).` : undefined
+            }
+          >{estadoFlexipago.texto}</Badge>
+        )}
+        <div style={{ display:"flex", alignItems:"baseline", gap:5, flexShrink:0 }}>
+          <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight }}>${valorOriginalMostrar.toLocaleString("es-CO")}</div>
+        </div>
+        <span style={{ color:C.textMuted, fontSize:11 }}>{expandido?"▲":"▼"}</span>
+      </button>
+
+      <Collapse open={expandido}>
+        <div style={{ padding:"0 12px 12px", borderTop:`1px solid ${C.border}` }}>
+          {d?.cargando ? (
+            <div style={{ padding:14, color:C.textMuted, fontFamily:font.body, fontSize:12 }}>Cargando...</div>
+          ) : (
+            <>
+              {(()=>{
+                // Los renglones que vienen de una Notacrédito (con su propio N.º de Siigo
+                // nuevo) no se muestran en la factura original — esa factura se queda tal
+                // cual quedó registrada. Solo se ven al editar con Notacrédito Siigo.
+                const itemsOriginales = (d?.items||[]).filter(i=>i.es_original!==false);
+                const brutoOriginal = itemsOriginales.reduce((s,i)=>s+Number(i.valor||0),0);
+                const descOriginal = itemsOriginales.reduce((s,i)=>s+Number(i.descuento||0),0);
+                return (
+                  <div style={{ display:"flex", alignItems:"baseline", gap:6, margin:"4px 0 3px" }}>
+                    <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>Ventas y servicios</div>
+                    <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>· Bruto ${brutoOriginal.toLocaleString("es-CO")}{descOriginal>0 && ` · Desc $${descOriginal.toLocaleString("es-CO")}`}</div>
+                  </div>
+                );
+              })()}
+              {!abiertoEdicion ? (
+                <div style={{ display:"flex", flexDirection:"column", gap:3, marginBottom:4 }}>
+                  {(d?.items||[]).filter(i=>i.es_original!==false).map(i=>(
+                    <div key={i.id} style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", fontFamily:font.body, fontSize:12, color:C.text, padding:"1px 0" }}>
+                        <Badge color={i.tipo==="producto"?C.green:i.tipo==="flexipago"?C.blue:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
+                        <span style={{ fontFamily:font.mono }}>${Number(i.valor).toLocaleString("es-CO")}{Number(i.descuento)>0 && ` (desc $${Number(i.descuento).toLocaleString("es-CO")})`}</span>
+                        {i.tipo==="flexipago" ? (
+                          (i.codigos_producto||[]).filter(c=>c.codigo||c.valor).map((c,ci)=>(
+                            <Badge key={ci} color={C.textMuted} sm>{c.codigo?`#${c.codigo}`:"—"}{c.valor?` · $${Number(c.valor).toLocaleString("es-CO")}`:""}</Badge>
+                          ))
+                        ) : (i.pagos||[]).map((p,pidx)=>(
+                          corrigiendoPago && corrigiendoPago.itemId===i.id && corrigiendoPago.pagoIdx===pidx ? (
+                            <div key={pidx} style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"end", padding:"4px 0", background:C.dark, borderRadius:6 }}>
+                              <div style={{ width:150 }}><Field label="Medio correcto" value={cpMedio} onChange={setCpMedio} options={VENTAS_MEDIOS_PAGO}/></div>
+                              {VENTAS_MEDIOS_TARJETA.includes(cpMedio) && <div style={{ width:130 }}><Field label="N.º autorización" value={cpAutorizacion} onChange={setCpAutorizacion}/></div>}
+                              <Btn onClick={()=>guardarCorreccionMedio(v)} disabled={guardandoCp} sm>{guardandoCp?"...":"Guardar"}</Btn>
+                              <Btn onClick={()=>setCorrigiendoPago(null)} variant="ghost" sm>Cancelar</Btn>
+                            </div>
+                          ) : (
+                            <Badge key={pidx} color={C.gold} sm>
+                              {VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}
+                              {puedeEditar && !abiertoEdicion && <button onClick={()=>iniciarCorreccionMedio(i,pidx)} title="Corregir solo el medio de pago (el valor no cambia)" style={{ background:"none", border:"none", cursor:"pointer", color:"inherit", marginLeft:6, padding:0 }}>✏️</button>}
+                            </Badge>
+                          )
+                        ))}
+                    </div>
+                  ))}
+                  {(d?.items||[]).filter(i=>i.es_original!==false).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin ventas/servicios registrados.</div>}
+                </div>
+              ) : modoErrorId ? (
+                <div style={{ marginBottom:10 }}>
+                  <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:modoNotacredito?`${C.gold}18`:`${C.red}18`, border:`1px solid ${modoNotacredito?C.gold:C.red}` }}>
+                    {modoNotacredito
+                      ? "🧾 Notacrédito Siigo: puedes corregir tipo, valor, medio de pago, pero el valor no puede ser menor al valor original."
+                      : "🛠️ Corregir factura: aquí el valor puede subir o bajar libremente. Úsalo solo si el número se digitó mal — nada cambió en Siigo."}
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:10 }}>
+                    {editItems.map((i,idx)=>(
+                      <div key={i.id||idx} style={{ display:"flex", flexDirection:"column", gap:4, background:editingItemIdx===idx?`${C.gold}14`:C.surfaceAlt, border:`1px solid ${editingItemIdx===idx?C.gold:C.border}`, borderRadius:7, padding:"8px 10px" }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                          <Badge color={i.tipo==="producto"?C.green:i.tipo==="flexipago"?C.blue:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
+                          {modoNotacredito && !i.esOriginal && <Badge color={C.blue} sm>Notacrédito · {i.fecha||todayStr}</Badge>}
+                          <div style={{ flex:1, fontFamily:font.mono, fontSize:12, color:C.text, textAlign:"right" }}>${i.valorTotal.toLocaleString("es-CO")}{i.descuento>0 && ` (desc $${i.descuento.toLocaleString("es-CO")})`}</div>
+                          <button onClick={()=>iniciarEdicionItem(idx,v)} title="Editar este renglón" style={{ background:"none", border:"none", cursor:"pointer", color:"inherit" }}>✏️</button>
+                          {(!modoNotacredito || !i.esOriginal) && <button onClick={()=>quitarEditItem(idx)} title="Quitar este renglón" style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>}
+                        </div>
+                        {i.tipo!=="flexipago" && (
+                          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                            {i.pagos.map((p,pidx)=>(
+                              <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}</Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ border:`1px solid ${editingItemIdx!==null?C.gold:C.border}`, borderRadius:8, padding:"12px", marginBottom:10 }}>
+                    {editingItemIdx!==null && (
+                      <div style={{ fontFamily:font.body, fontSize:11, color:C.goldLight, marginBottom:8 }}>Editando {!modoNotacredito ? "este renglón" : editItemEditandoOriginal ? "el renglón original" : "un renglón nuevo (Notacrédito)"} — <button onClick={cancelarEdicionItem} style={{ background:"none", border:"none", color:C.textMuted, textDecoration:"underline", cursor:"pointer", padding:0, fontFamily:font.body, fontSize:11 }}>cancelar edición</button></div>
+                    )}
+                    {modoNotacredito && (
+                      <>
+                        <Field label="Fecha" type="date" value={editItemFecha} onChange={setEditItemFecha} disabled={editItemEditandoOriginal}/>
+                        {editItemEditandoOriginal && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:-8, marginBottom:10 }}>Es el renglón original — la fecha se queda fija en la de la venta.</div>}
+                      </>
+                    )}
+                    {modoNotacredito && (
+                      <Field label="N.º de factura (Siigo) — obligatorio *" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1235"/>
+                    )}
+                    {editItemBajoPiso && <div style={{ fontFamily:font.body, fontSize:11, color:C.red, marginTop:-8, marginBottom:10 }}>El valor no puede quedar por debajo de ${editItemPisoOriginal.toLocaleString("es-CO")} (lo ya registrado).</div>}
+                    <Field label="Tipo" value={editItemTipo} onChange={setEditItemTipo} options={VENTAS_TIPOS.filter(t=>t.value!=="flexipago")}/>
+                    {editItemEsFlexipago ? (
+                      <>
+                        <CurrencyField label="Valor total" value={editItemValor} onChange={setEditItemValor}/>
+                        <div style={{ marginTop:6, marginBottom:4, fontFamily:font.body, fontSize:11, color:C.blue }}>📦 Flexipago no lleva descuento ni medio de pago aquí — se paga con abonos.</div>
+                      </>
+                    ) : (
+                      <>
+                        {isMobile ? (
+                          <div style={{ marginBottom:4 }}>
+                            <CurrencyField label="Valor total" value={editItemValor} onChange={setEditItemValor}/>
+                            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
+                              <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento / Bono</div>
+                              <div style={{ display:"flex", gap:4 }}>
+                                {VENTAS_DESCUENTO_TIPOS.map(dt=>(
+                                  <button key={dt.value} type="button" onClick={()=>setEditItemDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${editItemDescuentoTipo===dt.value?C.gold:C.border}`, background:editItemDescuentoTipo===dt.value?`${C.gold}22`:"transparent", color:editItemDescuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <CurrencyField value={editItemDescuento} onChange={setEditItemDescuento}/>
+                          </div>
+                        ) : (
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gridTemplateRows:"auto auto", columnGap:10, rowGap:5, marginBottom:4 }}>
+                            <div style={{ gridColumn:1, gridRow:1, fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Valor total</div>
+                            <div style={{ gridColumn:2, gridRow:1, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                              <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento / Bono</div>
+                              <div style={{ display:"flex", gap:4 }}>
+                                {VENTAS_DESCUENTO_TIPOS.map(dt=>(
+                                  <button key={dt.value} type="button" onClick={()=>setEditItemDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${editItemDescuentoTipo===dt.value?C.gold:C.border}`, background:editItemDescuentoTipo===dt.value?`${C.gold}22`:"transparent", color:editItemDescuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <div style={{ gridColumn:1, gridRow:2 }}><CurrencyField value={editItemValor} onChange={setEditItemValor} noMargin/></div>
+                            <div style={{ gridColumn:2, gridRow:2 }}><CurrencyField value={editItemDescuento} onChange={setEditItemDescuento} noMargin/></div>
+                          </div>
+                        )}
+                        <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Medios de pago</div>
+                        {editItemPagos.length>0 && (
+                          <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:8 }}>
+                            {editItemPagos.map((p,idx)=>{
+                              const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===p.medio_pago);
+                              return (
+                                <div key={idx} style={{ border:`1px solid ${C.gold}`, borderRadius:8, padding:"9px 10px", background:`${C.gold}0d` }}>
+                                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                                    <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{m?.label}</span>
+                                    <button onClick={()=>quitarMedioDeEditItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
+                                  </div>
+                                  <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?"1fr 1fr":"1fr", gap:10 }}>
+                                    <CurrencyField label="Valor pagado" value={p.valor} onChange={v2=>setEditItemPagoValor(idx,v2)}/>
+                                    {VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && <Field label="N.º autorización" value={p.numero_autorizacion||""} onChange={v2=>setEditItemPagoAutorizacion(idx,v2)} placeholder="Ej: 056495"/>}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <div style={{ display:"flex", gap:8, marginBottom:8, alignItems:"end" }}>
+                          <Field value={editItemMedioNuevo} onChange={v2=>{ if(v2) agregarMedioAEditItem(v2); else setEditItemMedioNuevo(v2); }} options={[{value:"",label:"+ Agregar medio de pago"}, ...VENTAS_MEDIOS_PAGO]}/>
+                        </div>
+                        {editItemPagos.length>0 && (
+                          <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(editItemFalta)<1?C.green:C.red }}>
+                            {Math.abs(editItemFalta)<1 ? "✓ Los medios cuadran con el valor de este renglón" : editItemFalta>0 ? `Faltan $${editItemFalta.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(editItemFalta).toLocaleString("es-CO")}`}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    <div style={{ display:"flex", gap:8 }}>
+                      <Btn onClick={agregarEditItem} disabled={editItemValorNum<=0 || editItemPagos.length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT || editItemBajoPiso} sm full>{editingItemIdx!==null ? "Guardar cambios del renglón" : "+ Agregar"}</Btn>
+                      {editingItemIdx!==null && <Btn onClick={cancelarEdicionItem} variant="ghost" sm>Cancelar</Btn>}
+                    </div>
+                  </div>
+                  <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
+                  {editItems.some(i=>i.tipo==="flexipago") && (
+                    <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"6px 0 10px" }}>📦 Esta venta tiene un renglón Flexipago — no factura hasta completar el pago.</div>
+                  )}
+                  {modoNotacredito && (
+                    <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"-4px 0 10px" }}>
+                      La factura original #{v.numero_factura||"—"} no cambia — el N.º de Siigo que escribas arriba, en el renglón, queda como el de esta Notacrédito.
+                    </div>
+                  )}
+                  {!modoNotacredito && !editItems.some(i=>i.tipo==="flexipago") && (
+                    <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
+                  )}
+                  {editErrorMsg && (
+                    <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.red}18`, border:`1px solid ${C.red}`, color:C.red }}>
+                      {editErrorMsg}
+                    </div>
+                  )}
+                  <div style={{ display:"flex", gap:8 }}>
+                    <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || (modoNotacredito && !editNumeroFactura.trim())} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
+                    <Btn onClick={()=>{ setEditando(false); setEditErrorMsg(""); setModoErrorId(false); }} variant="ghost" sm>Cancelar</Btn>
+                  </div>
+                </div>
+              ) : v.es_flexipago ? (
+                <div style={{ marginBottom:10 }}>
+                  <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1.3fr", gap:10 }}>
+                    <Field label="Tipo de documento" value={ncCliente.tipoDoc} onChange={v2=>setNcCliente(prev=>({...prev,tipoDoc:v2}))} options={VENTAS_TIPOS_DOC}/>
+                    <Field label="N.º de documento" value={ncCliente.documento} onChange={v2=>setNcCliente(prev=>({...prev,documento:v2}))}/>
+                  </div>
+                  <Field label="Nombre" value={ncCliente.nombre} onChange={v2=>setNcCliente(prev=>({...prev,nombre:v2}))}/>
+                  <Field label="Teléfono" value={ncCliente.telefono} onChange={v2=>setNcCliente(prev=>({...prev,telefono:v2}))}/>
+                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", margin:"10px 0 6px" }}>Códigos de producto</div>
+                  {ncCodigos.map((c,idx)=>(
+                    <div key={idx} style={{ display:"grid", gridTemplateColumns: ncCodigos.length>1 ? "1fr 1fr auto" : "1fr 1fr", gap:6, marginBottom:6, alignItems:"center" }}>
+                      <input value={c.codigo} onChange={e=>setNcCodigos(prev=>prev.map((x,i2)=>i2===idx?{...x,codigo:e.target.value.replace(/\D/g,"").slice(0,6)}:x))} placeholder="#producto" inputMode="numeric" maxLength={6} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+                      <CurrencyField value={c.valor} onChange={v2=>setNcCodigos(prev=>prev.map((x,i2)=>i2===idx?{...x,valor:v2}:x))} noMargin/>
+                      {ncCodigos.length>1 && <button onClick={()=>setNcCodigos(prev=>prev.filter((_,i2)=>i2!==idx))} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>}
+                    </div>
+                  ))}
+                  <button onClick={()=>setNcCodigos(prev=>[...prev,{codigo:"",valor:""}])} style={{ background:"none", border:`1px dashed ${C.border}`, borderRadius:7, color:C.textMuted, cursor:"pointer", fontSize:11, fontFamily:font.body, padding:"6px 10px", marginBottom:10, width:"100%" }}>+ Agregar otro código</button>
+                  <div style={{ marginBottom:10 }}><Field label="Medio del abono inicial" value={ncAbonoMedio} onChange={setNcAbonoMedio} options={VENTAS_MEDIOS_REALES}/></div>
+                  <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
+                  {(() => {
+                    const suma = ncCodigos.reduce((s,c)=>s+Number(c.valor||0),0);
+                    const piso = Number(v.valor_original ?? v.total);
+                    const ok = suma>=piso;
+                    return (
+                      <>
+                        <div style={{ fontFamily:font.body, fontSize:12, margin:"2px 0 10px", color: ok?C.green:C.red }}>
+                          Nuevo valor total: <strong>${suma.toLocaleString("es-CO")}</strong> {!ok && `— debe ser al menos $${piso.toLocaleString("es-CO")}`}
+                        </div>
+                        {editErrorMsg && (
+                          <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.red}18`, border:`1px solid ${C.red}`, color:C.red }}>
+                            {editErrorMsg}
+                          </div>
+                        )}
+                        <div style={{ display:"flex", gap:8 }}>
+                          <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || !ok || !ncCliente.documento.trim() || !ncCliente.nombre.trim()} sm>{guardando?"Guardando...":"Guardar"}</Btn>
+                          <Btn onClick={()=>{ setEditando(false); setEditErrorMsg(""); }} variant="ghost" sm>Cancelar</Btn>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div style={{ marginBottom:10 }}>
+                  <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:10 }}>
+                    {ncItems.map((it,idx)=>(
+                      <div key={it.id} style={{ display:"flex", gap:8, alignItems:"end", flexWrap:"wrap", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
+                        <div style={{ minWidth:140, flex:1 }}><Field label="Tipo" value={it.tipo} onChange={v2=>setNcItems(prev=>prev.map((x,i2)=>i2===idx?{...x,tipo:v2}:x))} options={VENTAS_TIPOS.filter(t=>t.value!=="flexipago")}/></div>
+                        <div style={{ minWidth:120, flex:1 }}><CurrencyField label="Valor" value={it.valor} onChange={v2=>setNcItems(prev=>prev.map((x,i2)=>i2===idx?{...x,valor:v2}:x))}/></div>
+                      </div>
+                    ))}
+                  </div>
+                  <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
+                  <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
+                  {puedeEditarFechaAjuste && (
+                    <Field label="Fecha real de la Notacrédito" type="date" value={ajusteFecha} onChange={setAjusteFecha}/>
+                  )}
+                  {(() => {
+                    const nuevoBruto = ncItems.reduce((s,i)=>s+Number(i.valor||0),0);
+                    const descuentoOriginal = ncItems.reduce((s,i)=>s+Number(i.descuento||0),0);
+                    const nuevoTotal = nuevoBruto - descuentoOriginal;
+                    const piso = Number(v.valor_original ?? v.total);
+                    const ok = nuevoTotal>=piso;
+                    return (
+                      <>
+                        <div style={{ fontFamily:font.body, fontSize:12, margin:"2px 0 10px", color: ok?C.green:C.red }}>
+                          Nuevo total: <strong>${nuevoTotal.toLocaleString("es-CO")}</strong> {!ok && `— debe ser al menos $${piso.toLocaleString("es-CO")}`}
+                        </div>
+                        {editErrorMsg && (
+                          <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.red}18`, border:`1px solid ${C.red}`, color:C.red }}>
+                            {editErrorMsg}
+                          </div>
+                        )}
+                        <div style={{ display:"flex", gap:8 }}>
+                          <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || !ok} sm>{guardando?"Guardando...":"Guardar"}</Btn>
+                          <Btn onClick={()=>{ setEditando(false); setEditErrorMsg(""); }} variant="ghost" sm>Cancelar</Btn>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {v.es_flexipago && (
+                <>
+                  <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", margin:"8px 0 3px" }}>
+                    <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>Abonos</div>
+                    <div style={{ fontFamily:font.body, fontSize:12, fontWeight:700, color:saldoPendiente>0?C.amber:C.green }}>
+                      {saldoPendiente>0 ? `Faltan $${saldoPendiente.toLocaleString("es-CO")}` : "✓ Saldado"}
+                    </div>
+                  </div>
+                  {valorFlexipago>0 && (
+                    <div style={{ height:4, borderRadius:2, background:C.border, overflow:"hidden", marginBottom:4 }}>
+                      <div style={{ height:"100%", width:`${Math.min(100, Math.round((totalAbonado/valorFlexipago)*100))}%`, background: saldoPendiente<=0?C.green:C.gold, transition:"width 0.4s ease" }}/>
+                    </div>
+                  )}
+                  <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:6 }}>
+                    {(d?.abonos||[]).map(a=>(
+                      editandoAbonoId===a.id ? (
+                        <div key={a.id} style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"end", padding:"4px 0", background:C.dark, borderRadius:6, marginBottom:2 }}>
+                          <div style={{ width:130 }}><Field label="Fecha" type="date" value={eaFecha} onChange={setEaFecha}/></div>
+                          <div style={{ width:110 }}><Field label="Valor" value={eaValor} onChange={v2=>setEaValor(v2.replace(/[^\d]/g,""))}/></div>
+                          <div style={{ width:130 }}><Field label="Medio" value={eaMedio} onChange={setEaMedio} options={VENTAS_MEDIOS_PAGO}/></div>
+                          <Btn onClick={guardarEdicionAbono} disabled={guardandoEa} sm>{guardandoEa?"...":"Guardar"}</Btn>
+                          <Btn onClick={()=>setEditandoAbonoId(null)} variant="ghost" sm>Cancelar</Btn>
+                        </div>
+                      ) : (
+                        <div key={a.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, padding:"2px 0" }}>
+                          <span>{a.fecha} — {VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}{a.numero_autorizacion?` · AUT ${a.numero_autorizacion}`:""}</span>
+                          <span style={{ display:"flex", alignItems:"center", gap:8 }}>
+                            <span style={{fontFamily:font.mono}}>${Number(a.valor).toLocaleString("es-CO")}</span>
+                            {esAdmin && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
+                          </span>
+                        </div>
+                      )
+                    ))}
+                    {(d?.abonos||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin abonos todavía.</div>}
+                  </div>
+                  {saldoPendiente>0 && !soloLectura && (
+                    flexipagoVencido ? (
+                      <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"8px 10px", fontFamily:font.body, fontSize:12, color:C.red }}>
+                        ⛔ Pasaron {diasDesdeAbono} días desde el primer abono (máximo {FLEXIPAGO_PLAZO_DIAS}, según el aviso legal). No se puede abonar más ni completar esta venta — el cliente pierde lo abonado y el separado.
+                        {puedeReabrirVencido && (
+                          <div style={{ marginTop:8 }}>
+                            <Btn onClick={()=>reabrirFlexipagoVencido(v)} variant="ghost" sm style={{ color:C.amber }}>🔓 Reabrir de todas formas (la tienda lo honra con el cliente)</Btn>
+                          </div>
+                        )}
+                      </div>
+                    ) : abonoForm ? (
+                      <div style={{ marginBottom:6 }}>
+                        <div style={{ display:"flex", gap:8, alignItems:"end", flexWrap:"wrap" }}>
+                          <div style={{ flex:1, minWidth:110 }}><CurrencyField label="Valor del abono" value={abonoValor} onChange={setAbonoValor}/></div>
+                          <div style={{ flex:1, minWidth:140 }}><Field label="Medio del abono" value={abonoMedio} onChange={setAbonoMedio} options={VENTAS_MEDIOS_REALES}/></div>
+                          {VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && (
+                            <div style={{ flex:1, minWidth:110 }}><Field label="N.º autorización" value={abonoAutorizacion} onChange={setAbonoAutorizacion} placeholder="Ej: 056495"/></div>
+                          )}
+                          {esAdmin && (
+                            <div style={{ flex:1, minWidth:130 }}><Field label="Fecha del abono" type="date" value={abonoFecha} onChange={setAbonoFecha}/></div>
+                          )}
+                        </div>
+                        {!v.numero_factura && (
+                          <Field label="N.º de factura (Siigo) — solo si este abono deja el Flexipago pagado por completo" value={abonoNumeroFactura} onChange={setAbonoNumeroFactura} placeholder="Ej: FE-1234"/>
+                        )}
+                        <div style={{ display:"flex", gap:6 }}>
+                          <Btn onClick={()=>agregarAbono(v, valorFlexipago, totalAbonado)} disabled={!abonoValor || Number(abonoValor)<=0 || (VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && !abonoAutorizacion.trim())} sm>Guardar</Btn>
+                          <Btn onClick={()=>{setAbonoForm(false);setAbonoValor("");setAbonoMedio("efectivo");setAbonoAutorizacion("");setAbonoNumeroFactura("");}} variant="ghost" sm>Cancelar</Btn>
+                        </div>
+                      </div>
+                    ) : (
+                      <Btn onClick={()=>{ setAbonoForm(true); setAbonoFecha(todayStr); }} sm style={{ marginBottom:6 }}>+ Agregar abono</Btn>
+                    )
+                  )}
+                </>
+              )}
+
+              {(d?.solicitudes||[]).length>0 && (
+                <>
+                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"8px 0 3px" }}>Solicitudes de corrección</div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:6 }}>
+                    {(d.solicitudes).map(s=>(
+                      <div key={s.id} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"6px 8px" }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                          <div style={{ fontFamily:font.body, fontSize:12, color:C.text }}>{s.motivo}</div>
+                          <Badge color={s.estado==="pendiente"?C.amber:s.estado==="aprobada"?C.green:C.red} sm>{s.estado}{s.aplicada_at?" · aplicada":""}</Badge>
+                        </div>
+                        <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2 }}>Pidió: {s.solicitado_por} · {fmtFechaHora(s.fecha_solicitud)}{s.resuelto_por?` · Resolvió: ${s.resuelto_por}`:""}</div>
+                        {esAdmin && s.estado==="pendiente" && (
+                          <div style={{ display:"flex", gap:6, marginTop:6 }}>
+                            <Btn onClick={()=>resolverSolicitud(s,"aprobada")} variant="success" sm>Aprobar</Btn>
+                            <Btn onClick={()=>resolverSolicitud(s,"rechazada")} variant="danger" sm>Rechazar</Btn>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:6 }}>
+                {v.es_flexipago && <Btn onClick={()=>imprimirVenta(v,d)} variant="ghost" sm>🖨️ Imprimir</Btn>}
+                {puedeEditar && !abiertoEdicion && !flexipagoVencido && !flexipagoCompletado && <Btn onClick={()=>iniciarEdicion(v)} sm title="Ya te aprobaron el Notacrédito — usa este botón para aplicarlo.">📝 Aplicar Notacrédito</Btn>}
+                {puedeCorregirError && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarNotacredito(v)} variant="ghost" sm style={{ color:C.amber }} title="Usa esto cuando la corrección SÍ genera un número de factura nuevo en Siigo. El valor no puede bajar del ya registrado, y necesitas el N.º de factura nuevo.">🧾 Notacrédito Siigo</Btn>}
+                {puedeCorregirErrorAqui && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarCorregirFactura(v)} variant="ghost" sm style={{ color:C.textMuted }} title={esHoyTienda && !puedeCorregirError ? "Puedes corregir libremente lo registrado hoy mismo (sube o baja el valor sin límite). Para días anteriores, pide Notacrédito." : "Usa esto cuando NO cambió nada en Siigo — fue un error al registrar. Sube o baja el valor libremente, sin necesitar número de factura nuevo."}>🛠️ Corregir factura</Btn>}
+                {puedeEliminarAqui && <Btn onClick={()=>eliminarVenta(v)} variant="ghost" sm style={{ color:C.red }} title={esHoyTienda && !esAdmin ? "Puedes eliminar lo registrado hoy mismo." : undefined}>🗑️ Eliminar venta</Btn>}
+                {!soloLectura && !puedeCorregirErrorAqui && !flexipagoCompletado && (mostrarSolicitud ? (
+                  <div style={{ display:"flex", gap:8, flex:1, minWidth:220, alignItems:"end" }}>
+                    <div style={{ flex:1 }}><Field label="¿Qué hay que corregir y por qué?" value={motivoSolicitud} onChange={setMotivoSolicitud} multiline rows={2}/></div>
+                    <div style={{ marginBottom:14, display:"flex", gap:6 }}>
+                      <Btn onClick={enviarSolicitud} sm>Enviar</Btn>
+                      <Btn onClick={()=>{setMostrarSolicitud(false);setMotivoSolicitud("");}} variant="ghost" sm>Cancelar</Btn>
+                    </div>
+                  </div>
+                ) : (
+                  <Btn onClick={()=>setMostrarSolicitud(true)} variant="ghost" sm title="Pide permiso a master o admin finanzas para corregir algo de un día anterior. Cuando lo aprueben, podrás aplicarlo tú mismo.">🔒 Solicitar Notacrédito</Btn>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </Collapse>
+    </Card>
+  );
+}
+
+function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   // OJO: el valor por defecto debe salir de tiendasVenta() (las que sí venden), no de todas las
   // tiendas — si no, el dropdown solo MUESTRA tiendas válidas pero el valor de por debajo puede
@@ -3859,54 +4872,11 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
 
       <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, margin:"24px 0 10px" }}>Ventas de hoy en esta tienda ({ventasHoy.length + abonosHoyTienda.length + notaCreditoHoyTienda.length})</div>
       <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        {ventasHoy.map(v=>{
-          const itemsDeVenta = (ventasItems||[]).filter(it=>it.venta_id===v.id);
-          const tiposRaw = [...new Set(itemsDeVenta.map(it=>it.tipo))];
-          const mediosRaw = [...new Set(itemsDeVenta.flatMap(it=>it.tipo==="flexipago" ? ["flexipago"] : (it.pagos||[]).map(p=>p.medio_pago)))];
-          const tiposTexto = tiposRaw.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(", ");
-          const mediosTexto = [...new Set(itemsDeVenta.flatMap(it=>it.tipo==="flexipago" ? ["Flexipago"] : (it.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago)))].join(", ");
-          const tipoColor = VENTAS_TIPO_COLORES[tiposRaw[0]] || C.blue;
-          const tipoIcon = VENTAS_TIPO_ICONOS[tiposRaw[0]] || "🛍️";
-          const medioIcon = mediosRaw[0]==="flexipago" ? "⏳" : (VENTAS_MEDIO_ICONOS[mediosRaw[0]] || "💰");
-          // Un Flexipago recién abierto (con solo el separo) todavía no es venta real — solo
-          // cuenta el total el día que se termina de pagar. Se mira solo lo abonado ESE mismo día
-          // de apertura (no lo abonado más adelante, que ya se ve aparte en abonosHoyTienda el día
-          // que realmente entró) — si separo + abonos de ese mismo día ya completan el total, sí
-          // se muestra el total ya como venta cerrada.
-          const valorFlex = v.es_flexipago ? itemsDeVenta.filter(i=>i.tipo==="flexipago").reduce((s,i)=>s+Number(i.valor||0)-Number(i.descuento||0),0) : 0;
-          const abonadoHoyMismo = v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id && a.fecha===v.fecha).reduce((s,a)=>s+Number(a.valor||0),0) : 0;
-          const flexipagoCompletadoHoy = v.es_flexipago && valorFlex>0 && abonadoHoyMismo>=valorFlex;
-          const esFlexipagoAbierto = v.es_flexipago && !flexipagoCompletadoHoy;
-          // Lo que realmente ingresó este día es valor_original — si después hubo una Notacrédito,
-          // esa queda como su propio registro aparte (ver notaCreditoHoyTienda), no se anota aquí.
-          const valorOriginalMostrar = Number(v.valor_original ?? v.total);
-          return (
-          <Card key={v.id} p="10px 14px" style={{ borderLeft:`3px solid ${esFlexipagoAbierto?C.blue:tipoColor}` }}>
-            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-              <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
-                <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{v.numero_factura?`#${v.numero_factura}`:"—"}</span>
-                <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                  {v.vendedor_nombre}{v.cliente_nombre?` · ${v.cliente_nombre}`:""}
-                </span>
-              </div>
-              {esFlexipagoAbierto ? (
-                <Badge color={C.blue} sm title={`Separado con $${abonadoHoyMismo.toLocaleString("es-CO")} de $${valorFlex.toLocaleString("es-CO")} — no cuenta como venta hasta completarse`}>⏳ Abono Flexipago</Badge>
-              ) : (
-                <>
-                  {tiposTexto && <Badge color={tipoColor} sm title={tiposTexto}>{tipoIcon} {tiposTexto}</Badge>}
-                  {mediosTexto && <Badge color={C.blue} sm title={mediosTexto}>{medioIcon} {mediosTexto}</Badge>}
-                </>
-              )}
-              <div style={{ display:"flex", alignItems:"baseline", gap:5, flexShrink:0 }}>
-                <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight }}>${(esFlexipagoAbierto?abonadoHoyMismo:valorOriginalMostrar).toLocaleString("es-CO")}</div>
-              </div>
-            </div>
-            {esFlexipagoAbierto && (
-              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>Flexipago abierto hoy — separado con ${abonadoHoyMismo.toLocaleString("es-CO")} de ${valorFlex.toLocaleString("es-CO")}. No cuenta como venta hasta que se complete el pago.</div>
-            )}
-          </Card>
-          );
-        })}
+        {ventasHoy.map(v=>(
+          <VentaCard key={v.id} venta={v} stores={stores} user={user} esAdmin={esAdmin} soloLectura={soloLectura} isMobile={isMobile}
+            ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems}
+            ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes}/>
+        ))}
         {abonosHoyTienda.map(({venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy})=>(
           <Card key={`abono-${venta.id}`} p="10px 14px" style={{ borderLeft:`3px solid ${completa?C.green:C.blue}` }}>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -3951,130 +4921,6 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   const [filtroVendedor, setFiltroVendedor] = useState("");
   const [filtroFlexipago, setFiltroFlexipago] = useState(false);
   const [busqueda, setBusqueda] = useState("");
-  const [expandido, setExpandido] = useState(null);
-  const [detalle, setDetalle] = useState({});
-
-  const [mostrarSolicitud, setMostrarSolicitud] = useState(null);
-  const [motivoSolicitud, setMotivoSolicitud] = useState("");
-
-  const [editando, setEditando] = useState(null);
-  const [editItems, setEditItems] = useState([]);
-  const [editItemTipo, setEditItemTipo] = useState("producto");
-  const [editItemValor, setEditItemValor] = useState("");
-  const [editItemDescuento, setEditItemDescuento] = useState("");
-  const [editItemDescuentoTipo, setEditItemDescuentoTipo] = useState("valor");
-  const [editItemPagos, setEditItemPagos] = useState([]); // [{medio_pago, valor, numero_autorizacion}]
-  const [editItemMedioNuevo, setEditItemMedioNuevo] = useState("");
-  // Nota crédito: fecha real de un renglón nuevo (excedente) que se está agregando o editando —
-  // en un renglón original la fecha queda fija (la de la venta), no aplica este campo.
-  const [editItemFecha, setEditItemFecha] = useState(todayStr);
-  // null = componiendo un renglón nuevo para agregar; número = editando en el puesto ese índice
-  // de editItems (reemplaza en vez de agregar al guardar).
-  const [editingItemIdx, setEditingItemIdx] = useState(null);
-  const [editObservacion, setEditObservacion] = useState("");
-  const [editNumeroFactura, setEditNumeroFactura] = useState("");
-
-  // Notacrédito aprobada (no confundir con "corregir por error", que sigue siendo libre): el
-  // piso es siempre venta.valor_original — el nuevo valor nunca puede quedar por debajo de eso.
-  const [ncItems, setNcItems] = useState([]); // venta normal: [{id, tipo, valor, descuento}]
-  const [ncCliente, setNcCliente] = useState({ tipoDoc:"CC", documento:"", nombre:"", telefono:"" }); // flexipago
-  const [ncCodigos, setNcCodigos] = useState([{ codigo:"", valor:"" }]); // flexipago
-  const [ncAbonoMedio, setNcAbonoMedio] = useState("efectivo"); // flexipago
-  // Fecha real del excedente/ajuste (puede ser distinta a hoy: ej. dinero que entró hace unos
-  // días y se está registrando apenas ahora). Solo master/admin_finanzas pueden cambiarla —
-  // igual que con abonoFecha — el resto siempre queda con la fecha de hoy.
-  const [ajusteFecha, setAjusteFecha] = useState(todayStr);
-  const puedeEditarFechaAjuste = ["master","admin_finanzas"].includes(user.role);
-
-  const [abonoForm, setAbonoForm] = useState(null);
-  const [abonoValor, setAbonoValor] = useState("");
-  const [abonoMedio, setAbonoMedio] = useState("efectivo");
-  const [abonoAutorizacion, setAbonoAutorizacion] = useState("");
-  // Solo master/admin_finanzas pueden cambiar la fecha del abono (para registrar abonos
-  // atrasados con su fecha real) — el resto siempre abona con la fecha de hoy.
-  const [abonoFecha, setAbonoFecha] = useState(todayStr);
-  const [guardando, setGuardando] = useState(false);
-  const [editErrorMsg, setEditErrorMsg] = useState("");
-
-  // Dos botones, dos cosas distintas:
-  // - "Notacrédito Siigo": cuando la corrección SÍ genera un número de factura nuevo en Siigo —
-  //   tiene piso (no baja del valor original), pide el N.º de factura nuevo, y deja un registro
-  //   espejo aparte. Solo master/admin_finanzas.
-  // - "Corregir factura": cuando fue un error al REGISTRAR (nada cambió en Siigo) — sube o baja
-  //   libremente, sin necesitar número de factura nuevo, sin registro espejo, sin necesitar
-  //   solicitud aprobada. Master/admin_finanzas en cualquier fecha, o la cuenta de tienda para lo
-  //   registrado hoy mismo.
-  const puedeCorregirError = !soloLectura && ["master","admin_finanzas"].includes(user.role);
-  const [modoErrorId, setModoErrorId] = useState(null);
-  // true = la sesión de corrección abierta ahora mismo es "Notacrédito Siigo"; false = es
-  // "Corregir factura". Se fija al abrir cada sesión (según qué botón se usó), no por rol solo.
-  const [modoNotacredito, setModoNotacredito] = useState(false);
-
-  // Reabrir un Flexipago vencido (pasados los 60 días) — solo si la tienda decide honrarlo con
-  // el cliente igual. Deja rastro de quién lo reabrió y cuándo, igual que en Junta.
-  const puedeReabrirVencido = !soloLectura && ["master","admin_finanzas"].includes(user.role);
-  const reabrirFlexipagoVencido = async (venta) => {
-    const confirmacion = window.prompt(`Vas a REABRIR el Flexipago vencido de la factura #${venta.numero_factura||"—"}${venta.cliente_nombre?` (cliente: ${venta.cliente_nombre})`:""}.\n\nEsto permite seguir abonando y completar la venta aunque ya pasaron los ${FLEXIPAGO_PLAZO_DIAS} días. Úsalo solo si la tienda decidió honrarlo con el cliente.\n\nEscribe REABRIR para confirmar.`);
-    if(confirmacion!=="REABRIR") return;
-    const { data } = await supabase.from("ventas").update({ flexipago_reabierto_por:user.name, flexipago_reabierto_en:new Date().toISOString() }).eq("id",venta.id).select().single();
-    if(data) setVentas(prev=>prev.map(v=>v.id===venta.id?data:v));
-  };
-
-  // Corrección directa de un abono ya registrado (solo master) — para cuando quedó con la fecha,
-  // el valor o el medio de pago equivocado y no hay forma de arreglarlo desde el flujo normal.
-  const [editandoAbonoId, setEditandoAbonoId] = useState(null);
-  const [eaFecha, setEaFecha] = useState("");
-  const [eaValor, setEaValor] = useState("");
-  const [eaMedio, setEaMedio] = useState("efectivo");
-  const [guardandoEa, setGuardandoEa] = useState(false);
-
-  // Corregir SOLO el medio de pago de un renglón ya registrado (ej: el asesor marcó tarjeta
-  // pero fue efectivo) — el valor no se toca nunca aquí, solo cómo se pagó. Requiere la misma
-  // solicitud de corrección aprobada que el resto de correcciones.
-  const [corrigiendoPago, setCorrigiendoPago] = useState(null); // {itemId, pagoIdx}
-  const [cpMedio, setCpMedio] = useState("efectivo");
-  const [cpAutorizacion, setCpAutorizacion] = useState("");
-  const [guardandoCp, setGuardandoCp] = useState(false);
-  const iniciarCorreccionMedio = (item, pagoIdx) => {
-    const p = (item.pagos||[])[pagoIdx];
-    setCorrigiendoPago({ itemId:item.id, pagoIdx });
-    setCpMedio(p?.medio_pago||"efectivo");
-    setCpAutorizacion(p?.numero_autorizacion||"");
-  };
-  const guardarCorreccionMedio = async (venta) => {
-    if(!corrigiendoPago) return;
-    const item = (detalle[venta.id]?.items||[]).find(i=>i.id===corrigiendoPago.itemId);
-    if(!item) return;
-    setGuardandoCp(true);
-    const nuevosPagos = (item.pagos||[]).map((p,idx)=> idx===corrigiendoPago.pagoIdx ? { ...p, medio_pago:cpMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(cpMedio)?(cpAutorizacion||"").trim():null } : p);
-    const { data } = await supabase.from("ventas_items").update({ pagos:nuevosPagos }).eq("id",item.id).select().single();
-    if(data){
-      setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], items:(prev[venta.id]?.items||[]).map(i=>i.id===data.id?data:i)}}));
-      const aprobadasSinAplicar = (detalle[venta.id]?.solicitudes||[]).filter(s=>s.estado==="aprobada" && !s.aplicada_at);
-      for(const s of aprobadasSinAplicar){
-        await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
-      }
-      if(aprobadasSinAplicar.length>0){
-        setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], solicitudes:(prev[venta.id]?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s) }}));
-      }
-    }
-    setGuardandoCp(false);
-    setCorrigiendoPago(null);
-  };
-
-  const iniciarEdicionAbono = (a) => { setEditandoAbonoId(a.id); setEaFecha(a.fecha); setEaValor(String(a.valor)); setEaMedio(a.medio_pago); };
-  const guardarEdicionAbono = async (ventaId) => {
-    if(!eaFecha || !eaValor){ return; }
-    setGuardandoEa(true);
-    const { data, error } = await supabase.from("ventas_abonos").update({ fecha:eaFecha, valor:Number(eaValor), medio_pago:eaMedio }).eq("id", editandoAbonoId).select().single();
-    setGuardandoEa(false);
-    if(data){
-      setDetalle(prev=>({...prev, [ventaId]: { ...prev[ventaId], abonos:(prev[ventaId]?.abonos||[]).map(x=>x.id===data.id?data:x) }}));
-      if(setVentasAbonos) setVentasAbonos(prev=>prev.map(a=>a.id===data.id?data:a));
-      setEditandoAbonoId(null);
-    }
-  };
-
   const asesores = users.filter(u=>u.role==="advisor");
 
   const ventasFiltradas = ventas
@@ -4131,431 +4977,6 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     return Object.values(grupos);
   })();
 
-  const fetchDetalle = async (ventaId) => {
-    setDetalle(prev=>({...prev, [ventaId]:{...(prev[ventaId]||{}), cargando:true}}));
-    const [{data:items},{data:abonos},{data:solicitudes}] = await Promise.all([
-      supabase.from("ventas_items").select("*").eq("venta_id",ventaId),
-      supabase.from("ventas_abonos").select("*").eq("venta_id",ventaId).order("fecha",{ascending:true}),
-      supabase.from("ventas_solicitudes_correccion").select("*").eq("venta_id",ventaId).order("fecha_solicitud",{ascending:false}),
-    ]);
-    setDetalle(prev=>({...prev, [ventaId]:{ items:items||[], abonos:abonos||[], solicitudes:solicitudes||[], cargando:false }}));
-  };
-  const toggleExpand = (ventaId) => {
-    if(expandido===ventaId){ setExpandido(null); return; }
-    setExpandido(ventaId);
-    if(!detalle[ventaId]) fetchDetalle(ventaId);
-  };
-
-  const enviarSolicitud = async (ventaId) => {
-    if(!motivoSolicitud.trim()) return;
-    const { data } = await supabase.from("ventas_solicitudes_correccion").insert({ venta_id:ventaId, solicitado_por:user.name, motivo:motivoSolicitud.trim(), estado:"pendiente" }).select().single();
-    if(data){
-      setDetalle(prev=>({...prev, [ventaId]:{...prev[ventaId], solicitudes:[data, ...(prev[ventaId]?.solicitudes||[])]}}));
-      setMostrarSolicitud(null); setMotivoSolicitud("");
-    }
-  };
-
-  const resolverSolicitud = async (solicitud, nuevoEstado) => {
-    const { data } = await supabase.from("ventas_solicitudes_correccion").update({ estado:nuevoEstado, resuelto_por:user.name, fecha_resolucion:new Date().toISOString() }).eq("id",solicitud.id).select().single();
-    if(data){
-      setDetalle(prev=>({...prev, [solicitud.venta_id]:{...prev[solicitud.venta_id], solicitudes:prev[solicitud.venta_id].solicitudes.map(s=>s.id===data.id?data:s)}}));
-    }
-  };
-
-  const iniciarEdicion = (venta) => {
-    // Aplicar una Notacrédito ya aprobada. Para flexipago: solo se pueden cambiar los datos del
-    // cliente, los códigos de producto/valores y el medio del abono inicial (el tipo se queda
-    // fijo en Flexipago). Para ventas normales: solo se pueden cambiar tipo+valor de lo ya
-    // registrado — no se agregan renglones nuevos. En ambos casos el piso es valor_original.
-    setEditando(venta.id);
-    setEditErrorMsg("");
-    setAjusteFecha(todayStr);
-    if(venta.es_flexipago){
-      const itemFlex = (detalle[venta.id]?.items||[]).find(i=>i.tipo==="flexipago");
-      setNcCliente({ tipoDoc: venta.cliente_tipo_doc||"CC", documento: venta.cliente_documento||"", nombre: venta.cliente_nombre||"", telefono: venta.cliente_telefono||"" });
-      setNcCodigos(itemFlex?.codigos_producto?.length ? itemFlex.codigos_producto.map(c=>({ codigo:c.codigo||"", valor:String(c.valor||"") })) : [{ codigo:"", valor:"" }]);
-      const primerAbono = (detalle[venta.id]?.abonos||[])[0];
-      setNcAbonoMedio(primerAbono?.medio_pago || "efectivo");
-    } else {
-      setNcItems((detalle[venta.id]?.items||[]).map(i=>({ id:i.id, tipo:i.tipo, valor:String(i.valor), descuento:Number(i.descuento||0) })));
-    }
-  };
-
-  const abrirModoCorreccion = (venta, esNotacredito) => {
-    setModoNotacredito(esNotacredito);
-    setModoErrorId(venta.id);
-    setEditando(venta.id);
-    // es_original/fecha_item quedan guardados en la fila desde la vez que se creó ese renglón —
-    // así un excedente sigue siendo excedente (editable, con fecha propia) en futuras Notas
-    // crédito, no solo en la sesión donde se agregó. Filas viejas (antes de esta columna) caen
-    // en es_original=true por el default de la base, que es el comportamiento correcto para ellas.
-    setEditItems((detalle[venta.id]?.items||[]).map(i=>{
-      const esOriginal = i.es_original!==false;
-      return { id:i.id, tipo:i.tipo, valorTotal:Number(i.valor), descuento:Number(i.descuento||0), pagos:i.pagos||[], esOriginal, valorOriginalItem: esOriginal?Number(i.valor):0, fecha: !esOriginal ? (i.fecha_item||todayStr) : undefined };
-    }));
-    setEditObservacion(venta.observacion||"");
-    // Notacrédito Siigo: siempre se pide un N.º de factura NUEVO, así que arranca vacío (no se
-    // prellena con el de la factura original, que nunca se toca). En Corregir factura sí se
-    // prellena, porque ahí se sigue editando el mismo N.º de la venta.
-    setEditNumeroFactura(esNotacredito ? "" : (venta.numero_factura||""));
-    setEditErrorMsg("");
-    setEditItemTipo("producto");
-    setEditItemValor("");
-    setEditItemDescuento("");
-    setEditItemDescuentoTipo("valor");
-    setEditItemPagos([]);
-    setEditItemMedioNuevo("");
-    setEditItemFecha(todayStr);
-    setEditingItemIdx(null);
-  };
-  const iniciarNotacredito = (venta) => {
-    const confirmacion = window.prompt(`Vas a hacer una Notacrédito Siigo sobre la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nUsa esto SOLO si en Siigo la corrección genera un número de factura nuevo. Puedes corregir el tipo, valor y medio de pago de cada renglón, o agregar un renglón nuevo con su propia fecha. El valor total no puede quedar por debajo de lo ya registrado, y vas a necesitar el N.º de factura (Siigo) NUEVO — es obligatorio, la factura original no cambia.\n\nEscribe CORREGIR para confirmar.`);
-    if(confirmacion!=="CORREGIR") return;
-    abrirModoCorreccion(venta, true);
-  };
-  const iniciarCorregirFactura = (venta) => {
-    const confirmacion = window.prompt(`Vas a corregir la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nUsa esto cuando NO cambió nada en Siigo — fue un error al registrar en nuestro sistema. El valor puede subir o bajar libremente, sin necesitar un número de factura nuevo ni aprobación.\n\nEscribe CORREGIR para confirmar.`);
-    if(confirmacion!=="CORREGIR") return;
-    abrirModoCorreccion(venta, false);
-  };
-
-  // Abre el formulario de arriba en modo edición sobre un renglón ya en la lista (original o
-  // recién agregado). En uno original la fecha queda fija en la de la venta; en uno nuevo se
-  // puede cambiar libremente.
-  const iniciarEdicionItem = (idx, venta) => {
-    const it = editItems[idx];
-    if(!it) return;
-    setEditingItemIdx(idx);
-    setEditItemTipo(it.tipo);
-    setEditItemValor(String(it.valorTotal));
-    setEditItemDescuento(String(it.descuento||0));
-    setEditItemDescuentoTipo("valor");
-    setEditItemPagos(it.pagos||[]);
-    setEditItemMedioNuevo("");
-    setEditItemFecha(it.esOriginal ? venta.fecha : (it.fecha||todayStr));
-  };
-  const cancelarEdicionItem = () => {
-    setEditingItemIdx(null);
-    setEditItemTipo("producto");
-    setEditItemValor("");
-    setEditItemDescuento("");
-    setEditItemDescuentoTipo("valor");
-    setEditItemPagos([]);
-    setEditItemMedioNuevo("");
-    setEditItemFecha(todayStr);
-  };
-
-  const editItemEsFlexipago = editItemTipo === "flexipago";
-  const editItemValorNum = Number(editItemValor||0);
-  const editItemDescuentoInput = Number(editItemDescuento||0);
-  const editItemDescuentoNum = editItemDescuentoTipo==="porcentaje" ? Math.round(editItemValorNum*editItemDescuentoInput/100) : editItemDescuentoInput;
-  const editItemNeto = editItemValorNum - editItemDescuentoNum;
-  const editItemSumaMedios = editItemPagos.reduce((a,p)=>a+Number(p.valor||0),0);
-  const editItemFalta = editItemNeto - editItemSumaMedios;
-  const editItemFaltaAUT = editItemPagos.some(p=>VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && !(p.numero_autorizacion||"").trim());
-
-  const agregarMedioAEditItem = (medio) => {
-    const m = medio || editItemMedioNuevo;
-    if(!m) return;
-    setEditItemPagos(prev=>[...prev, { medio_pago:m, valor:"", numero_autorizacion:"" }]);
-    setEditItemMedioNuevo("");
-  };
-  const quitarMedioDeEditItem = (idx) => setEditItemPagos(prev=>prev.filter((_,i)=>i!==idx));
-  const setEditItemPagoValor = (idx, v) => setEditItemPagos(prev=>prev.map((p,i)=>i===idx?{...p,valor:v}:p));
-  const setEditItemPagoAutorizacion = (idx, v) => setEditItemPagos(prev=>prev.map((p,i)=>i===idx?{...p,numero_autorizacion:v}:p));
-
-  // Renglón original: si master/admin_finanzas está haciendo la Nota crédito, no puede bajar del
-  // valor bruto con el que se registró. La corrección libre del mismo día (cuenta tienda) no
-  // tiene este piso — sigue pudiendo subir o bajar sin límite.
-  const editItemEditandoOriginal = editingItemIdx!==null && editItems[editingItemIdx]?.esOriginal;
-  const editItemPisoOriginal = editItemEditandoOriginal ? editItems[editingItemIdx].valorOriginalItem : 0;
-  const editItemBajoPiso = modoNotacredito && editItemEditandoOriginal && editItemValorNum < editItemPisoOriginal;
-
-  const agregarEditItem = () => {
-    if(editItemValorNum<=0 || editItemPagos.length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT || editItemBajoPiso) return;
-    const pagos = editItemPagos.map(p=>({ medio_pago:p.medio_pago, valor:Number(p.valor||0), numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?(p.numero_autorizacion||"").trim():null }));
-    if(editingItemIdx!==null){
-      const original = editItems[editingItemIdx];
-      const actualizado = { ...original, tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos, ...(original.esOriginal ? {} : { fecha:editItemFecha }) };
-      setEditItems(prev=>prev.map((it,i)=>i===editingItemIdx?actualizado:it));
-    } else {
-      setEditItems(prev=>[...prev, { id:`nuevo_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, tipo:editItemTipo, valorTotal:editItemValorNum, descuento:editItemDescuentoNum, pagos, esOriginal:false, fecha:editItemFecha }]);
-    }
-    cancelarEdicionItem();
-  };
-  const quitarEditItem = (idx) => {
-    // El renglón original nunca se elimina en Notacrédito Siigo (solo se edita). En Corregir
-    // factura no hay distinción entre renglones — cualquiera se puede quitar, como antes.
-    if(modoNotacredito && editItems[idx]?.esOriginal) return;
-    setEditItems(prev=>prev.filter((_,i)=>i!==idx));
-    if(idx===editingItemIdx) cancelarEdicionItem();
-  };
-
-  const guardarEdicion = async (venta) => {
-    const esModoError = modoErrorId===venta.id;
-    // "Corregir por error" se edita completo, como antes (se reemplazan todos los renglones).
-    // Es el único modo donde el valor puede subir O bajar libremente.
-    if(esModoError){
-      if(editItems.length===0) return;
-      const bruto = editItems.reduce((a,i)=>a+i.valorTotal,0);
-      const desc = editItems.reduce((a,i)=>a+i.descuento,0);
-      const total = bruto - desc;
-      const valorAnterior = Number(venta.total);
-      // Notacrédito Siigo: el piso es siempre lo ya registrado. Corregir factura no tiene piso —
-      // sube o baja libremente, como antes.
-      const piso = Number(venta.valor_original ?? venta.total);
-      if(modoNotacredito && total < piso){
-        setEditErrorMsg(`El nuevo valor ($${total.toLocaleString("es-CO")}) no puede quedar por debajo de lo ya registrado ($${piso.toLocaleString("es-CO")}).`);
-        return;
-      }
-      // Notacrédito Siigo: la factura original NUNCA se toca desde aquí — el N.º de Siigo que se
-      // escribe en el renglón es obligatorio y siempre queda como el de la Notacrédito (registro
-      // espejo aparte), sin importar si al final hay diferencia de valor o no. Corregir factura
-      // sigue editando el N.º de factura de la misma venta directamente, como antes.
-      if(modoNotacredito && !editNumeroFactura.trim()){
-        setEditErrorMsg("Falta el N.º de factura (Siigo) — es obligatorio para guardar la Notacrédito.");
-        return;
-      }
-      setEditErrorMsg("");
-      setGuardando(true);
-      const payload = { observacion:editObservacion.trim(), valor_bruto:bruto, descuento_total:desc, total, updated_at:new Date().toISOString() };
-      // La factura original solo se edita en Corregir factura. En Notacrédito Siigo nunca se
-      // toca — el N.º nuevo va aparte, en el ajuste.
-      if(!modoNotacredito) payload.numero_factura = editNumeroFactura.trim() || venta.numero_factura || null;
-      // Solo en Corregir factura se resetea valor_original, para que el valor corregido quede
-      // como si siempre hubiera sido el original (es un typo, no plata real que entró después).
-      // En Notacrédito Siigo NO se resetea: el piso original se conserva para siempre.
-      if(!modoNotacredito) payload.valor_original = total;
-      const { data:ventaAct } = await supabase.from("ventas").update(payload).eq("id",venta.id).select().single();
-      await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
-      // En Corregir factura no hay concepto de renglón original/nuevo con fecha propia — se
-      // reemplaza todo plano, como antes de la Notacrédito Siigo.
-      const filasItems = modoNotacredito
-        ? editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, es_original:i.esOriginal!==false, fecha_item:i.esOriginal===false?(i.fecha||todayStr):null }))
-        : editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, es_original:true, fecha_item:null }));
-      const { data:itemsNuevos } = await supabase.from("ventas_items").insert(filasItems).select();
-      const aprobadasSinAplicar = (detalle[venta.id]?.solicitudes||[]).filter(s=>s.estado==="aprobada" && !s.aplicada_at);
-      for(const s of aprobadasSinAplicar){
-        await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
-      }
-      const primerNuevo = editItems.find(i=>!i.esOriginal);
-      const fechaAjuste = modoNotacredito ? (primerNuevo?.fecha || todayStr) : todayStr;
-      if(modoNotacredito){
-        // El valor de ESTA Notacrédito es lo que sumen los renglones nuevos con esta fecha
-        // específica (no total-valorAnterior de la sesión) — así, si se reedita solo para
-        // corregir el N.º de Siigo sin tocar el valor, el registro sigue existiendo y el número
-        // no se pierde (antes, si el total no cambiaba frente al de la venta, no se tocaba nada).
-        const itemsDeEstaFecha = editItems.filter(i=>!i.esOriginal && (i.fecha||todayStr)===fechaAjuste);
-        const diferenciaFecha = itemsDeEstaFecha.reduce((s,i)=>s+i.valorTotal-i.descuento,0);
-        const motivo = `Nota crédito${editObservacion.trim()?": "+editObservacion.trim():""}`;
-        const ajusteExistente = (ajustes||[]).find(a=>a.venta_id===venta.id && a.fecha===fechaAjuste && !a.es_correccion_error);
-        if(ajusteExistente){
-          const { data:ajusteAct } = await supabase.from("ventas_ajustes").update({ valor_nuevo:piso+diferenciaFecha, diferencia:diferenciaFecha, motivo, numero_factura:editNumeroFactura.trim(), aplicado_por:user.name }).eq("id",ajusteExistente.id).select().single();
-          if(ajusteAct) setAjustes(prev=>prev.map(a=>a.id===ajusteAct.id?ajusteAct:a));
-        } else if(diferenciaFecha!==0){
-          const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:fechaAjuste, valor_anterior:piso, valor_nuevo:piso+diferenciaFecha, diferencia:diferenciaFecha, motivo, aplicado_por:user.name, es_correccion_error:false, numero_factura:editNumeroFactura.trim() }).select().single();
-          if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
-        }
-      } else if(total!==valorAnterior){
-        // Corregir factura: el ajuste es solo una nota de auditoría del cambio de valor, no un
-        // registro espejo — se sigue creando solo si el total realmente cambió.
-        const motivo = `Corrección por error${editObservacion.trim()?": "+editObservacion.trim():""}`;
-        const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:fechaAjuste, valor_anterior:valorAnterior, valor_nuevo:total, diferencia:total-valorAnterior, motivo, aplicado_por:user.name, es_correccion_error:true, numero_factura:null }).select().single();
-        if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
-      }
-      setGuardando(false);
-      if(ventaAct){
-        setVentas(prev=>prev.map(v=>v.id===venta.id?ventaAct:v));
-        setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], items:itemsNuevos||[], solicitudes:(prev[venta.id]?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s) }}));
-        if(setVentasItems) setVentasItems(prev=>[...prev.filter(i=>i.venta_id!==venta.id), ...(itemsNuevos||[])]);
-      }
-      setEditando(null);
-      setModoErrorId(null);
-      return;
-    }
-
-    // Notacrédito ya aprobada. El piso siempre es venta.valor_original: el nuevo valor nunca
-    // puede quedar por debajo de lo que ya se había registrado.
-    const piso = Number(venta.valor_original ?? venta.total);
-    const aprobadasSinAplicar = (detalle[venta.id]?.solicitudes||[]).filter(s=>s.estado==="aprobada" && !s.aplicada_at);
-
-    if(venta.es_flexipago){
-      // Flexipago: el tipo se queda fijo. Solo se cambian los datos del cliente, los códigos de
-      // producto (y sus valores, cuya suma no puede bajar del piso) y el medio del abono inicial.
-      const codigosLimpios = ncCodigos.filter(c=>c.codigo.trim()||c.valor.trim());
-      if(codigosLimpios.length===0){ setEditErrorMsg("Agrega al menos un código de producto."); return; }
-      const nuevaSuma = ncCodigos.reduce((s,c)=>s+Number(c.valor||0),0);
-      if(nuevaSuma < piso){ setEditErrorMsg(`La suma de los productos ($${nuevaSuma.toLocaleString("es-CO")}) no puede quedar por debajo de lo ya registrado ($${piso.toLocaleString("es-CO")}).`); return; }
-      if(!ncCliente.documento.trim() || !ncCliente.nombre.trim()){ setEditErrorMsg("Faltan los datos del cliente."); return; }
-      setEditErrorMsg("");
-      setGuardando(true);
-      const { data:ventaAct } = await supabase.from("ventas").update({
-        cliente_tipo_doc:ncCliente.tipoDoc, cliente_documento:ncCliente.documento.trim(), cliente_nombre:ncCliente.nombre.trim(), cliente_telefono:ncCliente.telefono.trim(),
-        valor_bruto:nuevaSuma, total:nuevaSuma, observacion:editObservacion.trim(), updated_at:new Date().toISOString(),
-      }).eq("id",venta.id).select().single();
-      const itemFlex = (detalle[venta.id]?.items||[]).find(i=>i.tipo==="flexipago");
-      let itemAct = null;
-      if(itemFlex){
-        const { data } = await supabase.from("ventas_items").update({ valor:nuevaSuma, codigos_producto:codigosLimpios }).eq("id",itemFlex.id).select().single();
-        itemAct = data;
-      }
-      const primerAbono = (detalle[venta.id]?.abonos||[])[0];
-      let abonoAct = null;
-      if(primerAbono && primerAbono.medio_pago!==ncAbonoMedio){
-        const { data } = await supabase.from("ventas_abonos").update({ medio_pago:ncAbonoMedio }).eq("id",primerAbono.id).select().single();
-        abonoAct = data;
-      }
-      for(const s of aprobadasSinAplicar){
-        await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
-      }
-      setGuardando(false);
-      if(ventaAct){
-        setVentas(prev=>prev.map(x=>x.id===venta.id?ventaAct:x));
-        setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id],
-          items:(prev[venta.id]?.items||[]).map(i=>i.id===itemAct?.id?itemAct:i),
-          abonos:(prev[venta.id]?.abonos||[]).map(a=>a.id===abonoAct?.id?abonoAct:a),
-          solicitudes:(prev[venta.id]?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s),
-        }}));
-        if(itemAct && setVentasItems) setVentasItems(prev=>prev.map(i=>i.id===itemAct.id?itemAct:i));
-        if(abonoAct && setVentasAbonos) setVentasAbonos(prev=>prev.map(a=>a.id===abonoAct.id?abonoAct:a));
-      }
-      setEditando(null);
-      return;
-    }
-
-    // Venta normal: se edita el tipo y el valor de los renglones ya registrados (no se agregan
-    // renglones nuevos). La suma nueva no puede quedar por debajo del piso.
-    const nuevoBruto = ncItems.reduce((s,i)=>s+Number(i.valor||0),0);
-    const descuentoOriginal = ncItems.reduce((s,i)=>s+Number(i.descuento||0),0);
-    const nuevoTotal = nuevoBruto - descuentoOriginal;
-    if(nuevoTotal < piso){
-      setEditErrorMsg(`El nuevo valor ($${nuevoTotal.toLocaleString("es-CO")}) no puede quedar por debajo de lo ya registrado ($${piso.toLocaleString("es-CO")}).`);
-      return;
-    }
-    setEditErrorMsg("");
-    setGuardando(true);
-    const valorAnterior = Number(venta.total);
-    const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), numero_factura:editNumeroFactura.trim()||null, valor_bruto:nuevoBruto, descuento_total:descuentoOriginal, total:nuevoTotal, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
-    const itemsActualizados = [];
-    for(const it of ncItems){
-      const { data } = await supabase.from("ventas_items").update({ tipo:it.tipo, valor:Number(it.valor||0) }).eq("id",it.id).select().single();
-      if(data) itemsActualizados.push(data);
-    }
-    for(const s of aprobadasSinAplicar){
-      await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
-    }
-    // El excedente (lo que subió hoy respecto a lo que ya tenía) queda registrado con la fecha de
-    // HOY para Métricas — el valor original se queda contando en su día de venta (no se toca acá,
-    // ver recortePorVenta en VentasMetricasScreen). Así "Ventas de hoy" solo ve lo que entró hoy.
-    if(nuevoTotal !== valorAnterior){
-      const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:(puedeEditarFechaAjuste && ajusteFecha) || todayStr, valor_anterior:valorAnterior, valor_nuevo:nuevoTotal, diferencia:nuevoTotal-valorAnterior, motivo:editObservacion.trim()||null, aplicado_por:user.name }).select().single();
-      if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
-    }
-    setGuardando(false);
-    if(ventaAct){
-      setVentas(prev=>prev.map(x=>x.id===venta.id?ventaAct:x));
-      setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id],
-        items:(prev[venta.id]?.items||[]).map(i=>itemsActualizados.find(x=>x.id===i.id)||i),
-        solicitudes:(prev[venta.id]?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s),
-      }}));
-      if(setVentasItems && itemsActualizados.length) setVentasItems(prev=>prev.map(i=>itemsActualizados.find(x=>x.id===i.id)||i));
-    }
-    setEditando(null);
-  };
-
-  const eliminarVenta = async (venta) => {
-    const confirmacion = window.prompt(`Esto borra para siempre la venta #${venta.numero_factura||"—"} (${venta.vendedor_nombre}, $${Number(venta.total).toLocaleString("es-CO")}) y todo lo que tenga: renglones, abonos y solicitudes. No se puede deshacer.\n\nEscribe BORRAR para confirmar.`);
-    if(confirmacion!=="BORRAR") return;
-    await supabase.from("ventas_solicitudes_correccion").delete().eq("venta_id",venta.id);
-    await supabase.from("ventas_abonos").delete().eq("venta_id",venta.id);
-    await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
-    const { error } = await supabase.from("ventas").delete().eq("id",venta.id);
-    if(!error){
-      setVentas(prev=>prev.filter(v=>v.id!==venta.id));
-      setDetalle(prev=>{ const c={...prev}; delete c[venta.id]; return c; });
-    }
-  };
-
-  const [abonoNumeroFactura, setAbonoNumeroFactura] = useState("");
-  const agregarAbono = async (venta, valorFlexipagoVenta, totalAbonadoActual) => {
-    if(!abonoValor || Number(abonoValor)<=0) return;
-    if(VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && !abonoAutorizacion.trim()) return;
-    // El total abonado que llega por parámetro viene del render (puede quedar desactualizado si
-    // se registran varios abonos seguidos muy rápido, antes de que la pantalla alcance a
-    // refrescarse). Para decidir si este abono cierra el Flexipago, se vuelve a sumar lo
-    // realmente guardado en la base justo antes de insertar — así no se le escapa pedir el N.º
-    // de factura cuando sí corresponde, ni queda un saldo fantasma que solo se corrige al recargar.
-    const { data: abonosActuales } = await supabase.from("ventas_abonos").select("valor").eq("venta_id", venta.id);
-    const totalAbonadoReal = (abonosActuales||[]).reduce((a,x)=>a+Number(x.valor||0), 0);
-    const completaPago = (valorFlexipagoVenta - totalAbonadoReal - Number(abonoValor)) <= 0;
-    if(completaPago && !venta.numero_factura && !abonoNumeroFactura.trim()){
-      alert("Este abono deja el Flexipago completamente pagado — falta el N.º de factura (Siigo) para poder guardarlo. Escríbelo en el campo que apareció y guarda de nuevo.");
-      return;
-    }
-    // Solo master/admin_finanzas pueden poner una fecha distinta a hoy (para abonos atrasados
-    // que se registran después de que pasaron). El resto siempre abona con la fecha de hoy.
-    const fechaAbono = (esAdmin && abonoFecha) ? abonoFecha : todayStr;
-    const { data, error } = await supabase.from("ventas_abonos").insert({ venta_id:venta.id, fecha:fechaAbono, valor:Number(abonoValor), registrado_por:user.name, medio_pago:abonoMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(abonoMedio)?abonoAutorizacion.trim():null }).select().single();
-    if(error){ alert(`No se pudo guardar el abono: ${error.message}`); return; }
-    if(data){
-      setDetalle(prev=>({...prev, [venta.id]:{...prev[venta.id], abonos:[...(prev[venta.id]?.abonos||[]), data]}}));
-      if(setVentasAbonos) setVentasAbonos(prev=>[...prev, data]);
-      if(completaPago && !venta.numero_factura && abonoNumeroFactura.trim()){
-        const { data:ventaAct } = await supabase.from("ventas").update({ numero_factura:abonoNumeroFactura.trim() }).eq("id",venta.id).select().single();
-        if(ventaAct) setVentas(prev=>prev.map(v=>v.id===venta.id?ventaAct:v));
-      }
-      setAbonoForm(null); setAbonoValor(""); setAbonoMedio("efectivo"); setAbonoAutorizacion(""); setAbonoNumeroFactura(""); setAbonoFecha(todayStr);
-    }
-  };
-
-  const imprimirVenta = (venta, d) => {
-    const tienda = stores[venta.tienda_id]?.name || venta.tienda_id;
-    const totalAbonado = (d?.abonos||[]).reduce((a,x)=>a+Number(x.valor),0);
-    const valorFlex = (d?.items||[]).filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor),0);
-    const saldo = valorFlex - totalAbonado;
-    const itemsHtml = (d?.items||[]).map(i=>{
-      const fila = `<tr><td>${VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label||i.tipo}</td><td style="text-align:right">${fmtCOP(i.valor)}</td><td style="text-align:right">${Number(i.descuento)>0?fmtCOP(i.descuento):"—"}</td><td>${i.tipo==="flexipago"?(saldo<=0?"Completado":"—"):(i.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago).join(" + ")}</td></tr>`;
-      const codigos = (i.codigos_producto||[]).filter(c=>c.codigo||c.valor);
-      const desglose = codigos.length ? `<tr><td colspan="4" style="padding:2px 8px 8px;font-size:11px;color:#666;">${codigos.map(c=>`Código ${c.codigo||"—"}: ${c.valor?fmtCOP(Number(c.valor)):"—"}`).join(" · ")}</td></tr>` : "";
-      return fila + desglose;
-    }).join("");
-    const abonosHtml = (d?.abonos||[]).map(a=>`<tr><td>${a.fecha}</td><td>${VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}</td><td style="text-align:right">${fmtCOP(a.valor)}</td></tr>`).join("");
-    const avisoHtml = FLEXIPAGO_AVISO_ITEMS.map(it=>`<p style="margin:3px 0;text-align:left;">${it.n?`<b>${it.n}. ${it.titulo}:</b> `:""}${it.texto}</p>`).join("");
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Venta ${venta.numero_factura||""}</title>
-      <style>
-        body{font-family:Arial,Helvetica,sans-serif;padding:28px;color:#111;}
-        h1{font-size:18px;margin:0 0 4px;}
-        table{width:100%;border-collapse:collapse;margin-top:10px;}
-        th,td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:13px;text-align:left;}
-        .total{font-size:16px;font-weight:bold;margin-top:12px;}
-        .muted{color:#666;font-size:12px;}
-        hr{border:none;border-top:1px solid #ccc;margin:14px 0;}
-        .aviso{margin-top:22px;border:1px solid #ccc;border-radius:6px;padding:10px 14px;background:#fafafa;}
-        .aviso-titulo{font-size:12px;font-weight:bold;margin-bottom:6px;}
-        .aviso p{font-size:10.5px;color:#333;line-height:1.4;}
-      </style></head><body>
-      <img src="/logo-azul.png" alt="OZEN" style="height:50px;margin-bottom:8px;"/>
-      <h1>Comprobante Flexipago</h1>
-      <div class="muted">Factura Siigo: ${venta.numero_factura||"—"} · Tienda: ${tienda} · Fecha: ${venta.fecha}</div>
-      <div class="muted">Asesor: ${venta.vendedor_nombre||""}</div>
-      <hr/>
-      <div><strong>Cliente:</strong> ${venta.cliente_nombre||"—"} · ${venta.cliente_tipo_doc||""} ${venta.cliente_documento||""} · Tel: ${venta.cliente_telefono||""}</div>
-      <table><thead><tr><th>Producto/Servicio</th><th style="text-align:right">Valor</th><th style="text-align:right">Descuento</th><th>Medio</th></tr></thead><tbody>${itemsHtml}</tbody></table>
-      <div class="total">Total venta: ${fmtCOP(venta.total)}</div>
-      <h3 style="margin-top:20px;">Plan Flexipago — Abonos</h3>
-      <table><thead><tr><th>Fecha</th><th>Medio</th><th style="text-align:right">Valor</th></tr></thead><tbody>${abonosHtml || '<tr><td colspan="3">Sin abonos registrados</td></tr>'}</tbody></table>
-      <div class="total">Saldo pendiente: ${fmtCOP(saldo)}</div>
-      ${venta.observacion?`<div class="muted" style="margin-top:14px;">Nota: ${venta.observacion}</div>`:""}
-      <div class="aviso"><div class="aviso-titulo">${FLEXIPAGO_AVISO_TITULO}</div>${avisoHtml}</div>
-    </body></html>`;
-    const w = window.open("", "_blank", "width=720,height=900");
-    if(!w){ alert("El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes para este sitio e intenta de nuevo."); return; }
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    setTimeout(()=>{ w.print(); }, 300);
-  };
-
   return (
     <div style={{ maxWidth:820 }}>
       <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}${abonosFiltrados.length>0?` · ${abonosFiltrados.length} abonos Flexipago`:""}`} />
@@ -4580,463 +5001,11 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
 
       <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
         {(() => {
-        const elementosVentas = ventasFiltradas.map(v=>{
-          const d = detalle[v.id];
-          const abiertoEdicion = editando===v.id;
-          const puedeEditar = !soloLectura && (d?.solicitudes||[]).some(s=>s.estado==="aprobada" && !s.aplicada_at);
-          // Los totales/estado del Flexipago se calculan desde ventasItems/ventasAbonos (siempre
-          // cargados) en vez del detalle (que solo se carga al abrir la tarjeta) — así el badge de
-          // estado y el bloqueo de edición son correctos aunque todavía no se haya abierto.
-          const abonosVenta = v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id).sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id))) : [];
-          const totalAbonado = abonosVenta.reduce((a,x)=>a+Number(x.valor||0),0);
-          const valorFlexipago = v.es_flexipago ? (ventasItems||[]).filter(i=>i.venta_id===v.id && i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor||0)-Number(i.descuento||0),0) : 0;
-          const saldoPendiente = valorFlexipago - totalAbonado;
-          const flexipagoCompletado = v.es_flexipago && valorFlexipago>0 && saldoPendiente<=0;
-          // Regla del aviso legal: 60 días calendario desde el primer abono para completar el pago.
-          const primerAbonoFecha = abonosVenta.length>0 ? abonosVenta[0].fecha : null;
-          const diasDesdeAbono = primerAbonoFecha ? diasEntre(primerAbonoFecha, todayStr) : null;
-          const fechaLimite = primerAbonoFecha ? sumarDias(primerAbonoFecha, FLEXIPAGO_PLAZO_DIAS) : null;
-          const fechaLimiteCorta = fechaLimite ? new Date(fechaLimite+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"}) : "";
-          const flexipagoVencido = v.es_flexipago && saldoPendiente>0 && diasDesdeAbono!==null && diasDesdeAbono>FLEXIPAGO_PLAZO_DIAS && !v.flexipago_reabierto_en;
-          const diasRestantes60 = diasDesdeAbono!==null ? FLEXIPAGO_PLAZO_DIAS - diasDesdeAbono : null;
-          // Avisos previos al vencimiento: a los 30 días (mitad del plazo) y en los últimos 5 días, para
-          // que el asesor le recuerde al cliente que venga por su pedido antes de perderlo.
-          const flexipagoUrgente = v.es_flexipago && saldoPendiente>0 && !flexipagoVencido && diasRestantes60!==null && diasRestantes60<=5;
-          const flexipagoAviso30 = v.es_flexipago && saldoPendiente>0 && !flexipagoVencido && !flexipagoUrgente && diasDesdeAbono!==null && diasDesdeAbono>=30;
-          // Un solo badge de estado (en vez de varios apilados) para que todas las filas se vean
-          // igual de "gruesas" — cambia de color y texto según el estado, pero siempre es uno solo.
-          let estadoFlexipago = null;
-          if(v.es_flexipago){
-            if(flexipagoCompletado) estadoFlexipago = { color:C.green, texto:"✅ Completado" };
-            else if(flexipagoVencido) estadoFlexipago = { color:C.red, texto:"⛔ Vencido" };
-            else if(v.flexipago_reabierto_en) estadoFlexipago = { color:C.amber, texto:"🔓 Reabierto" };
-            else if(saldoPendiente>0 && diasRestantes60!==null) estadoFlexipago = { color: flexipagoUrgente?C.red:flexipagoAviso30?C.amber:C.blue, texto:`📦 Vence en ${diasRestantes60}d · ${fechaLimiteCorta}` };
-            else estadoFlexipago = { color:C.blue, texto:"📦 Flexipago" };
-          }
-          // La cuenta de tienda puede corregir por error y eliminar SIN pedir permiso, pero solo
-          // para lo que se registró hoy mismo. Para días anteriores, tiene que pedir Notacrédito.
-          const esHoyTienda = esCuentaTienda(user) && v.fecha===todayStr && !soloLectura;
-          const puedeCorregirErrorAqui = puedeCorregirError || esHoyTienda;
-          const puedeEliminarAqui = esAdmin || esHoyTienda;
-          // Lo que realmente ingresó el día de la venta es valor_original — el excedente de una
-          // Nota crédito posterior se muestra aparte, sin agrandar la fila (cuenta en Métricas en
-          // su propia fecha, no en la fecha de esta venta).
-          const valorOriginalMostrar = Number(v.valor_original ?? v.total);
-          return { fecha: v.fecha, el: (
-            <Card key={v.id} p="0" style={{ overflow:"hidden" }}>
-              <button onClick={()=>toggleExpand(v.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
-                <Badge color={C.gold} sm>#{v.numero_factura||"—"}</Badge>
-                <div style={{ flex:1, minWidth:140, minHeight:30 }}>
-                  <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha} · {stores[v.tienda_id]?.name||v.tienda_id}</span></div>
-                  {(v.cliente_nombre || v.cliente_documento || v.cliente_telefono) && (
-                    <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, lineHeight:1.3 }}>
-                      {v.cliente_nombre||""}{v.cliente_nombre && (v.cliente_documento||v.cliente_telefono) ? " · " : ""}{v.cliente_tipo_doc||""} {v.cliente_documento||""}{v.cliente_documento && v.cliente_telefono ? " · " : ""}{v.cliente_telefono ? `Tel: ${v.cliente_telefono}` : ""}
-                    </div>
-                  )}
-                </div>
-                {estadoFlexipago && (
-                  <Badge
-                    color={estadoFlexipago.color}
-                    sm
-                    title={
-                      flexipagoCompletado ? "Ya se pagó completo — no se puede editar más." :
-                      flexipagoVencido ? `Pasaron ${diasDesdeAbono} días desde el primer abono (máximo ${FLEXIPAGO_PLAZO_DIAS}). No se puede abonar ni editar.` :
-                      v.flexipago_reabierto_en ? `Reabierto por ${v.flexipago_reabierto_por} el ${fmtFechaHora(v.flexipago_reabierto_en)}` :
-                      fechaLimite ? `Vence el ${fechaLimiteCorta} (${FLEXIPAGO_PLAZO_DIAS} días desde el primer abono).` : undefined
-                    }
-                  >{estadoFlexipago.texto}</Badge>
-                )}
-                <div style={{ display:"flex", alignItems:"baseline", gap:5, flexShrink:0 }}>
-                  <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight }}>${valorOriginalMostrar.toLocaleString("es-CO")}</div>
-                </div>
-                <span style={{ color:C.textMuted, fontSize:11 }}>{expandido===v.id?"▲":"▼"}</span>
-              </button>
-
-              <Collapse open={expandido===v.id}>
-                <div style={{ padding:"0 12px 12px", borderTop:`1px solid ${C.border}` }}>
-                  {d?.cargando ? (
-                    <div style={{ padding:14, color:C.textMuted, fontFamily:font.body, fontSize:12 }}>Cargando...</div>
-                  ) : (
-                    <>
-                      {(()=>{
-                        // Los renglones que vienen de una Notacrédito (con su propio N.º de Siigo
-                        // nuevo) no se muestran en la factura original — esa factura se queda tal
-                        // cual quedó registrada. Solo se ven al editar con Notacrédito Siigo.
-                        const itemsOriginales = (d?.items||[]).filter(i=>i.es_original!==false);
-                        const brutoOriginal = itemsOriginales.reduce((s,i)=>s+Number(i.valor||0),0);
-                        const descOriginal = itemsOriginales.reduce((s,i)=>s+Number(i.descuento||0),0);
-                        return (
-                          <div style={{ display:"flex", alignItems:"baseline", gap:6, margin:"4px 0 3px" }}>
-                            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>Ventas y servicios</div>
-                            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>· Bruto ${brutoOriginal.toLocaleString("es-CO")}{descOriginal>0 && ` · Desc $${descOriginal.toLocaleString("es-CO")}`}</div>
-                          </div>
-                        );
-                      })()}
-                      {!abiertoEdicion ? (
-                        <div style={{ display:"flex", flexDirection:"column", gap:3, marginBottom:4 }}>
-                          {(d?.items||[]).filter(i=>i.es_original!==false).map(i=>(
-                            <div key={i.id} style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", fontFamily:font.body, fontSize:12, color:C.text, padding:"1px 0" }}>
-                                <Badge color={i.tipo==="producto"?C.green:i.tipo==="flexipago"?C.blue:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
-                                <span style={{ fontFamily:font.mono }}>${Number(i.valor).toLocaleString("es-CO")}{Number(i.descuento)>0 && ` (desc $${Number(i.descuento).toLocaleString("es-CO")})`}</span>
-                                {i.tipo==="flexipago" ? (
-                                  (i.codigos_producto||[]).filter(c=>c.codigo||c.valor).map((c,ci)=>(
-                                    <Badge key={ci} color={C.textMuted} sm>{c.codigo?`#${c.codigo}`:"—"}{c.valor?` · $${Number(c.valor).toLocaleString("es-CO")}`:""}</Badge>
-                                  ))
-                                ) : (i.pagos||[]).map((p,pidx)=>(
-                                  corrigiendoPago && corrigiendoPago.itemId===i.id && corrigiendoPago.pagoIdx===pidx ? (
-                                    <div key={pidx} style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"end", padding:"4px 0", background:C.dark, borderRadius:6 }}>
-                                      <div style={{ width:150 }}><Field label="Medio correcto" value={cpMedio} onChange={setCpMedio} options={VENTAS_MEDIOS_PAGO}/></div>
-                                      {VENTAS_MEDIOS_TARJETA.includes(cpMedio) && <div style={{ width:130 }}><Field label="N.º autorización" value={cpAutorizacion} onChange={setCpAutorizacion}/></div>}
-                                      <Btn onClick={()=>guardarCorreccionMedio(v)} disabled={guardandoCp} sm>{guardandoCp?"...":"Guardar"}</Btn>
-                                      <Btn onClick={()=>setCorrigiendoPago(null)} variant="ghost" sm>Cancelar</Btn>
-                                    </div>
-                                  ) : (
-                                    <Badge key={pidx} color={C.gold} sm>
-                                      {VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}
-                                      {puedeEditar && !abiertoEdicion && <button onClick={()=>iniciarCorreccionMedio(i,pidx)} title="Corregir solo el medio de pago (el valor no cambia)" style={{ background:"none", border:"none", cursor:"pointer", color:"inherit", marginLeft:6, padding:0 }}>✏️</button>}
-                                    </Badge>
-                                  )
-                                ))}
-                            </div>
-                          ))}
-                          {(d?.items||[]).filter(i=>i.es_original!==false).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin ventas/servicios registrados.</div>}
-                        </div>
-                      ) : modoErrorId===v.id ? (
-                        <div style={{ marginBottom:10 }}>
-                          <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:modoNotacredito?`${C.gold}18`:`${C.red}18`, border:`1px solid ${modoNotacredito?C.gold:C.red}` }}>
-                            {modoNotacredito
-                              ? "🧾 Notacrédito Siigo: puedes corregir tipo, valor, medio de pago, pero el valor no puede ser menor al valor original."
-                              : "🛠️ Corregir factura: aquí el valor puede subir o bajar libremente. Úsalo solo si el número se digitó mal — nada cambió en Siigo."}
-                          </div>
-                          <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:10 }}>
-                            {editItems.map((i,idx)=>(
-                              <div key={i.id||idx} style={{ display:"flex", flexDirection:"column", gap:4, background:editingItemIdx===idx?`${C.gold}14`:C.surfaceAlt, border:`1px solid ${editingItemIdx===idx?C.gold:C.border}`, borderRadius:7, padding:"8px 10px" }}>
-                                <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                                  <Badge color={i.tipo==="producto"?C.green:i.tipo==="flexipago"?C.blue:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label}</Badge>
-                                  {modoNotacredito && !i.esOriginal && <Badge color={C.blue} sm>Notacrédito · {i.fecha||todayStr}</Badge>}
-                                  <div style={{ flex:1, fontFamily:font.mono, fontSize:12, color:C.text, textAlign:"right" }}>${i.valorTotal.toLocaleString("es-CO")}{i.descuento>0 && ` (desc $${i.descuento.toLocaleString("es-CO")})`}</div>
-                                  <button onClick={()=>iniciarEdicionItem(idx,v)} title="Editar este renglón" style={{ background:"none", border:"none", cursor:"pointer", color:"inherit" }}>✏️</button>
-                                  {(!modoNotacredito || !i.esOriginal) && <button onClick={()=>quitarEditItem(idx)} title="Quitar este renglón" style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>}
-                                </div>
-                                {i.tipo!=="flexipago" && (
-                                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                                    {i.pagos.map((p,pidx)=>(
-                                      <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}</Badge>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                          <div style={{ border:`1px solid ${editingItemIdx!==null?C.gold:C.border}`, borderRadius:8, padding:"12px", marginBottom:10 }}>
-                            {editingItemIdx!==null && (
-                              <div style={{ fontFamily:font.body, fontSize:11, color:C.goldLight, marginBottom:8 }}>Editando {!modoNotacredito ? "este renglón" : editItemEditandoOriginal ? "el renglón original" : "un renglón nuevo (Notacrédito)"} — <button onClick={cancelarEdicionItem} style={{ background:"none", border:"none", color:C.textMuted, textDecoration:"underline", cursor:"pointer", padding:0, fontFamily:font.body, fontSize:11 }}>cancelar edición</button></div>
-                            )}
-                            {modoNotacredito && (
-                              <>
-                                <Field label="Fecha" type="date" value={editItemFecha} onChange={setEditItemFecha} disabled={editItemEditandoOriginal}/>
-                                {editItemEditandoOriginal && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:-8, marginBottom:10 }}>Es el renglón original — la fecha se queda fija en la de la venta.</div>}
-                              </>
-                            )}
-                            {modoNotacredito && (
-                              <Field label="N.º de factura (Siigo) — obligatorio *" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1235"/>
-                            )}
-                            {editItemBajoPiso && <div style={{ fontFamily:font.body, fontSize:11, color:C.red, marginTop:-8, marginBottom:10 }}>El valor no puede quedar por debajo de ${editItemPisoOriginal.toLocaleString("es-CO")} (lo ya registrado).</div>}
-                            <Field label="Tipo" value={editItemTipo} onChange={setEditItemTipo} options={VENTAS_TIPOS.filter(t=>t.value!=="flexipago")}/>
-                            {editItemEsFlexipago ? (
-                              <>
-                                <CurrencyField label="Valor total" value={editItemValor} onChange={setEditItemValor}/>
-                                <div style={{ marginTop:6, marginBottom:4, fontFamily:font.body, fontSize:11, color:C.blue }}>📦 Flexipago no lleva descuento ni medio de pago aquí — se paga con abonos.</div>
-                              </>
-                            ) : (
-                              <>
-                                {isMobile ? (
-                                  <div style={{ marginBottom:4 }}>
-                                    <CurrencyField label="Valor total" value={editItemValor} onChange={setEditItemValor}/>
-                                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
-                                      <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento / Bono</div>
-                                      <div style={{ display:"flex", gap:4 }}>
-                                        {VENTAS_DESCUENTO_TIPOS.map(dt=>(
-                                          <button key={dt.value} type="button" onClick={()=>setEditItemDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${editItemDescuentoTipo===dt.value?C.gold:C.border}`, background:editItemDescuentoTipo===dt.value?`${C.gold}22`:"transparent", color:editItemDescuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                    <CurrencyField value={editItemDescuento} onChange={setEditItemDescuento}/>
-                                  </div>
-                                ) : (
-                                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gridTemplateRows:"auto auto", columnGap:10, rowGap:5, marginBottom:4 }}>
-                                    <div style={{ gridColumn:1, gridRow:1, fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Valor total</div>
-                                    <div style={{ gridColumn:2, gridRow:1, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                                      <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento / Bono</div>
-                                      <div style={{ display:"flex", gap:4 }}>
-                                        {VENTAS_DESCUENTO_TIPOS.map(dt=>(
-                                          <button key={dt.value} type="button" onClick={()=>setEditItemDescuentoTipo(dt.value)} style={{ width:22, height:20, borderRadius:5, border:`1px solid ${editItemDescuentoTipo===dt.value?C.gold:C.border}`, background:editItemDescuentoTipo===dt.value?`${C.gold}22`:"transparent", color:editItemDescuentoTipo===dt.value?C.goldLight:C.textMuted, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{dt.label}</button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                    <div style={{ gridColumn:1, gridRow:2 }}><CurrencyField value={editItemValor} onChange={setEditItemValor} noMargin/></div>
-                                    <div style={{ gridColumn:2, gridRow:2 }}><CurrencyField value={editItemDescuento} onChange={setEditItemDescuento} noMargin/></div>
-                                  </div>
-                                )}
-                                <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Medios de pago</div>
-                                {editItemPagos.length>0 && (
-                                  <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:8 }}>
-                                    {editItemPagos.map((p,idx)=>{
-                                      const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===p.medio_pago);
-                                      return (
-                                        <div key={idx} style={{ border:`1px solid ${C.gold}`, borderRadius:8, padding:"9px 10px", background:`${C.gold}0d` }}>
-                                          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-                                            <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{m?.label}</span>
-                                            <button onClick={()=>quitarMedioDeEditItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
-                                          </div>
-                                          <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?"1fr 1fr":"1fr", gap:10 }}>
-                                            <CurrencyField label="Valor pagado" value={p.valor} onChange={v=>setEditItemPagoValor(idx,v)}/>
-                                            {VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && <Field label="N.º autorización" value={p.numero_autorizacion||""} onChange={v=>setEditItemPagoAutorizacion(idx,v)} placeholder="Ej: 056495"/>}
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                                <div style={{ display:"flex", gap:8, marginBottom:8, alignItems:"end" }}>
-                                  <Field value={editItemMedioNuevo} onChange={v=>{ if(v) agregarMedioAEditItem(v); else setEditItemMedioNuevo(v); }} options={[{value:"",label:"+ Agregar medio de pago"}, ...VENTAS_MEDIOS_PAGO]}/>
-                                </div>
-                                {editItemPagos.length>0 && (
-                                  <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(editItemFalta)<1?C.green:C.red }}>
-                                    {Math.abs(editItemFalta)<1 ? "✓ Los medios cuadran con el valor de este renglón" : editItemFalta>0 ? `Faltan $${editItemFalta.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(editItemFalta).toLocaleString("es-CO")}`}
-                                  </div>
-                                )}
-                              </>
-                            )}
-                            <div style={{ display:"flex", gap:8 }}>
-                              <Btn onClick={agregarEditItem} disabled={editItemValorNum<=0 || editItemPagos.length===0 || Math.abs(editItemFalta)>=1 || editItemFaltaAUT || editItemBajoPiso} sm full>{editingItemIdx!==null ? "Guardar cambios del renglón" : "+ Agregar"}</Btn>
-                              {editingItemIdx!==null && <Btn onClick={cancelarEdicionItem} variant="ghost" sm>Cancelar</Btn>}
-                            </div>
-                          </div>
-                          <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
-                          {editItems.some(i=>i.tipo==="flexipago") && (
-                            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"6px 0 10px" }}>📦 Esta venta tiene un renglón Flexipago — no factura hasta completar el pago.</div>
-                          )}
-                          {modoNotacredito && (
-                            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"-4px 0 10px" }}>
-                              La factura original #{v.numero_factura||"—"} no cambia — el N.º de Siigo que escribas arriba, en el renglón, queda como el de esta Notacrédito.
-                            </div>
-                          )}
-                          {!modoNotacredito && !editItems.some(i=>i.tipo==="flexipago") && (
-                            <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
-                          )}
-                          {editErrorMsg && (
-                            <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.red}18`, border:`1px solid ${C.red}`, color:C.red }}>
-                              {editErrorMsg}
-                            </div>
-                          )}
-                          <div style={{ display:"flex", gap:8 }}>
-                            <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || (modoNotacredito && !editNumeroFactura.trim())} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
-                            <Btn onClick={()=>{ setEditando(null); setEditErrorMsg(""); setModoErrorId(null); }} variant="ghost" sm>Cancelar</Btn>
-                          </div>
-                        </div>
-                      ) : v.es_flexipago ? (
-                        <div style={{ marginBottom:10 }}>
-                          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1.3fr", gap:10 }}>
-                            <Field label="Tipo de documento" value={ncCliente.tipoDoc} onChange={v2=>setNcCliente(prev=>({...prev,tipoDoc:v2}))} options={VENTAS_TIPOS_DOC}/>
-                            <Field label="N.º de documento" value={ncCliente.documento} onChange={v2=>setNcCliente(prev=>({...prev,documento:v2}))}/>
-                          </div>
-                          <Field label="Nombre" value={ncCliente.nombre} onChange={v2=>setNcCliente(prev=>({...prev,nombre:v2}))}/>
-                          <Field label="Teléfono" value={ncCliente.telefono} onChange={v2=>setNcCliente(prev=>({...prev,telefono:v2}))}/>
-                          <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", margin:"10px 0 6px" }}>Códigos de producto</div>
-                          {ncCodigos.map((c,idx)=>(
-                            <div key={idx} style={{ display:"grid", gridTemplateColumns: ncCodigos.length>1 ? "1fr 1fr auto" : "1fr 1fr", gap:6, marginBottom:6, alignItems:"center" }}>
-                              <input value={c.codigo} onChange={e=>setNcCodigos(prev=>prev.map((x,i2)=>i2===idx?{...x,codigo:e.target.value.replace(/\D/g,"").slice(0,6)}:x))} placeholder="#producto" inputMode="numeric" maxLength={6} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
-                              <CurrencyField value={c.valor} onChange={v2=>setNcCodigos(prev=>prev.map((x,i2)=>i2===idx?{...x,valor:v2}:x))} noMargin/>
-                              {ncCodigos.length>1 && <button onClick={()=>setNcCodigos(prev=>prev.filter((_,i2)=>i2!==idx))} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>}
-                            </div>
-                          ))}
-                          <button onClick={()=>setNcCodigos(prev=>[...prev,{codigo:"",valor:""}])} style={{ background:"none", border:`1px dashed ${C.border}`, borderRadius:7, color:C.textMuted, cursor:"pointer", fontSize:11, fontFamily:font.body, padding:"6px 10px", marginBottom:10, width:"100%" }}>+ Agregar otro código</button>
-                          <div style={{ marginBottom:10 }}><Field label="Medio del abono inicial" value={ncAbonoMedio} onChange={setNcAbonoMedio} options={VENTAS_MEDIOS_REALES}/></div>
-                          <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
-                          {(() => {
-                            const suma = ncCodigos.reduce((s,c)=>s+Number(c.valor||0),0);
-                            const piso = Number(v.valor_original ?? v.total);
-                            const ok = suma>=piso;
-                            return (
-                              <>
-                                <div style={{ fontFamily:font.body, fontSize:12, margin:"2px 0 10px", color: ok?C.green:C.red }}>
-                                  Nuevo valor total: <strong>${suma.toLocaleString("es-CO")}</strong> {!ok && `— debe ser al menos $${piso.toLocaleString("es-CO")}`}
-                                </div>
-                                {editErrorMsg && (
-                                  <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.red}18`, border:`1px solid ${C.red}`, color:C.red }}>
-                                    {editErrorMsg}
-                                  </div>
-                                )}
-                                <div style={{ display:"flex", gap:8 }}>
-                                  <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || !ok || !ncCliente.documento.trim() || !ncCliente.nombre.trim()} sm>{guardando?"Guardando...":"Guardar"}</Btn>
-                                  <Btn onClick={()=>{ setEditando(null); setEditErrorMsg(""); }} variant="ghost" sm>Cancelar</Btn>
-                                </div>
-                              </>
-                            );
-                          })()}
-                        </div>
-                      ) : (
-                        <div style={{ marginBottom:10 }}>
-                          <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:10 }}>
-                            {ncItems.map((it,idx)=>(
-                              <div key={it.id} style={{ display:"flex", gap:8, alignItems:"end", flexWrap:"wrap", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
-                                <div style={{ minWidth:140, flex:1 }}><Field label="Tipo" value={it.tipo} onChange={v2=>setNcItems(prev=>prev.map((x,i2)=>i2===idx?{...x,tipo:v2}:x))} options={VENTAS_TIPOS.filter(t=>t.value!=="flexipago")}/></div>
-                                <div style={{ minWidth:120, flex:1 }}><CurrencyField label="Valor" value={it.valor} onChange={v2=>setNcItems(prev=>prev.map((x,i2)=>i2===idx?{...x,valor:v2}:x))}/></div>
-                              </div>
-                            ))}
-                          </div>
-                          <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
-                          <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
-                          {puedeEditarFechaAjuste && (
-                            <Field label="Fecha real de la Notacrédito" type="date" value={ajusteFecha} onChange={setAjusteFecha}/>
-                          )}
-                          {(() => {
-                            const nuevoBruto = ncItems.reduce((s,i)=>s+Number(i.valor||0),0);
-                            const descuentoOriginal = ncItems.reduce((s,i)=>s+Number(i.descuento||0),0);
-                            const nuevoTotal = nuevoBruto - descuentoOriginal;
-                            const piso = Number(v.valor_original ?? v.total);
-                            const ok = nuevoTotal>=piso;
-                            return (
-                              <>
-                                <div style={{ fontFamily:font.body, fontSize:12, margin:"2px 0 10px", color: ok?C.green:C.red }}>
-                                  Nuevo total: <strong>${nuevoTotal.toLocaleString("es-CO")}</strong> {!ok && `— debe ser al menos $${piso.toLocaleString("es-CO")}`}
-                                </div>
-                                {editErrorMsg && (
-                                  <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.red}18`, border:`1px solid ${C.red}`, color:C.red }}>
-                                    {editErrorMsg}
-                                  </div>
-                                )}
-                                <div style={{ display:"flex", gap:8 }}>
-                                  <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || !ok} sm>{guardando?"Guardando...":"Guardar"}</Btn>
-                                  <Btn onClick={()=>{ setEditando(null); setEditErrorMsg(""); }} variant="ghost" sm>Cancelar</Btn>
-                                </div>
-                              </>
-                            );
-                          })()}
-                        </div>
-                      )}
-
-                      {v.es_flexipago && (
-                        <>
-                          <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", margin:"8px 0 3px" }}>
-                            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>Abonos</div>
-                            <div style={{ fontFamily:font.body, fontSize:12, fontWeight:700, color:saldoPendiente>0?C.amber:C.green }}>
-                              {saldoPendiente>0 ? `Faltan $${saldoPendiente.toLocaleString("es-CO")}` : "✓ Saldado"}
-                            </div>
-                          </div>
-                          {valorFlexipago>0 && (
-                            <div style={{ height:4, borderRadius:2, background:C.border, overflow:"hidden", marginBottom:4 }}>
-                              <div style={{ height:"100%", width:`${Math.min(100, Math.round((totalAbonado/valorFlexipago)*100))}%`, background: saldoPendiente<=0?C.green:C.gold, transition:"width 0.4s ease" }}/>
-                            </div>
-                          )}
-                          <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:6 }}>
-                            {(d?.abonos||[]).map(a=>(
-                              editandoAbonoId===a.id ? (
-                                <div key={a.id} style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"end", padding:"4px 0", background:C.dark, borderRadius:6, marginBottom:2 }}>
-                                  <div style={{ width:130 }}><Field label="Fecha" type="date" value={eaFecha} onChange={setEaFecha}/></div>
-                                  <div style={{ width:110 }}><Field label="Valor" value={eaValor} onChange={v=>setEaValor(v.replace(/[^\d]/g,""))}/></div>
-                                  <div style={{ width:130 }}><Field label="Medio" value={eaMedio} onChange={setEaMedio} options={VENTAS_MEDIOS_PAGO}/></div>
-                                  <Btn onClick={()=>guardarEdicionAbono(v.id)} disabled={guardandoEa} sm>{guardandoEa?"...":"Guardar"}</Btn>
-                                  <Btn onClick={()=>setEditandoAbonoId(null)} variant="ghost" sm>Cancelar</Btn>
-                                </div>
-                              ) : (
-                                <div key={a.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, padding:"2px 0" }}>
-                                  <span>{a.fecha} — {VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}{a.numero_autorizacion?` · AUT ${a.numero_autorizacion}`:""}</span>
-                                  <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                                    <span style={{fontFamily:font.mono}}>${Number(a.valor).toLocaleString("es-CO")}</span>
-                                    {esAdmin && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
-                                  </span>
-                                </div>
-                              )
-                            ))}
-                            {(d?.abonos||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin abonos todavía.</div>}
-                          </div>
-                          {saldoPendiente>0 && !soloLectura && (
-                            flexipagoVencido ? (
-                              <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"8px 10px", fontFamily:font.body, fontSize:12, color:C.red }}>
-                                ⛔ Pasaron {diasDesdeAbono} días desde el primer abono (máximo {FLEXIPAGO_PLAZO_DIAS}, según el aviso legal). No se puede abonar más ni completar esta venta — el cliente pierde lo abonado y el separado.
-                                {puedeReabrirVencido && (
-                                  <div style={{ marginTop:8 }}>
-                                    <Btn onClick={()=>reabrirFlexipagoVencido(v)} variant="ghost" sm style={{ color:C.amber }}>🔓 Reabrir de todas formas (la tienda lo honra con el cliente)</Btn>
-                                  </div>
-                                )}
-                              </div>
-                            ) : abonoForm===v.id ? (
-                              <div style={{ marginBottom:6 }}>
-                                <div style={{ display:"flex", gap:8, alignItems:"end", flexWrap:"wrap" }}>
-                                  <div style={{ flex:1, minWidth:110 }}><CurrencyField label="Valor del abono" value={abonoValor} onChange={setAbonoValor}/></div>
-                                  <div style={{ flex:1, minWidth:140 }}><Field label="Medio del abono" value={abonoMedio} onChange={setAbonoMedio} options={VENTAS_MEDIOS_REALES}/></div>
-                                  {VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && (
-                                    <div style={{ flex:1, minWidth:110 }}><Field label="N.º autorización" value={abonoAutorizacion} onChange={setAbonoAutorizacion} placeholder="Ej: 056495"/></div>
-                                  )}
-                                  {esAdmin && (
-                                    <div style={{ flex:1, minWidth:130 }}><Field label="Fecha del abono" type="date" value={abonoFecha} onChange={setAbonoFecha}/></div>
-                                  )}
-                                </div>
-                                {!v.numero_factura && (
-                                  <Field label="N.º de factura (Siigo) — solo si este abono deja el Flexipago pagado por completo" value={abonoNumeroFactura} onChange={setAbonoNumeroFactura} placeholder="Ej: FE-1234"/>
-                                )}
-                                <div style={{ display:"flex", gap:6 }}>
-                                  <Btn onClick={()=>agregarAbono(v, valorFlexipago, totalAbonado)} disabled={!abonoValor || Number(abonoValor)<=0 || (VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && !abonoAutorizacion.trim())} sm>Guardar</Btn>
-                                  <Btn onClick={()=>{setAbonoForm(null);setAbonoValor("");setAbonoMedio("efectivo");setAbonoAutorizacion("");setAbonoNumeroFactura("");}} variant="ghost" sm>Cancelar</Btn>
-                                </div>
-                              </div>
-                            ) : (
-                              <Btn onClick={()=>{ setAbonoForm(v.id); setAbonoFecha(todayStr); }} sm style={{ marginBottom:6 }}>+ Agregar abono</Btn>
-                            )
-                          )}
-                        </>
-                      )}
-
-                      {(d?.solicitudes||[]).length>0 && (
-                        <>
-                          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"8px 0 3px" }}>Solicitudes de corrección</div>
-                          <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:6 }}>
-                            {(d.solicitudes).map(s=>(
-                              <div key={s.id} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"6px 8px" }}>
-                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                                  <div style={{ fontFamily:font.body, fontSize:12, color:C.text }}>{s.motivo}</div>
-                                  <Badge color={s.estado==="pendiente"?C.amber:s.estado==="aprobada"?C.green:C.red} sm>{s.estado}{s.aplicada_at?" · aplicada":""}</Badge>
-                                </div>
-                                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2 }}>Pidió: {s.solicitado_por} · {fmtFechaHora(s.fecha_solicitud)}{s.resuelto_por?` · Resolvió: ${s.resuelto_por}`:""}</div>
-                                {esAdmin && s.estado==="pendiente" && (
-                                  <div style={{ display:"flex", gap:6, marginTop:6 }}>
-                                    <Btn onClick={()=>resolverSolicitud(s,"aprobada")} variant="success" sm>Aprobar</Btn>
-                                    <Btn onClick={()=>resolverSolicitud(s,"rechazada")} variant="danger" sm>Rechazar</Btn>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-
-                      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:6 }}>
-                        {v.es_flexipago && <Btn onClick={()=>imprimirVenta(v,d)} variant="ghost" sm>🖨️ Imprimir</Btn>}
-                        {puedeEditar && !abiertoEdicion && !flexipagoVencido && !flexipagoCompletado && <Btn onClick={()=>iniciarEdicion(v)} sm title="Ya te aprobaron el Notacrédito — usa este botón para aplicarlo.">📝 Aplicar Notacrédito</Btn>}
-                        {puedeCorregirError && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarNotacredito(v)} variant="ghost" sm style={{ color:C.amber }} title="Usa esto cuando la corrección SÍ genera un número de factura nuevo en Siigo. El valor no puede bajar del ya registrado, y necesitas el N.º de factura nuevo.">🧾 Notacrédito Siigo</Btn>}
-                        {puedeCorregirErrorAqui && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarCorregirFactura(v)} variant="ghost" sm style={{ color:C.textMuted }} title={esHoyTienda && !puedeCorregirError ? "Puedes corregir libremente lo registrado hoy mismo (sube o baja el valor sin límite). Para días anteriores, pide Notacrédito." : "Usa esto cuando NO cambió nada en Siigo — fue un error al registrar. Sube o baja el valor libremente, sin necesitar número de factura nuevo."}>🛠️ Corregir factura</Btn>}
-                        {puedeEliminarAqui && <Btn onClick={()=>eliminarVenta(v)} variant="ghost" sm style={{ color:C.red }} title={esHoyTienda && !esAdmin ? "Puedes eliminar lo registrado hoy mismo." : undefined}>🗑️ Eliminar venta</Btn>}
-                        {!soloLectura && !puedeCorregirErrorAqui && !flexipagoCompletado && (mostrarSolicitud===v.id ? (
-                          <div style={{ display:"flex", gap:8, flex:1, minWidth:220, alignItems:"end" }}>
-                            <div style={{ flex:1 }}><Field label="¿Qué hay que corregir y por qué?" value={motivoSolicitud} onChange={setMotivoSolicitud} multiline rows={2}/></div>
-                            <div style={{ marginBottom:14, display:"flex", gap:6 }}>
-                              <Btn onClick={()=>enviarSolicitud(v.id)} sm>Enviar</Btn>
-                              <Btn onClick={()=>{setMostrarSolicitud(null);setMotivoSolicitud("");}} variant="ghost" sm>Cancelar</Btn>
-                            </div>
-                          </div>
-                        ) : (
-                          <Btn onClick={()=>setMostrarSolicitud(v.id)} variant="ghost" sm title="Pide permiso a master o admin finanzas para corregir algo de un día anterior. Cuando lo aprueben, podrás aplicarlo tú mismo.">🔒 Solicitar Notacrédito</Btn>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </Collapse>
-            </Card>
-          )};
-        });
+        const elementosVentas = ventasFiltradas.map(v=>({ fecha: v.fecha, el: (
+          <VentaCard key={v.id} venta={v} stores={stores} user={user} esAdmin={esAdmin} soloLectura={soloLectura} isMobile={isMobile}
+            ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems}
+            ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ajustes} setAjustes={setAjustes}/>
+        )}));
         // Las Notas crédito se mezclan en la MISMA lista, ordenadas por su fecha real junto con
         // las demás ventas — no van en una sección aparte, para que se vean como un registro más.
         const elementosNC = notaCreditosFiltradas.map(({ajuste, venta})=>({
@@ -6585,7 +6554,7 @@ export default function App() {
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
-        if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
+        if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
         if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile}/>;
@@ -6599,7 +6568,7 @@ export default function App() {
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
     } else if(esCuentaTienda(user)){
-      if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
+      if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
       if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile}/>;
