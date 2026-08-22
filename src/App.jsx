@@ -5634,15 +5634,17 @@ const BASE_CAJA_FIJA = 100000;
 // color — pero el contenido de adentro (campos, historiales) queda sobre un panel oscuro
 // insertado, para que siga tan legible como siempre sin importar qué tan claro sea el color.
 const cajaHeaderSelectStyle = { background:"rgba(0,0,0,0.28)", border:"1px solid rgba(255,255,255,0.28)", borderRadius:5, color:"#fff", fontSize:10.5, fontFamily:font.body, padding:"2px 6px", fontWeight:600 };
-const CajaCard = ({ icon, titulo, children, color, headerExtra }) => {
+// `compact` = versión más apretada (menos padding/márgenes) para cuando varias tarjetas van
+// apiladas en columna y necesitan caber en un solo pantallazo (p.ej. la columna de Apertura en Caja).
+const CajaCard = ({ icon, titulo, children, color, headerExtra, compact }) => {
   const txt = color ? colorTextoContraste(color) : C.goldLight;
   return (
-    <div style={{ background:color||C.surface, border:`1px solid ${color?oscurecerColor(color,22):C.border}`, borderRadius:8, padding:"10px 14px", marginBottom:10 }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:8 }}>
+    <div style={{ background:color||C.surface, border:`1px solid ${color?oscurecerColor(color,22):C.border}`, borderRadius:8, padding:compact?"7px 12px":"10px 14px", marginBottom:compact?6:10 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:compact?4:8 }}>
         <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:txt, textTransform:"uppercase", letterSpacing:"0.04em", textShadow:color&&txt==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none" }}>{icon} {titulo}</div>
         {headerExtra}
       </div>
-      {color ? <div style={{ background:"rgba(13,17,23,0.78)", borderRadius:6, padding:"8px 8px 2px" }}>{children}</div> : children}
+      {color ? <div style={{ background:"rgba(13,17,23,0.78)", borderRadius:6, padding:compact?"5px 6px 1px":"8px 8px 2px" }}>{children}</div> : children}
     </div>
   );
 };
@@ -5676,12 +5678,12 @@ const CajaBtn = ({ onClick, children, disabled }) => (
 // Línea "a modo factura" — título al frente, valor a la derecha. Usada en las tarjetas de Apertura
 // y Cierre de turno para el rediseño en dos columnas (ver diseño de Felipe). Solo presentación:
 // no calcula nada, únicamente muestra los valores que ya vienen calculados desde afuera.
-const CajaReciboLinea = ({ label, value, bold, color, small, indent, totalLine }) => (
+const CajaReciboLinea = ({ label, value, bold, color, small, indent, totalLine, compact }) => (
   <div style={{
     display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:10,
-    padding: indent ? "1.5px 0 1.5px 14px" : "2.5px 0",
-    marginTop: totalLine ? 5 : 0,
-    paddingTop: totalLine ? 6 : undefined,
+    padding: indent ? (compact?"0.5px 0 0.5px 12px":"1.5px 0 1.5px 14px") : (compact?"1px 0":"2.5px 0"),
+    marginTop: totalLine ? (compact?3:5) : 0,
+    paddingTop: totalLine ? (compact?4:6) : undefined,
     borderTop: totalLine ? `1px solid ${C.border}` : "none",
   }}>
     <span style={{ fontFamily:font.body, fontSize: small?10:11.5, color: color || (small?C.textMuted:C.text), fontWeight: bold?700:400 }}>{label}</span>
@@ -5690,32 +5692,36 @@ const CajaReciboLinea = ({ label, value, bold, color, small, indent, totalLine }
 );
 // Barra divisoria de sub-sección dentro de una tarjeta (p.ej. "Dinero recibido por método de pago",
 // "Ventas", "Servicios" dentro de Cierre) — imita las barras de encabezado del diseño de Felipe.
-const CajaSubHeader = ({ label }) => (
-  <div style={{ background:"rgba(255,255,255,0.06)", borderRadius:4, padding:"4px 8px", margin:"10px 0 4px", fontFamily:font.body, fontSize:10, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
+const CajaSubHeader = ({ label, compact }) => (
+  <div style={{ background:"rgba(255,255,255,0.06)", borderRadius:4, padding: compact?"2px 6px":"4px 8px", margin: compact?"6px 0 2px":"10px 0 4px", fontFamily:font.body, fontSize:10, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
 );
 // Fila de formulario "a modo factura": título/etiqueta a la izquierda, el campo editable compacto a
 // la derecha — mismo look que CajaReciboLinea pero con un input/select real en vez de texto. Usada
 // para que Apertura, Cierre, Novedades y Recolección se vean como una sola lista consistente.
 const cajaInputStyleRow = { ...cajaInputStyle, width:"auto", flex:"0 1 190px", textAlign:"right" };
-const CajaFieldRow = ({ label, value, onChange, options, placeholder, type="text", wide }) => (
-  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding:"4px 0" }}>
-    {label && <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, flexShrink:0 }}>{label}</div>}
-    {options ? (
-      <select value={value} onChange={e=>onChange(e.target.value)} style={cajaInputStyleRow}>
-        {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-    ) : (
-      <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={wide ? { ...cajaInputStyleRow, flex:"1 1 240px" } : cajaInputStyleRow}/>
-    )}
-  </div>
-);
-const CajaMoneyRow = ({ label, value, onChange, placeholder }) => {
+const cajaInputStyleRowCompact = { ...cajaInputStyleRow, padding:"3px 6px", fontSize:11.5 };
+const CajaFieldRow = ({ label, value, onChange, options, placeholder, type="text", wide, compact }) => {
+  const base = compact ? cajaInputStyleRowCompact : cajaInputStyleRow;
+  return (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"1.5px 0":"4px 0" }}>
+      {label && <div style={{ fontFamily:font.body, fontSize: compact?10.5:11.5, color:C.text, flexShrink:0 }}>{label}</div>}
+      {options ? (
+        <select value={value} onChange={e=>onChange(e.target.value)} style={base}>
+          {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      ) : (
+        <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={wide ? { ...base, flex:"1 1 240px" } : base}/>
+      )}
+    </div>
+  );
+};
+const CajaMoneyRow = ({ label, value, onChange, placeholder, compact }) => {
   const digits = String(value||"").replace(/[^\d]/g,"");
   const mostrado = digits ? `$${Number(digits).toLocaleString("es-CO")}` : "";
   return (
-    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding:"4px 0" }}>
-      {label && <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, flexShrink:0 }}>{label}</div>}
-      <input type="text" inputMode="numeric" value={mostrado} onChange={e=>onChange(e.target.value.replace(/[^\d]/g,""))} placeholder={placeholder||"$0"} style={cajaInputStyleRow}/>
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"1.5px 0":"4px 0" }}>
+      {label && <div style={{ fontFamily:font.body, fontSize: compact?10.5:11.5, color:C.text, flexShrink:0 }}>{label}</div>}
+      <input type="text" inputMode="numeric" value={mostrado} onChange={e=>onChange(e.target.value.replace(/[^\d]/g,""))} placeholder={placeholder||"$0"} style={compact?cajaInputStyleRowCompact:cajaInputStyleRow}/>
     </div>
   );
 };
@@ -6136,8 +6142,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
 
                 <CajaSubHeader label="Dinero recibido por método de pago"/>
-                {CAJA_MEDIOS.map(m=><CajaReciboLinea key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m])}/>)}
-                <CajaReciboLinea label="Ingreso del día" value={fmtCOP(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios)} bold totalLine/>
+                {CAJA_MEDIOS.map(m=><CajaReciboLinea key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m])}/>)}
+                <CajaReciboLinea label="Ingreso del día" value={fmtCOP(resumenHoy.totalIngresoNeto+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia)} bold totalLine/>
 
                 <CajaSubHeader label="Ventas"/>
                 <CajaReciboLinea label="Ventas" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy)}/>
@@ -6146,7 +6152,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
                 <CajaSubHeader label="Servicios"/>
                 <CajaReciboLinea label="Servicios" value={fmtCOP(resumenHoy.totalServicios)}/>
-                <CajaReciboLinea label="Abonos Flexipagos (no suma al total)" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted}/>
+                <CajaReciboLinea label="Abonos Flexipagos (suma al Ingreso del día, no a Total Servicios)" value={fmtCOP(resumenHoy.totalFlexipagoDia)} color={C.textMuted}/>
                 <CajaReciboLinea label="Total Servicios" value={fmtCOP(resumenHoy.totalServicios)} bold totalLine/>
 
                 {resumenHoy.totalDescuentosDia>0 && <CajaReciboLinea label="Descuentos" value={fmtCOP(resumenHoy.totalDescuentosDia)}/>}
@@ -6174,46 +6180,46 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             </div>
 
             <div>
-              <CajaCard icon="🔓" titulo="Apertura de turno" color={tiendaColor}>
-                <CajaFieldRow label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
-                <CajaFieldRow label="Asesor *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-                <CajaReciboLinea label="Turno" value={tiendaNombreActual||"—"} small/>
-                <CajaMoneyRow label="Base" value={apBaseCaja} onChange={setApBaseCaja}/>
-                {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
-                <CajaReciboLinea label="Efectivo" value={fmtCOP(Math.max(0, efectivoPendienteTotal + gastosNetoAcumulado))}/>
-                <CajaReciboLinea label="Total" value={fmtCOP(totalEnCajaAhora)} bold totalLine/>
-                <div style={{ marginTop:10, display:"flex", justifyContent:"flex-end" }}>
+              <CajaCard compact icon="🔓" titulo="Apertura de turno" color={tiendaColor}>
+                <CajaFieldRow compact label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
+                <CajaFieldRow compact label="Asesor *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+                <CajaReciboLinea compact label="Turno" value={tiendaNombreActual||"—"} small/>
+                <CajaMoneyRow compact label="Base" value={apBaseCaja} onChange={setApBaseCaja}/>
+                {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master puede usar una fecha distinta a hoy."}</div>}
+                <CajaReciboLinea compact label="Efectivo" value={fmtCOP(Math.max(0, efectivoPendienteTotal + gastosNetoAcumulado))}/>
+                <CajaReciboLinea compact label="Total" value={fmtCOP(totalEnCajaAhora)} bold totalLine/>
+                <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end" }}>
                   <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"Registrar apertura"}</CajaBtn>
                 </div>
               </CajaCard>
 
-              <CajaCard icon="📥" titulo="Última Recolección" color={tiendaColor}>
-                <CajaReciboLinea label="Fecha" value={ultimaRecoleccion ? fmtFechaHora(ultimaRecoleccion.created_at) : "—"}/>
-                <CajaReciboLinea label="Por" value={ultimaRecoleccion ? (ultimaRecoleccion.recibe_nombre||"—") : "Sin registro previo"}/>
+              <CajaCard compact icon="📥" titulo="Última Recolección" color={tiendaColor}>
+                <CajaReciboLinea compact label="Fecha" value={ultimaRecoleccion ? fmtFechaHora(ultimaRecoleccion.created_at) : "—"}/>
+                <CajaReciboLinea compact label="Por" value={ultimaRecoleccion ? (ultimaRecoleccion.recibe_nombre||"—") : "Sin registro previo"}/>
               </CajaCard>
 
-              <CajaCard icon="📋" titulo="Novedades del período" color={tiendaColor}>
-                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginBottom:6 }}>Costos en rojo, ingresos en verde — todo lo registrado desde la última recolección.</div>
+              <CajaCard compact icon="📋" titulo="Novedades del período" color={tiendaColor}>
+                <div style={{ fontFamily:font.body, fontSize:9.5, color:C.textMuted, marginBottom:3 }}>Costos en rojo, ingresos en verde — desde la última recolección.</div>
                 {gastosDesdeRecoleccion.length>0 ? (
-                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
-                    {gastosDesdeRecoleccion.slice(0,8).map((g,idx)=>(
-                      <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:11, color:C.text, gap:6 }}>
+                  <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
+                    {gastosDesdeRecoleccion.slice(0,5).map((g,idx)=>(
+                      <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:10.5, color:C.text, gap:6 }}>
                         <span>{idx+1}. {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}</span>
                         <span style={{ display:"flex", alignItems:"center", gap:6 }}>
                           <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
-                          {puedeAprobarNovedad && g.estado!=="aprobado" && <button onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Aprobar</button>}
+                          {puedeAprobarNovedad && g.estado!=="aprobado" && <button onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:9.5, padding:"1px 5px" }}>Aprobar</button>}
                         </span>
                       </div>
                     ))}
                   </div>
-                ) : <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>Sin novedades registradas.</div>}
+                ) : <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted }}>Sin novedades registradas.</div>}
               </CajaCard>
 
-              <CajaCard icon="➕" titulo="Agregar novedad" color={tiendaColor}>
-                <CajaFieldRow label="Tipo" value={gaTipo} onChange={setGaTipo} options={[{value:"costo",label:"Costo"},{value:"ingreso",label:"Ingreso"}]}/>
-                <CajaMoneyRow label="Valor" value={gaValor} onChange={setGaValor}/>
-                <CajaFieldRow label="Motivo" wide placeholder="Ej: se usó para un limpiavidrios / vueltas no reclamadas" value={gaMotivo} onChange={setGaMotivo}/>
-                <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>
+              <CajaCard compact icon="➕" titulo="Agregar novedad" color={tiendaColor}>
+                <CajaFieldRow compact label="Tipo" value={gaTipo} onChange={setGaTipo} options={[{value:"costo",label:"Costo"},{value:"ingreso",label:"Ingreso"}]}/>
+                <CajaMoneyRow compact label="Valor" value={gaValor} onChange={setGaValor}/>
+                <CajaFieldRow compact wide label="Motivo" placeholder="Ej: limpiavidrios / vueltas no reclamadas" value={gaMotivo} onChange={setGaMotivo}/>
+                <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end" }}>
                   <CajaBtn onClick={guardarGasto} disabled={guardandoGa}>{guardandoGa?"...":"Agregar +"}</CajaBtn>
                 </div>
               </CajaCard>
