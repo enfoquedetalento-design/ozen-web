@@ -187,6 +187,15 @@ const statsPorLiderDelMes = (compromisos, lideres, anio, mes) => {
     .filter(x => x.total > 0)
     .sort((a,b) => (a.lider.nombre||"").localeCompare(b.lider.nombre||""));
 };
+// Indicadores de la Junta: un solo color (azul) para cualquier % cumplido, sin el semáforo
+// rojo/ámbar/verde — ahí no se busca presionar, solo mostrar el dato. La única señal que cambia
+// con el % es qué tan "lleno" se ve el badge — ver intensidadPct, usada con el prop `intensity`
+// de Badge.
+const colorCumplimientoTexto = (pct) => pct===null || pct===undefined ? C.textMuted : C.blue;
+const intensidadPct = (pct) => pct===null || pct===undefined ? 0.15 : Math.max(0, Math.min(1, pct/100));
+// IDC de Ventas: aquí sí se busca presión visual sobre asesores/tiendas, así que se queda el
+// semáforo clásico. Sin datos = gris. 100% o más = verde. 70-99% = ámbar. Menos de 70% = rojo.
+const colorSemaforoIDC = (pct) => pct===null || pct===undefined ? C.textMuted : pct>=100 ? C.green : pct>=70 ? C.amber : C.red;
 // Devuelve el martes de la semana de una fecha (o la fecha misma si ya es martes)
 const martesDeSemana = (dateStr) => {
   const d = new Date(dateStr + "T12:00:00");
@@ -235,9 +244,19 @@ function useIsMobile() {
 }
 
 // ── UI Primitives ─────────────────────────────────────────────────────────────
-const Badge = ({ color, children, sm, title }) => (
-  <span title={title} style={{ display:"inline-flex", alignItems:"center", padding: sm?"2px 8px":"3px 10px", borderRadius:99, fontSize:sm?10:11, fontWeight:600, background:`${color}20`, color, border:`1px solid ${color}40`, fontFamily:font.body, letterSpacing:"0.04em", textTransform:"uppercase", whiteSpace:"nowrap", cursor:title?"help":"default" }}>{children}</span>
-);
+// `intensity` (0 a 1, opcional) controla qué tan lleno se ve el relleno/borde del badge, sin
+// cambiar el color en sí ni el texto (siempre sólido y legible) — se usa para indicadores de %
+// donde se quiere una señal suave de "más alto = más lleno" en vez de cambiar de color entero
+// (rojo/ámbar/verde), que se sentía como un semáforo castigador. Si no se pasa, se comporta igual
+// que antes (relleno fijo).
+const alphaHex = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+const Badge = ({ color, children, sm, title, intensity }) => {
+  const bgAlpha = intensity==null ? 32 : (14 + intensity*46);
+  const borderAlpha = intensity==null ? 64 : (35 + intensity*80);
+  return (
+    <span title={title} style={{ display:"inline-flex", alignItems:"center", padding: sm?"2px 8px":"3px 10px", borderRadius:99, fontSize:sm?10:11, fontWeight:600, background:`${color}${alphaHex(bgAlpha)}`, color, border:`1px solid ${color}${alphaHex(borderAlpha)}`, fontFamily:font.body, letterSpacing:"0.04em", textTransform:"uppercase", whiteSpace:"nowrap", cursor:title?"help":"default" }}>{children}</span>
+  );
+};
 
 const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={} }) => {
   const [hov, setHov] = useState(false);
@@ -1692,7 +1711,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
       {toast&&<div style={{position:"fixed",top:16,right:16,left:16,background:C.greenDim,border:`1px solid ${C.green}`,borderRadius:10,padding:"12px 16px",color:C.green,fontFamily:font.body,fontSize:13,fontWeight:600,zIndex:200,textAlign:"center"}}>{toast}</div>}
       <PageHeader title="Marcar Asistencia" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} />
       <Card style={{marginBottom:12}}>
-        {!locked && asigHoy && <div style={{marginBottom:10}}><Badge color={C.gold} sm>🔒 Turno de hoy — definido en Turnos</Badge></div>}
+        {!locked && asigHoy && <div style={{marginBottom:10}}><Badge color={C.blue} sm>🔒 Turno de hoy — definido en Turnos</Badge></div>}
         <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
         {selStore&&stores[selStore]?.shifts?.some(s=>s.activo!==false)&&<Field label="Turno" value={selShift} onChange={setSelShift} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).filter(s=>s.activo!==false).map(s=>({value:s.nombre,label:s.nombre}))]}/>}
       </Card>
@@ -1717,7 +1736,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
           <div key={ev} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<3?`1px solid ${C.border}`:"none"}}>
             <div style={{width:12,height:12,borderRadius:99,background:rec?EVENT_COLORS[ev]:C.border,boxShadow:rec?`0 0 8px ${EVENT_COLORS[ev]}`:"none",flexShrink:0}}/>
             <div style={{flex:1,fontFamily:font.body,fontSize:13,color:rec?C.text:C.textMuted}}>{EVENT_LABELS[ev]}</div>
-            {isNext&&!rec&&<Badge color={C.gold} sm>Pendiente</Badge>}
+            {isNext&&!rec&&<Badge color={C.blue} sm>Pendiente</Badge>}
             {rec?.photo_url&&<img src={rec.photo_url} alt="foto" style={{width:28,height:28,borderRadius:6,objectFit:"cover"}}/>}
             <div style={{fontFamily:font.mono,fontSize:13,color:rec?EVENT_COLORS[ev]:C.border,fontWeight:700}}>{rec?rec.time:"--:--"}</div>
           </div>
@@ -2236,7 +2255,7 @@ function JuntaAcuerdosTab({ user, acuerdos, setAcuerdos }) {
               <div style={{ flex:1, padding:"14px 16px" }}>
                 <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10, marginBottom:10 }}>
                   <div style={{ fontFamily:font.body, fontSize:13, color:C.text, lineHeight:1.5 }}>{a.texto}</div>
-                  <Badge color={C.gold} sm>🔒 Fijo</Badge>
+                  <Badge color={C.blue} sm>🔒 Fijo</Badge>
                 </div>
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                   <Badge color={C.textMuted} sm>📅 {a.fecha}</Badge>
@@ -2524,7 +2543,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
                 <div style={{ fontFamily:font.body, fontSize:11, color:C.textSub, fontWeight:600 }}>👤 {nombresLideres}</div>
                 {base.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:10.5, color:vencida?C.amber:C.textMuted }}>📅 {base.fecha_estimada}</div>}
                 {completadoGrupo && <Badge color={C.green} sm>Cumplida</Badge>}
-                {autorreportadoGrupo && <Badge color={C.gold} sm title="Marcada por su responsable, falta que el monitor la confirme">Autorreportada</Badge>}
+                {autorreportadoGrupo && <Badge color={C.blue} sm title="Marcada por su responsable, falta que el monitor la confirme">Autorreportada</Badge>}
                 {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
                 {!puedeEditarPeriodo && <Badge color={C.textMuted} sm>Congelada</Badge>}
                 {vencida && puedeGestionar && puedeEditarPeriodo && <button onClick={()=>reabrirVencida(g)} title="La reunión se corrió de fecha — reabrir con nuevo plazo" style={{ background:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir</button>}
@@ -2543,9 +2562,9 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
               </div>
               {/* Línea 2: check + tarea (ancho libre) + ver más al final */}
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <button onClick={puedeMarcar?marcar:undefined} disabled={!puedeMarcar} title={checkTitle} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${completadoGrupo?C.green:vencida?C.amber:autorreportadoGrupo?C.gold:C.border}`, background:completadoGrupo?C.green:autorreportadoGrupo?`${C.gold}30`:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:completadoGrupo?"#fff":C.gold, fontSize:11 }}>{completadoGrupo?"✓":vencida?"✕":autorreportadoGrupo?"✓":""}</button>
+                <button onClick={puedeMarcar?marcar:undefined} disabled={!puedeMarcar} title={checkTitle} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${completadoGrupo?C.green:vencida?C.amber:autorreportadoGrupo?C.blue:C.border}`, background:completadoGrupo?C.green:autorreportadoGrupo?`${C.blue}30`:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:completadoGrupo?"#fff":vencida?C.amber:C.blue, fontSize:11 }}>{completadoGrupo?"✓":vencida?"✕":autorreportadoGrupo?"✓":""}</button>
                 <div style={{ flex:1, minWidth:0, textAlign:"left", fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, textDecoration:completadoGrupo?"line-through":"none", whiteSpace:expandida?"normal":"nowrap", overflow:expandida?"visible":"hidden", textOverflow:expandida?"clip":"ellipsis", lineHeight:1.5 }} title={!expandida?base.descripcion:undefined}>{base.descripcion}</div>
-                <button onClick={()=>toggleExpandida(toggleId)} style={{ flexShrink:0, background:"none", border:"none", color:C.gold, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandida?"ver menos":"ver más"}</button>
+                <button onClick={()=>toggleExpandida(toggleId)} style={{ flexShrink:0, background:"none", border:"none", color:C.blue, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandida?"ver menos":"ver más"}</button>
               </div>
               {/* Línea 3: comentario (ancho libre) + eliminar */}
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -2620,7 +2639,7 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
             </div>
             <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
               <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Cumplimiento de tareas (todos)</div>
-              <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:statsSel.pct===null?C.textMuted:statsSel.pct>=70?C.green:C.amber }}>{statsSel.pct===null?"—":`${statsSel.pct}%`}</div>
+              <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:colorCumplimientoTexto(statsSel.pct) }}>{statsSel.pct===null?"—":`${statsSel.pct}%`}</div>
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>{statsSel.completadas} de {statsSel.totalCerradas} tareas cerradas completadas</div>
               {statsSel.activas>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:2 }}>{statsSel.activas} todavía activa{statsSel.activas===1?"":"s"} — no cuenta{statsSel.activas===1?"":"n"} aún</div>}
             </div>
@@ -2635,13 +2654,13 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
                       <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
                       <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
                       <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadas} de {s.totalCerradas}</div>
-                      <Badge color={s.pct===null?C.textMuted:s.pct>=70?C.green:C.amber} sm>{s.pct===null?"Sin cierres aún":`${s.pct}% cumplido`}</Badge>
+                      <Badge color={C.blue} intensity={intensidadPct(s.pct)} sm>{s.pct===null?"Sin cierres aún":`${s.pct}% cumplido`}</Badge>
                     </div>
                   ))}
                 </div>
               </div>
               <div>
-                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>% del total de tareas del mes</div>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Total tareas del mes</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                   {topCantidad.map((s,i)=>{
                     const shareTareas = statsSel.totalTareas>0 ? Math.round((s.total/statsSel.totalTareas)*100) : 0;
@@ -2650,7 +2669,7 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
                         <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
                         <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
                         <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.total} tareas</div>
-                        <Badge color={C.gold} sm>{shareTareas}% del total</Badge>
+                        <Badge color={C.blue} sm>{shareTareas}% del total</Badge>
                       </div>
                     );
                   })}
@@ -2674,7 +2693,7 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
               </div>
               <div style={{ flex:1, minWidth:160, display:"flex", gap:8, flexWrap:"wrap" }}>
                 <Badge color={s.sesiones>=s.totalMartes?C.green:C.amber} sm>{s.sesiones}/{s.totalMartes} sesiones</Badge>
-                <Badge color={s.pct===null?C.textMuted:s.pct>=70?C.green:C.amber} sm>{s.pct===null?"Sin tareas registradas":`${s.pct}% cumplido`}</Badge>
+                <Badge color={C.blue} intensity={intensidadPct(s.pct)} sm>{s.pct===null?"Sin tareas registradas":`${s.pct}% cumplido`}</Badge>
               </div>
             </div>
           );
@@ -3408,7 +3427,7 @@ function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
   return (
     <Card p="0" style={{ overflow:"hidden" }}>
       <button onClick={()=>setAbierto(a=>!a)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
-        <Badge color={C.gold} sm>{ajuste.numero_factura?`#${ajuste.numero_factura}`:"—"}</Badge>
+        <Badge color={C.blue} sm>{ajuste.numero_factura?`#${ajuste.numero_factura}`:"—"}</Badge>
         <div style={{ flex:1, minWidth:140, minHeight:30, display:"flex", alignItems:"center", overflow:"hidden" }}>
           <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
             {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
@@ -4062,7 +4081,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
   return (
     <Card p="0" style={{ overflow:"hidden" }}>
       <button onClick={toggleExpand} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
-        <Badge color={C.gold} sm>#{v.numero_factura||"—"}</Badge>
+        <Badge color={C.blue} sm>#{v.numero_factura||"—"}</Badge>
         <div style={{ flex:1, minWidth:140, minHeight:30 }}>
           <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha} · {stores[v.tienda_id]?.name||v.tienda_id}</span></div>
           {(v.cliente_nombre || v.cliente_documento || v.cliente_telefono) && (
@@ -4128,7 +4147,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                               <Btn onClick={()=>setCorrigiendoPago(null)} variant="ghost" sm>Cancelar</Btn>
                             </div>
                           ) : (
-                            <Badge key={pidx} color={C.gold} sm>
+                            <Badge key={pidx} color={C.blue} sm>
                               {VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}
                               {puedeEditar && !abiertoEdicion && <button onClick={()=>iniciarCorreccionMedio(i,pidx)} title="Corregir solo el medio de pago (el valor no cambia)" style={{ background:"none", border:"none", cursor:"pointer", color:"inherit", marginLeft:6, padding:0 }}>✏️</button>}
                             </Badge>
@@ -4158,7 +4177,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                         {i.tipo!=="flexipago" && (
                           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                             {i.pagos.map((p,pidx)=>(
-                              <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}</Badge>
+                              <Badge key={pidx} color={C.blue} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}</Badge>
                             ))}
                           </div>
                         )}
@@ -4753,7 +4772,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
                     {it.tipo==="flexipago" ? (
                       <Badge color={C.blue} sm>📦 Flexipago — se cobra con abonos</Badge>
                     ) : it.pagos.map((p,pidx)=>(
-                      <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
+                      <Badge key={pidx} color={C.blue} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
                     ))}
                   </div>
                 </div>
@@ -5537,7 +5556,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
           <HoverTooltip label="IDC" labelStyle={{ fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 }} width={240} align="right">
             <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, lineHeight:1.4 }}><b>IDC — Índice de Cumplimiento.</b> Qué porcentaje de la meta del mes ya se alcanzó: (ingresos ÷ meta) × 100.</div>
           </HoverTooltip>
-          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:idcTienda===null?C.textMuted:idcTienda>=100?C.green:C.amber, marginTop:6 }}>{idcTienda===null?"—":`${idcTienda}%`}</div>
+          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:colorSemaforoIDC(idcTienda), marginTop:6 }}>{idcTienda===null?"—":`${idcTienda}%`}</div>
         </div>
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
           <HoverTooltip label="MDA" labelStyle={{ fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 }} width={240} align="right">
@@ -5650,7 +5669,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
               <div style={{ fontFamily:font.body, fontSize:idx<3?16:13, width:28, textAlign:"center" }}>{medalla(idx)}</div>
               <div style={{ flex:1, fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{d.tienda.name}</div>
               <div style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{fmtCOP(d.sinServicios)} / {fmtCOP(d.meta)}</div>
-              <Badge color={d.idc>=100?C.green:d.idc>=70?C.amber:C.red} sm>{d.idc}%</Badge>
+              <Badge color={colorSemaforoIDC(d.idc)} sm>{d.idc}%</Badge>
             </div>
           ))}
           {rankingTiendas.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
@@ -5664,7 +5683,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
               <div style={{ fontFamily:font.body, fontSize:idx<3?16:13, width:28, textAlign:"center" }}>{medalla(idx)}</div>
               <div style={{ flex:1, fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{d.asesor.name}</div>
               <div style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{fmtCOP(d.sinServicios)} / {fmtCOP(d.meta)}</div>
-              <Badge color={d.idc>=100?C.green:d.idc>=70?C.amber:C.red} sm>{d.idc}%</Badge>
+              <Badge color={colorSemaforoIDC(d.idc)} sm>{d.idc}%</Badge>
             </div>
           ))}
           {ranking.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
@@ -5689,7 +5708,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                   <td style={{ padding:"7px 8px", color:C.text, textAlign:"left" }}>{d.asesor.name}</td>
                   <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.text, textAlign:"left" }}>{fmtCOP(d.sinServicios)}</td>
                   <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted, textAlign:"left" }}>{d.meta>0?fmtCOP(d.meta):"—"}</td>
-                  <td style={{ padding:"7px 8px", textAlign:"left" }}>{d.idc===null?"—":<Badge color={d.idc>=100?C.green:d.idc>=70?C.amber:C.red} sm>{d.idc}%</Badge>}</td>
+                  <td style={{ padding:"7px 8px", textAlign:"left" }}>{d.idc===null?"—":<Badge color={colorSemaforoIDC(d.idc)} sm>{d.idc}%</Badge>}</td>
                   <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted, textAlign:"left" }}>{d.mda===null?"—":fmtCOP(d.mda)}</td>
                 </tr>
               ))}
