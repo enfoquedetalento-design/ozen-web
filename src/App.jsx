@@ -158,16 +158,21 @@ const semanaCongelada = (semanaTarea) => {
   return !!frontera && !!semanaTarea && semanaTarea < frontera;
 };
 // Indicadores de un mes: sesiones registradas (martes con al menos una tarea) y % de tareas completadas.
+// El % de cumplimiento solo cuenta tareas ya CERRADAS (completadas o vencidas sin hacer) — una
+// tarea todavía activa (no completada, dentro de plazo) no cuenta ni a favor ni en contra todavía,
+// porque todavía puede completarse. Contarla de una vez castigaba el % de más, de forma injusta.
 const statsDelMes = (compromisos, anio, mes) => {
   const martes = martesDelMes(anio, mes);
   const tareas = compromisos.filter(c => martes.includes(c.semana));
   const sesiones = new Set(tareas.map(t => t.semana)).size;
   const completadas = tareas.filter(t => t.completado).length;
-  const pct = tareas.length ? Math.round((completadas / tareas.length) * 100) : null;
-  return { totalMartes: martes.length, sesiones, totalTareas: tareas.length, completadas, pct };
+  const cerradas = tareas.filter(t => t.completado || tareaVencidaNoRealizada(t));
+  const activas = tareas.length - cerradas.length;
+  const pct = cerradas.length ? Math.round((completadas / cerradas.length) * 100) : null;
+  return { totalMartes: martes.length, sesiones, totalTareas: tareas.length, completadas, totalCerradas: cerradas.length, activas, pct };
 };
 // Cumplimiento de tareas, pero desglosado por cada líder — no todos cargan el mismo peso ni la
-// misma cantidad de tareas, así que el % se calcula individualmente (completadas ÷ asignadas).
+// misma cantidad de tareas, así que el % se calcula individualmente (completadas ÷ cerradas).
 const statsPorLiderDelMes = (compromisos, lideres, anio, mes) => {
   const martes = martesDelMes(anio, mes);
   const tareas = compromisos.filter(c => martes.includes(c.semana));
@@ -175,8 +180,9 @@ const statsPorLiderDelMes = (compromisos, lideres, anio, mes) => {
     .map(l => {
       const deLider = tareas.filter(t => t.lider_id === l.id);
       const completadas = deLider.filter(t => t.completado).length;
-      const pct = deLider.length ? Math.round((completadas / deLider.length) * 100) : null;
-      return { lider: l, total: deLider.length, completadas, pct };
+      const cerradas = deLider.filter(t => t.completado || tareaVencidaNoRealizada(t));
+      const pct = cerradas.length ? Math.round((completadas / cerradas.length) * 100) : null;
+      return { lider: l, total: deLider.length, completadas, totalCerradas: cerradas.length, pct };
     })
     .filter(x => x.total > 0)
     .sort((a,b) => (a.lider.nombre||"").localeCompare(b.lider.nombre||""));
@@ -2505,14 +2511,20 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
 
   const meses = listaMeses();
   const actual = meses[0];
-  const monitorActual = actual ? getMonitorDeMes(lideres, actual.anio, actual.mes) : null;
-  const statsActual = actual ? statsDelMes(compromisos, actual.anio, actual.mes) : null;
-  const statsLideresActual = actual ? statsPorLiderDelMes(compromisos, lideres, actual.anio, actual.mes) : [];
+  // El cuadro de arriba muestra por defecto el mes en curso, pero se puede elegir cualquier mes
+  // anterior desde el selector — selMesIdx es el índice dentro de `meses` (0 = mes en curso, ya
+  // que `meses` viene ordenado del más reciente al más antiguo).
+  const [selMesIdx, setSelMesIdx] = useState(0);
+  const seleccionado = meses[selMesIdx] || actual;
+  const monitorSel = seleccionado ? getMonitorDeMes(lideres, seleccionado.anio, seleccionado.mes) : null;
+  const statsSel = seleccionado ? statsDelMes(compromisos, seleccionado.anio, seleccionado.mes) : null;
+  const statsLideresSel = seleccionado ? statsPorLiderDelMes(compromisos, lideres, seleccionado.anio, seleccionado.mes) : [];
   // Cumplimiento (%) y cantidad de tareas son cosas distintas — alguien puede tener pocas
   // tareas con 100% de cumplimiento, y otra persona muchas tareas con menor %. Se muestran
-  // como dos rankings separados en vez de una sola lista.
-  const topCumplimiento = [...statsLideresActual].sort((a,b)=> b.pct - a.pct || b.total - a.total);
-  const topCantidad = [...statsLideresActual].sort((a,b)=> b.total - a.total || b.pct - a.pct);
+  // como dos rankings separados en vez de una sola lista. pct puede ser null (sin tareas
+  // cerradas todavía) — se manda al final del ranking, no se trata como 0.
+  const topCumplimiento = [...statsLideresSel].sort((a,b)=> (b.pct??-1) - (a.pct??-1) || b.total - a.total);
+  const topCantidad = [...statsLideresSel].sort((a,b)=> b.total - a.total || (b.pct??-1) - (a.pct??-1));
 
   return (
     <div>
@@ -2523,22 +2535,28 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
       ) : (
         <Card glow style={{ marginBottom:16 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8, marginBottom:14 }}>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>{MESES[actual.mes]} {actual.anio} · mes en curso</div>
-            <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub }}>Monitor: <span style={{ color:C.goldLight, fontWeight:700 }}>{monitorActual ? (monitorActual.nombre || "— sin nombre") : "—"}</span></div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              <select value={selMesIdx} onChange={e=>setSelMesIdx(Number(e.target.value))} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 9px", color:C.text, fontFamily:font.body, fontSize:12, fontWeight:600, outline:"none", cursor:"pointer" }}>
+                {meses.map((m,i)=><option key={`${m.anio}-${m.mes}`} value={i}>{MESES[m.mes]} {m.anio}</option>)}
+              </select>
+              {selMesIdx===0 && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>· mes en curso</div>}
+            </div>
+            <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub }}>Monitor: <span style={{ color:C.goldLight, fontWeight:700 }}>{monitorSel ? (monitorSel.nombre || "— sin nombre") : "—"}</span></div>
           </div>
           <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:12 }}>
             <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
               <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Sesiones hechas</div>
-              <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:statsActual.sesiones>=statsActual.totalMartes?C.green:C.amber }}>{statsActual.sesiones} / {statsActual.totalMartes}</div>
+              <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:statsSel.sesiones>=statsSel.totalMartes?C.green:C.amber }}>{statsSel.sesiones} / {statsSel.totalMartes}</div>
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>martes con checklist registrado</div>
             </div>
             <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
               <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Cumplimiento de tareas (todos)</div>
-              <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:statsActual.pct===null?C.textMuted:statsActual.pct>=70?C.green:C.amber }}>{statsActual.pct===null?"—":`${statsActual.pct}%`}</div>
-              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>{statsActual.completadas} de {statsActual.totalTareas} tareas completadas</div>
+              <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:statsSel.pct===null?C.textMuted:statsSel.pct>=70?C.green:C.amber }}>{statsSel.pct===null?"—":`${statsSel.pct}%`}</div>
+              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>{statsSel.completadas} de {statsSel.totalCerradas} tareas cerradas completadas</div>
+              {statsSel.activas>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:2 }}>{statsSel.activas} todavía activa{statsSel.activas===1?"":"s"} — no cuenta{statsSel.activas===1?"":"n"} aún</div>}
             </div>
           </div>
-          {statsLideresActual.length>0 && (
+          {statsLideresSel.length>0 && (
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16 }}>
               <div>
                 <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Porcentaje cumplimiento</div>
@@ -2547,8 +2565,8 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
                     <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
                       <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
                       <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
-                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadas} de {s.total}</div>
-                      <Badge color={s.pct>=70?C.green:C.amber} sm>{s.pct}% cumplido</Badge>
+                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadas} de {s.totalCerradas}</div>
+                      <Badge color={s.pct===null?C.textMuted:s.pct>=70?C.green:C.amber} sm>{s.pct===null?"Sin cierres aún":`${s.pct}% cumplido`}</Badge>
                     </div>
                   ))}
                 </div>
@@ -2557,7 +2575,7 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
                 <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>% del total de tareas del mes</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                   {topCantidad.map((s,i)=>{
-                    const shareTareas = statsActual.totalTareas>0 ? Math.round((s.total/statsActual.totalTareas)*100) : 0;
+                    const shareTareas = statsSel.totalTareas>0 ? Math.round((s.total/statsSel.totalTareas)*100) : 0;
                     return (
                       <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
                         <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
