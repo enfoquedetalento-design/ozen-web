@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, createContext, useContext } from "react";
 import { supabase } from "./supabase";
-import { activarNotificacionesPush, notificacionesSoportadas, permisoNotificaciones } from "./push";
+import { activarNotificacionesPush, notificacionesSoportadas, pushActivo } from "./push";
 import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError } from "./sounds";
 import { PDFDocument } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
@@ -551,7 +551,7 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
         </div>
         {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
         {esAdminFinanzas(user) && <Btn onClick={onAbrirAccesoTiendas} variant="ghost" full sm style={{ marginBottom:8 }}>🏬 Acceso tiendas</Btn>}
-        {puedeGestionarTurnos(user) && notificacionesSoportadas() && permisoNotificaciones()!=="granted" && <Btn onClick={onActivarNotificaciones} variant="ghost" full sm style={{ marginBottom:8 }}>🔔 Activar notificaciones</Btn>}
+        {puedeGestionarTurnos(user) && notificacionesSoportadas() && !pushActivo() && <Btn onClick={onActivarNotificaciones} variant="ghost" full sm style={{ marginBottom:8 }}>🔔 Activar notificaciones</Btn>}
         {user.role!=="master" && !esCuentaTienda(user) && <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8 }}>🔑 Mi contraseña</Btn>}
         <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
       </div>
@@ -584,7 +584,7 @@ function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onC
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         {puedeUsarAreas(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
         {esAdminFinanzas(user) && <button onClick={onAbrirAccesoTiendas} title="Acceso tiendas" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🏬</button>}
-        {puedeGestionarTurnos(user) && notificacionesSoportadas() && permisoNotificaciones()!=="granted" && <button onClick={onActivarNotificaciones} title="Activar notificaciones" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔔</button>}
+        {puedeGestionarTurnos(user) && notificacionesSoportadas() && !pushActivo() && <button onClick={onActivarNotificaciones} title="Activar notificaciones" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔔</button>}
         {user.role!=="master" && !esCuentaTienda(user) && <button onClick={onCambiarPassword} title="Mi contraseña" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔑</button>}
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
         <div style={{ fontFamily:font.body, fontSize:12, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
@@ -6809,12 +6809,21 @@ export default function App() {
 
   // Notificaciones push reales (avisan a los admins de Turnos aunque tengan la app cerrada) — el
   // botón que dispara esto solo se muestra a quien puede gestionar Turnos (ver Sidebar/MobileHeader).
+  // El botón se oculta solo cuando queda confirmada la suscripción (pushActivo, en push.js) — no
+  // solo con que el navegador reporte el permiso como concedido, porque en Safari/macOS se vio un
+  // caso real donde el permiso queda "granted" pero el registro de la suscripción falla igual (el
+  // sistema tenía bloqueadas las notificaciones del navegador a nivel de Ajustes del Sistema) —
+  // si el botón se ocultara solo por el permiso, la persona se quedaba sin forma de reintentar.
+  // `pushTick` fuerza a Sidebar/MobileHeader a releer pushActivo() apenas cambia, sin esperar a
+  // que otro estado de la app cause un refresco.
+  const [, setPushTick] = useState(0);
   const activarNotificaciones = async () => {
     if(!notificacionesSoportadas()){ alert("Este navegador no soporta notificaciones push."); return; }
     const r = await activarNotificacionesPush(user);
-    if(r.ok){ alert("Listo — vas a recibir un aviso cuando alguien marque entrada."); }
+    if(r.ok){ alert("Listo — vas a recibir un aviso cuando alguien marque entrada."); setPushTick(t=>t+1); }
     else if(r.motivo==="permiso_denegado"){ alert("No se activaron las notificaciones — el navegador dice que el permiso está bloqueado. Revisa los ajustes de notificaciones de este sitio."); }
-    else { alert("No se pudieron activar las notificaciones. Intenta de nuevo."); }
+    else if(r.motivo==="error_guardando"){ alert("El permiso quedó concedido, pero no se pudo guardar la suscripción. Intenta de nuevo — si sigue fallando, avísame."); }
+    else { alert("El navegador concedió el permiso pero no se pudo activar el push (en Mac esto puede ser porque el Sistema tiene bloqueadas las notificaciones de este navegador — revísalo en Ajustes del Sistema ▸ Notificaciones). Puedes volver a intentar."); }
   };
 
   // Cuenta de tienda: es el equipo compartido que queda abierto en el mostrador toda la

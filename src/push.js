@@ -19,6 +19,17 @@ export const notificacionesSoportadas = () =>
 // Devuelve el estado actual sin pedir nada: "granted" | "denied" | "default" (nunca preguntado).
 export const permisoNotificaciones = () => (notificacionesSoportadas() ? Notification.permission : "no-soportado");
 
+// El botón "Activar notificaciones" se oculta solo cuando de verdad quedó una suscripción
+// guardada en Supabase (ver activarNotificacionesPush) — NO solo cuando el navegador reporta el
+// permiso como "granted". En Safari/macOS se vio un caso real donde el permiso queda en
+// "granted" pero el registro de la suscripción falla igual (por ejemplo si el sistema tiene las
+// notificaciones del navegador bloqueadas a nivel de Ajustes del Sistema) — si el botón se
+// ocultara solo por el permiso, la persona se queda sin forma de reintentar.
+const LS_PUSH_ACTIVO = "ozen_push_activo";
+export const pushActivo = () => {
+  try { return localStorage.getItem(LS_PUSH_ACTIVO) === "1"; } catch (e) { return false; }
+};
+
 // Pide permiso (si hace falta) y guarda la suscripción en Supabase, ligada al usuario. Debe
 // llamarse desde un clic real del usuario — los navegadores bloquean el pedido de permiso si no.
 export const activarNotificacionesPush = async (user) => {
@@ -41,6 +52,7 @@ export const activarNotificacionesPush = async (user) => {
       { onConflict: "endpoint" }
     );
     if (error) return { ok: false, motivo: "error_guardando", error };
+    try { localStorage.setItem(LS_PUSH_ACTIVO, "1"); } catch (e) { /* sin localStorage, no pasa nada */ }
     return { ok: true };
   } catch (e) {
     return { ok: false, motivo: "error", error: e };
