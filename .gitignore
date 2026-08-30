@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Supabase CLI (estado local de `supabase link`, no debe subirse)
+supabase/.temp
+supabase/.branches
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

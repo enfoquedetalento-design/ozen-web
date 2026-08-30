@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback, useEffect, createContext, useContext } from "react";
 import { supabase } from "./supabase";
+import { activarNotificacionesPush, notificacionesSoportadas, permisoNotificaciones } from "./push";
+import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError, sonidosSilenciados, alternarSonidos } from "./sounds";
 import { PDFDocument } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
@@ -505,9 +507,10 @@ const passwordVencida = (u) => {
   return dias >= DIAS_EXPIRACION_PASSWORD;
 };
 
-function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas }) {
+function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
   const tabs = tabsPara(user, area);
   const presionarLogo = useLongPress(onAbrirUsuarios);
+  const [silenciado, setSilenciado] = useState(sonidosSilenciados());
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C.border}`, textAlign:"center" }}>
@@ -533,6 +536,8 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
         </div>
         {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
         {esAdminFinanzas(user) && <Btn onClick={onAbrirAccesoTiendas} variant="ghost" full sm style={{ marginBottom:8 }}>🏬 Acceso tiendas</Btn>}
+        {puedeGestionarTurnos(user) && notificacionesSoportadas() && permisoNotificaciones()!=="granted" && <Btn onClick={onActivarNotificaciones} variant="ghost" full sm style={{ marginBottom:8 }}>🔔 Activar notificaciones</Btn>}
+        <Btn onClick={()=>setSilenciado(alternarSonidos())} variant="ghost" full sm style={{ marginBottom:8 }}>{silenciado ? "🔇 Sonidos desactivados" : "🔊 Sonidos activados"}</Btn>
         {user.role!=="master" && !esCuentaTienda(user) && <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8 }}>🔑 Mi contraseña</Btn>}
         <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
       </div>
@@ -555,8 +560,9 @@ function BottomNav({ tab, setTab, user, area }) {
   );
 }
 
-function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas }) {
+function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
   const presionarLogo = useLongPress(onAbrirUsuarios);
+  const [silenciado, setSilenciado] = useState(sonidosSilenciados());
   return (
     <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
       {/* El logo, para master, también es la entrada a Usuarios — sin ningún aviso visual, y hay
@@ -565,6 +571,8 @@ function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onC
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         {puedeUsarAreas(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
         {esAdminFinanzas(user) && <button onClick={onAbrirAccesoTiendas} title="Acceso tiendas" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🏬</button>}
+        {puedeGestionarTurnos(user) && notificacionesSoportadas() && permisoNotificaciones()!=="granted" && <button onClick={onActivarNotificaciones} title="Activar notificaciones" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔔</button>}
+        <button onClick={()=>setSilenciado(alternarSonidos())} title={silenciado ? "Activar sonidos" : "Silenciar sonidos"} style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>{silenciado ? "🔇" : "🔊"}</button>
         {user.role!=="master" && !esCuentaTienda(user) && <button onClick={onCambiarPassword} title="Mi contraseña" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔑</button>}
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
         <div style={{ fontFamily:font.body, fontSize:12, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
@@ -1701,7 +1709,24 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
   const ultimoReal=[...ORDEN].reverse().find(e=>eventosReales.includes(e));
   const nextEvent=!ultimoReal?"entrada":ultimoReal==="entrada"?"inicio_almuerzo":ultimoReal==="inicio_almuerzo"?"fin_almuerzo":ultimoReal==="fin_almuerzo"?"salida":null;
   const refreshTodayRecs=async()=>{ const{data}=await supabase.from("registros").select("*").eq("user_id",user.id).eq("date",todayStr); if(data)onRefresh(data); };
-  const handleCapture=async(photoBase64)=>{ setShowCamera(false);setRecording(true); let photo_url=null; try{ const blob=await fetch(photoBase64).then(r=>r.blob()); const fileName=`${user.id}_${Date.now()}.jpg`; const{data:up}=await supabase.storage.from("fotos-registro").upload(fileName,blob,{contentType:"image/jpeg"}); if(up){const{data:ud}=supabase.storage.from("fotos-registro").getPublicUrl(fileName);photo_url=ud.publicUrl;} }catch(e){console.error(e);} const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:selStore,shift:selShift,event:nextEvent,date:todayStr,time:fmtTime(new Date()),photo_url}).select().single(); if(!error){onRecord(data);setLocked(true);await refreshTodayRecs();} setRecording(false);setToast(`✓ ${EVENT_LABELS[nextEvent]} registrada`);setTimeout(()=>setToast(null),3000); };
+  const handleCapture=async(photoBase64)=>{ setShowCamera(false);setRecording(true); let photo_url=null; try{ const blob=await fetch(photoBase64).then(r=>r.blob()); const fileName=`${user.id}_${Date.now()}.jpg`; const{data:up}=await supabase.storage.from("fotos-registro").upload(fileName,blob,{contentType:"image/jpeg"}); if(up){const{data:ud}=supabase.storage.from("fotos-registro").getPublicUrl(fileName);photo_url=ud.publicUrl;} }catch(e){console.error(e);} const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:selStore,shift:selShift,event:nextEvent,date:todayStr,time:fmtTime(new Date()),photo_url}).select().single();
+    if(!error){
+      onRecord(data);setLocked(true);await refreshTodayRecs();
+      // Avisa a los admins de Turnos (push real, aunque tengan la app cerrada) solo cuando se
+      // marca ENTRADA — es el evento que de verdad les interesa saber al momento. Si falla el
+      // envío (sin suscriptores, Edge Function no desplegada, etc.) no debe frenar el registro.
+      if(nextEvent==="entrada"){
+        supabase.functions.invoke("notificar-entrada", { body:{
+          title:"Entrada marcada",
+          body:`${user.name} marcó entrada en ${stores[selStore]?.name||selStore}${selShift?` · ${selShift}`:""} · ${fmtTime(new Date())}`,
+          url:"/",
+        }}).catch(()=>{});
+        sonidoEntrada();
+      } else if(nextEvent==="salida"){
+        sonidoSalida();
+      }
+    } else { sonidoError(); }
+    setRecording(false);setToast(`✓ ${EVENT_LABELS[nextEvent]} registrada`);setTimeout(()=>setToast(null),3000); };
 
   const puntHoy = calcPuntualidad(todayRecs.find(r=>r.event==="entrada")?.time, selShift, todayStr, selStore, turnosHorarios, asigHoy?.entrada_custom);
 
@@ -2384,6 +2409,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const actualizarCompletadoGrupo = (g, valor) => {
     const patch = valor ? { completado:true, completado_en:new Date().toISOString(), completado_por:user.name } : { completado:false, completado_en:null, completado_por:null };
     g.forEach(m => actualizar(m.id, patch));
+    if (valor) sonidoTareaCumplida();
   };
   // "Check visual": quien no es el monitor de turno (pero sí es responsable de la tarea) puede
   // marcarla como que ya la hizo — pero es solo un autorreporte, no cuenta para Indicadores hasta
@@ -3974,7 +4000,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     // que se registran después de que pasaron). El resto siempre abona con la fecha de hoy.
     const fechaAbono = (esAdmin && abonoFecha) ? abonoFecha : todayStr;
     const { data, error } = await supabase.from("ventas_abonos").insert({ venta_id:venta.id, fecha:fechaAbono, valor:Number(abonoValor), registrado_por:user.name, medio_pago:abonoMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(abonoMedio)?abonoAutorizacion.trim():null }).select().single();
-    if(error){ alert(`No se pudo guardar el abono: ${error.message}`); return; }
+    if(error){ alert(`No se pudo guardar el abono: ${error.message}`); sonidoError(); return; }
     if(data){
       setDetalle(prev=>({...prev, abonos:[...(prev?.abonos||[]), data]}));
       if(setVentasAbonos) setVentasAbonos(prev=>[...prev, data]);
@@ -3982,6 +4008,9 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
         const { data:ventaAct } = await supabase.from("ventas").update({ numero_factura:abonoNumeroFactura.trim() }).eq("id",venta.id).select().single();
         if(ventaAct) setVentas(prev=>prev.map(v2=>v2.id===venta.id?ventaAct:v2));
       }
+      // Un abono cualquiera es rutina; uno que termina de pagar el Flexipago es un logro — se
+      // premia con un sonido distinto (más elaborado que el de una venta normal).
+      if(completaPago) sonidoFlexipagoCompletado();
       setAbonoForm(false); setAbonoValor(""); setAbonoMedio("efectivo"); setAbonoAutorizacion(""); setAbonoNumeroFactura(""); setAbonoFecha(todayStr);
     }
   };
@@ -4640,10 +4669,10 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
       cliente_nombre:esFlexipago?clienteNombre.trim():null, cliente_telefono:esFlexipago?clienteTelefono.trim():null,
       observacion:observacion.trim(), valor_bruto:valorBruto, descuento_total:descuentoNum, total, valor_original:total, es_flexipago:esFlexipago,
     }).select().single();
-    if(error || !venta){ setGuardando(false); setMsg("No se pudo guardar. Intenta de nuevo."); return; }
+    if(error || !venta){ setGuardando(false); setMsg("No se pudo guardar. Intenta de nuevo."); sonidoError(); return; }
     const filasItems = items.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, codigos_producto:(i.codigosFlexipago&&i.codigosFlexipago.length)?i.codigosFlexipago:null }));
     const { data:itemsGuardados, error:errorItems } = await supabase.from("ventas_items").insert(filasItems).select();
-    if(errorItems){ setGuardando(false); setMsg("La venta se guardó, pero hubo un problema guardando las ventas/servicios."); return; }
+    if(errorItems){ setGuardando(false); setMsg("La venta se guardó, pero hubo un problema guardando las ventas/servicios."); sonidoError(); return; }
     if(itemsGuardados && setVentasItems) setVentasItems(prev=>[...prev, ...itemsGuardados]);
     if(esFlexipago && Number(abonoInicialValor||0) > 0){
       await supabase.from("ventas_abonos").insert({ venta_id:venta.id, fecha, valor:Number(abonoInicialValor), registrado_por:user.name, medio_pago:abonoInicialMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(abonoInicialMedio)?abonoInicialAutorizacion.trim():null });
@@ -4653,6 +4682,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
     const numeroMsg = venta.numero_factura ? ` #${venta.numero_factura}` : "";
     limpiarTodo();
     setMsg(`✓ Venta${numeroMsg} registrada`);
+    sonidoVenta();
     setTimeout(()=>setMsg(""), 3000);
   };
 
@@ -6256,8 +6286,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       base_caja:Number(ciBaseCaja||0), novedades:ciNovedades.trim()||null, registrado_por:user.name,
     }).select().single();
     setGuardandoCi(false);
-    if(data){ setCierres(prev=>[data,...prev]); setCiNovedades(""); setCiBaseCajaTocado(false); }
-    else if(error){ setMsg(`No se pudo guardar el cierre: ${error.message||"error desconocido"}`); }
+    if(data){ setCierres(prev=>[data,...prev]); setCiNovedades(""); setCiBaseCajaTocado(false); sonidoCierreCaja(); }
+    else if(error){ setMsg(`No se pudo guardar el cierre: ${error.message||"error desconocido"}`); sonidoError(); }
   };
 
   const guardarRecoleccion = async () => {
@@ -6763,6 +6793,16 @@ export default function App() {
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
 
+  // Notificaciones push reales (avisan a los admins de Turnos aunque tengan la app cerrada) — el
+  // botón que dispara esto solo se muestra a quien puede gestionar Turnos (ver Sidebar/MobileHeader).
+  const activarNotificaciones = async () => {
+    if(!notificacionesSoportadas()){ alert("Este navegador no soporta notificaciones push."); return; }
+    const r = await activarNotificacionesPush(user);
+    if(r.ok){ alert("Listo — vas a recibir un aviso cuando alguien marque entrada."); }
+    else if(r.motivo==="permiso_denegado"){ alert("No se activaron las notificaciones — el navegador dice que el permiso está bloqueado. Revisa los ajustes de notificaciones de este sitio."); }
+    else { alert("No se pudieron activar las notificaciones. Intenta de nuevo."); }
+  };
+
   // Cuenta de tienda: es el equipo compartido que queda abierto en el mostrador toda la
   // jornada, así que se le da el margen de una jornada completa (7 horas) antes de cerrar
   // sesión por inactividad. El resto de cuentas (uso personal) sigue en 5 minutos — salvo en
@@ -6881,7 +6921,7 @@ export default function App() {
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden"}}>
         {globalAnimStyles}
-        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)}/>
+        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)} onActivarNotificaciones={activarNotificaciones}/>
         <main style={{flex:1,overflowY:"auto",padding:16}}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></main>
         <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
         {modalCambiarPassword}
@@ -6895,7 +6935,7 @@ export default function App() {
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
         {globalAnimStyles}
-        <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)}/>
+        <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)} onActivarNotificaciones={activarNotificaciones}/>
         <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></main>
         {modalCambiarPassword}
         {modalUsuarios}
