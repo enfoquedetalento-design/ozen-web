@@ -2266,7 +2266,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const [, tick] = useState(0);
   useEffect(() => { const iv = setInterval(() => tick(x => x + 1), 15000); return () => clearInterval(iv); }, []);
   const [vistaEstado, setVistaEstado] = useState("activas"); // 'activas' | 'todas' | 'cumplidas' | 'vencidas'
-  const [orden, setOrden] = useState("reciente"); // 'reciente' | 'lider'
+  const [orden, setOrden] = useState("cronologico"); // 'cronologico' (más vieja primero) | 'lider'
   const [showNueva, setShowNueva] = useState(false);
   const [nueva, setNueva] = useState({ descripcion:"", lider_ids:[], fecha_estimada:"", comentarios:"" });
   // La descripción se muestra truncada en una línea con un "ver más" que la deja crecer y
@@ -2315,9 +2315,12 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   // sigue apareciendo en "Cumplidas" desde el primer momento — es solo una copia visual temporal.
   const gruposActivos = gruposFiltrados.filter(g => !esGrupoVencido(g) && (!esGrupoCompletado(g) || dentroDeGracia(g[0])));
   const gruposMostrados = vistaEstado==="activas" ? gruposActivos : vistaEstado==="cumplidas" ? gruposCumplidos : vistaEstado==="vencidas" ? gruposVencidos : gruposFiltrados;
+  // Orden cronológico: la más vieja primero, la más nueva de última — así el monitor revisa de
+  // arriba hacia abajo en la reunión, y cuando llega a la última (la que se creó más reciente)
+  // sabe que ya terminó de repasarlas todas.
   const gruposOrdenados = [...gruposMostrados].sort((a,b)=> orden==="lider"
     ? nombreLider(a[0].lider_id).localeCompare(nombreLider(b[0].lider_id))
-    : new Date(b[0].created_at||0) - new Date(a[0].created_at||0));
+    : new Date(a[0].created_at||0) - new Date(b[0].created_at||0));
 
   // ── Crear tarea (uno o varios líderes a la vez) ────────────────────────────────
   // La fecha sugerida siempre es "el próximo martes desde hoy" — sin importar qué se esté
@@ -2438,7 +2441,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             {lideres.map(l=><option key={l.id} value={l.id}>{l.nombre||"(sin nombre)"}</option>)}
           </select>
           <select value={orden} onChange={e=>setOrden(e.target.value)} style={selectStyle}>
-            <option value="reciente">Ordenar: más reciente</option>
+            <option value="cronologico">Ordenar: más vieja primero</option>
             <option value="lider">Ordenar: por líder</option>
           </select>
           <div style={{ display:"flex", marginLeft:"auto" }}>
