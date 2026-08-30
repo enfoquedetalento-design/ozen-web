@@ -1,9 +1,6 @@
 // Sonidos cortos para eventos clave de la app — sintetizados con Web Audio (sin archivos de
-// audio externos, así no hay que descargar/licenciar nada y pesan cero). Se pueden silenciar
-// desde cualquier pantalla (ver botón 🔊/🔇 junto al resto de acciones de la cuenta); la
-// preferencia se guarda en este navegador.
-
-const LS_KEY = "ozen_sonidos_silenciados";
+// audio externos, así no hay que descargar/licenciar nada y pesan cero). Son obligatorios, no
+// se pueden silenciar desde la app.
 
 let ctx = null;
 const getCtx = () => {
@@ -15,15 +12,6 @@ const getCtx = () => {
   }
   if (ctx.state === "suspended") ctx.resume();
   return ctx;
-};
-
-export const sonidosSilenciados = () => {
-  try { return localStorage.getItem(LS_KEY) === "1"; } catch (e) { return false; }
-};
-export const alternarSonidos = () => {
-  const nuevo = !sonidosSilenciados();
-  try { localStorage.setItem(LS_KEY, nuevo ? "1" : "0"); } catch (e) { /* sin localStorage, no pasa nada */ }
-  return nuevo;
 };
 
 // Una nota simple: sube y baja el volumen suavemente (evita el "click" seco de encendido/apagado
@@ -42,7 +30,6 @@ const nota = (audioCtx, freq, inicio, duracion, tipo = "sine", volumen = 0.16) =
 };
 
 const reproducir = (notas) => {
-  if (sonidosSilenciados()) return;
   const audioCtx = getCtx();
   if (!audioCtx) return;
   try { notas.forEach(([freq, inicio, duracion, tipo, vol]) => nota(audioCtx, freq, inicio, duracion, tipo, vol)); } catch (e) { /* nunca debe romper el flujo de la app */ }

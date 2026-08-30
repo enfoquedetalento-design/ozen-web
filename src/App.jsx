@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, createContext, useContext } from "react";
 import { supabase } from "./supabase";
 import { activarNotificacionesPush, notificacionesSoportadas, permisoNotificaciones } from "./push";
-import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError, sonidosSilenciados, alternarSonidos } from "./sounds";
+import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError } from "./sounds";
 import { PDFDocument } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
@@ -82,6 +82,22 @@ const calcPuntualidad = (entryTime, shift, date, store, turnosHorarios, entradaC
   const diff = (h * 60 + m) - expected;
   if (diff <= 5) return { puntual: true, diff: 0 };
   return { puntual: false, diff };
+};
+// Rango de horario esperado ("11:30am–8:00pm") para mostrar junto a la puntualidad — así se ve
+// a qué hora debía entrar y hasta qué hora le tocaba trabajar ese día, sin tener que ir a
+// consultar la malla de Turnos aparte. Respeta horarios especiales del día (entrada_custom /
+// salida_custom) igual que calcPuntualidad.
+const getExpectedRange = (shift, date, store, turnosHorarios, entradaCustom, salidaCustom) => {
+  const familia = familiaDeTurno(shift);
+  const fila = filaHorarioVigente(familia, store, turnosHorarios, date);
+  const dow = new Date(date + "T12:00:00").getDay();
+  const isVS = dow === 5 || dow === 6;
+  const entradaStd = fila ? (isVS ? fila.entrada_vs : fila.entrada_lj) : null;
+  const salidaStd = fila ? (isVS ? fila.salida_vs : fila.salida_lj) : null;
+  const entrada = entradaCustom || entradaStd;
+  const salida = salidaCustom || salidaStd;
+  if (!entrada && !salida) return null;
+  return `${fmtHora12(entrada)}–${fmtHora12(salida)}`;
 };
 
 // ── Junta Admin — rotación del Monitor ───────────────────────────────────────
@@ -510,7 +526,6 @@ const passwordVencida = (u) => {
 function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
   const tabs = tabsPara(user, area);
   const presionarLogo = useLongPress(onAbrirUsuarios);
-  const [silenciado, setSilenciado] = useState(sonidosSilenciados());
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C.border}`, textAlign:"center" }}>
@@ -537,7 +552,6 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
         {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
         {esAdminFinanzas(user) && <Btn onClick={onAbrirAccesoTiendas} variant="ghost" full sm style={{ marginBottom:8 }}>🏬 Acceso tiendas</Btn>}
         {puedeGestionarTurnos(user) && notificacionesSoportadas() && permisoNotificaciones()!=="granted" && <Btn onClick={onActivarNotificaciones} variant="ghost" full sm style={{ marginBottom:8 }}>🔔 Activar notificaciones</Btn>}
-        <Btn onClick={()=>setSilenciado(alternarSonidos())} variant="ghost" full sm style={{ marginBottom:8 }}>{silenciado ? "🔇 Sonidos desactivados" : "🔊 Sonidos activados"}</Btn>
         {user.role!=="master" && !esCuentaTienda(user) && <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8 }}>🔑 Mi contraseña</Btn>}
         <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
       </div>
@@ -562,7 +576,6 @@ function BottomNav({ tab, setTab, user, area }) {
 
 function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
   const presionarLogo = useLongPress(onAbrirUsuarios);
-  const [silenciado, setSilenciado] = useState(sonidosSilenciados());
   return (
     <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
       {/* El logo, para master, también es la entrada a Usuarios — sin ningún aviso visual, y hay
@@ -572,7 +585,6 @@ function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onC
         {puedeUsarAreas(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
         {esAdminFinanzas(user) && <button onClick={onAbrirAccesoTiendas} title="Acceso tiendas" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🏬</button>}
         {puedeGestionarTurnos(user) && notificacionesSoportadas() && permisoNotificaciones()!=="granted" && <button onClick={onActivarNotificaciones} title="Activar notificaciones" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔔</button>}
-        <button onClick={()=>setSilenciado(alternarSonidos())} title={silenciado ? "Activar sonidos" : "Silenciar sonidos"} style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>{silenciado ? "🔇" : "🔊"}</button>
         {user.role!=="master" && !esCuentaTienda(user) && <button onClick={onCambiarPassword} title="Mi contraseña" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔑</button>}
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
         <div style={{ fontFamily:font.body, fontSize:12, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
@@ -717,6 +729,7 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
           const shiftReal = asigDia?.tienda_id ? (asigDia.shift||j.shift) : j.shift;
           const storeReal = asigDia?.tienda_id || j.store;
           const punt=calcPuntualidad(j.entrada?.time,shiftReal,j.date,storeReal,turnosHorarios,asigDia?.entrada_custom);
+          const rango=getExpectedRange(shiftReal,j.date,storeReal,turnosHorarios,asigDia?.entrada_custom,asigDia?.salida_custom);
           return (
             <Card key={j.key} p="14px">
               <div style={{ marginBottom:10 }}>
@@ -724,7 +737,7 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
                   <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>{j.userName}</div>
                   {punt && (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual</Badge> : <Badge color={C.red} sm>🔴 Tarde {punt.diff} min</Badge>)}
                 </div>
-                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift} · {j.date}</div>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift} · {j.date}{rango?` · Debía: ${rango}`:""}</div>
               </div>
               <div style={{ display:"flex", gap:6 }}>
                 <EventBlock label="Entrada"       registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
@@ -1729,6 +1742,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
     setRecording(false);setToast(`✓ ${EVENT_LABELS[nextEvent]} registrada`);setTimeout(()=>setToast(null),3000); };
 
   const puntHoy = calcPuntualidad(todayRecs.find(r=>r.event==="entrada")?.time, selShift, todayStr, selStore, turnosHorarios, asigHoy?.entrada_custom);
+  const rangoHoy = getExpectedRange(selShift, todayStr, selStore, turnosHorarios, asigHoy?.entrada_custom, asigHoy?.salida_custom);
 
   return (
     <div>
@@ -1736,14 +1750,14 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
       {toast&&<div style={{position:"fixed",top:16,right:16,left:16,background:C.greenDim,border:`1px solid ${C.green}`,borderRadius:10,padding:"12px 16px",color:C.green,fontFamily:font.body,fontSize:13,fontWeight:600,zIndex:200,textAlign:"center"}}>{toast}</div>}
       <PageHeader title="Marcar Asistencia" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} />
       <Card style={{marginBottom:12}}>
-        {!locked && asigHoy && <div style={{marginBottom:10}}><Badge color={C.blue} sm>🔒 Turno de hoy — definido en Turnos</Badge></div>}
+        {!locked && asigHoy && <div style={{marginBottom:10}}><Badge color={C.blue} sm>🔒 {selShift}{rangoHoy?` (${rangoHoy})`:""} — definido en Turnos</Badge></div>}
         <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
         {selStore&&stores[selStore]?.shifts?.some(s=>s.activo!==false)&&<Field label="Turno" value={selShift} onChange={setSelShift} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).filter(s=>s.activo!==false).map(s=>({value:s.nombre,label:s.nombre}))]}/>}
       </Card>
 
       {nextEvent ? (
         <Card style={{marginBottom:12}}>
-          <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,marginBottom:4}}>Próximo evento</div>
+          <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,marginBottom:4}}>Próximo evento{rangoHoy?` · Turno: ${rangoHoy}`:""}</div>
           <div style={{fontFamily:font.body,fontSize:18,fontWeight:700,color:EVENT_COLORS[nextEvent],marginBottom:14}}>{EVENT_LABELS[nextEvent]}</div>
           <div style={{background:`${C.gold}10`,border:`1px solid ${C.borderGold}`,borderRadius:8,padding:"10px 12px",marginBottom:14,fontFamily:font.body,fontSize:12,color:C.textSub}}>📸 Se abrirá la cámara y se tomará una foto. Asegúrate de que tu rostro sea visible.</div>
           <Btn onClick={()=>setShowCamera(true)} disabled={!selStore||!selShift||recording} full>{recording?"Registrando...":"📸 Abrir cámara y registrar"}</Btn>
@@ -1755,8 +1769,9 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
       <Card>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
           <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Registro de hoy</div>
-          {puntHoy && (puntHoy.puntual ? <Badge color={C.green} sm>🟢 Puntual hoy</Badge> : <Badge color={C.red} sm>🔴 Tarde {puntHoy.diff} min hoy</Badge>)}
+          {puntHoy && (puntHoy.puntual ? <Badge color={C.green} sm>🟢 Puntual hoy</Badge> : <Badge color={C.red} sm title={rangoHoy?`Debía entrar ${rangoHoy.split("–")[0]}`:undefined}>🔴 Tarde {puntHoy.diff} min hoy</Badge>)}
         </div>
+        {rangoHoy && <div style={{fontFamily:font.body,fontSize:10.5,color:C.textMuted,marginTop:-4,marginBottom:10}}>Horario de hoy: {rangoHoy}</div>}
         {ORDEN.map((ev,i)=>{ const rec=todayRecs.find(r=>r.event===ev); const isNext=ev===nextEvent; return (
           <div key={ev} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<3?`1px solid ${C.border}`:"none"}}>
             <div style={{width:12,height:12,borderRadius:99,background:rec?EVENT_COLORS[ev]:C.border,boxShadow:rec?`0 0 8px ${EVENT_COLORS[ev]}`:"none",flexShrink:0}}/>
@@ -1811,6 +1826,7 @@ function HistoryScreen({ user, records, stores, turnosHorarios, turnosAsignacion
           const shiftReal = asigDia?.tienda_id ? (asigDia.shift||j.shift) : j.shift;
           const storeReal = asigDia?.tienda_id || j.store;
           const punt = calcPuntualidad(j.entrada?.time, shiftReal, j.date, storeReal, turnosHorarios, asigDia?.entrada_custom);
+          const rango = getExpectedRange(shiftReal, j.date, storeReal, turnosHorarios, asigDia?.entrada_custom, asigDia?.salida_custom);
           return (
           <Card key={j.key} p="14px">
             <div style={{ marginBottom:10 }}>
@@ -1818,7 +1834,7 @@ function HistoryScreen({ user, records, stores, turnosHorarios, turnosAsignacion
                 <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>{new Date(j.date+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}</div>
                 {punt && (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual</Badge> : <Badge color={C.red} sm>🔴 Tarde {punt.diff} min</Badge>)}
               </div>
-              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift}</div>
+              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift}{rango?` · Debía: ${rango}`:""}</div>
             </div>
             <div style={{ display:"flex", gap:6 }}>
               <EventBlock label="Entrada"       registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
