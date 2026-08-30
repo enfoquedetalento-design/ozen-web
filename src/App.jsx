@@ -1725,15 +1725,16 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
   const handleCapture=async(photoBase64)=>{ setShowCamera(false);setRecording(true); let photo_url=null; try{ const blob=await fetch(photoBase64).then(r=>r.blob()); const fileName=`${user.id}_${Date.now()}.jpg`; const{data:up}=await supabase.storage.from("fotos-registro").upload(fileName,blob,{contentType:"image/jpeg"}); if(up){const{data:ud}=supabase.storage.from("fotos-registro").getPublicUrl(fileName);photo_url=ud.publicUrl;} }catch(e){console.error(e);} const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:selStore,shift:selShift,event:nextEvent,date:todayStr,time:fmtTime(new Date()),photo_url}).select().single();
     if(!error){
       onRecord(data);setLocked(true);await refreshTodayRecs();
-      // Avisa a los admins de Turnos (push real, aunque tengan la app cerrada) solo cuando se
-      // marca ENTRADA — es el evento que de verdad les interesa saber al momento. Si falla el
-      // envío (sin suscriptores, Edge Function no desplegada, etc.) no debe frenar el registro.
+      // Avisa a los admins de Turnos (push real, aunque tengan la app cerrada) en CADA marcación
+      // — así ven en tiempo real en qué está su equipo (entrada, almuerzo, salida), no solo
+      // cuándo llegan. Si falla el envío (sin suscriptores, Edge Function no desplegada, etc.) no
+      // debe frenar el registro.
+      supabase.functions.invoke("notificar-entrada", { body:{
+        title:`${EVENT_LABELS[nextEvent]} marcada`,
+        body:`${user.name} marcó ${EVENT_LABELS[nextEvent].toLowerCase()} en ${stores[selStore]?.name||selStore}${selShift?` · ${selShift}`:""} · ${fmtTime(new Date())}`,
+        url:"/",
+      }}).catch(()=>{});
       if(nextEvent==="entrada"){
-        supabase.functions.invoke("notificar-entrada", { body:{
-          title:"Entrada marcada",
-          body:`${user.name} marcó entrada en ${stores[selStore]?.name||selStore}${selShift?` · ${selShift}`:""} · ${fmtTime(new Date())}`,
-          url:"/",
-        }}).catch(()=>{});
         sonidoEntrada();
       } else if(nextEvent==="salida"){
         sonidoSalida();
