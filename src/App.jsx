@@ -737,7 +737,7 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
                   <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>{j.userName}</div>
                   {punt && (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual</Badge> : <Badge color={C.red} sm>🔴 Tarde {punt.diff} min</Badge>)}
                 </div>
-                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift} · {j.date}{rango?` · Debía: ${rango}`:""}</div>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift} · {j.date}{rango?` - ${rango}`:""}</div>
               </div>
               <div style={{ display:"flex", gap:6 }}>
                 <EventBlock label="Entrada"       registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
@@ -1752,7 +1752,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
       <Card style={{marginBottom:12}}>
         {!locked && asigHoy && <div style={{marginBottom:10}}><Badge color={C.blue} sm>🔒 {selShift}{rangoHoy?` (${rangoHoy})`:""} — definido en Turnos</Badge></div>}
         <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
-        {selStore&&stores[selStore]?.shifts?.some(s=>s.activo!==false)&&<Field label="Turno" value={selShift} onChange={setSelShift} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).filter(s=>s.activo!==false).map(s=>({value:s.nombre,label:s.nombre}))]}/>}
+        {selStore&&stores[selStore]?.shifts?.some(s=>s.activo!==false)&&<Field label={<span>Turno{rangoHoy && <span style={{textTransform:"none",letterSpacing:"normal",fontWeight:400,color:C.textSub}}> ({rangoHoy})</span>}</span>} value={selShift} onChange={setSelShift} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).filter(s=>s.activo!==false).map(s=>({value:s.nombre,label:s.nombre}))]}/>}
       </Card>
 
       {nextEvent ? (
@@ -1834,7 +1834,7 @@ function HistoryScreen({ user, records, stores, turnosHorarios, turnosAsignacion
                 <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>{new Date(j.date+"T12:00:00").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}</div>
                 {punt && (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual</Badge> : <Badge color={C.red} sm>🔴 Tarde {punt.diff} min</Badge>)}
               </div>
-              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift}{rango?` · Debía: ${rango}`:""}</div>
+              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift}{rango?` - ${rango}`:""}</div>
             </div>
             <div style={{ display:"flex", gap:6 }}>
               <EventBlock label="Entrada"       registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
