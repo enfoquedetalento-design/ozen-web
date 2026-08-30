@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback, useEffect, createContext, useContext } from "react";
 import { supabase } from "./supabase";
+import { activarNotificacionesPush, notificacionesSoportadas, permisoNotificaciones } from "./push";
+import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError, sonidosSilenciados, alternarSonidos } from "./sounds";
 import { PDFDocument } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
@@ -187,6 +189,15 @@ const statsPorLiderDelMes = (compromisos, lideres, anio, mes) => {
     .filter(x => x.total > 0)
     .sort((a,b) => (a.lider.nombre||"").localeCompare(b.lider.nombre||""));
 };
+// Indicadores de la Junta: un solo color (azul) para cualquier % cumplido, sin el semáforo
+// rojo/ámbar/verde — ahí no se busca presionar, solo mostrar el dato. La única señal que cambia
+// con el % es qué tan "lleno" se ve el badge — ver intensidadPct, usada con el prop `intensity`
+// de Badge.
+const colorCumplimientoTexto = (pct) => pct===null || pct===undefined ? C.textMuted : C.blue;
+const intensidadPct = (pct) => pct===null || pct===undefined ? 0.15 : Math.max(0, Math.min(1, pct/100));
+// IDC de Ventas: aquí sí se busca presión visual sobre asesores/tiendas, así que se queda el
+// semáforo clásico. Sin datos = gris. 100% o más = verde. 70-99% = ámbar. Menos de 70% = rojo.
+const colorSemaforoIDC = (pct) => pct===null || pct===undefined ? C.textMuted : pct>=100 ? C.green : pct>=70 ? C.amber : C.red;
 // Devuelve el martes de la semana de una fecha (o la fecha misma si ya es martes)
 const martesDeSemana = (dateStr) => {
   const d = new Date(dateStr + "T12:00:00");
@@ -235,9 +246,19 @@ function useIsMobile() {
 }
 
 // ── UI Primitives ─────────────────────────────────────────────────────────────
-const Badge = ({ color, children, sm, title }) => (
-  <span title={title} style={{ display:"inline-flex", alignItems:"center", padding: sm?"2px 8px":"3px 10px", borderRadius:99, fontSize:sm?10:11, fontWeight:600, background:`${color}20`, color, border:`1px solid ${color}40`, fontFamily:font.body, letterSpacing:"0.04em", textTransform:"uppercase", whiteSpace:"nowrap", cursor:title?"help":"default" }}>{children}</span>
-);
+// `intensity` (0 a 1, opcional) controla qué tan lleno se ve el relleno/borde del badge, sin
+// cambiar el color en sí ni el texto (siempre sólido y legible) — se usa para indicadores de %
+// donde se quiere una señal suave de "más alto = más lleno" en vez de cambiar de color entero
+// (rojo/ámbar/verde), que se sentía como un semáforo castigador. Si no se pasa, se comporta igual
+// que antes (relleno fijo).
+const alphaHex = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+const Badge = ({ color, children, sm, title, intensity }) => {
+  const bgAlpha = intensity==null ? 32 : (14 + intensity*46);
+  const borderAlpha = intensity==null ? 64 : (35 + intensity*80);
+  return (
+    <span title={title} style={{ display:"inline-flex", alignItems:"center", padding: sm?"2px 8px":"3px 10px", borderRadius:99, fontSize:sm?10:11, fontWeight:600, background:`${color}${alphaHex(bgAlpha)}`, color, border:`1px solid ${color}${alphaHex(borderAlpha)}`, fontFamily:font.body, letterSpacing:"0.04em", textTransform:"uppercase", whiteSpace:"nowrap", cursor:title?"help":"default" }}>{children}</span>
+  );
+};
 
 const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={} }) => {
   const [hov, setHov] = useState(false);
@@ -486,9 +507,10 @@ const passwordVencida = (u) => {
   return dias >= DIAS_EXPIRACION_PASSWORD;
 };
 
-function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas }) {
+function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
   const tabs = tabsPara(user, area);
   const presionarLogo = useLongPress(onAbrirUsuarios);
+  const [silenciado, setSilenciado] = useState(sonidosSilenciados());
   return (
     <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C.border}`, textAlign:"center" }}>
@@ -514,6 +536,8 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
         </div>
         {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
         {esAdminFinanzas(user) && <Btn onClick={onAbrirAccesoTiendas} variant="ghost" full sm style={{ marginBottom:8 }}>🏬 Acceso tiendas</Btn>}
+        {puedeGestionarTurnos(user) && notificacionesSoportadas() && permisoNotificaciones()!=="granted" && <Btn onClick={onActivarNotificaciones} variant="ghost" full sm style={{ marginBottom:8 }}>🔔 Activar notificaciones</Btn>}
+        <Btn onClick={()=>setSilenciado(alternarSonidos())} variant="ghost" full sm style={{ marginBottom:8 }}>{silenciado ? "🔇 Sonidos desactivados" : "🔊 Sonidos activados"}</Btn>
         {user.role!=="master" && !esCuentaTienda(user) && <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8 }}>🔑 Mi contraseña</Btn>}
         <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
       </div>
@@ -536,8 +560,9 @@ function BottomNav({ tab, setTab, user, area }) {
   );
 }
 
-function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas }) {
+function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
   const presionarLogo = useLongPress(onAbrirUsuarios);
+  const [silenciado, setSilenciado] = useState(sonidosSilenciados());
   return (
     <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
       {/* El logo, para master, también es la entrada a Usuarios — sin ningún aviso visual, y hay
@@ -546,6 +571,8 @@ function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onC
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         {puedeUsarAreas(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
         {esAdminFinanzas(user) && <button onClick={onAbrirAccesoTiendas} title="Acceso tiendas" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🏬</button>}
+        {puedeGestionarTurnos(user) && notificacionesSoportadas() && permisoNotificaciones()!=="granted" && <button onClick={onActivarNotificaciones} title="Activar notificaciones" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔔</button>}
+        <button onClick={()=>setSilenciado(alternarSonidos())} title={silenciado ? "Activar sonidos" : "Silenciar sonidos"} style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>{silenciado ? "🔇" : "🔊"}</button>
         {user.role!=="master" && !esCuentaTienda(user) && <button onClick={onCambiarPassword} title="Mi contraseña" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔑</button>}
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
         <div style={{ fontFamily:font.body, fontSize:12, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
@@ -1682,7 +1709,24 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
   const ultimoReal=[...ORDEN].reverse().find(e=>eventosReales.includes(e));
   const nextEvent=!ultimoReal?"entrada":ultimoReal==="entrada"?"inicio_almuerzo":ultimoReal==="inicio_almuerzo"?"fin_almuerzo":ultimoReal==="fin_almuerzo"?"salida":null;
   const refreshTodayRecs=async()=>{ const{data}=await supabase.from("registros").select("*").eq("user_id",user.id).eq("date",todayStr); if(data)onRefresh(data); };
-  const handleCapture=async(photoBase64)=>{ setShowCamera(false);setRecording(true); let photo_url=null; try{ const blob=await fetch(photoBase64).then(r=>r.blob()); const fileName=`${user.id}_${Date.now()}.jpg`; const{data:up}=await supabase.storage.from("fotos-registro").upload(fileName,blob,{contentType:"image/jpeg"}); if(up){const{data:ud}=supabase.storage.from("fotos-registro").getPublicUrl(fileName);photo_url=ud.publicUrl;} }catch(e){console.error(e);} const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:selStore,shift:selShift,event:nextEvent,date:todayStr,time:fmtTime(new Date()),photo_url}).select().single(); if(!error){onRecord(data);setLocked(true);await refreshTodayRecs();} setRecording(false);setToast(`✓ ${EVENT_LABELS[nextEvent]} registrada`);setTimeout(()=>setToast(null),3000); };
+  const handleCapture=async(photoBase64)=>{ setShowCamera(false);setRecording(true); let photo_url=null; try{ const blob=await fetch(photoBase64).then(r=>r.blob()); const fileName=`${user.id}_${Date.now()}.jpg`; const{data:up}=await supabase.storage.from("fotos-registro").upload(fileName,blob,{contentType:"image/jpeg"}); if(up){const{data:ud}=supabase.storage.from("fotos-registro").getPublicUrl(fileName);photo_url=ud.publicUrl;} }catch(e){console.error(e);} const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:selStore,shift:selShift,event:nextEvent,date:todayStr,time:fmtTime(new Date()),photo_url}).select().single();
+    if(!error){
+      onRecord(data);setLocked(true);await refreshTodayRecs();
+      // Avisa a los admins de Turnos (push real, aunque tengan la app cerrada) solo cuando se
+      // marca ENTRADA — es el evento que de verdad les interesa saber al momento. Si falla el
+      // envío (sin suscriptores, Edge Function no desplegada, etc.) no debe frenar el registro.
+      if(nextEvent==="entrada"){
+        supabase.functions.invoke("notificar-entrada", { body:{
+          title:"Entrada marcada",
+          body:`${user.name} marcó entrada en ${stores[selStore]?.name||selStore}${selShift?` · ${selShift}`:""} · ${fmtTime(new Date())}`,
+          url:"/",
+        }}).catch(()=>{});
+        sonidoEntrada();
+      } else if(nextEvent==="salida"){
+        sonidoSalida();
+      }
+    } else { sonidoError(); }
+    setRecording(false);setToast(`✓ ${EVENT_LABELS[nextEvent]} registrada`);setTimeout(()=>setToast(null),3000); };
 
   const puntHoy = calcPuntualidad(todayRecs.find(r=>r.event==="entrada")?.time, selShift, todayStr, selStore, turnosHorarios, asigHoy?.entrada_custom);
 
@@ -1692,7 +1736,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
       {toast&&<div style={{position:"fixed",top:16,right:16,left:16,background:C.greenDim,border:`1px solid ${C.green}`,borderRadius:10,padding:"12px 16px",color:C.green,fontFamily:font.body,fontSize:13,fontWeight:600,zIndex:200,textAlign:"center"}}>{toast}</div>}
       <PageHeader title="Marcar Asistencia" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} />
       <Card style={{marginBottom:12}}>
-        {!locked && asigHoy && <div style={{marginBottom:10}}><Badge color={C.gold} sm>🔒 Turno de hoy — definido en Turnos</Badge></div>}
+        {!locked && asigHoy && <div style={{marginBottom:10}}><Badge color={C.blue} sm>🔒 Turno de hoy — definido en Turnos</Badge></div>}
         <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
         {selStore&&stores[selStore]?.shifts?.some(s=>s.activo!==false)&&<Field label="Turno" value={selShift} onChange={setSelShift} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).filter(s=>s.activo!==false).map(s=>({value:s.nombre,label:s.nombre}))]}/>}
       </Card>
@@ -1717,7 +1761,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
           <div key={ev} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<3?`1px solid ${C.border}`:"none"}}>
             <div style={{width:12,height:12,borderRadius:99,background:rec?EVENT_COLORS[ev]:C.border,boxShadow:rec?`0 0 8px ${EVENT_COLORS[ev]}`:"none",flexShrink:0}}/>
             <div style={{flex:1,fontFamily:font.body,fontSize:13,color:rec?C.text:C.textMuted}}>{EVENT_LABELS[ev]}</div>
-            {isNext&&!rec&&<Badge color={C.gold} sm>Pendiente</Badge>}
+            {isNext&&!rec&&<Badge color={C.blue} sm>Pendiente</Badge>}
             {rec?.photo_url&&<img src={rec.photo_url} alt="foto" style={{width:28,height:28,borderRadius:6,objectFit:"cover"}}/>}
             <div style={{fontFamily:font.mono,fontSize:13,color:rec?EVENT_COLORS[ev]:C.border,fontWeight:700}}>{rec?rec.time:"--:--"}</div>
           </div>
@@ -2236,7 +2280,7 @@ function JuntaAcuerdosTab({ user, acuerdos, setAcuerdos }) {
               <div style={{ flex:1, padding:"14px 16px" }}>
                 <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10, marginBottom:10 }}>
                   <div style={{ fontFamily:font.body, fontSize:13, color:C.text, lineHeight:1.5 }}>{a.texto}</div>
-                  <Badge color={C.gold} sm>🔒 Fijo</Badge>
+                  <Badge color={C.blue} sm>🔒 Fijo</Badge>
                 </div>
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                   <Badge color={C.textMuted} sm>📅 {a.fecha}</Badge>
@@ -2266,7 +2310,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const [, tick] = useState(0);
   useEffect(() => { const iv = setInterval(() => tick(x => x + 1), 15000); return () => clearInterval(iv); }, []);
   const [vistaEstado, setVistaEstado] = useState("activas"); // 'activas' | 'todas' | 'cumplidas' | 'vencidas'
-  const [orden, setOrden] = useState("reciente"); // 'reciente' | 'lider'
+  const [orden, setOrden] = useState("cronologico"); // 'cronologico' (más vieja primero) | 'lider'
   const [showNueva, setShowNueva] = useState(false);
   const [nueva, setNueva] = useState({ descripcion:"", lider_ids:[], fecha_estimada:"", comentarios:"" });
   // La descripción se muestra truncada en una línea con un "ver más" que la deja crecer y
@@ -2309,11 +2353,18 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const gruposFiltrados = gruposMes.filter(g => !filtroLider || g.some(m=>m.lider_id===filtroLider));
   const gruposCumplidos = gruposFiltrados.filter(esGrupoCompletado);
   const gruposVencidos = gruposFiltrados.filter(esGrupoVencido);
-  const gruposActivos = gruposFiltrados.filter(g => !esGrupoVencido(g) && !esGrupoCompletado(g));
+  // Una tarea recién marcada como hecha no desaparece de "Activas" de una — se queda ahí, ya con
+  // su check verde, mientras dure la gracia de 5 minutos para desmarcar por error (dentroDeGracia,
+  // arriba). Así no toca ir a buscarla entre todas las cumplidas si se marcó sin querer. También
+  // sigue apareciendo en "Cumplidas" desde el primer momento — es solo una copia visual temporal.
+  const gruposActivos = gruposFiltrados.filter(g => !esGrupoVencido(g) && (!esGrupoCompletado(g) || dentroDeGracia(g[0])));
   const gruposMostrados = vistaEstado==="activas" ? gruposActivos : vistaEstado==="cumplidas" ? gruposCumplidos : vistaEstado==="vencidas" ? gruposVencidos : gruposFiltrados;
+  // Orden cronológico: la más vieja primero, la más nueva de última — así el monitor revisa de
+  // arriba hacia abajo en la reunión, y cuando llega a la última (la que se creó más reciente)
+  // sabe que ya terminó de repasarlas todas.
   const gruposOrdenados = [...gruposMostrados].sort((a,b)=> orden==="lider"
     ? nombreLider(a[0].lider_id).localeCompare(nombreLider(b[0].lider_id))
-    : new Date(b[0].created_at||0) - new Date(a[0].created_at||0));
+    : new Date(a[0].created_at||0) - new Date(b[0].created_at||0));
 
   // ── Crear tarea (uno o varios líderes a la vez) ────────────────────────────────
   // La fecha sugerida siempre es "el próximo martes desde hoy" — sin importar qué se esté
@@ -2339,10 +2390,15 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
     }));
     const { data, error } = await supabase.from("junta_compromisos").insert(filas).select();
     if (!error && data) { setCompromisos(prev=>[...data, ...prev]); setShowNueva(false); }
+    else if (error) alert(`No se pudo crear la tarea: ${error.message||"error desconocido"}`);
   };
   const actualizar = async (id, patch) => {
     const { data, error } = await supabase.from("junta_compromisos").update(patch).eq("id", id).select().single();
     if (!error && data) setCompromisos(prev=>prev.map(c=>c.id===id?data:c));
+    // Antes esto fallaba en silencio — si faltaba una columna en la base de datos (por ejemplo, si
+    // no se corrió una migración) el clic no hacía nada visible y parecía un bug en vez de un
+    // aviso claro. Ahora se avisa qué pasó.
+    else if (error) alert(`No se pudo guardar el cambio: ${error.message||"error desconocido"}`);
   };
   const actualizarComentarioGrupo = (g, valor) => g.forEach(m=>{ if (valor!==m.comentarios) actualizar(m.id, {comentarios:valor}); });
   // Una tarea compartida se marca como un solo bloque (se hizo o no se hizo entre todos los
@@ -2353,6 +2409,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const actualizarCompletadoGrupo = (g, valor) => {
     const patch = valor ? { completado:true, completado_en:new Date().toISOString(), completado_por:user.name } : { completado:false, completado_en:null, completado_por:null };
     g.forEach(m => actualizar(m.id, patch));
+    if (valor) sonidoTareaCumplida();
   };
   // "Check visual": quien no es el monitor de turno (pero sí es responsable de la tarea) puede
   // marcarla como que ya la hizo — pero es solo un autorreporte, no cuenta para Indicadores hasta
@@ -2429,7 +2486,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             {lideres.map(l=><option key={l.id} value={l.id}>{l.nombre||"(sin nombre)"}</option>)}
           </select>
           <select value={orden} onChange={e=>setOrden(e.target.value)} style={selectStyle}>
-            <option value="reciente">Ordenar: más reciente</option>
+            <option value="cronologico">Ordenar: más vieja primero</option>
             <option value="lider">Ordenar: por líder</option>
           </select>
           <div style={{ display:"flex", marginLeft:"auto" }}>
@@ -2512,7 +2569,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
                 <div style={{ fontFamily:font.body, fontSize:11, color:C.textSub, fontWeight:600 }}>👤 {nombresLideres}</div>
                 {base.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:10.5, color:vencida?C.amber:C.textMuted }}>📅 {base.fecha_estimada}</div>}
                 {completadoGrupo && <Badge color={C.green} sm>Cumplida</Badge>}
-                {autorreportadoGrupo && <Badge color={C.gold} sm title="Marcada por su responsable, falta que el monitor la confirme">Autorreportada</Badge>}
+                {autorreportadoGrupo && <Badge color={C.blue} sm title="Marcada por su responsable, falta que el monitor la confirme">Autorreportada</Badge>}
                 {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
                 {!puedeEditarPeriodo && <Badge color={C.textMuted} sm>Congelada</Badge>}
                 {vencida && puedeGestionar && puedeEditarPeriodo && <button onClick={()=>reabrirVencida(g)} title="La reunión se corrió de fecha — reabrir con nuevo plazo" style={{ background:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir</button>}
@@ -2531,9 +2588,9 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
               </div>
               {/* Línea 2: check + tarea (ancho libre) + ver más al final */}
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <button onClick={puedeMarcar?marcar:undefined} disabled={!puedeMarcar} title={checkTitle} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${completadoGrupo?C.green:vencida?C.amber:autorreportadoGrupo?C.gold:C.border}`, background:completadoGrupo?C.green:autorreportadoGrupo?`${C.gold}30`:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:completadoGrupo?"#fff":C.gold, fontSize:11 }}>{completadoGrupo?"✓":vencida?"✕":autorreportadoGrupo?"✓":""}</button>
+                <button onClick={puedeMarcar?marcar:undefined} disabled={!puedeMarcar} title={checkTitle} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${completadoGrupo?C.green:vencida?C.amber:autorreportadoGrupo?C.blue:C.border}`, background:completadoGrupo?C.green:autorreportadoGrupo?`${C.blue}30`:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:completadoGrupo?"#fff":vencida?C.amber:C.blue, fontSize:11 }}>{completadoGrupo?"✓":vencida?"✕":autorreportadoGrupo?"✓":""}</button>
                 <div style={{ flex:1, minWidth:0, textAlign:"left", fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, textDecoration:completadoGrupo?"line-through":"none", whiteSpace:expandida?"normal":"nowrap", overflow:expandida?"visible":"hidden", textOverflow:expandida?"clip":"ellipsis", lineHeight:1.5 }} title={!expandida?base.descripcion:undefined}>{base.descripcion}</div>
-                <button onClick={()=>toggleExpandida(toggleId)} style={{ flexShrink:0, background:"none", border:"none", color:C.gold, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandida?"ver menos":"ver más"}</button>
+                <button onClick={()=>toggleExpandida(toggleId)} style={{ flexShrink:0, background:"none", border:"none", color:C.blue, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandida?"ver menos":"ver más"}</button>
               </div>
               {/* Línea 3: comentario (ancho libre) + eliminar */}
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -2608,7 +2665,7 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
             </div>
             <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
               <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Cumplimiento de tareas (todos)</div>
-              <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:statsSel.pct===null?C.textMuted:statsSel.pct>=70?C.green:C.amber }}>{statsSel.pct===null?"—":`${statsSel.pct}%`}</div>
+              <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:colorCumplimientoTexto(statsSel.pct) }}>{statsSel.pct===null?"—":`${statsSel.pct}%`}</div>
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>{statsSel.completadas} de {statsSel.totalCerradas} tareas cerradas completadas</div>
               {statsSel.activas>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:2 }}>{statsSel.activas} todavía activa{statsSel.activas===1?"":"s"} — no cuenta{statsSel.activas===1?"":"n"} aún</div>}
             </div>
@@ -2623,13 +2680,13 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
                       <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
                       <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
                       <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadas} de {s.totalCerradas}</div>
-                      <Badge color={s.pct===null?C.textMuted:s.pct>=70?C.green:C.amber} sm>{s.pct===null?"Sin cierres aún":`${s.pct}% cumplido`}</Badge>
+                      <Badge color={C.blue} intensity={intensidadPct(s.pct)} sm>{s.pct===null?"Sin cierres aún":`${s.pct}% cumplido`}</Badge>
                     </div>
                   ))}
                 </div>
               </div>
               <div>
-                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>% del total de tareas del mes</div>
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Total tareas del mes</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                   {topCantidad.map((s,i)=>{
                     const shareTareas = statsSel.totalTareas>0 ? Math.round((s.total/statsSel.totalTareas)*100) : 0;
@@ -2638,7 +2695,7 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
                         <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
                         <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
                         <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.total} tareas</div>
-                        <Badge color={C.gold} sm>{shareTareas}% del total</Badge>
+                        <Badge color={C.blue} sm>{shareTareas}% del total</Badge>
                       </div>
                     );
                   })}
@@ -2662,7 +2719,7 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
               </div>
               <div style={{ flex:1, minWidth:160, display:"flex", gap:8, flexWrap:"wrap" }}>
                 <Badge color={s.sesiones>=s.totalMartes?C.green:C.amber} sm>{s.sesiones}/{s.totalMartes} sesiones</Badge>
-                <Badge color={s.pct===null?C.textMuted:s.pct>=70?C.green:C.amber} sm>{s.pct===null?"Sin tareas registradas":`${s.pct}% cumplido`}</Badge>
+                <Badge color={C.blue} intensity={intensidadPct(s.pct)} sm>{s.pct===null?"Sin tareas registradas":`${s.pct}% cumplido`}</Badge>
               </div>
             </div>
           );
@@ -3396,7 +3453,7 @@ function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
   return (
     <Card p="0" style={{ overflow:"hidden" }}>
       <button onClick={()=>setAbierto(a=>!a)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
-        <Badge color={C.gold} sm>{ajuste.numero_factura?`#${ajuste.numero_factura}`:"—"}</Badge>
+        <Badge color={C.blue} sm>{ajuste.numero_factura?`#${ajuste.numero_factura}`:"—"}</Badge>
         <div style={{ flex:1, minWidth:140, minHeight:30, display:"flex", alignItems:"center", overflow:"hidden" }}>
           <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
             {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
@@ -3943,7 +4000,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     // que se registran después de que pasaron). El resto siempre abona con la fecha de hoy.
     const fechaAbono = (esAdmin && abonoFecha) ? abonoFecha : todayStr;
     const { data, error } = await supabase.from("ventas_abonos").insert({ venta_id:venta.id, fecha:fechaAbono, valor:Number(abonoValor), registrado_por:user.name, medio_pago:abonoMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(abonoMedio)?abonoAutorizacion.trim():null }).select().single();
-    if(error){ alert(`No se pudo guardar el abono: ${error.message}`); return; }
+    if(error){ alert(`No se pudo guardar el abono: ${error.message}`); sonidoError(); return; }
     if(data){
       setDetalle(prev=>({...prev, abonos:[...(prev?.abonos||[]), data]}));
       if(setVentasAbonos) setVentasAbonos(prev=>[...prev, data]);
@@ -3951,6 +4008,9 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
         const { data:ventaAct } = await supabase.from("ventas").update({ numero_factura:abonoNumeroFactura.trim() }).eq("id",venta.id).select().single();
         if(ventaAct) setVentas(prev=>prev.map(v2=>v2.id===venta.id?ventaAct:v2));
       }
+      // Un abono cualquiera es rutina; uno que termina de pagar el Flexipago es un logro — se
+      // premia con un sonido distinto (más elaborado que el de una venta normal).
+      if(completaPago) sonidoFlexipagoCompletado();
       setAbonoForm(false); setAbonoValor(""); setAbonoMedio("efectivo"); setAbonoAutorizacion(""); setAbonoNumeroFactura(""); setAbonoFecha(todayStr);
     }
   };
@@ -4050,7 +4110,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
   return (
     <Card p="0" style={{ overflow:"hidden" }}>
       <button onClick={toggleExpand} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
-        <Badge color={C.gold} sm>#{v.numero_factura||"—"}</Badge>
+        <Badge color={C.blue} sm>#{v.numero_factura||"—"}</Badge>
         <div style={{ flex:1, minWidth:140, minHeight:30 }}>
           <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha} · {stores[v.tienda_id]?.name||v.tienda_id}</span></div>
           {(v.cliente_nombre || v.cliente_documento || v.cliente_telefono) && (
@@ -4116,7 +4176,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                               <Btn onClick={()=>setCorrigiendoPago(null)} variant="ghost" sm>Cancelar</Btn>
                             </div>
                           ) : (
-                            <Badge key={pidx} color={C.gold} sm>
+                            <Badge key={pidx} color={C.blue} sm>
                               {VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}
                               {puedeEditar && !abiertoEdicion && <button onClick={()=>iniciarCorreccionMedio(i,pidx)} title="Corregir solo el medio de pago (el valor no cambia)" style={{ background:"none", border:"none", cursor:"pointer", color:"inherit", marginLeft:6, padding:0 }}>✏️</button>}
                             </Badge>
@@ -4146,7 +4206,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                         {i.tipo!=="flexipago" && (
                           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                             {i.pagos.map((p,pidx)=>(
-                              <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}</Badge>
+                              <Badge key={pidx} color={C.blue} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}</Badge>
                             ))}
                           </div>
                         )}
@@ -4609,10 +4669,10 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
       cliente_nombre:esFlexipago?clienteNombre.trim():null, cliente_telefono:esFlexipago?clienteTelefono.trim():null,
       observacion:observacion.trim(), valor_bruto:valorBruto, descuento_total:descuentoNum, total, valor_original:total, es_flexipago:esFlexipago,
     }).select().single();
-    if(error || !venta){ setGuardando(false); setMsg("No se pudo guardar. Intenta de nuevo."); return; }
+    if(error || !venta){ setGuardando(false); setMsg("No se pudo guardar. Intenta de nuevo."); sonidoError(); return; }
     const filasItems = items.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, codigos_producto:(i.codigosFlexipago&&i.codigosFlexipago.length)?i.codigosFlexipago:null }));
     const { data:itemsGuardados, error:errorItems } = await supabase.from("ventas_items").insert(filasItems).select();
-    if(errorItems){ setGuardando(false); setMsg("La venta se guardó, pero hubo un problema guardando las ventas/servicios."); return; }
+    if(errorItems){ setGuardando(false); setMsg("La venta se guardó, pero hubo un problema guardando las ventas/servicios."); sonidoError(); return; }
     if(itemsGuardados && setVentasItems) setVentasItems(prev=>[...prev, ...itemsGuardados]);
     if(esFlexipago && Number(abonoInicialValor||0) > 0){
       await supabase.from("ventas_abonos").insert({ venta_id:venta.id, fecha, valor:Number(abonoInicialValor), registrado_por:user.name, medio_pago:abonoInicialMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(abonoInicialMedio)?abonoInicialAutorizacion.trim():null });
@@ -4622,6 +4682,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
     const numeroMsg = venta.numero_factura ? ` #${venta.numero_factura}` : "";
     limpiarTodo();
     setMsg(`✓ Venta${numeroMsg} registrada`);
+    sonidoVenta();
     setTimeout(()=>setMsg(""), 3000);
   };
 
@@ -4741,7 +4802,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
                     {it.tipo==="flexipago" ? (
                       <Badge color={C.blue} sm>📦 Flexipago — se cobra con abonos</Badge>
                     ) : it.pagos.map((p,pidx)=>(
-                      <Badge key={pidx} color={C.gold} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
+                      <Badge key={pidx} color={C.blue} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
                     ))}
                   </div>
                 </div>
@@ -5057,7 +5118,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   })();
 
   return (
-    <div style={{ maxWidth:820 }}>
+    <div>
       <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}${abonosFiltrados.length>0?` · ${abonosFiltrados.length} abonos Flexipago`:""}`} />
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
@@ -5525,7 +5586,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
           <HoverTooltip label="IDC" labelStyle={{ fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 }} width={240} align="right">
             <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, lineHeight:1.4 }}><b>IDC — Índice de Cumplimiento.</b> Qué porcentaje de la meta del mes ya se alcanzó: (ingresos ÷ meta) × 100.</div>
           </HoverTooltip>
-          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:idcTienda===null?C.textMuted:idcTienda>=100?C.green:C.amber, marginTop:6 }}>{idcTienda===null?"—":`${idcTienda}%`}</div>
+          <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:colorSemaforoIDC(idcTienda), marginTop:6 }}>{idcTienda===null?"—":`${idcTienda}%`}</div>
         </div>
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
           <HoverTooltip label="MDA" labelStyle={{ fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 }} width={240} align="right">
@@ -5638,7 +5699,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
               <div style={{ fontFamily:font.body, fontSize:idx<3?16:13, width:28, textAlign:"center" }}>{medalla(idx)}</div>
               <div style={{ flex:1, fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{d.tienda.name}</div>
               <div style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{fmtCOP(d.sinServicios)} / {fmtCOP(d.meta)}</div>
-              <Badge color={d.idc>=100?C.green:d.idc>=70?C.amber:C.red} sm>{d.idc}%</Badge>
+              <Badge color={colorSemaforoIDC(d.idc)} sm>{d.idc}%</Badge>
             </div>
           ))}
           {rankingTiendas.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
@@ -5652,7 +5713,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
               <div style={{ fontFamily:font.body, fontSize:idx<3?16:13, width:28, textAlign:"center" }}>{medalla(idx)}</div>
               <div style={{ flex:1, fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{d.asesor.name}</div>
               <div style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{fmtCOP(d.sinServicios)} / {fmtCOP(d.meta)}</div>
-              <Badge color={d.idc>=100?C.green:d.idc>=70?C.amber:C.red} sm>{d.idc}%</Badge>
+              <Badge color={colorSemaforoIDC(d.idc)} sm>{d.idc}%</Badge>
             </div>
           ))}
           {ranking.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
@@ -5677,7 +5738,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                   <td style={{ padding:"7px 8px", color:C.text, textAlign:"left" }}>{d.asesor.name}</td>
                   <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.text, textAlign:"left" }}>{fmtCOP(d.sinServicios)}</td>
                   <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted, textAlign:"left" }}>{d.meta>0?fmtCOP(d.meta):"—"}</td>
-                  <td style={{ padding:"7px 8px", textAlign:"left" }}>{d.idc===null?"—":<Badge color={d.idc>=100?C.green:d.idc>=70?C.amber:C.red} sm>{d.idc}%</Badge>}</td>
+                  <td style={{ padding:"7px 8px", textAlign:"left" }}>{d.idc===null?"—":<Badge color={colorSemaforoIDC(d.idc)} sm>{d.idc}%</Badge>}</td>
                   <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted, textAlign:"left" }}>{d.mda===null?"—":fmtCOP(d.mda)}</td>
                 </tr>
               ))}
@@ -6225,8 +6286,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       base_caja:Number(ciBaseCaja||0), novedades:ciNovedades.trim()||null, registrado_por:user.name,
     }).select().single();
     setGuardandoCi(false);
-    if(data){ setCierres(prev=>[data,...prev]); setCiNovedades(""); setCiBaseCajaTocado(false); }
-    else if(error){ setMsg(`No se pudo guardar el cierre: ${error.message||"error desconocido"}`); }
+    if(data){ setCierres(prev=>[data,...prev]); setCiNovedades(""); setCiBaseCajaTocado(false); sonidoCierreCaja(); }
+    else if(error){ setMsg(`No se pudo guardar el cierre: ${error.message||"error desconocido"}`); sonidoError(); }
   };
 
   const guardarRecoleccion = async () => {
@@ -6732,6 +6793,16 @@ export default function App() {
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
 
+  // Notificaciones push reales (avisan a los admins de Turnos aunque tengan la app cerrada) — el
+  // botón que dispara esto solo se muestra a quien puede gestionar Turnos (ver Sidebar/MobileHeader).
+  const activarNotificaciones = async () => {
+    if(!notificacionesSoportadas()){ alert("Este navegador no soporta notificaciones push."); return; }
+    const r = await activarNotificacionesPush(user);
+    if(r.ok){ alert("Listo — vas a recibir un aviso cuando alguien marque entrada."); }
+    else if(r.motivo==="permiso_denegado"){ alert("No se activaron las notificaciones — el navegador dice que el permiso está bloqueado. Revisa los ajustes de notificaciones de este sitio."); }
+    else { alert("No se pudieron activar las notificaciones. Intenta de nuevo."); }
+  };
+
   // Cuenta de tienda: es el equipo compartido que queda abierto en el mostrador toda la
   // jornada, así que se le da el margen de una jornada completa (7 horas) antes de cerrar
   // sesión por inactividad. El resto de cuentas (uso personal) sigue en 5 minutos — salvo en
@@ -6850,7 +6921,7 @@ export default function App() {
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden"}}>
         {globalAnimStyles}
-        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)}/>
+        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)} onActivarNotificaciones={activarNotificaciones}/>
         <main style={{flex:1,overflowY:"auto",padding:16}}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></main>
         <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
         {modalCambiarPassword}
@@ -6864,7 +6935,7 @@ export default function App() {
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
         {globalAnimStyles}
-        <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)}/>
+        <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)} onActivarNotificaciones={activarNotificaciones}/>
         <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></main>
         {modalCambiarPassword}
         {modalUsuarios}
