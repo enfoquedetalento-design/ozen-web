@@ -2354,6 +2354,20 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
     const patch = valor ? { completado:true, completado_en:new Date().toISOString(), completado_por:user.name } : { completado:false, completado_en:null, completado_por:null };
     g.forEach(m => actualizar(m.id, patch));
   };
+  // "Check visual": quien no es el monitor de turno (pero sí es responsable de la tarea) puede
+  // marcarla como que ya la hizo — pero es solo un autorreporte, no cuenta para Indicadores hasta
+  // que el monitor la confirme con su propio clic (ver actualizarCompletadoGrupo arriba). Mismo
+  // botón de check para los dos casos, sin cuadrito aparte — lo que cambia es qué campo se toca.
+  const actualizarAutorreportadoGrupo = (g, valor) => {
+    const patch = valor ? { autorreportado:true, autorreportado_en:new Date().toISOString(), autorreportado_por:user.name } : { autorreportado:false, autorreportado_en:null, autorreportado_por:null };
+    g.forEach(m => actualizar(m.id, patch));
+  };
+  // ¿El usuario logueado es uno de los responsables de esta tarea? Se compara por nombre (igual
+  // que esMonitorActual) porque no hay un vínculo directo entre cuentas de usuario y líderes.
+  const esTareaDelUsuario = (g) => g.some(m => {
+    const nombreLid = nombreLider(m.lider_id);
+    return !!nombreLid && !!user?.name && normalizarNombre(nombreLid).localeCompare(normalizarNombre(user.name), "es", { sensitivity:"base" })===0;
+  });
   // Si la reunión no se hizo el día previsto (se corrió a otro día), una tarea puede vencer
   // antes de que alcancen a revisarla. El monitor/master puede "reabrirla" con una nueva fecha
   // para poder marcarla en la reunión real. Queda registrado quién la reabrió y cuándo.
@@ -2447,6 +2461,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
           const compartida = g.length>1;
           const puedeBorrar = puedeBorrarGrupo(g);
           const completadoGrupo = esGrupoCompletado(g);
+          const autorreportadoGrupo = !completadoGrupo && g.every(m=>m.autorreportado);
           const enGracia = completadoGrupo && dentroDeGracia(base);
           // El mes ya entregado por el monitor anterior queda congelado (salvo su última semana,
           // por si la reunión de traspaso se corrió de fecha) — master siempre puede entrar.
@@ -2454,11 +2469,36 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
           // Se marca como un solo bloque (no por persona) — pero cada fila individual sigue
           // guardando su propio completado=true/false para que el crédito en Indicadores por
           // líder siga contando igual que antes. Hay 5 minutos de gracia para desmarcar por error.
-          const puedeMarcar = puedeGestionar && puedeEditarPeriodo && (completadoGrupo ? enGracia : !vencida);
+          // El check REAL (cuenta para Indicadores) solo lo puede dar el monitor de turno — si la
+          // tarea ya venía autorreportada por su responsable, este mismo clic la confirma.
+          const puedeConfirmar = puedeGestionar && puedeEditarPeriodo && (completadoGrupo ? enGracia : !vencida);
+          // Quien no es el monitor, pero sí es responsable de la tarea, puede prender/apagar su
+          // propio "check visual" — es solo un autorreporte, no el check real.
+          const puedeAutorreportar = !soloLectura && !puedeGestionar && puedeEditarPeriodo && !completadoGrupo && !vencida && esTareaDelUsuario(g);
+          const puedeMarcar = puedeConfirmar || puedeAutorreportar;
           const expandida = expandidas.has(compartida ? base.grupo_id : base.id);
           const toggleId = compartida ? base.grupo_id : base.id;
-          const marcar = () => actualizarCompletadoGrupo(g, !completadoGrupo);
+          const marcar = () => {
+            if (puedeConfirmar) actualizarCompletadoGrupo(g, !completadoGrupo);
+            else if (puedeAutorreportar) actualizarAutorreportadoGrupo(g, !autorreportadoGrupo);
+          };
           const nombresLideres = g.map(m=>nombreLider(m.lider_id)).join(", ");
+          // Mensaje del check según quién está viendo y en qué estado quedó — mismo botón para
+          // autorreportar (responsable) y confirmar (monitor), así que el texto es el que explica
+          // qué hace el clic en cada caso.
+          const checkTitle = !puedeEditarPeriodo
+            ? "Período congelado — ya se cerró el turno del monitor anterior, solo master puede editarlo"
+            : completadoGrupo
+            ? (enGracia ? "Marcada como hecha — se puede desmarcar unos minutos más" : "Ya marcada como hecha — no se puede desmarcar")
+            : vencida
+            ? (autorreportadoGrupo ? `Vencida — ${base.autorreportado_por} la había autorreportado, pero no se confirmó a tiempo. Reábrela para poder confirmarla.` : "Vencida — ya pasó el plazo, no se puede marcar")
+            : puedeConfirmar
+            ? (autorreportadoGrupo ? `Autorreportada por ${base.autorreportado_por} — clic para confirmarla` : "Marcar como hecha")
+            : puedeAutorreportar
+            ? (autorreportadoGrupo ? "Ya la marcaste — falta que el monitor la confirme. Clic para quitar tu marca." : "Marca aquí cuando ya la hiciste — el monitor debe confirmarla para que cuente en Indicadores.")
+            : autorreportadoGrupo
+            ? `Autorreportada por ${base.autorreportado_por} — falta que el monitor la confirme`
+            : "Solo el monitor de turno (o el responsable de la tarea) puede marcarla";
           return (
             <div key={toggleId} style={{ padding:"7px 10px", background:C.surface, borderRadius:9, borderTop:`1px solid ${C.border}`, borderRight:`1px solid ${C.border}`, borderBottom:`1px solid ${C.border}`, borderLeft:`3px solid ${compartida?C.blue:C.border}`, display:"flex", flexDirection:"column", gap:4 }}>
               {/* Línea 1: líder(es), fecha, estado (vencida/cumplida), reabrir */}
@@ -2466,15 +2506,17 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
                 <div style={{ fontFamily:font.body, fontSize:11, color:C.textSub, fontWeight:600 }}>👤 {nombresLideres}</div>
                 {base.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:10.5, color:vencida?C.amber:C.textMuted }}>📅 {base.fecha_estimada}</div>}
                 {completadoGrupo && <Badge color={C.green} sm>Cumplida</Badge>}
+                {autorreportadoGrupo && <Badge color={C.gold} sm title="Marcada por su responsable, falta que el monitor la confirme">Autorreportada</Badge>}
                 {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
                 {!puedeEditarPeriodo && <Badge color={C.textMuted} sm>Congelada</Badge>}
                 {vencida && puedeGestionar && puedeEditarPeriodo && <button onClick={()=>reabrirVencida(g)} title="La reunión se corrió de fecha — reabrir con nuevo plazo" style={{ background:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir</button>}
                 {completadoGrupo && base.completado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· marcada por {base.completado_por}</div>}
+                {autorreportadoGrupo && base.autorreportado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· por {base.autorreportado_por}</div>}
                 {base.reabierta_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· reabierta por {base.reabierta_por}</div>}
               </div>
               {/* Línea 2: check + tarea (ancho libre) + ver más al final */}
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <button onClick={puedeMarcar?marcar:undefined} disabled={!puedeMarcar} title={!puedeEditarPeriodo?"Período congelado — ya se cerró el turno del monitor anterior, solo master puede editarlo":completadoGrupo?(enGracia?"Marcada como hecha — se puede desmarcar unos minutos más":"Ya marcada como hecha — no se puede desmarcar"):vencida?"Vencida — ya pasó el plazo, no se puede marcar":!puedeGestionar?"Solo el monitor de turno puede marcar tareas":""} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${completadoGrupo?C.green:vencida?C.amber:C.border}`, background:completadoGrupo?C.green:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{completadoGrupo?"✓":vencida?"✕":""}</button>
+                <button onClick={puedeMarcar?marcar:undefined} disabled={!puedeMarcar} title={checkTitle} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${completadoGrupo?C.green:vencida?C.amber:autorreportadoGrupo?C.gold:C.border}`, background:completadoGrupo?C.green:autorreportadoGrupo?`${C.gold}30`:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:completadoGrupo?"#fff":C.gold, fontSize:11 }}>{completadoGrupo?"✓":vencida?"✕":autorreportadoGrupo?"✓":""}</button>
                 <div style={{ flex:1, minWidth:0, textAlign:"left", fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, textDecoration:completadoGrupo?"line-through":"none", whiteSpace:expandida?"normal":"nowrap", overflow:expandida?"visible":"hidden", textOverflow:expandida?"clip":"ellipsis", lineHeight:1.5 }} title={!expandida?base.descripcion:undefined}>{base.descripcion}</div>
                 <button onClick={()=>toggleExpandida(toggleId)} style={{ flexShrink:0, background:"none", border:"none", color:C.gold, cursor:"pointer", fontSize:11, fontFamily:font.body, textDecoration:"underline", padding:0 }}>{expandida?"ver menos":"ver más"}</button>
               </div>
