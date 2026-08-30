@@ -5088,7 +5088,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   })();
 
   return (
-    <div style={{ maxWidth:820 }}>
+    <div>
       <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}${abonosFiltrados.length>0?` · ${abonosFiltrados.length} abonos Flexipago`:""}`} />
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
