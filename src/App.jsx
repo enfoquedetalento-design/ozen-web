@@ -2309,7 +2309,11 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const gruposFiltrados = gruposMes.filter(g => !filtroLider || g.some(m=>m.lider_id===filtroLider));
   const gruposCumplidos = gruposFiltrados.filter(esGrupoCompletado);
   const gruposVencidos = gruposFiltrados.filter(esGrupoVencido);
-  const gruposActivos = gruposFiltrados.filter(g => !esGrupoVencido(g) && !esGrupoCompletado(g));
+  // Una tarea recién marcada como hecha no desaparece de "Activas" de una — se queda ahí, ya con
+  // su check verde, mientras dure la gracia de 5 minutos para desmarcar por error (dentroDeGracia,
+  // arriba). Así no toca ir a buscarla entre todas las cumplidas si se marcó sin querer. También
+  // sigue apareciendo en "Cumplidas" desde el primer momento — es solo una copia visual temporal.
+  const gruposActivos = gruposFiltrados.filter(g => !esGrupoVencido(g) && (!esGrupoCompletado(g) || dentroDeGracia(g[0])));
   const gruposMostrados = vistaEstado==="activas" ? gruposActivos : vistaEstado==="cumplidas" ? gruposCumplidos : vistaEstado==="vencidas" ? gruposVencidos : gruposFiltrados;
   const gruposOrdenados = [...gruposMostrados].sort((a,b)=> orden==="lider"
     ? nombreLider(a[0].lider_id).localeCompare(nombreLider(b[0].lider_id))
@@ -2339,10 +2343,15 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
     }));
     const { data, error } = await supabase.from("junta_compromisos").insert(filas).select();
     if (!error && data) { setCompromisos(prev=>[...data, ...prev]); setShowNueva(false); }
+    else if (error) alert(`No se pudo crear la tarea: ${error.message||"error desconocido"}`);
   };
   const actualizar = async (id, patch) => {
     const { data, error } = await supabase.from("junta_compromisos").update(patch).eq("id", id).select().single();
     if (!error && data) setCompromisos(prev=>prev.map(c=>c.id===id?data:c));
+    // Antes esto fallaba en silencio — si faltaba una columna en la base de datos (por ejemplo, si
+    // no se corrió una migración) el clic no hacía nada visible y parecía un bug en vez de un
+    // aviso claro. Ahora se avisa qué pasó.
+    else if (error) alert(`No se pudo guardar el cambio: ${error.message||"error desconocido"}`);
   };
   const actualizarComentarioGrupo = (g, valor) => g.forEach(m=>{ if (valor!==m.comentarios) actualizar(m.id, {comentarios:valor}); });
   // Una tarea compartida se marca como un solo bloque (se hizo o no se hizo entre todos los
