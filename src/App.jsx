@@ -2370,12 +2370,18 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   });
   // Si la reunión no se hizo el día previsto (se corrió a otro día), una tarea puede vencer
   // antes de que alcancen a revisarla. El monitor/master puede "reabrirla" con una nueva fecha
-  // para poder marcarla en la reunión real. Queda registrado quién la reabrió y cuándo.
+  // para poder marcarla en la reunión real. Queda registrado quién la reabrió y cuándo — y a
+  // diferencia de antes, se guarda el HISTORIAL completo (no solo la última vez), para poder ver
+  // si una tarea se ha ido aplazando varias veces en vez de resolverse.
   const reabrirVencida = (g) => {
     const nueva = window.prompt("Esta tarea venció antes de poder revisarla. ¿Hasta qué fecha le damos más tiempo? (aaaa-mm-dd)", sumarDias(todayStr, 1));
     if (!nueva) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { alert("Fecha inválida — usa el formato aaaa-mm-dd."); return; }
-    g.forEach(m => actualizar(m.id, { fecha_estimada: nueva, reabierta_por:user.name, reabierta_en:new Date().toISOString() }));
+    const ahora = new Date().toISOString();
+    g.forEach(m => {
+      const historial = [...(m.reaperturas||[]), { fecha_anterior:m.fecha_estimada||null, fecha_nueva:nueva, por:user.name, en:ahora }];
+      actualizar(m.id, { fecha_estimada:nueva, reabierta_por:user.name, reabierta_en:ahora, reaperturas:historial });
+    });
   };
   const eliminarGrupo = async (g) => {
     if (!window.confirm(g.length>1 ? "¿Eliminar esta tarea compartida? Se borra para todos los asignados. Esto no se puede deshacer." : "¿Eliminar esta tarea? Esto no se puede deshacer.")) return;
@@ -2512,7 +2518,16 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
                 {vencida && puedeGestionar && puedeEditarPeriodo && <button onClick={()=>reabrirVencida(g)} title="La reunión se corrió de fecha — reabrir con nuevo plazo" style={{ background:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir</button>}
                 {completadoGrupo && base.completado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· marcada por {base.completado_por}</div>}
                 {autorreportadoGrupo && base.autorreportado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· por {base.autorreportado_por}</div>}
-                {base.reabierta_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· reabierta por {base.reabierta_por}</div>}
+                {base.reabierta_por && (
+                  <HoverTooltip label={`· reabierta ${(base.reaperturas?.length||1)>1 ? `${base.reaperturas.length}×` : "1×"}`} labelStyle={{ fontFamily:font.body, fontSize:10, color:(base.reaperturas?.length||1)>2?C.amber:C.textMuted }} width={280} clickOnly>
+                    <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginBottom:6 }}>Creada el {fmtFechaHora(base.created_at)}.</div>
+                    {(base.reaperturas?.length ? base.reaperturas : [{ fecha_anterior:null, fecha_nueva:base.fecha_estimada, por:base.reabierta_por, en:base.reabierta_en }]).map((r,i)=>(
+                      <div key={i} style={{ fontFamily:font.body, fontSize:11, color:C.text, lineHeight:1.45, marginBottom:5 }}>
+                        <b>{i+1}.</b> {r.fecha_anterior ? `${r.fecha_anterior} → ` : ""}{r.fecha_nueva} · {r.por||"—"} · {fmtFechaHora(r.en)}
+                      </div>
+                    ))}
+                  </HoverTooltip>
+                )}
               </div>
               {/* Línea 2: check + tarea (ancho libre) + ver más al final */}
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
