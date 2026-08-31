@@ -291,18 +291,22 @@ const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={
 // "Elevación suave" — es el componente base con el que están armadas las fichas/burbujas de cada
 // módulo (~55 pantallas), así que este único cambio se propaga a toda la app. Se abandonó el
 // primer intento de "liquid glass": sin nada texturizado detrás de las fichas, el desenfoque no
-// se notaba y se veía plano igual. Este estilo en cambio no depende de qué haya detrás — sin
-// bordes visibles, solo una sombra suave hacia abajo que da sensación de profundidad (como las
-// tarjetas de iOS/Material), así que se ve bien consistente en cualquier pantalla. Caja sigue
-// siendo la única pantalla con su propio look a color (CajaCard, sin tocar).
+// se notaba y se veía plano igual.
+// Sobre fondo casi negro (C.dark), una sombra negra normal tampoco se nota — se pierde contra el
+// fondo. La forma correcta de dar sensación de elevación en modo oscuro (la que usan Material
+// Design, Vercel, Linear, etc.) no es una sombra más fuerte, es un highlight sutil arriba
+// (como si la luz le pegara al borde superior) más un anillo blanco casi invisible que define el
+// contorno — la sombra de abajo es solo el acompañamiento, no lo que hace todo el trabajo. Sin
+// bordes de color, todo dentro del boxShadow. Caja sigue siendo la única pantalla con su propio
+// look a color (CajaCard, sin tocar).
 const Card = ({ children, style={}, glow, p="20px" }) => (
   <div style={{
     background: C.surface,
     borderRadius: 12,
     border: "none",
     boxShadow: glow
-      ? `0 1px 2px rgba(0,0,0,0.28), 0 10px 24px rgba(0,0,0,0.38), 0 0 0 1px ${C.borderGold}, 0 0 18px ${C.gold}20`
-      : `0 1px 2px rgba(0,0,0,0.24), 0 6px 16px rgba(0,0,0,0.3)`,
+      ? `inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px ${C.borderGold}, 0 10px 24px rgba(0,0,0,0.5), 0 0 18px ${C.gold}25`
+      : `inset 0 1px 0 rgba(255,255,255,0.06), 0 0 0 1px rgba(255,255,255,0.07), 0 8px 20px rgba(0,0,0,0.45)`,
     padding: p,
     ...style,
   }}>{children}</div>
