@@ -6730,17 +6730,15 @@ export default function App() {
   }, []);
 
   // Cada vez que se abre la app instalada en el computador (PWA de escritorio), se fuerza un
-  // tamaño de ventana compacto y fijo en vez de dejar que quede en pantalla completa — pedido de
-  // Santiago: quiere que SIEMPRE abra en este mismo tamaño (no que recuerde el último tamaño que
-  // haya quedado, que es el comportamiento por defecto del navegador). Si Santiago agranda la
-  // ventana durante el uso para ver algo más grande, eso no se guarda — la próxima vez que cierre
-  // y vuelva a abrir la app, vuelve a este tamaño. Esto no aplica a pestañas normales del
-  // navegador — los sitios no pueden redimensionar una pestaña común, solo funciona en la
-  // ventana de una app instalada (modo "standalone").
+  // tamaño de ventana compacto y más cuadrado (4:3) en vez de dejar que quede en pantalla
+  // completa — pedido de Santiago: quiere que SIEMPRE abra en este mismo tamaño, no que recuerde
+  // el último tamaño que haya quedado. Esto no aplica a pestañas normales del navegador — los
+  // sitios no pueden redimensionar una pestaña común, solo funciona en la ventana de una app
+  // instalada (modo "standalone").
   useEffect(()=>{
     const esInstalada = window.matchMedia && window.matchMedia("(display-mode: standalone)").matches;
     if(!esInstalada) return;
-    try { window.resizeTo(1360, 860); } catch(e) { /* si falla, se queda con el tamaño que dé el sistema */ }
+    try { window.resizeTo(1120, 840); } catch(e) { /* si falla, se queda con el tamaño que dé el sistema */ }
   }, []);
 
   const loadAll=async()=>{
