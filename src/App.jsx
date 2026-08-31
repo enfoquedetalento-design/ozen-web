@@ -288,23 +288,19 @@ const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={
   return <button style={{...base,...styles[variant],...style}} onClick={disabled?undefined:onClick} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}>{children}</button>;
 };
 
-// "Elevación suave" — es el componente base con el que están armadas las fichas/burbujas de cada
-// módulo (~55 pantallas), así que este único cambio se propaga a toda la app.
-// El intento anterior quitó el borde por completo (border:"none") y confió solo en sombras/anillos
-// casi invisibles (6-8% de blanco) — en la práctica eso se vio MÁS plano que el diseño original
-// (que sí tenía un borde visible en C.border), no menos. La sombra sola nunca iba a alcanzar sobre
-// un fondo casi negro. Esta versión trae de vuelta un borde con presencia real (más suave que el
-// original, pero claramente visible) + el highlight superior y la sombra más marcada como
-// acompañamiento — el borde es lo que de verdad separa la ficha del fondo, no la sombra.
-// Caja sigue siendo la única pantalla con su propio look a color (CajaCard, sin tocar).
+// "Minimalista plano" — es el componente base con el que están armadas las fichas/burbujas de
+// cada módulo (~55 pantallas), así que este único cambio se propaga a toda la app. Se probaron
+// dos intentos con profundidad (vidrio esmerilado, luego sombra de elevación) y ninguno se notó
+// bien o se sintió acertado — este va en la dirección opuesta a propósito: sin sombra, sin
+// transparencia, sin intentar simular profundidad. Solo un fondo sólido y un borde discreto que
+// define el contorno, dejando que el propio contenido sea lo que se note. Caja sigue siendo la
+// única pantalla con su propio look a color (CajaCard, sin tocar).
 const Card = ({ children, style={}, glow, p="20px" }) => (
   <div style={{
     background: C.surface,
     borderRadius: 12,
-    border: `1px solid ${glow ? C.borderGold : `${C.border}90`}`,
-    boxShadow: glow
-      ? `inset 0 1px 0 rgba(255,255,255,0.10), 0 14px 32px rgba(0,0,0,0.55), 0 0 20px ${C.gold}30`
-      : `inset 0 1px 0 rgba(255,255,255,0.08), 0 14px 32px rgba(0,0,0,0.5)`,
+    border: `1px solid ${glow ? C.borderGold : `${C.border}60`}`,
+    boxShadow: "none",
     padding: p,
     ...style,
   }}>{children}</div>
@@ -5988,11 +5984,10 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const asesores = users.filter(u=>u.role==="advisor" && u.active);
   const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin"||u.role==="admin_finanzas"||u.role==="admin_turnos") && u.active);
 
-  // Solo master puede registrar con una fecha distinta a hoy (para poner al día algo atrasado).
-  const puedeFechaLibre = user.role==="master";
+  // Master o admin de finanzas pueden registrar con una fecha distinta a hoy (para poner al día algo atrasado).
+  const puedeFechaLibre = esAdminDeVentas(user);
 
   const [apAsesorId, setApAsesorId] = useState("");
-  const [apBaseCaja, setApBaseCaja] = useState(String(BASE_CAJA_FIJA));
   const [apFecha, setApFecha] = useState(todayStr);
   const [guardandoAp, setGuardandoAp] = useState(false);
 
@@ -6008,15 +6003,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // La nota arranca oculta (solo un botón "+ Agregar nota") para ahorrar espacio — se abre al
   // hacer click, o de una vez si ya hay algo escrito (para poder verlo/editarlo).
   const [ciNotaAbierta, setCiNotaAbierta] = useState(false);
-  const [ciBaseCaja, setCiBaseCaja] = useState(String(BASE_CAJA_FIJA));
-  const [ciBaseCajaTocado, setCiBaseCajaTocado] = useState(false);
   const [ciFecha, setCiFecha] = useState(todayStr);
   const [guardandoCi, setGuardandoCi] = useState(false);
 
   const [reEntregaId, setReEntregaId] = useState("");
   const [reRecibeId, setReRecibeId] = useState("");
   const [reValor, setReValor] = useState("");
-  const [reBaseCaja, setReBaseCaja] = useState(String(BASE_CAJA_FIJA));
   const [reComentarios, setReComentarios] = useState("");
   const [reFecha, setReFecha] = useState(todayStr);
   const [guardandoRe, setGuardandoRe] = useState(false);
@@ -6033,22 +6025,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const recoleccionesTienda = recolecciones.filter(r=>r.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
   const ultimaRecoleccion = recoleccionesTienda[0] || null;
 
-  // La base casi siempre es $100.000, pero se puede ajustar — se recuerda el último valor usado.
   useEffect(()=>{
-    setApBaseCaja(String(aperturasTienda[0]?.base_caja ?? ultimaRecoleccion?.base_caja ?? BASE_CAJA_FIJA));
-    setReBaseCaja(String(ultimaRecoleccion?.base_caja ?? BASE_CAJA_FIJA));
     setReValorTocado(false);
     setReIncluyeHoy(false);
     setReValorHoy("");
-    setCiBaseCajaTocado(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tiendaId, aperturasTienda[0]?.id, ultimaRecoleccion?.id]);
-
-  // La base al cierre por defecto es la misma con la que se abrió, salvo que el usuario la edite.
-  useEffect(()=>{
-    if(!ciBaseCajaTocado) setCiBaseCaja(String(apBaseCaja||BASE_CAJA_FIJA));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apBaseCaja, tiendaId]);
 
   const ventasTiendaMap = {};
   ventas.forEach(v=>{ if(v.tienda_id===tiendaId) ventasTiendaMap[v.id]=v; });
@@ -6124,7 +6106,6 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // Lo que se sugiere recoger por defecto: siempre los días anteriores a hoy + novedades. El
   // efectivo de hoy (si se marca el check) se suma aparte, no entra en este cálculo automático.
   const efectivoARecolectar = Math.max(0, efectivoAnteriores + gastosNetoAcumulado);
-  const totalEnCajaAhora = Number(apBaseCaja||0) + efectivoPendienteTotal + gastosNetoAcumulado;
 
   // ── Base afectada por gastos sin cubrir ─────────────────────────────────────
   // Si una novedad tipo "costo" no alcanza a cubrirse con el efectivo YA acumulado en ese momento
@@ -6152,17 +6133,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   }
   // Lo que de verdad hay en la base ahora mismo: la última base registrada, menos el hueco.
   const baseVigente = Math.max(0, baseLineaVigente - baseDeficit);
-
-  // Mientras haya hueco, los 3 cuadros de "Base" se bloquean mostrando este valor en vivo — se
-  // resincronizan solos si el hueco cambia (nueva novedad, nueva venta que lo cubre parcialmente).
-  useEffect(()=>{
-    if(baseDeficit>0){
-      setApBaseCaja(String(baseVigente));
-      setCiBaseCaja(String(baseVigente));
-      setReBaseCaja(String(baseVigente));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseDeficit, baseVigente, tiendaId]);
+  const totalEnCajaAhora = baseVigente + efectivoPendienteTotal + gastosNetoAcumulado;
 
   useEffect(()=>{
     if(!reValorTocado) setReValor(String(efectivoARecolectar||""));
@@ -6275,12 +6246,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       const falt = []; if(!tiendaId) falt.push("la tienda"); if(!apAsesorId) falt.push("quién abre");
       setMsg(`Falta elegir ${listarFaltantes(falt)}.`); return;
     }
-    if(apFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master puede registrar una apertura con fecha distinta a hoy. Pide autorización."); return; }
+    if(apFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master o admin de finanzas puede registrar una apertura con fecha distinta a hoy. Pide autorización."); return; }
     setGuardandoAp(true); setMsg("");
     const asesor = users.find(u=>u.id===apAsesorId);
     const { data, error } = await supabase.from("ventas_caja_aperturas").insert({
       tienda_id:tiendaId, fecha:apFecha, asesor_id:apAsesorId, asesor_nombre:asesor?.name||"",
-      base_caja:Number(apBaseCaja||0), novedades:null, registrado_por:user.name,
+      base_caja:Number(baseVigente||0), novedades:null, registrado_por:user.name,
     }).select().single();
     setGuardandoAp(false);
     if(data){ setAperturas(prev=>[data,...prev]); }
@@ -6311,15 +6282,15 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       const falt = []; if(!tiendaId) falt.push("la tienda"); if(!ciAsesorId) falt.push("quién cierra");
       setMsg(`Falta elegir ${listarFaltantes(falt)}.`); return;
     }
-    if(ciFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master puede registrar un cierre con fecha distinta a hoy. Pide autorización."); return; }
+    if(ciFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master o admin de finanzas puede registrar un cierre con fecha distinta a hoy. Pide autorización."); return; }
     setGuardandoCi(true); setMsg("");
     const asesor = users.find(u=>u.id===ciAsesorId);
     const { data, error } = await supabase.from("ventas_caja_cierres").insert({
       tienda_id:tiendaId, fecha:ciFecha, tipo:ciTipo, asesor_id:ciAsesorId, asesor_nombre:asesor?.name||"",
-      base_caja:Number(ciBaseCaja||0), novedades:ciNovedades.trim()||null, registrado_por:user.name,
+      base_caja:Number(baseVigente||0), novedades:ciNovedades.trim()||null, registrado_por:user.name,
     }).select().single();
     setGuardandoCi(false);
-    if(data){ setCierres(prev=>[data,...prev]); setCiNovedades(""); setCiBaseCajaTocado(false); sonidoCierreCaja(); }
+    if(data){ setCierres(prev=>[data,...prev]); setCiNovedades(""); sonidoCierreCaja(); }
     else if(error){ setMsg(`No se pudo guardar el cierre: ${error.message||"error desconocido"}`); sonidoError(); }
   };
 
@@ -6332,24 +6303,26 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       if(!reValor) falt.push("el valor");
       setMsg(`Falta elegir ${listarFaltantes(falt)}.`); return;
     }
-    if(reFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master puede registrar una recolección con fecha distinta a hoy. Pide autorización."); return; }
+    if(reFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master o admin de finanzas puede registrar una recolección con fecha distinta a hoy. Pide autorización."); return; }
     const valorHoyNum = reIncluyeHoy ? Number(reValorHoy||0) : 0;
     if(reIncluyeHoy && valorHoyNum<=0){ setMsg("Marcaste que recoges efectivo de hoy — falta el valor a retirar."); return; }
     if(reIncluyeHoy && valorHoyNum>efectivoHoyPendiente){ setMsg(`No puedes retirar más de lo acumulado hoy (${fmtCOP(efectivoHoyPendiente)}).`); return; }
 
-    // Si hay un hueco de base sin cubrir, preguntamos si se completa a la base normal con el
-    // efectivo que se está recogiendo ahora mismo (recomendado por Santiago). Si dice que no, la
-    // base registrada se queda en el valor reducido (baseVigente) — ese hueco sigue como la base
-    // de referencia hasta la próxima recolección, no se olvida.
+    // Si hay un hueco de base sin cubrir, preguntamos cuánto quiere agregar a la base con el
+    // efectivo que se está recogiendo ahora mismo — el monto es manual (se sugiere el valor exacto
+    // del hueco, pero se puede editar) porque por las denominaciones de los billetes no siempre se
+    // puede completar exacto. Si cancela o pone 0, la base se queda en el valor reducido
+    // (baseVigente) — ese hueco sigue como la base de referencia hasta la próxima recolección, no
+    // se olvida.
     let valorFinal = Number(reValor||0) + valorHoyNum;
-    let baseCajaFinal = Number(reBaseCaja||0);
+    let baseCajaFinal = baseVigente;
     if(baseDeficit>0){
-      const completar = window.confirm(`La base quedó en ${fmtCOP(baseVigente)} por gastos sin cubrir (hueco de ${fmtCOP(baseDeficit)}). ¿Completar la base a ${fmtCOP(BASE_CAJA_FIJA)} con el efectivo que estás recogiendo ahora?`);
-      if(completar){
-        const montoParaCompletar = Math.max(0, BASE_CAJA_FIJA - baseVigente);
-        const descuento = Math.max(0, Math.min(montoParaCompletar, valorFinal));
-        valorFinal -= descuento;
-        baseCajaFinal = baseVigente + descuento;
+      const sugerido = Math.max(0, Math.min(baseDeficit, valorFinal));
+      const respuesta = window.prompt(`La base quedó en ${fmtCOP(baseVigente)} por gastos sin cubrir (hueco de ${fmtCOP(baseDeficit)}). ¿Cuánto quieres agregar a la base con el efectivo que estás recogiendo? (no tiene que ser exacto — por las denominaciones de los billetes puede quedar un poco menos o más. Deja en 0 para no completarla ahora.)`, String(sugerido));
+      if(respuesta!==null){
+        const monto = Math.max(0, Math.min(Number(String(respuesta).replace(/[^\d]/g,""))||0, valorFinal));
+        valorFinal -= monto;
+        baseCajaFinal = baseVigente + monto;
       }
     }
 
@@ -6453,6 +6426,43 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
               traía cada renglón, no afecta ningún total). */}
           <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, alignItems:"start" }}>
             <div>
+              {/* Apertura, Última Recolección y Novedades del período unificados en una sola
+                  burbuja (pedido de Santiago) — mismo contenido de siempre, ahora con
+                  CajaSubHeader como divisores en vez de ser 3 tarjetas separadas. */}
+              <CajaCard compact icon="🔓" titulo="Apertura de turno" color={tiendaColor}>
+                <CajaCampoPick compact label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
+                <CajaCampoPick compact label="Asesor *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+                <CajaReciboLinea compact label="Turno" value={tiendaNombreActual||"—"} small/>
+                <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={baseDeficit>0?C.red:undefined} small/>
+                {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10, color:C.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
+                {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
+                <CajaReciboLinea compact label="Efectivo" value={fmtCOP(Math.max(0, efectivoPendienteTotal + gastosNetoAcumulado))}/>
+                <CajaReciboLinea compact label="Total" value={fmtCOP(totalEnCajaAhora)} bold totalLine/>
+                <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end" }}>
+                  <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"Registrar apertura"}</CajaBtn>
+                </div>
+
+                <CajaSubHeader compact label="Última Recolección"/>
+                <CajaReciboLinea compact label="Fecha" value={ultimaRecoleccion ? fmtFechaHora(ultimaRecoleccion.created_at) : "—"}/>
+                <CajaReciboLinea compact label="Por" value={ultimaRecoleccion ? (ultimaRecoleccion.recibe_nombre||"—") : "Sin registro previo"}/>
+
+                <CajaSubHeader compact label="Novedades del período"/>
+                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:4 }}>Costos en rojo, ingresos en verde — desde la última recolección.</div>
+                {gastosDesdeRecoleccion.length>0 ? (
+                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                    {gastosDesdeRecoleccion.slice(0,5).map((g,idx)=>(
+                      <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, gap:6 }}>
+                        <span>{idx+1}. {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}</span>
+                        <span style={{ display:"flex", alignItems:"center", gap:6 }}>
+                          <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+                          {puedeAprobarNovedad && g.estado!=="aprobado" && <button onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:11, padding:"2px 6px" }}>Aprobar</button>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin novedades registradas.</div>}
+              </CajaCard>
+
               <CajaCard
                 compact
                 icon="🔒"
@@ -6468,13 +6478,9 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 <CajaCampoPick compact label="Fecha" type="date" value={ciFecha} onChange={setCiFecha}/>
                 <CajaCampoPick compact label="Asesor *" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                 <CajaReciboLinea compact label="Turno" value={tiendaNombreActual||"—"} small/>
-                {baseDeficit>0 ? (
-                  <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={C.red} small/>
-                ) : (
-                  <CajaMoneyRow compact narrow label="Base" value={ciBaseCaja} onChange={(v)=>{ setCiBaseCaja(v); setCiBaseCajaTocado(true); }}/>
-                )}
+                <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={baseDeficit>0?C.red:undefined} small/>
                 {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
-                {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:11.5, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master puede usar una fecha distinta a hoy."}</div>}
+                {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:11.5, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
 
                 {/* Estructura pensada para contrastar contra el cierre de Siigo (ver captura que
                     mandó Santiago): Sección 2 debe coincidir con "Totales por medio de pago" de
@@ -6550,47 +6556,6 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             </div>
 
             <div>
-              {/* Apertura, Última Recolección y Novedades del período unificados en una sola
-                  burbuja (pedido de Santiago) — mismo contenido de siempre, ahora con
-                  CajaSubHeader como divisores en vez de ser 3 tarjetas separadas. */}
-              <CajaCard compact icon="🔓" titulo="Apertura de turno" color={tiendaColor}>
-                <CajaCampoPick compact label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
-                <CajaCampoPick compact label="Asesor *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-                <CajaReciboLinea compact label="Turno" value={tiendaNombreActual||"—"} small/>
-                {baseDeficit>0 ? (
-                  <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={C.red} small/>
-                ) : (
-                  <CajaMoneyRow compact narrow label="Base" value={apBaseCaja} onChange={setApBaseCaja}/>
-                )}
-                {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10, color:C.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
-                {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master puede usar una fecha distinta a hoy."}</div>}
-                <CajaReciboLinea compact label="Efectivo" value={fmtCOP(Math.max(0, efectivoPendienteTotal + gastosNetoAcumulado))}/>
-                <CajaReciboLinea compact label="Total" value={fmtCOP(totalEnCajaAhora)} bold totalLine/>
-                <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end" }}>
-                  <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"Registrar apertura"}</CajaBtn>
-                </div>
-
-                <CajaSubHeader compact label="Última Recolección"/>
-                <CajaReciboLinea compact label="Fecha" value={ultimaRecoleccion ? fmtFechaHora(ultimaRecoleccion.created_at) : "—"}/>
-                <CajaReciboLinea compact label="Por" value={ultimaRecoleccion ? (ultimaRecoleccion.recibe_nombre||"—") : "Sin registro previo"}/>
-
-                <CajaSubHeader compact label="Novedades del período"/>
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:4 }}>Costos en rojo, ingresos en verde — desde la última recolección.</div>
-                {gastosDesdeRecoleccion.length>0 ? (
-                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
-                    {gastosDesdeRecoleccion.slice(0,5).map((g,idx)=>(
-                      <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, gap:6 }}>
-                        <span>{idx+1}. {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}</span>
-                        <span style={{ display:"flex", alignItems:"center", gap:6 }}>
-                          <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
-                          {puedeAprobarNovedad && g.estado!=="aprobado" && <button onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:11, padding:"2px 6px" }}>Aprobar</button>}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin novedades registradas.</div>}
-              </CajaCard>
-
               <CajaCard compact icon="➕" titulo="Agregar novedad" color={tiendaColor}>
                 <CajaFieldRow compact label="Tipo" value={gaTipo} onChange={setGaTipo} options={[{value:"costo",label:"Costo"},{value:"ingreso",label:"Ingreso"}]}/>
                 <CajaMoneyRow compact label="Valor" value={gaValor} onChange={setGaValor}/>
@@ -6611,13 +6576,9 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     <CajaCampoPick compact label="Entrega *" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                     <CajaCampoPick compact label="Recibe *" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
                     <CajaCampoPick compact money label="Valor a recoger (días anteriores)" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
-                    {baseDeficit>0 ? (
-                      <CajaReciboLinea compact label="Base que queda" value={fmtCOP(baseVigente)} color={C.red} small/>
-                    ) : (
-                      <CajaMoneyRow compact narrow label="Base que queda" value={reBaseCaja} onChange={setReBaseCaja}/>
-                    )}
-                    {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.red, marginTop:2 }}>Hay un hueco de {fmtCOP(baseDeficit)} en la base por gastos sin cubrir. Al registrar, se pregunta si se completa con este efectivo.</div>}
-                    {reFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
+                    <CajaReciboLinea compact label="Base que queda" value={fmtCOP(baseVigente)} color={baseDeficit>0?C.red:undefined} small/>
+                    {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.red, marginTop:2 }}>Hay un hueco de {fmtCOP(baseDeficit)} en la base por gastos sin cubrir. Al registrar, se pregunta cuánto quieres agregar con este efectivo (monto manual, no tiene que quedar exacto).</div>}
+                    {reFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master o admin de finanzas puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
                     {reFecha===todayStr && (
                       <div style={{ marginTop:8, padding:"8px 10px", background:C.surfaceAlt, borderRadius:7, border:`1px solid ${C.border}` }}>
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
@@ -6766,6 +6727,20 @@ export default function App() {
       document.removeEventListener("visibilitychange", revisarCambioDeDia);
       window.removeEventListener("focus", revisarCambioDeDia);
     };
+  }, []);
+
+  // Cada vez que se abre la app instalada en el computador (PWA de escritorio), se fuerza un
+  // tamaño de ventana compacto y fijo en vez de dejar que quede en pantalla completa — pedido de
+  // Santiago: quiere que SIEMPRE abra en este mismo tamaño (no que recuerde el último tamaño que
+  // haya quedado, que es el comportamiento por defecto del navegador). Si Santiago agranda la
+  // ventana durante el uso para ver algo más grande, eso no se guarda — la próxima vez que cierre
+  // y vuelva a abrir la app, vuelve a este tamaño. Esto no aplica a pestañas normales del
+  // navegador — los sitios no pueden redimensionar una pestaña común, solo funciona en la
+  // ventana de una app instalada (modo "standalone").
+  useEffect(()=>{
+    const esInstalada = window.matchMedia && window.matchMedia("(display-mode: standalone)").matches;
+    if(!esInstalada) return;
+    try { window.resizeTo(1360, 860); } catch(e) { /* si falla, se queda con el tamaño que dé el sistema */ }
   }, []);
 
   const loadAll=async()=>{
