@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, createContext, useContext } from "react";
 import { supabase } from "./supabase";
-import { activarNotificacionesPush, notificacionesSoportadas, pushActivo } from "./push";
+import { activarNotificacionesPush, notificacionesSoportadas, pushActivo, requiereInstalarEnIOS } from "./push";
 import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError } from "./sounds";
 import { PDFDocument } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
@@ -551,7 +551,7 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
         </div>
         {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
         {esAdminFinanzas(user) && <Btn onClick={onAbrirAccesoTiendas} variant="ghost" full sm style={{ marginBottom:8 }}>🏬 Acceso tiendas</Btn>}
-        {puedeGestionarTurnos(user) && notificacionesSoportadas() && !pushActivo() && <Btn onClick={onActivarNotificaciones} variant="ghost" full sm style={{ marginBottom:8 }}>🔔 Activar notificaciones</Btn>}
+        {puedeGestionarTurnos(user) && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <Btn onClick={onActivarNotificaciones} variant="ghost" full sm style={{ marginBottom:8 }}>🔔 Activar notificaciones</Btn>}
         {user.role!=="master" && !esCuentaTienda(user) && <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8 }}>🔑 Mi contraseña</Btn>}
         <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
       </div>
@@ -584,7 +584,7 @@ function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onC
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         {puedeUsarAreas(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
         {esAdminFinanzas(user) && <button onClick={onAbrirAccesoTiendas} title="Acceso tiendas" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🏬</button>}
-        {puedeGestionarTurnos(user) && notificacionesSoportadas() && !pushActivo() && <button onClick={onActivarNotificaciones} title="Activar notificaciones" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔔</button>}
+        {puedeGestionarTurnos(user) && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <button onClick={onActivarNotificaciones} title="Activar notificaciones" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔔</button>}
         {user.role!=="master" && !esCuentaTienda(user) && <button onClick={onCambiarPassword} title="Mi contraseña" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔑</button>}
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
         <div style={{ fontFamily:font.body, fontSize:12, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
@@ -6820,8 +6820,16 @@ export default function App() {
   const [, setPushTick] = useState(0);
   const activarNotificaciones = async () => {
     if(!notificacionesSoportadas()){ alert("Este navegador no soporta notificaciones push."); return; }
+    // En iPhone/iPad, Apple solo entrega push a sitios instalados en la pantalla de inicio — desde
+    // Safari normal el permiso se puede conceder y la suscripción se puede crear sin ningún error
+    // (por eso puede parecer "activada"), pero el aviso nunca llega. Se revisa esto ANTES de
+    // intentar activar, para no dejar a la persona creyendo que quedó funcionando cuando no.
+    if(requiereInstalarEnIOS()){
+      alert("En iPhone/iPad, Apple solo permite las notificaciones si esta página está agregada a la Pantalla de Inicio (no funciona desde Safari normal).\n\nPara activarlas:\n1. Toca el botón Compartir (el cuadrito con la flecha) en Safari.\n2. Elige \"Agregar a pantalla de inicio\".\n3. Abre la app desde ese ícono nuevo (no desde Safari) y vuelve a tocar este botón ahí.");
+      return;
+    }
     const r = await activarNotificacionesPush(user);
-    if(r.ok){ alert("Listo — vas a recibir un aviso cuando alguien marque entrada."); setPushTick(t=>t+1); }
+    if(r.ok){ alert("Listo — vas a recibir un aviso cada vez que alguien marque asistencia."); setPushTick(t=>t+1); }
     else if(r.motivo==="permiso_denegado"){ alert("No se activaron las notificaciones — el navegador dice que el permiso está bloqueado. Revisa los ajustes de notificaciones de este sitio."); }
     else if(r.motivo==="error_guardando"){ alert("El permiso quedó concedido, pero no se pudo guardar la suscripción. Intenta de nuevo — si sigue fallando, avísame."); }
     else { alert("El navegador concedió el permiso pero no se pudo activar el push (en Mac esto puede ser porque el Sistema tiene bloqueadas las notificaciones de este navegador — revísalo en Ajustes del Sistema ▸ Notificaciones). Puedes volver a intentar."); }

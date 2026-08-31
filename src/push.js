@@ -16,6 +16,19 @@ const urlBase64ToUint8Array = (base64String) => {
 export const notificacionesSoportadas = () =>
   typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 
+// En iPhone/iPad, Apple SOLO entrega push a sitios abiertos como app instalada desde la pantalla
+// de inicio (Compartir ▸ Agregar a pantalla de inicio) — un sitio abierto normal en Safari puede
+// pedir el permiso y crear la suscripción sin ningún error (por eso "decía que estaba activada"),
+// pero el push nunca llega porque iOS lo bloquea en segundo plano para pestañas normales de
+// Safari. `window.navigator.standalone` es la forma que da Apple para detectar si se está
+// corriendo como esa app instalada.
+export const requiereInstalarEnIOS = () => {
+  if (typeof navigator === "undefined") return false;
+  const esIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+  const yaInstalada = window.navigator.standalone === true || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+  return esIOS && !yaInstalada;
+};
+
 // Devuelve el estado actual sin pedir nada: "granted" | "denied" | "default" (nunca preguntado).
 export const permisoNotificaciones = () => (notificacionesSoportadas() ? Notification.permission : "no-soportado");
 
