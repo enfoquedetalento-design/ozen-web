@@ -288,8 +288,24 @@ const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={
   return <button style={{...base,...styles[variant],...style}} onClick={disabled?undefined:onClick} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}>{children}</button>;
 };
 
+// Mismo look "liquid glass" que ya se usaba solo en Caja (ver CajaCard, más abajo), ahora en TODA
+// la app — es el componente base con el que están armadas las fichas/burbujas de cada módulo, así
+// que este único cambio se propaga a las ~55 pantallas que lo usan. A diferencia de Caja, aquí no
+// hay tinte de color por tienda — es un vidrio neutro (blancos translúcidos + el azul propio de la
+// app) para que se sienta parejo en todos lados; Caja sigue siendo la única pantalla con color.
 const Card = ({ children, style={}, glow, p="20px" }) => (
-  <div style={{ background:C.surface, borderRadius:10, border:`1px solid ${glow?C.borderGold:C.border}`, padding:p, boxShadow:glow?`0 0 20px ${C.gold}15`:"0 1px 3px rgba(0,0,0,0.3)", ...style }}>{children}</div>
+  <div style={{
+    background: `radial-gradient(140% 70% at 0% 0%, rgba(255,255,255,0.07), transparent 55%), radial-gradient(140% 70% at 100% 0%, rgba(255,255,255,0.05), transparent 55%), linear-gradient(180deg, ${C.surfaceAlt}e8 0%, ${C.surface}d9 100%)`,
+    backdropFilter: "blur(14px) saturate(160%)",
+    WebkitBackdropFilter: "blur(14px) saturate(160%)",
+    borderRadius: 10,
+    border: `1px solid ${glow ? C.borderGold : "rgba(229,213,204,0.14)"}`,
+    boxShadow: glow
+      ? `inset 0 1px 0 rgba(255,255,255,0.10), 0 0 20px ${C.gold}18, 0 8px 20px rgba(0,0,0,0.35)`
+      : `inset 0 1px 0 rgba(255,255,255,0.06), 0 8px 20px rgba(0,0,0,0.3)`,
+    padding: p,
+    ...style,
+  }}>{children}</div>
 );
 
 // Envoltorio para desplegar/ocultar contenido con animación (menús, filas expandibles, "ver más").
