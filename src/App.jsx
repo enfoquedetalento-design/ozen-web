@@ -288,21 +288,21 @@ const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={
   return <button style={{...base,...styles[variant],...style}} onClick={disabled?undefined:onClick} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}>{children}</button>;
 };
 
-// Mismo look "liquid glass" que ya se usaba solo en Caja (ver CajaCard, más abajo), ahora en TODA
-// la app — es el componente base con el que están armadas las fichas/burbujas de cada módulo, así
-// que este único cambio se propaga a las ~55 pantallas que lo usan. A diferencia de Caja, aquí no
-// hay tinte de color por tienda — es un vidrio neutro (blancos translúcidos + el azul propio de la
-// app) para que se sienta parejo en todos lados; Caja sigue siendo la única pantalla con color.
+// "Elevación suave" — es el componente base con el que están armadas las fichas/burbujas de cada
+// módulo (~55 pantallas), así que este único cambio se propaga a toda la app. Se abandonó el
+// primer intento de "liquid glass": sin nada texturizado detrás de las fichas, el desenfoque no
+// se notaba y se veía plano igual. Este estilo en cambio no depende de qué haya detrás — sin
+// bordes visibles, solo una sombra suave hacia abajo que da sensación de profundidad (como las
+// tarjetas de iOS/Material), así que se ve bien consistente en cualquier pantalla. Caja sigue
+// siendo la única pantalla con su propio look a color (CajaCard, sin tocar).
 const Card = ({ children, style={}, glow, p="20px" }) => (
   <div style={{
-    background: `radial-gradient(140% 70% at 0% 0%, rgba(255,255,255,0.07), transparent 55%), radial-gradient(140% 70% at 100% 0%, rgba(255,255,255,0.05), transparent 55%), linear-gradient(180deg, ${C.surfaceAlt}e8 0%, ${C.surface}d9 100%)`,
-    backdropFilter: "blur(14px) saturate(160%)",
-    WebkitBackdropFilter: "blur(14px) saturate(160%)",
-    borderRadius: 10,
-    border: `1px solid ${glow ? C.borderGold : "rgba(229,213,204,0.14)"}`,
+    background: C.surface,
+    borderRadius: 12,
+    border: "none",
     boxShadow: glow
-      ? `inset 0 1px 0 rgba(255,255,255,0.10), 0 0 20px ${C.gold}18, 0 8px 20px rgba(0,0,0,0.35)`
-      : `inset 0 1px 0 rgba(255,255,255,0.06), 0 8px 20px rgba(0,0,0,0.3)`,
+      ? `0 1px 2px rgba(0,0,0,0.28), 0 10px 24px rgba(0,0,0,0.38), 0 0 0 1px ${C.borderGold}, 0 0 18px ${C.gold}20`
+      : `0 1px 2px rgba(0,0,0,0.24), 0 6px 16px rgba(0,0,0,0.3)`,
     padding: p,
     ...style,
   }}>{children}</div>
