@@ -289,24 +289,22 @@ const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={
 };
 
 // "Elevación suave" — es el componente base con el que están armadas las fichas/burbujas de cada
-// módulo (~55 pantallas), así que este único cambio se propaga a toda la app. Se abandonó el
-// primer intento de "liquid glass": sin nada texturizado detrás de las fichas, el desenfoque no
-// se notaba y se veía plano igual.
-// Sobre fondo casi negro (C.dark), una sombra negra normal tampoco se nota — se pierde contra el
-// fondo. La forma correcta de dar sensación de elevación en modo oscuro (la que usan Material
-// Design, Vercel, Linear, etc.) no es una sombra más fuerte, es un highlight sutil arriba
-// (como si la luz le pegara al borde superior) más un anillo blanco casi invisible que define el
-// contorno — la sombra de abajo es solo el acompañamiento, no lo que hace todo el trabajo. Sin
-// bordes de color, todo dentro del boxShadow. Caja sigue siendo la única pantalla con su propio
-// look a color (CajaCard, sin tocar).
+// módulo (~55 pantallas), así que este único cambio se propaga a toda la app.
+// El intento anterior quitó el borde por completo (border:"none") y confió solo en sombras/anillos
+// casi invisibles (6-8% de blanco) — en la práctica eso se vio MÁS plano que el diseño original
+// (que sí tenía un borde visible en C.border), no menos. La sombra sola nunca iba a alcanzar sobre
+// un fondo casi negro. Esta versión trae de vuelta un borde con presencia real (más suave que el
+// original, pero claramente visible) + el highlight superior y la sombra más marcada como
+// acompañamiento — el borde es lo que de verdad separa la ficha del fondo, no la sombra.
+// Caja sigue siendo la única pantalla con su propio look a color (CajaCard, sin tocar).
 const Card = ({ children, style={}, glow, p="20px" }) => (
   <div style={{
     background: C.surface,
     borderRadius: 12,
-    border: "none",
+    border: `1px solid ${glow ? C.borderGold : `${C.border}90`}`,
     boxShadow: glow
-      ? `inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px ${C.borderGold}, 0 10px 24px rgba(0,0,0,0.5), 0 0 18px ${C.gold}25`
-      : `inset 0 1px 0 rgba(255,255,255,0.06), 0 0 0 1px rgba(255,255,255,0.07), 0 8px 20px rgba(0,0,0,0.45)`,
+      ? `inset 0 1px 0 rgba(255,255,255,0.10), 0 14px 32px rgba(0,0,0,0.55), 0 0 20px ${C.gold}30`
+      : `inset 0 1px 0 rgba(255,255,255,0.08), 0 14px 32px rgba(0,0,0,0.5)`,
     padding: p,
     ...style,
   }}>{children}</div>
