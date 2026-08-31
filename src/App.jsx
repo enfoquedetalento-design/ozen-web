@@ -4780,7 +4780,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
           </div>
         )}
       />
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 380px", gap:16, alignItems:"start" }}>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16, alignItems:"start" }}>
         <div>
           <SeccionVenta icon="🏬" titulo="Información general">
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:12 }}>
