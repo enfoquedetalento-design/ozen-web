@@ -6017,6 +6017,13 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // parte del efectivo de HOY, con tope de lo acumulado hoy hasta el momento.
   const [reIncluyeHoy, setReIncluyeHoy] = useState(false);
   const [reValorHoy, setReValorHoy] = useState("");
+  // La Base sí se puede editar acá — es el único momento en que se bloquea en Apertura/Cierre pero
+  // se deja libre: al recoger efectivo es cuando de verdad se cuenta la plata físicamente, así que
+  // es el momento natural para corregir la base si quedó desfasada (por ejemplo, por un hueco de
+  // gastos sin cubrir). Se sugiere el valor calculado automáticamente (baseVigente), pero se puede
+  // cambiar con el lápiz igual que "Valor a recoger".
+  const [reBaseCaja, setReBaseCaja] = useState("");
+  const [reBaseCajaTocado, setReBaseCajaTocado] = useState(false);
 
   const [msg, setMsg] = useState("");
 
@@ -6029,6 +6036,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     setReValorTocado(false);
     setReIncluyeHoy(false);
     setReValorHoy("");
+    setReBaseCajaTocado(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tiendaId, aperturasTienda[0]?.id, ultimaRecoleccion?.id]);
 
@@ -6139,6 +6147,11 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     if(!reValorTocado) setReValor(String(efectivoARecolectar||""));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [efectivoARecolectar, tiendaId]);
+
+  useEffect(()=>{
+    if(!reBaseCajaTocado) setReBaseCaja(String(baseVigente||""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseVigente, tiendaId]);
 
   // Resumen de ventas del día para el Cierre: ingreso neto, servicios, y flexipagos del día (informativo)
   const resumenDia = (fecha) => {
@@ -6308,23 +6321,13 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     if(reIncluyeHoy && valorHoyNum<=0){ setMsg("Marcaste que recoges efectivo de hoy — falta el valor a retirar."); return; }
     if(reIncluyeHoy && valorHoyNum>efectivoHoyPendiente){ setMsg(`No puedes retirar más de lo acumulado hoy (${fmtCOP(efectivoHoyPendiente)}).`); return; }
 
-    // Si hay un hueco de base sin cubrir, preguntamos cuánto quiere agregar a la base con el
-    // efectivo que se está recogiendo ahora mismo — el monto es manual (se sugiere el valor exacto
-    // del hueco, pero se puede editar) porque por las denominaciones de los billetes no siempre se
-    // puede completar exacto. Si cancela o pone 0, la base se queda en el valor reducido
-    // (baseVigente) — ese hueco sigue como la base de referencia hasta la próxima recolección, no
-    // se olvida.
-    let valorFinal = Number(reValor||0) + valorHoyNum;
-    let baseCajaFinal = baseVigente;
-    if(baseDeficit>0){
-      const sugerido = Math.max(0, Math.min(baseDeficit, valorFinal));
-      const respuesta = window.prompt(`La base quedó en ${fmtCOP(baseVigente)} por gastos sin cubrir (hueco de ${fmtCOP(baseDeficit)}). ¿Cuánto quieres agregar a la base con el efectivo que estás recogiendo? (no tiene que ser exacto — por las denominaciones de los billetes puede quedar un poco menos o más. Deja en 0 para no completarla ahora.)`, String(sugerido));
-      if(respuesta!==null){
-        const monto = Math.max(0, Math.min(Number(String(respuesta).replace(/[^\d]/g,""))||0, valorFinal));
-        valorFinal -= monto;
-        baseCajaFinal = baseVigente + monto;
-      }
-    }
+    // La base que queda es un campo editable en esta misma tarjeta (ver "Base que queda" con
+    // lápiz) — a diferencia de Apertura/Cierre donde está bloqueada, acá sí se puede corregir a
+    // mano porque es el momento en que de verdad se cuenta el efectivo físicamente. Por defecto
+    // trae el valor calculado automáticamente (baseVigente), pero si hay un hueco por gastos sin
+    // cubrir, o simplemente no cuadra con lo contado, Santiago puede cambiarlo directo ahí.
+    const valorFinal = Number(reValor||0) + valorHoyNum;
+    const baseCajaFinal = Number(reBaseCaja||0);
 
     setGuardandoRe(true); setMsg("");
     const entrega = users.find(u=>u.id===reEntregaId);
@@ -6336,7 +6339,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       base_caja:baseCajaFinal, comentarios:reComentarios.trim()||null, registrado_por:user.name,
     }).select().single();
     setGuardandoRe(false);
-    if(data){ setRecolecciones(prev=>[data,...prev]); setReValor(""); setReComentarios(""); setReIncluyeHoy(false); setReValorHoy(""); }
+    if(data){ setRecolecciones(prev=>[data,...prev]); setReValor(""); setReComentarios(""); setReIncluyeHoy(false); setReValorHoy(""); setReBaseCajaTocado(false); }
     else if(error){ setMsg(`No se pudo guardar la recolección: ${error.message||"error desconocido"}`); }
   };
 
@@ -6576,8 +6579,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     <CajaCampoPick compact label="Entrega *" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                     <CajaCampoPick compact label="Recibe *" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
                     <CajaCampoPick compact money label="Valor a recoger (días anteriores)" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
-                    <CajaReciboLinea compact label="Base que queda" value={fmtCOP(baseVigente)} color={baseDeficit>0?C.red:undefined} small/>
-                    {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.red, marginTop:2 }}>Hay un hueco de {fmtCOP(baseDeficit)} en la base por gastos sin cubrir. Al registrar, se pregunta cuánto quieres agregar con este efectivo (monto manual, no tiene que quedar exacto).</div>}
+                    <CajaCampoPick compact money label="Base que queda" value={reBaseCaja} onChange={v=>{ setReBaseCaja(v); setReBaseCajaTocado(true); }}/>
+                    {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.red, marginTop:2 }}>Hay un hueco de {fmtCOP(baseDeficit)} en la base por gastos sin cubrir (sugerido: {fmtCOP(baseVigente)}). Ajusta el valor de arriba con lo que de verdad quieras dejar de base — no tiene que ser exacto.</div>}
                     {reFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master o admin de finanzas puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
                     {reFecha===todayStr && (
                       <div style={{ marginTop:8, padding:"8px 10px", background:C.surfaceAlt, borderRadius:7, border:`1px solid ${C.border}` }}>
