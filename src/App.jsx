@@ -4231,18 +4231,21 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     const avisoHtml = FLEXIPAGO_AVISO_ITEMS.map(it=>`<p style="margin:3px 0;text-align:left;">${it.n?`<b>${it.n}. ${it.titulo}:</b> `:""}${it.texto}</p>`).join("");
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Venta ${venta.numero_factura||""}</title>
       <style>
-        body{font-family:Arial,Helvetica,sans-serif;padding:28px;color:#111;}
-        h1{font-size:18px;margin:0 0 4px;}
+        @page{size:auto;margin:14mm;}
+        body{font-family:Arial,Helvetica,sans-serif;padding:28px;color:#111;font-size:15px;}
+        .logo-wrap{text-align:center;margin-bottom:14px;}
+        .logo-wrap img{width:280px;height:auto;}
+        h1{font-size:22px;margin:0 0 6px;text-align:center;}
         table{width:100%;border-collapse:collapse;margin-top:10px;}
-        th,td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:13px;text-align:left;}
-        .total{font-size:16px;font-weight:bold;margin-top:12px;}
-        .muted{color:#666;font-size:12px;}
+        th,td{padding:8px 8px;border-bottom:1px solid #ddd;font-size:15px;text-align:left;}
+        .total{font-size:18px;font-weight:bold;margin-top:12px;}
+        .muted{color:#555;font-size:14px;}
         hr{border:none;border-top:1px solid #ccc;margin:14px 0;}
-        .aviso{margin-top:22px;border:1px solid #ccc;border-radius:6px;padding:10px 14px;background:#fafafa;}
-        .aviso-titulo{font-size:12px;font-weight:bold;margin-bottom:6px;}
-        .aviso p{font-size:10.5px;color:#333;line-height:1.4;}
+        .aviso{margin-top:22px;border:1px solid #ccc;border-radius:6px;padding:12px 16px;background:#fafafa;}
+        .aviso-titulo{font-size:14px;font-weight:bold;margin-bottom:6px;}
+        .aviso p{font-size:12.5px;color:#333;line-height:1.5;}
       </style></head><body>
-      <img src="/logo-azul.png" alt="OZEN" style="height:50px;margin-bottom:8px;"/>
+      <div class="logo-wrap"><img src="/logo-horizontal.png" alt="OZEN"/></div>
       <h1>Comprobante Flexipago</h1>
       <div class="muted">Factura Siigo: ${venta.numero_factura||"—"} · Tienda: ${tienda} · Fecha: ${venta.fecha}</div>
       <div class="muted">Asesor: ${venta.vendedor_nombre||""}</div>
@@ -4261,7 +4264,19 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     w.document.write(html);
     w.document.close();
     w.focus();
-    setTimeout(()=>{ w.print(); }, 300);
+    // Espera a que el logo termine de cargar antes de imprimir — si se dispara el print() antes,
+    // en algunos navegadores el logo queda en blanco en el PDF/impreso. Con un tope de 1.5s por si
+    // la imagen no llega a cargar (no debe dejar la impresión colgada esperando para siempre).
+    const logoImg = w.document.querySelector(".logo-wrap img");
+    let yaImprimio = false;
+    const disparaPrint = () => { if(yaImprimio) return; yaImprimio = true; w.print(); };
+    if(logoImg && !logoImg.complete){
+      logoImg.addEventListener("load", disparaPrint, { once:true });
+      logoImg.addEventListener("error", disparaPrint, { once:true });
+      setTimeout(disparaPrint, 1500);
+    } else {
+      setTimeout(disparaPrint, 300);
+    }
   };
 
   const abiertoEdicion = editando;
@@ -6332,7 +6347,7 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
   );
 };
 
-function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, solicitudesBorrado, setSolicitudesBorrado, puedeRecoleccion, soloLectura, isMobile }) {
+function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, solicitudesBorrado, setSolicitudesBorrado, puedeRecoleccion, soloLectura, isMobile, turnosAsignaciones, turnosHorarios }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const tiendasList = tiendasVenta(stores);
   const [tiendaId, setTiendaId] = useState(tiendaFija || tiendasList[0]?.id || "");
@@ -6352,6 +6367,10 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const [gaValor, setGaValor] = useState("");
   const [gaMotivo, setGaMotivo] = useState("");
   const [gaTipo, setGaTipo] = useState("costo");
+  // El login de Caja es compartido por toda la tienda, así que `user.name` no dice QUIÉN de
+  // verdad está registrando la novedad — hay que elegirlo a mano, igual que "Asesor" en Apertura,
+  // Cierre y Recolección.
+  const [gaAsesorId, setGaAsesorId] = useState("");
   const puedeAprobarNovedad = user.role==="master" || user.role==="admin_finanzas";
   const [guardandoGa, setGuardandoGa] = useState(false);
 
@@ -6671,15 +6690,16 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   };
 
   const guardarGasto = async () => {
-    if(!tiendaId || !gaValor || !gaMotivo.trim()){ setMsg("Falta el valor y el motivo del gasto."); return; }
+    if(!tiendaId || !gaValor || !gaMotivo.trim() || !gaAsesorId){ setMsg("Falta el valor, el motivo y quién registra la novedad."); return; }
     setGuardandoGa(true); setMsg("");
+    const nombreAsesorGa = asesores.find(a=>a.id===gaAsesorId)?.name || user.name;
     // La novedad afecta el cálculo de recolección de inmediato, pero queda "pendiente" hasta que
     // master/admin_finanzas la revise y apruebe — son movimientos de dinero, así que quedan a la vista.
     const { data, error } = await supabase.from("ventas_caja_gastos").insert({
-      tienda_id:tiendaId, fecha:apFecha, valor:Number(gaValor||0), motivo:gaMotivo.trim(), tipo:gaTipo, estado:"pendiente", registrado_por:user.name,
+      tienda_id:tiendaId, fecha:apFecha, valor:Number(gaValor||0), motivo:gaMotivo.trim(), tipo:gaTipo, estado:"pendiente", registrado_por:nombreAsesorGa,
     }).select().single();
     setGuardandoGa(false);
-    if(data){ setGastos(prev=>[data,...prev]); setGaValor(""); setGaMotivo(""); }
+    if(data){ setGastos(prev=>[data,...prev]); setGaValor(""); setGaMotivo(""); setGaAsesorId(""); }
     else if(error){ setMsg(`No se pudo guardar la novedad: ${error.message||"error desconocido"}`); }
   };
 
@@ -6816,6 +6836,18 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // (gastos) cuya fecha coincide con la fecha de cierre — no cambian ningún cálculo existente.
   const tiendaNombreActual = stores[tiendaId]?.name || "";
   const novedadesDelDia = gastosTienda.filter(g=>g.fecha===ciFecha);
+  // La fila "Turno" mostraba el nombre de la tienda (redundante con el selector de arriba) — en
+  // vez de eso, una vez se elige el asesor, muestra el turno que tiene asignado ese día en la
+  // malla de Turnos (ej. "UT2 (12pm–8pm)"), tomado de turnos_asignaciones + turnos_horarios. Si
+  // ese día no tiene ninguna asignación (ej. cuenta que no está en la malla), se cae de vuelta al
+  // nombre de la tienda.
+  const turnoAsesorTexto = (asesorId, fecha) => {
+    if(!asesorId) return tiendaNombreActual || "—";
+    const asig = (turnosAsignaciones||[]).find(a=>a.asesor_id===asesorId && a.fecha===fecha);
+    if(!asig || !asig.shift) return tiendaNombreActual || "—";
+    const rango = getExpectedRange(asig.shift, fecha, asig.tienda_id||tiendaId, turnosHorarios, asig.entrada_custom, asig.salida_custom);
+    return rango ? `${asig.shift} (${rango})` : asig.shift;
+  };
 
   return (
     <div>
@@ -6851,7 +6883,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
               <CajaCard compact icon="🔓" titulo="Apertura de turno" color={tiendaColor}>
                 <CajaCampoPick compact label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
                 <CajaCampoPick compact label="Asesor *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-                <CajaReciboLinea compact label="Turno" value={tiendaNombreActual||"—"} small/>
+                <CajaReciboLinea compact label="Turno" value={turnoAsesorTexto(apAsesorId, apFecha)} small/>
                 <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={baseDeficit>0?C.red:undefined} small/>
                 {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10, color:C.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
                 {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
@@ -6896,7 +6928,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
               >
                 <CajaCampoPick compact label="Fecha" type="date" value={ciFecha} onChange={setCiFecha}/>
                 <CajaCampoPick compact label="Asesor *" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-                <CajaReciboLinea compact label="Turno" value={tiendaNombreActual||"—"} small/>
+                <CajaReciboLinea compact label="Turno" value={turnoAsesorTexto(ciAsesorId, ciFecha)} small/>
                 <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={baseDeficit>0?C.red:undefined} small/>
                 {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
                 {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:11.5, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
@@ -6977,11 +7009,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
             <div>
               <CajaCard compact icon="➕" titulo="Agregar novedad" color={tiendaColor}>
+                <CajaFieldRow compact label="Quién registra *" value={gaAsesorId} onChange={setGaAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                 <CajaFieldRow compact label="Tipo" value={gaTipo} onChange={setGaTipo} options={[{value:"costo",label:"Costo"},{value:"ingreso",label:"Ingreso"}]}/>
                 <CajaMoneyRow compact label="Valor" value={gaValor} onChange={setGaValor}/>
                 <CajaFieldRow compact wide label="Motivo" placeholder="Ej: limpiavidrios / vueltas no reclamadas" value={gaMotivo} onChange={setGaMotivo}/>
                 <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end" }}>
-                  <CajaBtn onClick={guardarGasto} disabled={guardandoGa}>{guardandoGa?"...":"Agregar +"}</CajaBtn>
+                  <CajaBtn onClick={guardarGasto} disabled={guardandoGa || !gaAsesorId}>{guardandoGa?"...":"Agregar +"}</CajaBtn>
                 </div>
               </CajaCard>
 
@@ -7126,7 +7159,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     </div>
                   ) : (
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6 }}>
-                      <span>{g.fecha ? new Date(g.fecha+"T00:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"}) : "—"} · {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}</span>
+                      <span>
+                        {g.fecha ? new Date(g.fecha+"T00:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"}) : "—"} · {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}
+                        <span style={{ display:"block", fontSize:10, color:C.textMuted, marginTop:1 }}>
+                          {g.registrado_por ? `Registró: ${g.registrado_por}` : ""}{g.aprobado_por ? `${g.registrado_por?" · ":""}Aprobó: ${g.aprobado_por}` : ""}
+                        </span>
+                      </span>
                       <span style={{ display:"flex", alignItems:"center", gap:8 }}>
                         <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
                         {puedeTocarGasto(g) && <button onClick={()=>empezarEditarGasto(g)} title="Editar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.goldLight, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Editar</button>}
@@ -7328,7 +7366,7 @@ export default function App() {
         if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
-        if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile}/>;
+        if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>;
       } else if(area==="firmas"){
         if(tab==="firmar")   return <FirmarDocumentoScreen/>;
       } else {
@@ -7342,7 +7380,7 @@ export default function App() {
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
-      if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile}/>;
+      if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>;
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
