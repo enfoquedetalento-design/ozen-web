@@ -3655,24 +3655,24 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
   // de Ventas/Ingreso.
   const [modoCambioProducto, setModoCambioProducto] = useState(false);
   const [ccFecha, setCcFecha] = useState(todayStr);
-  const [ccValor, setCcValor] = useState("");
   const [ccNumeroFactura, setCcNumeroFactura] = useState("");
-  const [ccMotivo, setCcMotivo] = useState("");
   const [ccGuardando, setCcGuardando] = useState(false);
+  // El valor es siempre el de la factura (mismo valor, por definición) — no se pregunta, se toma
+  // directo de lo ya registrado.
   const guardarCambioProducto = async () => {
-    const valorNum = Number(ccValor||0);
+    const valorNum = Number(v.valor_original ?? v.total ?? 0);
     if(valorNum<=0 || !ccNumeroFactura.trim()) return;
     setCcGuardando(true);
     const { data, error } = await supabase.from("ventas_ajustes").insert({
       venta_id:v.id, fecha:ccFecha, valor_anterior:null, valor_nuevo:null, diferencia:0,
-      motivo:ccMotivo.trim()||"Cambio de producto, mismo valor", aplicado_por:user.name,
+      motivo:"Cambio de producto, mismo valor", aplicado_por:user.name,
       es_correccion_error:false, es_cambio_producto:true, valor_informativo:valorNum,
       numero_factura:ccNumeroFactura.trim(),
     }).select().single();
     setCcGuardando(false);
     if(data){
       setAjustes(prev=>[...prev, data]);
-      setCcValor(""); setCcNumeroFactura(""); setCcMotivo(""); setCcFecha(todayStr);
+      setCcNumeroFactura(""); setCcFecha(todayStr);
       setModoCambioProducto(false); setEditando(false); setModoErrorId(false);
     }
     else if(error){ alert(`No se pudo guardar: ${error.message}`); }
@@ -3822,7 +3822,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     setModoErrorId(true);
     setEditando(true);
     setModoCambioProducto(false);
-    setCcFecha(todayStr); setCcValor(""); setCcNumeroFactura(""); setCcMotivo("");
+    setCcFecha(todayStr); setCcNumeroFactura("");
     // es_original/fecha_item quedan guardados en la fila desde la vez que se creó ese renglón —
     // así un excedente sigue siendo excedente (editable, con fecha propia) en futuras Notas
     // crédito, no solo en la sesión donde se agregó. Filas viejas (antes de esta columna) caen
@@ -4329,19 +4329,14 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                   </div>
                   {modoNotacredito && (
                     <label style={{ display:"flex", alignItems:"center", gap:7, fontFamily:font.body, fontSize:12, color:C.text, marginBottom:12, cursor:"pointer" }}>
-                      <input type="checkbox" checked={modoCambioProducto} onChange={e=>{ const on=e.target.checked; setModoCambioProducto(on); if(on) setCcValor(String(v.valor_original ?? v.total ?? "")); }}/>
+                      <input type="checkbox" checked={modoCambioProducto} onChange={e=>setModoCambioProducto(e.target.checked)}/>
                       🔄 Cambio de producto (mismo valor) — no cambia el total ni los medios de pago, solo genera un N.º de factura nuevo en Siigo
                     </label>
                   )}
                   {modoCambioProducto ? (
-                    <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:10 }}>
-                      <Field label="Fecha" type="date" value={ccFecha} onChange={setCcFecha} disabled={!puedeCorregirError}/>
-                      <CurrencyField label="Valor (ya viene con el de la factura — ajústalo si el cambio fue solo de uno de varios productos)" value={ccValor} onChange={setCcValor}/>
-                      <Field label="N.º de factura (Siigo) nuevo — obligatorio *" value={ccNumeroFactura} onChange={setCcNumeroFactura} placeholder="Ej: FE-1235"/>
-                      <Field label="Nota (opcional)" value={ccMotivo} onChange={setCcMotivo} placeholder="Ej: cambió de talla"/>
-                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"-2px 0 4px" }}>
-                        La factura original #{v.numero_factura||"—"} no cambia — esto queda como nota informativa (se ve en la factura y en el Cierre de caja del día), sin afectar Ventas ni Ingreso.
-                      </div>
+                    <div style={{ display:"flex", gap:8, alignItems:"end", marginBottom:10, flexWrap:"wrap" }}>
+                      <div style={{ width:140 }}><Field label="Fecha" type="date" value={ccFecha} onChange={setCcFecha} disabled={!puedeCorregirError}/></div>
+                      <div style={{ flex:1, minWidth:150 }}><Field label="N.º de factura (Siigo) nuevo *" value={ccNumeroFactura} onChange={setCcNumeroFactura} placeholder="Ej: FE-1235"/></div>
                     </div>
                   ) : (<>
                   <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:10 }}>
@@ -4469,7 +4464,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                   )}
                   <div style={{ display:"flex", gap:8 }}>
                     {modoCambioProducto ? (
-                      <Btn onClick={guardarCambioProducto} disabled={ccGuardando || Number(ccValor||0)<=0 || !ccNumeroFactura.trim()} sm>{ccGuardando?"Guardando...":"Guardar cambio de producto"}</Btn>
+                      <Btn onClick={guardarCambioProducto} disabled={ccGuardando || Number(v.valor_original ?? v.total ?? 0)<=0 || !ccNumeroFactura.trim()} sm>{ccGuardando?"Guardando...":"Guardar cambio de producto"}</Btn>
                     ) : (
                       <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || (modoNotacredito && !editNumeroFactura.trim())} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
                     )}
