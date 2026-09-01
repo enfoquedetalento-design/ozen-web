@@ -175,34 +175,53 @@ const semanaCongelada = (semanaTarea) => {
   const frontera = fronteraCongelamiento();
   return !!frontera && !!semanaTarea && semanaTarea < frontera;
 };
+// Mes al que se le "atribuye" una tarea ya cerrada, para efectos de indicadores — no es el mes en
+// que se asignó (c.semana), sino el mes en que de verdad se resolvió: para una cumplida, el mes en
+// que se marcó (completado_en); para una vencida, el mes en que venció (fecha_estimada, que es
+// cuando pasa a vencida sola, sin que nadie la marque). Así una tarea de la última semana de un mes
+// que se revisa ya en el mes siguiente (o con el Monitor nuevo) cuenta para el mes en que en
+// realidad se cumplió o venció, no para el mes en que se creó — "lo que pasó ya pasó". Si faltan
+// esos campos por datos antiguos, se usa `semana` como respaldo para no perder el dato.
+const mesDeCierre = (t) => {
+  if (t.completado) return (t.completado_en ? fmt(new Date(t.completado_en)) : t.semana || "").slice(0,7) || null;
+  if (tareaVencidaNoRealizada(t)) return (t.fecha_estimada || t.semana || "").slice(0,7) || null;
+  return null; // sigue activa — todavía no se cierra, no cuenta para ningún mes.
+};
 // Indicadores de un mes: sesiones registradas (martes con al menos una tarea) y % de tareas completadas.
-// El % de cumplimiento solo cuenta tareas ya CERRADAS (completadas o vencidas sin hacer) — una
-// tarea todavía activa (no completada, dentro de plazo) no cuenta ni a favor ni en contra todavía,
-// porque todavía puede completarse. Contarla de una vez castigaba el % de más, de forma injusta.
+// "Sesiones" y "tareas asignadas" se cuentan por `semana` (cuántas reuniones hubo y cuántas tareas
+// salieron de ellas ese mes) — eso no cambió. El % de cumplimiento, en cambio, se calcula sobre las
+// tareas CERRADAS EN ese mes (ver mesDeCierre arriba), vengan de la semana que vengan — una tarea
+// todavía activa (no completada, dentro de plazo) no cuenta ni a favor ni en contra todavía, porque
+// todavía puede completarse. Contarla de una vez castigaba el % de más, de forma injusta.
 const statsDelMes = (compromisos, anio, mes) => {
   const martes = martesDelMes(anio, mes);
+  const mesStr = `${anio}-${String(mes+1).padStart(2,"0")}`;
   const tareas = compromisos.filter(c => martes.includes(c.semana));
   const sesiones = new Set(tareas.map(t => t.semana)).size;
-  const completadas = tareas.filter(t => t.completado).length;
-  const cerradas = tareas.filter(t => t.completado || tareaVencidaNoRealizada(t));
-  const activas = tareas.length - cerradas.length;
+  const cerradas = compromisos.filter(c => mesDeCierre(c) === mesStr);
+  const completadas = cerradas.filter(t => t.completado).length;
+  const activas = tareas.filter(t => !t.completado && !tareaVencidaNoRealizada(t)).length;
   const pct = cerradas.length ? Math.round((completadas / cerradas.length) * 100) : null;
   return { totalMartes: martes.length, sesiones, totalTareas: tareas.length, completadas, totalCerradas: cerradas.length, activas, pct };
 };
 // Cumplimiento de tareas, pero desglosado por cada líder — no todos cargan el mismo peso ni la
-// misma cantidad de tareas, así que el % se calcula individualmente (completadas ÷ cerradas).
+// misma cantidad de tareas, así que el % se calcula individualmente (completadas ÷ cerradas). Igual
+// que en statsDelMes, "total" (cantidad asignada) sigue por semana, pero el cumplimiento (cerradas/
+// completadas/pct) se atribuye al mes real de cierre.
 const statsPorLiderDelMes = (compromisos, lideres, anio, mes) => {
   const martes = martesDelMes(anio, mes);
+  const mesStr = `${anio}-${String(mes+1).padStart(2,"0")}`;
   const tareas = compromisos.filter(c => martes.includes(c.semana));
+  const cerradasMes = compromisos.filter(c => mesDeCierre(c) === mesStr);
   return lideres
     .map(l => {
       const deLider = tareas.filter(t => t.lider_id === l.id);
-      const completadas = deLider.filter(t => t.completado).length;
-      const cerradas = deLider.filter(t => t.completado || tareaVencidaNoRealizada(t));
-      const pct = cerradas.length ? Math.round((completadas / cerradas.length) * 100) : null;
-      return { lider: l, total: deLider.length, completadas, totalCerradas: cerradas.length, pct };
+      const cerradasLider = cerradasMes.filter(t => t.lider_id === l.id);
+      const completadas = cerradasLider.filter(t => t.completado).length;
+      const pct = cerradasLider.length ? Math.round((completadas / cerradasLider.length) * 100) : null;
+      return { lider: l, total: deLider.length, completadas, totalCerradas: cerradasLider.length, pct };
     })
-    .filter(x => x.total > 0)
+    .filter(x => x.total > 0 || x.totalCerradas > 0)
     .sort((a,b) => (a.lider.nombre||"").localeCompare(b.lider.nombre||""));
 };
 // Indicadores de la Junta: un solo color (azul) para cualquier % cumplido, sin el semáforo
@@ -2427,11 +2446,19 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const gruposFiltrados = gruposMes.filter(g => !filtroLider || g.some(m=>m.lider_id===filtroLider));
   const gruposCumplidos = gruposFiltrados.filter(esGrupoCompletado);
   const gruposVencidos = gruposFiltrados.filter(esGrupoVencido);
+  // "Activas" NUNCA se acota al mes que se esté navegando en el selector de arriba — una tarea
+  // sigue viva en el checklist hasta que se marca cumplida o vence, sin importar si su semana quedó
+  // del lado del mes anterior por el simple corte de calendario (p. ej. la última semana de agosto,
+  // que se revisa ya con el Monitor de septiembre). El selector de mes/semana solo acota el
+  // histórico (Todas/Cumplidas/Vencidas); "Activas" mira TODOS los compromisos, y solo se acota si
+  // el usuario elige explícitamente una semana puntual.
+  const tareasActivasBase = semanaFiltro ? compromisos.filter(c=>c.semana===semanaFiltro) : compromisos;
+  const gruposActivosBase = agrupar(tareasActivasBase).filter(g => !filtroLider || g.some(m=>m.lider_id===filtroLider));
   // Una tarea recién marcada como hecha no desaparece de "Activas" de una — se queda ahí, ya con
   // su check verde, mientras dure la gracia de 5 minutos para desmarcar por error (dentroDeGracia,
   // arriba). Así no toca ir a buscarla entre todas las cumplidas si se marcó sin querer. También
   // sigue apareciendo en "Cumplidas" desde el primer momento — es solo una copia visual temporal.
-  const gruposActivos = gruposFiltrados.filter(g => !esGrupoVencido(g) && (!esGrupoCompletado(g) || dentroDeGracia(g[0])));
+  const gruposActivos = gruposActivosBase.filter(g => !esGrupoVencido(g) && (!esGrupoCompletado(g) || dentroDeGracia(g[0])));
   const gruposMostrados = vistaEstado==="activas" ? gruposActivos : vistaEstado==="cumplidas" ? gruposCumplidos : vistaEstado==="vencidas" ? gruposVencidos : gruposFiltrados;
   // Orden cronológico: la más vieja primero, la más nueva de última — así el monitor revisa de
   // arriba hacia abajo en la reunión, y cuando llega a la última (la que se creó más reciente)
