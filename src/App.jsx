@@ -3646,6 +3646,38 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
   const [ajusteFecha, setAjusteFecha] = useState(todayStr);
   const puedeEditarFechaAjuste = ["master","admin_finanzas"].includes(user.role);
 
+  // Cambio de producto, mismo valor: para Siigo ESTO ES una Notacrédito (mismo mecanismo, genera
+  // un N.º de factura nuevo), así que vive DENTRO del flujo de "Notacrédito Siigo" — un check que
+  // simplifica el formulario porque acá no hay nada que editar en los renglones (mismo valor, no
+  // cambia ni el total ni los medios de pago). No toca ni la venta ni ventas_items — es un registro
+  // puramente informativo (tabla ventas_ajustes, es_cambio_producto) para poder contrastar contra
+  // Siigo: aparece en la factura original y en el Cierre de caja del día, sin sumar ni restar nada
+  // de Ventas/Ingreso.
+  const [modoCambioProducto, setModoCambioProducto] = useState(false);
+  const [ccFecha, setCcFecha] = useState(todayStr);
+  const [ccValor, setCcValor] = useState("");
+  const [ccNumeroFactura, setCcNumeroFactura] = useState("");
+  const [ccMotivo, setCcMotivo] = useState("");
+  const [ccGuardando, setCcGuardando] = useState(false);
+  const guardarCambioProducto = async () => {
+    const valorNum = Number(ccValor||0);
+    if(valorNum<=0 || !ccNumeroFactura.trim()) return;
+    setCcGuardando(true);
+    const { data, error } = await supabase.from("ventas_ajustes").insert({
+      venta_id:v.id, fecha:ccFecha, valor_anterior:null, valor_nuevo:null, diferencia:0,
+      motivo:ccMotivo.trim()||"Cambio de producto, mismo valor", aplicado_por:user.name,
+      es_correccion_error:false, es_cambio_producto:true, valor_informativo:valorNum,
+      numero_factura:ccNumeroFactura.trim(),
+    }).select().single();
+    setCcGuardando(false);
+    if(data){
+      setAjustes(prev=>[...prev, data]);
+      setCcValor(""); setCcNumeroFactura(""); setCcMotivo(""); setCcFecha(todayStr);
+      setModoCambioProducto(false); setEditando(false); setModoErrorId(false);
+    }
+    else if(error){ alert(`No se pudo guardar: ${error.message}`); }
+  };
+
   const [abonoForm, setAbonoForm] = useState(false);
   const [abonoValor, setAbonoValor] = useState("");
   const [abonoMedio, setAbonoMedio] = useState("efectivo");
@@ -3789,6 +3821,8 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     setModoNotacredito(esNotacredito);
     setModoErrorId(true);
     setEditando(true);
+    setModoCambioProducto(false);
+    setCcFecha(todayStr); setCcValor(""); setCcNumeroFactura(""); setCcMotivo("");
     // es_original/fecha_item quedan guardados en la fila desde la vez que se creó ese renglón —
     // así un excedente sigue siendo excedente (editable, con fecha propia) en futuras Notas
     // crédito, no solo en la sesión donde se agregó. Filas viejas (antes de esta columna) caen
@@ -4293,6 +4327,23 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                       ? "🧾 Notacrédito Siigo: puedes corregir tipo, valor, medio de pago, pero el valor no puede ser menor al valor original."
                       : "🛠️ Corregir factura: aquí el valor puede subir o bajar libremente. Úsalo solo si el número se digitó mal — nada cambió en Siigo."}
                   </div>
+                  {modoNotacredito && (
+                    <label style={{ display:"flex", alignItems:"center", gap:7, fontFamily:font.body, fontSize:12, color:C.text, marginBottom:12, cursor:"pointer" }}>
+                      <input type="checkbox" checked={modoCambioProducto} onChange={e=>setModoCambioProducto(e.target.checked)}/>
+                      🔄 Cambio de producto (mismo valor) — no cambia el total ni los medios de pago, solo genera un N.º de factura nuevo en Siigo
+                    </label>
+                  )}
+                  {modoCambioProducto ? (
+                    <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:10 }}>
+                      <Field label="Fecha" type="date" value={ccFecha} onChange={setCcFecha} disabled={!puedeCorregirError}/>
+                      <CurrencyField label="Valor del producto" value={ccValor} onChange={setCcValor}/>
+                      <Field label="N.º de factura (Siigo) nuevo — obligatorio *" value={ccNumeroFactura} onChange={setCcNumeroFactura} placeholder="Ej: FE-1235"/>
+                      <Field label="Nota (opcional)" value={ccMotivo} onChange={setCcMotivo} placeholder="Ej: cambió de talla"/>
+                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"-2px 0 4px" }}>
+                        La factura original #{v.numero_factura||"—"} no cambia — esto queda como nota informativa (se ve en la factura y en el Cierre de caja del día), sin afectar Ventas ni Ingreso.
+                      </div>
+                    </div>
+                  ) : (<>
                   <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:10 }}>
                     {editItems.map((i,idx)=>(
                       <div key={i.id||idx} style={{ display:"flex", flexDirection:"column", gap:4, background:editingItemIdx===idx?`${C.gold}14`:C.surfaceAlt, border:`1px solid ${editingItemIdx===idx?C.gold:C.border}`, borderRadius:7, padding:"8px 10px" }}>
@@ -4398,11 +4449,12 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                       {editingItemIdx!==null && <Btn onClick={cancelarEdicionItem} variant="ghost" sm>Cancelar</Btn>}
                     </div>
                   </div>
-                  <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
-                  {editItems.some(i=>i.tipo==="flexipago") && (
+                  </>)}
+                  {!modoCambioProducto && <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>}
+                  {!modoCambioProducto && editItems.some(i=>i.tipo==="flexipago") && (
                     <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"6px 0 10px" }}>📦 Esta venta tiene un renglón Flexipago — no factura hasta completar el pago.</div>
                   )}
-                  {modoNotacredito && (
+                  {modoNotacredito && !modoCambioProducto && (
                     <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"-4px 0 10px" }}>
                       La factura original #{v.numero_factura||"—"} no cambia — el N.º de Siigo que escribas arriba, en el renglón, queda como el de esta Notacrédito.
                     </div>
@@ -4416,8 +4468,12 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                     </div>
                   )}
                   <div style={{ display:"flex", gap:8 }}>
-                    <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || (modoNotacredito && !editNumeroFactura.trim())} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
-                    <Btn onClick={()=>{ setEditando(false); setEditErrorMsg(""); setModoErrorId(false); }} variant="ghost" sm>Cancelar</Btn>
+                    {modoCambioProducto ? (
+                      <Btn onClick={guardarCambioProducto} disabled={ccGuardando || Number(ccValor||0)<=0 || !ccNumeroFactura.trim()} sm>{ccGuardando?"Guardando...":"Guardar cambio de producto"}</Btn>
+                    ) : (
+                      <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || (modoNotacredito && !editNumeroFactura.trim())} sm>{guardando?"Guardando...":"Guardar corrección"}</Btn>
+                    )}
+                    <Btn onClick={()=>{ setEditando(false); setEditErrorMsg(""); setModoErrorId(false); setModoCambioProducto(false); }} variant="ghost" sm>Cancelar</Btn>
                   </div>
                 </div>
               ) : v.es_flexipago ? (
@@ -4597,10 +4653,19 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                 </>
               )}
 
+              {(ajustes||[]).filter(a=>a.venta_id===v.id && a.es_cambio_producto).length>0 && (
+                <div style={{ display:"flex", flexDirection:"column", gap:3, marginTop:4, marginBottom:2 }}>
+                  {(ajustes||[]).filter(a=>a.venta_id===v.id && a.es_cambio_producto).map(a=>(
+                    <div key={a.id} style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>
+                      🔄 Cambio de producto (mismo valor) el {a.fecha} — NC Siigo #{a.numero_factura}: <span style={{ color:C.goldLight, fontFamily:font.mono }}>{fmtCOP(a.valor_informativo)}</span>{a.motivo?` · ${a.motivo}`:""}
+                    </div>
+                  ))}
+                </div>
+              )}
               <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:6 }}>
                 {v.es_flexipago && <Btn onClick={()=>imprimirVenta(v,d)} variant="ghost" sm>🖨️ Imprimir</Btn>}
                 {puedeEditar && !abiertoEdicion && !flexipagoVencido && !flexipagoCompletado && <Btn onClick={()=>iniciarEdicion(v)} sm title="Ya te aprobaron el Notacrédito — usa este botón para aplicarlo.">📝 Aplicar Notacrédito</Btn>}
-                {puedeCorregirError && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarNotacredito(v)} variant="ghost" sm style={{ color:C.amber }} title="Usa esto cuando la corrección SÍ genera un número de factura nuevo en Siigo. El valor no puede bajar del ya registrado, y necesitas el N.º de factura nuevo.">🧾 Notacrédito Siigo</Btn>}
+                {puedeCorregirError && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarNotacredito(v)} variant="ghost" sm style={{ color:C.amber }} title="Usa esto cuando la corrección SÍ genera un número de factura nuevo en Siigo (incluye cambio de producto por el mismo valor). El valor no puede bajar del ya registrado, y necesitas el N.º de factura nuevo.">🧾 Notacrédito Siigo</Btn>}
                 {puedeCorregirErrorAqui && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarCorregirFactura(v)} variant="ghost" sm style={{ color:C.textMuted }} title={esHoyTienda && !puedeCorregirError ? "Puedes corregir libremente lo registrado hoy mismo (sube o baja el valor sin límite). Para días anteriores, pide Notacrédito." : "Usa esto cuando NO cambió nada en Siigo — fue un error al registrar. Sube o baja el valor libremente, sin necesitar número de factura nuevo."}>🛠️ Corregir factura</Btn>}
                 {puedeEliminarAqui && <Btn onClick={()=>eliminarVenta(v)} variant="ghost" sm style={{ color:C.red }} title={esHoyTienda && !esAdmin ? "Puedes eliminar lo registrado hoy mismo." : undefined}>🗑️ Eliminar venta</Btn>}
                 {!soloLectura && !puedeCorregirErrorAqui && !flexipagoCompletado && (mostrarSolicitud ? (
@@ -6459,7 +6524,14 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       });
     });
 
-    return { ingresoNeto, servicios, flexipagoDia, notaCreditoDia, flexipagoCerradoHoy, flexipagoCerradoHoyMedios, abonoFlexipagoFinalMedios, totalIngresoNeto:cajaTotal(ingresoNeto), totalServicios:cajaTotal(servicios), totalFlexipagoDia:cajaTotal(flexipagoDia), totalNotaCreditoDia:cajaTotal(notaCreditoDia), totalDescuentosDia:descuentoDia, totalAbonoFlexipagoFinal:cajaTotal(abonoFlexipagoFinalMedios) };
+    // Cambios de producto por el mismo valor (ver botón 🔄 en la venta) — puramente informativo
+    // para contrastar contra Siigo (que sí genera un N.º de factura nuevo aunque no haya diferencia
+    // de plata). No suma ni resta de Ventas/Ingreso ni de ningún otro total de este resumen.
+    const totalCambioProductoDia = (ventasAjustes||[])
+      .filter(a=>a.es_cambio_producto && a.fecha===fecha && ventasTiendaMap[a.venta_id])
+      .reduce((s,a)=>s+Number(a.valor_informativo||0),0);
+
+    return { ingresoNeto, servicios, flexipagoDia, notaCreditoDia, flexipagoCerradoHoy, flexipagoCerradoHoyMedios, abonoFlexipagoFinalMedios, totalIngresoNeto:cajaTotal(ingresoNeto), totalServicios:cajaTotal(servicios), totalFlexipagoDia:cajaTotal(flexipagoDia), totalNotaCreditoDia:cajaTotal(notaCreditoDia), totalDescuentosDia:descuentoDia, totalAbonoFlexipagoFinal:cajaTotal(abonoFlexipagoFinalMedios), totalCambioProductoDia };
   };
 
   const resumenHoy = resumenDia(ciFecha);
@@ -6740,11 +6812,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 )}
 
                 {/* Sección 3 — Descuentos y notas crédito, solo informativo. */}
-                {(resumenHoy.totalDescuentosDia+resumenHoy.totalNotaCreditoDia)>0 && (
+                {(resumenHoy.totalDescuentosDia+resumenHoy.totalNotaCreditoDia+resumenHoy.totalCambioProductoDia)>0 && (
                   <>
                     <CajaSubHeader compact label="Descuentos y notas crédito"/>
                     {resumenHoy.totalDescuentosDia>0 && <CajaReciboLinea compact label="Descuentos" value={fmtCOP(resumenHoy.totalDescuentosDia)} small/>}
                     {resumenHoy.totalNotaCreditoDia>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(resumenHoy.totalNotaCreditoDia)} color={C.amber} small/>}
+                    {resumenHoy.totalCambioProductoDia>0 && <CajaReciboLinea compact label="🔄 Cambio de producto (informativo)" value={fmtCOP(resumenHoy.totalCambioProductoDia)} color={C.gold} small/>}
                   </>
                 )}
 
