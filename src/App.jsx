@@ -343,16 +343,22 @@ const CurrencyField = ({ label, value, onChange, placeholder, disabled, noMargin
 };
 
 const Field = ({ label, value, onChange, type="text", placeholder, options, disabled, multiline, rows=4, autoComplete }) => (
-  <div style={{ marginBottom:14 }}>
+  <div style={{ marginBottom:14, minWidth:0 }}>
     {label && <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>{label}</div>}
     {options ? (
-      <select value={value} onChange={e=>onChange(e.target.value)} disabled={disabled} style={{ width:"100%", background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}>
+      <select value={value} onChange={e=>onChange(e.target.value)} disabled={disabled} style={{ width:"100%", minWidth:0, background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}>
         {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     ) : multiline ? (
-      <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} disabled={disabled} rows={rows} style={{ width:"100%", background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box", resize:"vertical", lineHeight:1.5 }} />
+      <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} disabled={disabled} rows={rows} style={{ width:"100%", minWidth:0, background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box", resize:"vertical", lineHeight:1.5 }} />
     ) : (
-      <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} disabled={disabled} autoComplete={autoComplete} style={{ width:"100%", background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }} />
+      // `minWidth:0` es necesario porque dentro de un grid/flex, un input (sobre todo
+      // type="date") no se encoge por debajo de su ancho de contenido por defecto — eso hacía
+      // que la casilla de Fecha se saliera por la derecha de su tarjeta en celular, aunque tenga
+      // width:100%. WebkitAppearance:"none" en el de fecha quita el tamaño nativo extra que
+      // agrega iOS Safari al calendario, que era la otra causa de que se viera más alto/ancho
+      // que los demás campos.
+      <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} disabled={disabled} autoComplete={autoComplete} style={{ width:"100%", minWidth:0, background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box", ...(type==="date"?{WebkitAppearance:"none", appearance:"none"}:{}) }} />
     )}
   </div>
 );
@@ -516,6 +522,12 @@ const activoEnMallaTurnos = (u) => u.role==="advisor" ? !!u.active : u.activo_en
 // Admin Finanzas: hace todo lo de un Administrador normal (Asistencia/Junta), más Ventas completo
 // (registrar, lista, métricas, asignar metas, aprobar notas crédito y corregir por error).
 const esAdminFinanzas = (user) => user.role==="admin_finanzas";
+// Cualquier admin (master, admin, admin finanzas, admin turnos) puede vender cuando está en una
+// tienda, aunque su cuenta no tenga permiso para REGISTRAR la venta desde Ventas (ej. un Admin
+// normal, que ahí solo puede ver) — por eso también aparecen como opción de "quién hizo la venta"
+// / asesor en Registrar venta, Lista de ventas, Métricas y Caja, sin importar su rol en Ventas.
+const ROLES_ADMIN_VENDEDOR = ["master","admin","admin_finanzas","admin_turnos"];
+const esVendedorPosible = (u) => (u.role==="advisor" || ROLES_ADMIN_VENDEDOR.includes(u.role)) && u.active;
 // Quién puede aprobar/rechazar notas crédito dentro de Ventas
 const esAdminDeVentas = (user) => user.role==="master" || user.role==="admin_finanzas";
 // Quién puede asignar las metas mensuales en Métricas
@@ -711,13 +723,13 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
       <PageHeader title="Registros" subtitle={`${jornadas.length} jornadas`} />
       <Card style={{ marginBottom:12, overflow:"hidden" }} p="12px">
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8, width:"100%" }}>
-          <div>
+          <div style={{ minWidth:0 }}>
             <div style={{ fontSize:10, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>Desde</div>
-            <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 8px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }} />
+            <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={{ width:"100%", minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 8px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box", WebkitAppearance:"none", appearance:"none" }} />
           </div>
-          <div>
+          <div style={{ minWidth:0 }}>
             <div style={{ fontSize:10, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>Hasta</div>
-            <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 8px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }} />
+            <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} style={{ width:"100%", minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 8px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box", WebkitAppearance:"none", appearance:"none" }} />
           </div>
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:8 }}>
@@ -2539,7 +2551,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             );})}
           </div>
           <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1.3fr", gap:6, marginBottom:6 }}>
-            <input type="date" value={nueva.fecha_estimada} onChange={e=>setNueva(p=>({...p,fecha_estimada:e.target.value}))} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" }}/>
+            <input type="date" value={nueva.fecha_estimada} onChange={e=>setNueva(p=>({...p,fecha_estimada:e.target.value}))} style={{ width:"100%", minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box", WebkitAppearance:"none", appearance:"none" }}/>
             <input value={nueva.comentarios} onChange={e=>setNueva(p=>({...p,comentarios:e.target.value}))} placeholder="Comentario (opcional)" style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
           </div>
           <div style={{ display:"flex", gap:6 }}><Btn onClick={crear} sm disabled={!nueva.descripcion.trim()||nueva.lider_ids.length===0}>Guardar</Btn><Btn onClick={()=>setShowNueva(false)} variant="ghost" sm>Cancelar</Btn></div>
@@ -4591,7 +4603,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
   const [guardando, setGuardando] = useState(false);
   const [msg, setMsg] = useState("");
 
-  const asesores = users.filter(u=>u.role==="advisor" && u.active);
+  const asesores = users.filter(esVendedorPosible);
 
   // Busca si este documento ya compró antes y autocompleta nombre/teléfono
   useEffect(()=>{
@@ -5091,7 +5103,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   const [filtroVendedor, setFiltroVendedor] = useState("");
   const [filtroFlexipago, setFiltroFlexipago] = useState(false);
   const [busqueda, setBusqueda] = useState("");
-  const asesores = users.filter(u=>u.role==="advisor");
+  const asesores = users.filter(u=>u.role==="advisor" || ROLES_ADMIN_VENDEDOR.includes(u.role));
 
   const ventasFiltradas = ventas
     .filter(v => (!tiendaFija || v.tienda_id===tiendaFija))
@@ -5272,7 +5284,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const irMesSiguiente = () => { if(mesIdx===11){ setMesIdx(0); setAnio(a=>a+1); } else setMesIdx(m=>m+1); };
 
   const tiendasList = tiendasVenta(stores);
-  const asesores = users.filter(u=>u.role==="advisor" && u.active);
+  const asesores = users.filter(esVendedorPosible);
   const vistaAsesor = esCuentaTienda(user);
   // La tienda del usuario (si es cuenta de tienda) va primera, luego el resto, y "Todas" de última.
   const tiendaPropia = vistaAsesor ? tiendasList.find(t=>t.id===user.tienda_id) : null;
@@ -5982,7 +5994,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // Color asignado a la tienda que se está viendo — se usa para pintar los cuadros de Caja.
   const tiendaColor = stores[tiendaId]?.color;
   const [cajaVista, setCajaVista] = useState(soloLectura ? "historial" : "registrar"); // 'registrar' | 'historial'
-  const asesores = users.filter(u=>u.role==="advisor" && u.active);
+  const asesores = users.filter(esVendedorPosible);
   const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin"||u.role==="admin_finanzas"||u.role==="admin_turnos") && u.active);
 
   // Master o admin de finanzas pueden registrar con una fecha distinta a hoy (para poner al día algo atrasado).
