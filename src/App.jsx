@@ -3460,6 +3460,15 @@ const VENTAS_MEDIOS_TARJETA = ["tarjeta"];
 // Flexipago ya no es un medio de pago: es su propio Tipo. Este alias se deja
 // porque se usa para elegir el medio de los abonos (que sí ingresan dinero real).
 const VENTAS_MEDIOS_REALES = VENTAS_MEDIOS_PAGO;
+// Un abono puede pagarse con varios medios a la vez (ej. mitad efectivo, mitad tarjeta) — se
+// guarda en `pagos` (igual que los renglones de venta). Los abonos de antes de este cambio solo
+// tienen un medio único en las columnas `medio_pago`/`valor`/`numero_autorizacion`; este helper
+// normaliza cualquier abono (viejo o nuevo) a una lista de {medio_pago, valor, numero_autorizacion}
+// para que todo el resto del código (Caja, recibos, badges) no tenga que preguntar cuál es cuál.
+const mediosDeAbono = (a) => (a && a.pagos && a.pagos.length)
+  ? a.pagos
+  : [{ medio_pago:a?.medio_pago, valor:a?.valor, numero_autorizacion:a?.numero_autorizacion }];
+const textoMediosAbono = (a) => mediosDeAbono(a).map(p=>`${VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago}${p.numero_autorizacion?` (AUT ${p.numero_autorizacion})`:""}`).join(" + ");
 
 const VENTAS_TIPOS = [
   { value:"producto", label:"Venta" },
@@ -3609,7 +3618,7 @@ function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
 // filtrada por esa fecha también debe aparecer un registro (antes solo se veía en Caja).
 function AbonoFlexipagoCard({ venta, abonos }) {
   const totalDia = abonos.reduce((s,a)=>s+Number(a.valor||0),0);
-  const mediosTexto = [...new Set(abonos.map(a=>VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago))].join(", ");
+  const mediosTexto = [...new Set(abonos.flatMap(a=>mediosDeAbono(a).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago)))].join(", ");
   return (
     <Card p="10px 14px" style={{ borderLeft:`3px solid ${C.blue}` }}>
       <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
@@ -3709,8 +3718,11 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
 
   const [abonoForm, setAbonoForm] = useState(false);
   const [abonoValor, setAbonoValor] = useState("");
-  const [abonoMedio, setAbonoMedio] = useState("efectivo");
-  const [abonoAutorizacion, setAbonoAutorizacion] = useState("");
+  // Un abono se puede dividir entre varios medios de pago (ej. mitad efectivo, mitad tarjeta) —
+  // mismo patrón que los medios de pago de un renglón de venta (itemPagos): se van agregando
+  // renglones de {medio_pago, valor, numero_autorizacion} y deben sumar el "Valor del abono".
+  const [abonoPagos, setAbonoPagos] = useState([]);
+  const [abonoMedioNuevo, setAbonoMedioNuevo] = useState("");
   // Solo master/admin_finanzas pueden cambiar la fecha del abono (para registrar abonos
   // atrasados con su fecha real) — el resto siempre abona con la fecha de hoy.
   const [abonoFecha, setAbonoFecha] = useState(todayStr);
@@ -4068,8 +4080,11 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
       }
       const primerAbono = (d?.abonos||[])[0];
       let abonoAct = null;
-      if(primerAbono && primerAbono.medio_pago!==ncAbonoMedio){
-        const { data } = await supabase.from("ventas_abonos").update({ medio_pago:ncAbonoMedio }).eq("id",primerAbono.id).select().single();
+      // Si el primer abono ya se pagó con varios medios (pagos.length>1), este selector de un solo
+      // medio no alcanza a representarlo bien — se deja intacto en vez de arriesgar corromper el
+      // desglose real (para cambiarlo tocaría hacerlo desde el detalle del abono).
+      if(primerAbono && (!primerAbono.pagos || primerAbono.pagos.length<=1) && primerAbono.medio_pago!==ncAbonoMedio){
+        const { data } = await supabase.from("ventas_abonos").update({ medio_pago:ncAbonoMedio, pagos:null }).eq("id",primerAbono.id).select().single();
         abonoAct = data;
       }
       for(const s of aprobadasSinAplicar){
@@ -4144,9 +4159,24 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
   };
 
   const [abonoNumeroFactura, setAbonoNumeroFactura] = useState("");
+  // Mismo patrón que agregarMedioAItem/quitarMedioDeItem en VentasRegistrarScreen: los medios
+  // agregados deben sumar exactamente el "Valor del abono" (abonoValor) antes de poder guardar.
+  const abonoSumaMedios = abonoPagos.reduce((a,p)=>a+Number(p.valor||0),0);
+  const abonoFaltaPagos = Number(abonoValor||0) - abonoSumaMedios;
+  const abonoFaltaAUT = abonoPagos.some(p=>VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && !(p.numero_autorizacion||"").trim());
+  const agregarMedioAAbono = (medio) => {
+    const m = medio || abonoMedioNuevo;
+    if(!m) return;
+    const sugerido = Math.max(0, abonoFaltaPagos);
+    setAbonoPagos(prev=>[...prev, { medio_pago:m, valor: sugerido>0?String(sugerido):"", numero_autorizacion:"" }]);
+    setAbonoMedioNuevo("");
+  };
+  const quitarMedioDeAbono = (idx) => setAbonoPagos(prev=>prev.filter((_,i)=>i!==idx));
+  const setAbonoPagoValor = (idx, v) => setAbonoPagos(prev=>prev.map((p,i)=>i===idx?{...p,valor:v}:p));
+  const setAbonoPagoAutorizacion = (idx, v) => setAbonoPagos(prev=>prev.map((p,i)=>i===idx?{...p,numero_autorizacion:v}:p));
+  const resetAbonoForm = () => { setAbonoForm(false); setAbonoValor(""); setAbonoPagos([]); setAbonoMedioNuevo(""); setAbonoNumeroFactura(""); setAbonoFecha(todayStr); };
   const agregarAbono = async (venta, valorFlexipagoVenta, totalAbonadoActual) => {
-    if(!abonoValor || Number(abonoValor)<=0) return;
-    if(VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && !abonoAutorizacion.trim()) return;
+    if(!abonoValor || Number(abonoValor)<=0 || abonoPagos.length===0 || Math.abs(abonoFaltaPagos)>=1 || abonoFaltaAUT) return;
     // El total abonado que llega por parámetro viene del render (puede quedar desactualizado si
     // se registran varios abonos seguidos muy rápido, antes de que la pantalla alcance a
     // refrescarse). Para decidir si este abono cierra el Flexipago, se vuelve a sumar lo
@@ -4162,7 +4192,15 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     // Solo master/admin_finanzas pueden poner una fecha distinta a hoy (para abonos atrasados
     // que se registran después de que pasaron). El resto siempre abona con la fecha de hoy.
     const fechaAbono = (esAdmin && abonoFecha) ? abonoFecha : todayStr;
-    const { data, error } = await supabase.from("ventas_abonos").insert({ venta_id:venta.id, fecha:fechaAbono, valor:Number(abonoValor), registrado_por:user.name, medio_pago:abonoMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(abonoMedio)?abonoAutorizacion.trim():null }).select().single();
+    // `medio_pago`/`numero_autorizacion` (columnas viejas) quedan con el primer medio, solo por
+    // compatibilidad con algún código que todavía no lea `pagos` — lo que manda de verdad es
+    // `pagos`, el desglose completo por medio.
+    const pagosGuardar = abonoPagos.map(p=>({ medio_pago:p.medio_pago, valor:Number(p.valor||0), numero_autorizacion: VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?(p.numero_autorizacion||"").trim():null }));
+    const { data, error } = await supabase.from("ventas_abonos").insert({
+      venta_id:venta.id, fecha:fechaAbono, valor:Number(abonoValor), registrado_por:user.name,
+      medio_pago:pagosGuardar[0]?.medio_pago, numero_autorizacion:pagosGuardar[0]?.numero_autorizacion,
+      pagos: pagosGuardar,
+    }).select().single();
     if(error){ alert(`No se pudo guardar el abono: ${error.message}`); sonidoError(); return; }
     if(data){
       setDetalle(prev=>({...prev, abonos:[...(prev?.abonos||[]), data]}));
@@ -4174,7 +4212,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
       // Un abono cualquiera es rutina; uno que termina de pagar el Flexipago es un logro — se
       // premia con un sonido distinto (más elaborado que el de una venta normal).
       if(completaPago) sonidoFlexipagoCompletado();
-      setAbonoForm(false); setAbonoValor(""); setAbonoMedio("efectivo"); setAbonoAutorizacion(""); setAbonoNumeroFactura(""); setAbonoFecha(todayStr);
+      resetAbonoForm();
     }
   };
 
@@ -4189,7 +4227,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
       const desglose = codigos.length ? `<tr><td colspan="4" style="padding:2px 8px 8px;font-size:11px;color:#666;">${codigos.map(c=>`Código ${c.codigo||"—"}: ${c.valor?fmtCOP(Number(c.valor)):"—"}`).join(" · ")}</td></tr>` : "";
       return fila + desglose;
     }).join("");
-    const abonosHtml = (d?.abonos||[]).map(a=>`<tr><td>${a.fecha}</td><td>${VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}</td><td style="text-align:right">${fmtCOP(a.valor)}</td></tr>`).join("");
+    const abonosHtml = (d?.abonos||[]).map(a=>`<tr><td>${a.fecha}</td><td>${textoMediosAbono(a)}</td><td style="text-align:right">${fmtCOP(a.valor)}</td></tr>`).join("");
     const avisoHtml = FLEXIPAGO_AVISO_ITEMS.map(it=>`<p style="margin:3px 0;text-align:left;">${it.n?`<b>${it.n}. ${it.titulo}:</b> `:""}${it.texto}</p>`).join("");
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Venta ${venta.numero_factura||""}</title>
       <style>
@@ -4607,10 +4645,13 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                         </div>
                       ) : (
                         <div key={a.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, padding:"2px 0" }}>
-                          <span>{a.fecha} — {VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}{a.numero_autorizacion?` · AUT ${a.numero_autorizacion}`:""}</span>
+                          <span>{a.fecha} — {textoMediosAbono(a)}</span>
                           <span style={{ display:"flex", alignItems:"center", gap:8 }}>
                             <span style={{fontFamily:font.mono}}>${Number(a.valor).toLocaleString("es-CO")}</span>
-                            {esAdmin && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
+                            {/* Corregir en línea solo aplica a abonos de un solo medio — uno dividido
+                                entre varios medios se corrige borrando/rehaciendo (no hay forma de
+                                editar un desglose completo desde este lápiz sin arriesgar dejarlo mal). */}
+                            {esAdmin && (!a.pagos || a.pagos.length<=1) && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
                           </span>
                         </div>
                       )
@@ -4631,20 +4672,49 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                       <div style={{ marginBottom:6 }}>
                         <div style={{ display:"flex", gap:8, alignItems:"end", flexWrap:"wrap" }}>
                           <div style={{ flex:1, minWidth:110 }}><CurrencyField label="Valor del abono" value={abonoValor} onChange={setAbonoValor}/></div>
-                          <div style={{ flex:1, minWidth:140 }}><Field label="Medio del abono" value={abonoMedio} onChange={setAbonoMedio} options={VENTAS_MEDIOS_REALES}/></div>
-                          {VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && (
-                            <div style={{ flex:1, minWidth:110 }}><Field label="N.º autorización" value={abonoAutorizacion} onChange={setAbonoAutorizacion} placeholder="Ej: 056495"/></div>
-                          )}
                           {esAdmin && (
                             <div style={{ flex:1, minWidth:130 }}><Field label="Fecha del abono" type="date" value={abonoFecha} onChange={setAbonoFecha}/></div>
                           )}
                         </div>
+                        {/* Un abono puede pagarse con varios medios a la vez (ej. mitad efectivo,
+                            mitad tarjeta) — mismo patrón que "Medios de pago" al registrar una venta:
+                            se van agregando renglones y deben sumar exactamente el valor de arriba. */}
+                        {abonoValor && Number(abonoValor)>0 && (
+                          <>
+                            <div style={{ fontSize:10.5, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.06em", margin:"6px 0 4px" }}>Medios de pago</div>
+                            {abonoPagos.length>0 && (
+                              <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:6 }}>
+                                {abonoPagos.map((p,idx)=>{
+                                  const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===p.medio_pago);
+                                  return (
+                                    <div key={idx} style={{ border:`1px solid ${C.gold}`, borderRadius:7, padding:"7px 8px", background:`${C.gold}0d` }}>
+                                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
+                                        <span style={{ fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{m?.label}</span>
+                                        <button onClick={()=>quitarMedioDeAbono(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
+                                      </div>
+                                      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                                        <div style={{ flex:1, minWidth:100 }}><CurrencyField label="Valor pagado" value={p.valor} onChange={v2=>setAbonoPagoValor(idx,v2)}/></div>
+                                        {VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && <div style={{ flex:1, minWidth:100 }}><Field label="N.º autorización" value={p.numero_autorizacion||""} onChange={v2=>setAbonoPagoAutorizacion(idx,v2)} placeholder="Ej: 056495"/></div>}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            <Field value={abonoMedioNuevo} onChange={v2=>{ if(v2) agregarMedioAAbono(v2); else setAbonoMedioNuevo(v2); }} options={[{value:"",label:"+ Agregar medio de pago"}, ...VENTAS_MEDIOS_REALES]}/>
+                            {abonoPagos.length>0 && (
+                              <div style={{ fontFamily:font.body, fontSize:11.5, margin:"4px 0 6px", color:Math.abs(abonoFaltaPagos)<1?C.green:C.red }}>
+                                {Math.abs(abonoFaltaPagos)<1 ? "✓ Los medios cuadran con el valor del abono" : abonoFaltaPagos>0 ? `Faltan $${abonoFaltaPagos.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(abonoFaltaPagos).toLocaleString("es-CO")}`}
+                              </div>
+                            )}
+                          </>
+                        )}
                         {!v.numero_factura && (
                           <Field label="N.º de factura (Siigo) — solo si este abono deja el Flexipago pagado por completo" value={abonoNumeroFactura} onChange={setAbonoNumeroFactura} placeholder="Ej: FE-1234"/>
                         )}
                         <div style={{ display:"flex", gap:6 }}>
-                          <Btn onClick={()=>agregarAbono(v, valorFlexipago, totalAbonado)} disabled={!abonoValor || Number(abonoValor)<=0 || (VENTAS_MEDIOS_TARJETA.includes(abonoMedio) && !abonoAutorizacion.trim())} sm>Guardar</Btn>
-                          <Btn onClick={()=>{setAbonoForm(false);setAbonoValor("");setAbonoMedio("efectivo");setAbonoAutorizacion("");setAbonoNumeroFactura("");}} variant="ghost" sm>Cancelar</Btn>
+                          <Btn onClick={()=>agregarAbono(v, valorFlexipago, totalAbonado)} disabled={!abonoValor || Number(abonoValor)<=0 || abonoPagos.length===0 || Math.abs(abonoFaltaPagos)>=1 || abonoFaltaAUT} sm>Guardar</Btn>
+                          <Btn onClick={resetAbonoForm} variant="ghost" sm>Cancelar</Btn>
                         </div>
                       </div>
                     ) : (
@@ -4901,7 +4971,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
     const abonosOrdenados = [...abonos].sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
     const totalHoy = abonosOrdenados.reduce((s,a)=>s+Number(a.valor||0),0);
     const completa = valorFlex>0 && (antes + totalHoy) >= valorFlex;
-    const mediosHoy = [...new Set(abonosOrdenados.map(a=>a.medio_pago))];
+    const mediosHoy = [...new Set(abonosOrdenados.flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))];
     return { venta, abonos:abonosOrdenados, valorFlex, antes, totalHoy, completa, mediosHoy };
   });
 
@@ -5279,13 +5349,13 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
               {mediosHoy.length===1 ? (
                 <Badge color={C.blue} sm>{VENTAS_MEDIO_ICONOS[mediosHoy[0]]||"💰"} {VENTAS_MEDIOS_PAGO.find(m=>m.value===mediosHoy[0])?.label||mediosHoy[0]}</Badge>
               ) : (
-                <Badge color={C.blue} sm title={abonos.map(a=>`${VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago}: $${Number(a.valor).toLocaleString("es-CO")}`).join(" · ")}>{abonos.length} abonos hoy</Badge>
+                <Badge color={C.blue} sm title={abonos.map(a=>`${textoMediosAbono(a)}: $${Number(a.valor).toLocaleString("es-CO")}`).join(" · ")}>{abonos.length} abonos hoy</Badge>
               )}
               <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${(completa?valorFlex:totalHoy).toLocaleString("es-CO")}</div>
             </div>
             <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>
               {abonos.length>1
-                ? `Hoy: ${abonos.map(a=>`$${Number(a.valor).toLocaleString("es-CO")} (${VENTAS_MEDIOS_PAGO.find(m=>m.value===a.medio_pago)?.label||a.medio_pago})`).join(" + ")} — antes había abonado $${antes.toLocaleString("es-CO")}`
+                ? `Hoy: ${abonos.map(a=>`$${Number(a.valor).toLocaleString("es-CO")} (${textoMediosAbono(a)})`).join(" + ")} — antes había abonado $${antes.toLocaleString("es-CO")}`
                 : completa
                   ? `Completó el Flexipago hoy con un abono de $${totalHoy.toLocaleString("es-CO")} — antes había abonado $${antes.toLocaleString("es-CO")}`
                   : `Abono parcial de $${totalHoy.toLocaleString("es-CO")} — lleva $${(antes+totalHoy).toLocaleString("es-CO")} de $${valorFlex.toLocaleString("es-CO")}`}
@@ -6530,23 +6600,39 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
         const antes = acumulado;
         acumulado += Number(ab.valor||0);
         const completaHoy = antes < valorTotal && acumulado >= valorTotal && ab.fecha===fecha;
-        if(completaHoy && CAJA_MEDIOS.includes(ab.medio_pago)){
+        // Un abono puede venir dividido en varios medios de pago (mediosDeAbono normaliza los
+        // abonos viejos de un solo medio a una lista de un solo renglón, para que esto no cambie
+        // en nada el cálculo de los de siempre).
+        const subPagos = mediosDeAbono(ab);
+        const totalEsteAbono = subPagos.reduce((s,p)=>s+Number(p.valor||0),0) || 1;
+        if(completaHoy){
           // Este es el abono que cierra el flexipago: su valor TOTAL ya entra al ingreso neto de
-          // hoy (agrupado según el medio de ESE abono) — así "Ventas"/"Total ventas" reconocen la
-          // venta completa el día que se termina de pagar. No se muestra también en "Flexipagos de
-          // ese día" — mostrarlo ahí además del ingreso neto hacía parecer que esa plata no
-          // contaba, cuando en realidad es justo la que cerró la venta.
-          ingresoNeto[ab.medio_pago] += valorTotal;
+          // hoy — repartido entre los medios de ESTE abono en la misma proporción con la que se
+          // pagó (agrupado según el/los medio(s) de ESE abono) — así "Ventas"/"Total ventas"
+          // reconocen la venta completa el día que se termina de pagar. No hay forma de saber con
+          // qué medio se pagaron los abonos de días anteriores, así que se sigue usando el/los
+          // medio(s) del abono que cierra, como ya se hacía con uno solo. No se muestra también en
+          // "Flexipagos de ese día" — mostrarlo ahí además del ingreso neto hacía parecer que esa
+          // plata no contaba, cuando en realidad es justo la que cerró la venta.
           flexipagoCerradoHoy += valorTotal;
-          flexipagoCerradoHoyMedios[ab.medio_pago] += valorTotal;
-          // Pero lo que de verdad entró en CAJA hoy es solo el valor de este abono (no el valor
-          // total del flexipago, que en gran parte ya había entrado en días anteriores) — esto es
-          // lo que "Ingreso del día" necesita sumar.
-          abonoFlexipagoFinalMedios[ab.medio_pago] += Number(ab.valor||0);
-        } else if(ab.fecha===fecha && CAJA_MEDIOS.includes(ab.medio_pago)){
+          subPagos.forEach(p=>{
+            if(!CAJA_MEDIOS.includes(p.medio_pago)) return;
+            const parte = Number(p.valor||0);
+            const proporcion = parte / totalEsteAbono;
+            ingresoNeto[p.medio_pago] += valorTotal * proporcion;
+            flexipagoCerradoHoyMedios[p.medio_pago] += valorTotal * proporcion;
+            // Pero lo que de verdad entró en CAJA hoy es solo el valor de este abono (no el valor
+            // total del flexipago, que en gran parte ya había entrado en días anteriores) — esto es
+            // lo que "Ingreso del día" necesita sumar.
+            abonoFlexipagoFinalMedios[p.medio_pago] += parte;
+          });
+        } else if(ab.fecha===fecha){
           // Abono de hoy que NO cierra el flexipago: es plata que entró pero la venta todavía no
           // se reconoce como completa, así que se muestra aparte y no suma al ingreso neto.
-          flexipagoDia[ab.medio_pago] += Number(ab.valor||0);
+          subPagos.forEach(p=>{
+            if(!CAJA_MEDIOS.includes(p.medio_pago)) return;
+            flexipagoDia[p.medio_pago] += Number(p.valor||0);
+          });
         }
       });
     });
