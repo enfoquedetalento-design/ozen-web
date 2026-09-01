@@ -6919,6 +6919,13 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                           </label>
                           <input type="checkbox" checked={reIncluyeHoy} onChange={e=>{ setReIncluyeHoy(e.target.checked); if(!e.target.checked) setReValorHoy(""); }} disabled={efectivoHoyPendiente<=0}/>
                         </div>
+                        {/* Aunque no se marque el check (no se recoge hoy), el efectivo de hoy sigue
+                            existiendo — se deja siempre visible este dato informativo para que no
+                            parezca que "desapareció" solo porque el valor a recoger (días anteriores)
+                            da $0 y no se está recogiendo hoy en este movimiento. */}
+                        {efectivoHoyPendiente>0 && !reIncluyeHoy && (
+                          <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, textAlign:"right", marginTop:6 }}>Efectivo de hoy: {fmtCOP(efectivoHoyPendiente)} · informativo, no se recoge en este movimiento</div>
+                        )}
                         {reIncluyeHoy && (
                           <div style={{ marginTop:6 }}>
                             <CajaMoneyRow compact label={`Valor a retirar de hoy (máx. ${fmtCOP(efectivoHoyPendiente)})`} value={reValorHoy} onChange={setReValorHoy}/>
