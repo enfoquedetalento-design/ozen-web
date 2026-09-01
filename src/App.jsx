@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, createContext, useContext } from "react";
+import { useState, useRef, useCallback, useEffect, createContext, useContext, Fragment } from "react";
 import { supabase } from "./supabase";
 import { activarNotificacionesPush, notificacionesSoportadas, pushActivo, requiereInstalarEnIOS } from "./push";
 import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError } from "./sounds";
@@ -5795,28 +5795,40 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
       </SeccionVenta>
 
       <SeccionVenta icon="📅" titulo={`Ventas por día — ${tiendaSel ? stores[tiendaSel]?.name : "Todas las tiendas"}`}>
-        <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-          {diasList.map(([fecha,d])=>{
-            const excedentes = excedentesPorDiaOriginal[fecha];
-            return (
-            <div key={fecha} style={{ padding:"6px 4px", borderBottom:`1px solid ${C.border}` }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text }}>
-                <span>{new Date(fecha+"T12:00:00").toLocaleDateString("es-CO",{weekday:"short",day:"numeric",month:"short"})}</span>
-                <span style={{ color:C.textMuted }}>{d.count} venta{d.count!==1?"s":""}</span>
-                <span style={{ fontFamily:font.mono }}>{fmtCOP(d.sin)} <span style={{ color:C.textMuted }}>/ {fmtCOP(d.con)}</span></span>
-              </div>
-              {excedentes && excedentes.length>0 && (
-                <div
-                  style={{ fontFamily:font.body, fontSize:10.5, color:C.amber, marginTop:2, textAlign:"right" }}
-                  title="Este valor ya entró y se sumó en la fecha real de la Notacrédito, no aquí."
-                >
-                  ⓘ {excedentes.map((e,idx)=>`+${fmtCOP(e.valor)} nota crédito el ${new Date(e.fecha+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"})}`).join(" · ")}
-                </div>
-              )}
-            </div>
-            );
-          })}
-          {diasList.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Sin ventas registradas este mes.</div>}
+        <div style={{ overflowX:"auto" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontFamily:font.body, fontSize:12 }}>
+            <thead>
+              <tr style={{ borderBottom:`1px solid ${C.border}`, color:C.textMuted, textAlign:"left" }}>
+                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Fecha</th>
+                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Ventas</th>
+                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Sin servicios</th>
+                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Con servicios</th>
+              </tr>
+            </thead>
+            <tbody>
+              {diasList.map(([fecha,d])=>{
+                const excedentes = excedentesPorDiaOriginal[fecha];
+                return (
+                  <Fragment key={fecha}>
+                    <tr style={{ borderBottom: excedentes&&excedentes.length>0 ? "none" : `1px solid ${C.border}` }}>
+                      <td style={{ padding:"7px 8px", color:C.text, textAlign:"left", whiteSpace:"nowrap" }}>{new Date(fecha+"T12:00:00").toLocaleDateString("es-CO",{weekday:"short",day:"numeric",month:"short"})}</td>
+                      <td style={{ padding:"7px 8px", color:C.textMuted, textAlign:"left" }}>{d.count} venta{d.count!==1?"s":""}</td>
+                      <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.text, textAlign:"left" }}>{fmtCOP(d.sin)}</td>
+                      <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted, textAlign:"left" }}>{fmtCOP(d.con)}</td>
+                    </tr>
+                    {excedentes && excedentes.length>0 && (
+                      <tr style={{ borderBottom:`1px solid ${C.border}` }}>
+                        <td colSpan={4} style={{ padding:"0 8px 6px", fontFamily:font.body, fontSize:10.5, color:C.amber }} title="Este valor ya entró y se sumó en la fecha real de la Notacrédito, no aquí.">
+                          ⓘ {excedentes.map((e,idx)=>`+${fmtCOP(e.valor)} nota crédito el ${new Date(e.fecha+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"})}`).join(" · ")}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+              {diasList.length===0 && <tr><td colSpan={4} style={{ padding:16, textAlign:"center", color:C.textMuted }}>Sin ventas registradas este mes.</td></tr>}
+            </tbody>
+          </table>
         </div>
       </SeccionVenta>
     </div>
