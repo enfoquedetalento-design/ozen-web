@@ -193,6 +193,11 @@ const mesDeCierre = (t) => {
 // tareas CERRADAS EN ese mes (ver mesDeCierre arriba), vengan de la semana que vengan — una tarea
 // todavía activa (no completada, dentro de plazo) no cuenta ni a favor ni en contra todavía, porque
 // todavía puede completarse. Contarla de una vez castigaba el % de más, de forma injusta.
+// "activas" (el aviso de "X todavía activas, no cuentan aún") solo tiene sentido para el MES EN
+// CURSO — una vez arranca el mes del siguiente Monitor, ese mes ya quedó atrás: cualquier tarea
+// suya que siga sin cerrar no va a contar para ese mes nunca (va a contar para el mes en que
+// realmente se cierre, sea cual sea — ver mesDeCierre), así que ya no tiene caso mostrarla como
+// "pendiente de este mes". Por eso en un mes ya pasado siempre da 0.
 const statsDelMes = (compromisos, anio, mes) => {
   const martes = martesDelMes(anio, mes);
   const mesStr = `${anio}-${String(mes+1).padStart(2,"0")}`;
@@ -200,7 +205,9 @@ const statsDelMes = (compromisos, anio, mes) => {
   const sesiones = new Set(tareas.map(t => t.semana)).size;
   const cerradas = compromisos.filter(c => mesDeCierre(c) === mesStr);
   const completadas = cerradas.filter(t => t.completado).length;
-  const activas = tareas.filter(t => !t.completado && !tareaVencidaNoRealizada(t)).length;
+  const hoy = toColombiaDate();
+  const esMesEnCurso = anio===hoy.getFullYear() && mes===hoy.getMonth();
+  const activas = esMesEnCurso ? tareas.filter(t => !t.completado && !tareaVencidaNoRealizada(t)).length : 0;
   const pct = cerradas.length ? Math.round((completadas / cerradas.length) * 100) : null;
   return { totalMartes: martes.length, sesiones, totalTareas: tareas.length, completadas, totalCerradas: cerradas.length, activas, pct };
 };
