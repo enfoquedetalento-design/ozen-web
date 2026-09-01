@@ -6186,7 +6186,10 @@ const CajaSubHeader = ({ label, compact }) => (
 // Fila de formulario "a modo factura": título/etiqueta a la izquierda, el campo editable compacto a
 // la derecha — mismo look que CajaReciboLinea pero con un input/select real en vez de texto. Usada
 // para que Apertura, Cierre, Novedades y Recolección se vean como una sola lista consistente.
-const cajaInputStyleRow = { ...cajaInputStyle, width:"auto", flex:"0 1 190px", textAlign:"right", fontSize:13 };
+// minWidth:0 es necesario para que el input de verdad se achique en vez de salirse del cuadro —
+// por defecto un flex item no encoge más allá del ancho de su propio contenido (min-width:auto),
+// así que sin esto una etiqueta+valor largos empujan el input fuera del borde en pantallas angostas.
+const cajaInputStyleRow = { ...cajaInputStyle, width:"auto", flex:"0 1 190px", minWidth:0, textAlign:"right", fontSize:13 };
 const cajaInputStyleRowCompact = { ...cajaInputStyleRow, padding:"4px 7px", fontSize:12.5 };
 const CajaFieldRow = ({ label, value, onChange, options, placeholder, type="text", wide, compact }) => {
   const base = compact ? cajaInputStyleRowCompact : cajaInputStyleRow;
@@ -6926,15 +6929,17 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                       <div style={{ marginTop:8, padding:"8px 10px", background:C.surfaceAlt, borderRadius:7, border:`1px solid ${C.border}` }}>
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
                           <label style={{ display:"flex", alignItems:"center", gap:7, fontFamily:font.body, fontSize:12, color:C.text, cursor:"pointer" }}>
-                            Recoges efectivo de hoy
+                            ¿Recoges efectivo de hoy?
                             {efectivoHoyPendiente<=0 && <span style={{ color:C.textMuted }}> (aún no hay efectivo de hoy)</span>}
                           </label>
                           <input type="checkbox" checked={reIncluyeHoy} onChange={e=>{ setReIncluyeHoy(e.target.checked); if(!e.target.checked) setReValorHoy(""); }} disabled={efectivoHoyPendiente<=0}/>
                         </div>
+                        {/* Sin "a retirar de hoy" en el label — es redundante con la pregunta de
+                            arriba, que ya deja claro que es de hoy; y sin la línea de "Acumulado
+                            hoy" aparte, que repetía el mismo dato que ya está en el "(máx. ...)". */}
                         {reIncluyeHoy && (
                           <div style={{ marginTop:6 }}>
-                            <CajaMoneyRow compact label={`Valor a retirar de hoy (máx. ${fmtCOP(efectivoHoyPendiente)})`} value={reValorHoy} onChange={setReValorHoy}/>
-                            <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, textAlign:"right" }}>Acumulado hoy: {fmtCOP(efectivoHoyPendiente)}</div>
+                            <CajaMoneyRow compact label={`Valor (máx. ${fmtCOP(efectivoHoyPendiente)})`} value={reValorHoy} onChange={setReValorHoy}/>
                           </div>
                         )}
                       </div>
