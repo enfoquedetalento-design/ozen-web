@@ -4329,14 +4329,14 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                   </div>
                   {modoNotacredito && (
                     <label style={{ display:"flex", alignItems:"center", gap:7, fontFamily:font.body, fontSize:12, color:C.text, marginBottom:12, cursor:"pointer" }}>
-                      <input type="checkbox" checked={modoCambioProducto} onChange={e=>setModoCambioProducto(e.target.checked)}/>
+                      <input type="checkbox" checked={modoCambioProducto} onChange={e=>{ const on=e.target.checked; setModoCambioProducto(on); if(on) setCcValor(String(v.valor_original ?? v.total ?? "")); }}/>
                       🔄 Cambio de producto (mismo valor) — no cambia el total ni los medios de pago, solo genera un N.º de factura nuevo en Siigo
                     </label>
                   )}
                   {modoCambioProducto ? (
                     <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:10 }}>
                       <Field label="Fecha" type="date" value={ccFecha} onChange={setCcFecha} disabled={!puedeCorregirError}/>
-                      <CurrencyField label="Valor del producto" value={ccValor} onChange={setCcValor}/>
+                      <CurrencyField label="Valor (ya viene con el de la factura — ajústalo si el cambio fue solo de uno de varios productos)" value={ccValor} onChange={setCcValor}/>
                       <Field label="N.º de factura (Siigo) nuevo — obligatorio *" value={ccNumeroFactura} onChange={setCcNumeroFactura} placeholder="Ej: FE-1235"/>
                       <Field label="Nota (opcional)" value={ccMotivo} onChange={setCcMotivo} placeholder="Ej: cambió de talla"/>
                       <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"-2px 0 4px" }}>
