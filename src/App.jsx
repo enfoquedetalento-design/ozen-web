@@ -4245,7 +4245,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
         .aviso-titulo{font-size:14px;font-weight:bold;margin-bottom:6px;}
         .aviso p{font-size:12.5px;color:#333;line-height:1.5;}
       </style></head><body>
-      <div class="logo-wrap"><img src="/logo-horizontal.png" alt="OZEN"/></div>
+      <div class="logo-wrap"><img src="/logo-print.png" alt="OZEN"/></div>
       <h1>Comprobante Flexipago</h1>
       <div class="muted">Factura Siigo: ${venta.numero_factura||"—"} · Tienda: ${tienda} · Fecha: ${venta.fecha}</div>
       <div class="muted">Asesor: ${venta.vendedor_nombre||""}</div>
