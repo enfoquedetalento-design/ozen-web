@@ -5012,7 +5012,24 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
   const todayDiaNum = Number(todayStr.slice(8,10));
   const todayMesKey = todayStr.slice(0,7);
   const metaHoyTienda = tiendaId ? Number(metas?.find(m=>m.mes===todayMesKey && m.tienda_id===tiendaId && (m.tipo||"total")==="total")?.valores_dia?.[todayDiaNum] || 0) : 0;
-  const vendidoHoyTienda = tiendaId ? ventas.filter(v=>v.fecha===todayStr && v.tienda_id===tiendaId && !v.es_flexipago).reduce((s,v)=>s+Number(v.total||0),0) : 0;
+  // "Vendido hoy" tenía un bug: contaba las ventas normales de hoy, pero excluía POR COMPLETO
+  // cualquier Flexipago — ni su abono de hoy, ni su cierre si se terminó de pagar justo hoy. Eso
+  // hacía que "faltan" saliera mal apenas había un abono o cierre de Flexipago en el día (el mismo
+  // criterio que ya usa Métricas: un Flexipago cuenta su valor completo el día que se TERMINA de
+  // pagar, y mientras sigue abierto, lo abonado ese día sí cuenta como plata real que entró hoy).
+  const cierresFlexipagoTodos = tiendaId ? calcularCierresFlexipago(ventas, ventasItems, ventasAbonos) : [];
+  const idsFlexipagoCerrados = new Set(cierresFlexipagoTodos.map(c=>c.ventaId));
+  const cierresFlexipagoHoyTienda = cierresFlexipagoTodos.filter(c=>c.tiendaId===tiendaId && c.fechaCierre===todayStr).reduce((s,c)=>s+c.valorNeto,0);
+  const abonosFlexipagoAbiertoHoyTienda = tiendaId ? (ventasAbonos||[]).filter(ab=>{
+    if(ab.fecha!==todayStr) return false;
+    const v = ventas.find(x=>x.id===ab.venta_id);
+    if(!v || !v.es_flexipago || v.tienda_id!==tiendaId) return false;
+    return !idsFlexipagoCerrados.has(v.id);
+  }).reduce((s,ab)=>s+Number(ab.valor||0),0) : 0;
+  // Notacrédito (excedentes) cuya fecha real de hoy — mismo criterio que Métricas: el excedente
+  // cuenta el día en que de verdad se generó, no el día de la factura original.
+  const ajustesHoyTienda = tiendaId ? (ventasAjustes||[]).filter(aj=>aj.fecha===todayStr && !aj.es_correccion_error && ventas.find(v=>v.id===aj.venta_id)?.tienda_id===tiendaId).reduce((s,aj)=>s+Number(aj.diferencia||0),0) : 0;
+  const vendidoHoyTienda = tiendaId ? ventas.filter(v=>v.fecha===todayStr && v.tienda_id===tiendaId && !v.es_flexipago).reduce((s,v)=>s+Number(v.total||0),0) + cierresFlexipagoHoyTienda + abonosFlexipagoAbiertoHoyTienda + ajustesHoyTienda : 0;
   const faltaHoyTienda = Math.max(0, metaHoyTienda - vendidoHoyTienda);
   // Flexipagos de esta tienda que hay que recordarle al cliente que venga a pagar — vencidos,
   // urgentes (5 días o menos) o a mitad de plazo (30+ días), mismos umbrales que ya usa la
