@@ -6182,38 +6182,43 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // Regla general: una recolección SIEMPRE se lleva el efectivo de días ya cerrados (anteriores a
   // hoy) — el de HOY no se recoge por defecto, sigue sumando hasta la siguiente recolección. Solo
   // si se marca "Recoges efectivo de hoy" se retira una parte de hoy, con tope de lo acumulado hoy.
+  // fechaCorte se sigue usando más abajo (gastos/base) como referencia de "desde la última
+  // recolección", pero YA NO se usa para calcular el efectivo pendiente: ese cálculo es ahora por
+  // MONTO acumulado (todo el histórico de ventas en efectivo, menos todo lo ya recogido), no por
+  // fecha de corte — así una recolección PARCIAL (recoger menos de lo sugerido) deja correctamente
+  // el resto pendiente para la próxima vez, en lugar de darlo por recogido solo porque cambió la
+  // fecha de la última recolección.
   const fechaCorte = ultimaRecoleccion ? ultimaRecoleccion.fecha : null;
-  // Si hubo más de una recolección el mismo día (varios retiros parciales de "hoy" ese día), se
-  // suman todos los valor_hoy de ese día para saber cuánto de ese día ya se retiró.
-  const retiradoEnFechaCorte = fechaCorte
-    ? recoleccionesTienda.filter(r=>r.fecha===fechaCorte).reduce((s,r)=>s+Number(r.valor_hoy||0),0)
-    : 0;
-  // Efectivo de todos los días después de la fecha de la última recolección (incluye hoy), más el
-  // remanente del día de esa recolección (lo que no se llevó ese día si no marcó "hoy", o si marcó
-  // solo una parte).
-  let efectivoDiasPosteriores = 0;
+
+  // Efectivo (ventas + abonos en efectivo) de TODOS los días anteriores a hoy, en toda la historia
+  // de la tienda — sin importar cuándo fue la última recolección.
+  let efectivoAnterioresBruto = 0;
   ventasItems.forEach(i=>{
     const v = ventasTiendaMap[i.venta_id];
     if(!v || i.tipo==="flexipago") return;
     const fechaEfectiva = (i.es_original===false && i.fecha_item) ? i.fecha_item : v.fecha;
-    if(fechaCorte && fechaEfectiva<=fechaCorte) return;
-    (i.pagos||[]).forEach(p=>{ if(p.medio_pago==="efectivo") efectivoDiasPosteriores += Number(p.valor||0); });
+    if(fechaEfectiva>=todayStr) return;
+    (i.pagos||[]).forEach(p=>{ if(p.medio_pago==="efectivo") efectivoAnterioresBruto += Number(p.valor||0); });
   });
   ventasAbonos.forEach(a=>{
     const v = ventasTiendaMap[a.venta_id];
     if(!v) return;
-    if(fechaCorte && a.fecha<=fechaCorte) return;
-    if(a.medio_pago==="efectivo") efectivoDiasPosteriores += Number(a.valor||0);
+    if(a.fecha>=todayStr) return;
+    if(a.medio_pago==="efectivo") efectivoAnterioresBruto += Number(a.valor||0);
   });
-  const efectivoEnFechaCorte = fechaCorte ? efectivoDelDia(fechaCorte) : 0;
-  const efectivoPendienteTotal = Math.max(0, efectivoDiasPosteriores + efectivoEnFechaCorte - retiradoEnFechaCorte);
+  // Lo ya recogido de "días anteriores" en TODAS las recolecciones hechas hasta ahora. El campo
+  // "valor" guarda días-anteriores + hoy juntos (ver guardarRecoleccion), así que se resta
+  // valor_hoy para aislar solo la parte de días anteriores de cada recolección.
+  const recogidoAnterioresAcumulado = recoleccionesTienda.reduce((s,r)=> s + (Number(r.valor||0) - Number(r.valor_hoy||0)), 0);
+  // Efectivo de días anteriores a hoy que sigue pendiente — esto es lo que SIEMPRE se sugiere
+  // recoger (la "regla general"). Si una recolección fue parcial, la diferencia queda acá.
+  const efectivoAnteriores = Math.max(0, efectivoAnterioresBruto - recogidoAnterioresAcumulado);
 
   // Efectivo de HOY que sigue pendiente — es el tope para el retiro esporádico de "efectivo de hoy".
   const retiradoHoyYa = recoleccionesTienda.filter(r=>r.fecha===todayStr).reduce((s,r)=>s+Number(r.valor_hoy||0),0);
   const efectivoHoyPendiente = Math.max(0, efectivoDelDia(todayStr) - retiradoHoyYa);
-  // Efectivo de días anteriores a hoy que sigue pendiente — esto es lo que SIEMPRE se sugiere
-  // recoger (la "regla general"), sin importar si hoy se marca el retiro esporádico o no.
-  const efectivoAnteriores = Math.max(0, efectivoPendienteTotal - efectivoHoyPendiente);
+
+  const efectivoPendienteTotal = efectivoAnteriores + efectivoHoyPendiente;
 
   // Gastos de caja (novedades con valor, ej. comprar un limpiavidrios) desde la última recolección —
   // se pagan con la base, así que se restan de lo que hay para recolectar.
