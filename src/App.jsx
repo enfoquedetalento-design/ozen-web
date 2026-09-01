@@ -392,7 +392,7 @@ const StatCard = ({ label, value, icon, color }) => (
 
 const Divider = () => <div style={{ height:1, background:C.border, margin:"12px 0" }} />;
 const PageHeader = ({ title, subtitle, action }) => (
-  <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:20, gap:10 }}>
+  <div style={{ display:"flex", flexWrap:"wrap", alignItems:"flex-start", justifyContent:"space-between", marginBottom:20, gap:10 }}>
     <div>
       <h1 style={{ margin:0, fontFamily:font.body, fontSize:20, fontWeight:700, color:C.text }}>{title}</h1>
       {subtitle && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{subtitle}</div>}
@@ -4776,7 +4776,8 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
           <div style={{
             display:"flex", alignItems:"center", gap:14,
             background: faltaHoyTienda<=0 ? `linear-gradient(135deg, ${C.green}26, ${C.green}08)` : `linear-gradient(135deg, ${C.gold}26, ${C.gold}08)`,
-            border:`1.5px solid ${faltaHoyTienda<=0?C.green:C.gold}`, borderRadius:10, padding:"8px 18px", minWidth:320,
+            border:`1.5px solid ${faltaHoyTienda<=0?C.green:C.gold}`, borderRadius:10, padding:"8px 18px",
+            width: isMobile?"100%":undefined, minWidth: isMobile?0:320, boxSizing:"border-box",
             boxShadow:`0 3px 14px ${faltaHoyTienda<=0?C.green:C.gold}22`,
           }}>
             <div>
