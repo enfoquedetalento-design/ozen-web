@@ -3664,7 +3664,9 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     if(valorNum<=0 || !ccNumeroFactura.trim()) return;
     setCcGuardando(true);
     const { data, error } = await supabase.from("ventas_ajustes").insert({
-      venta_id:v.id, fecha:ccFecha, valor_anterior:null, valor_nuevo:null, diferencia:0,
+      // valor_anterior/valor_nuevo no pueden ser null en la tabla — como es "mismo valor", los dos
+      // quedan iguales (sin diferencia real, diferencia:0).
+      venta_id:v.id, fecha:ccFecha, valor_anterior:valorNum, valor_nuevo:valorNum, diferencia:0,
       motivo:"Cambio de producto, mismo valor", aplicado_por:user.name,
       es_correccion_error:false, es_cambio_producto:true, valor_informativo:valorNum,
       numero_factura:ccNumeroFactura.trim(),
