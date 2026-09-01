@@ -373,7 +373,11 @@ const Field = ({ label, value, onChange, type="text", placeholder, options, disa
     {label && <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>{label}</div>}
     {options ? (
       <select value={value} onChange={e=>onChange(e.target.value)} disabled={disabled} style={{ width:"100%", minWidth:0, background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}>
-        {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+        {/* El navegador dibuja el desplegable de <option> con su propio fondo (casi siempre
+            blanco), no con el fondo oscuro del <select> — así que sin un color explícito acá el
+            texto claro pensado para fondo oscuro (C.text) queda casi ilegible sobre ese blanco.
+            Fijar background/color directo en cada <option> lo corrige en Chrome/Edge/Firefox. */}
+        {options.map(o=><option key={o.value} value={o.value} style={{ background:C.surface, color:C.text }}>{o.label}</option>)}
       </select>
     ) : multiline ? (
       <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} disabled={disabled} rows={rows} style={{ width:"100%", minWidth:0, background:disabled?C.dark:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:disabled?C.textMuted:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box", resize:"vertical", lineHeight:1.5 }} />
@@ -4601,7 +4605,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                     </div>
                   ))}
                   <button onClick={()=>setNcCodigos(prev=>[...prev,{codigo:"",valor:""}])} style={{ background:"none", border:`1px dashed ${C.border}`, borderRadius:7, color:C.textMuted, cursor:"pointer", fontSize:11, fontFamily:font.body, padding:"6px 10px", marginBottom:10, width:"100%" }}>+ Agregar otro código</button>
-                  <div style={{ marginBottom:10 }}><Field label="Medio del abono inicial" value={ncAbonoMedio} onChange={setNcAbonoMedio} options={VENTAS_MEDIOS_REALES}/></div>
+                  <div style={{ marginBottom:10 }}><Field label="Medio de pago inicial" value={ncAbonoMedio} onChange={setNcAbonoMedio} options={VENTAS_MEDIOS_REALES}/></div>
                   <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
                   {(() => {
                     const suma = ncCodigos.reduce((s,c)=>s+Number(c.valor||0),0);
@@ -4755,8 +4759,8 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                             )}
                           </>
                         )}
-                        {!v.numero_factura && (
-                          <Field label="N.º de factura (Siigo) — solo si este abono deja el Flexipago pagado por completo" value={abonoNumeroFactura} onChange={setAbonoNumeroFactura} placeholder="Ej: FE-1234"/>
+                        {!v.numero_factura && abonoValor && Number(abonoValor)>0 && (valorFlexipago - totalAbonado - Number(abonoValor)) <= 0 && (
+                          <Field label="N.º de factura (Siigo) nuevo — este abono deja el Flexipago pagado por completo *" value={abonoNumeroFactura} onChange={setAbonoNumeroFactura} placeholder="Ej: FE-1234"/>
                         )}
                         <div style={{ display:"flex", gap:6 }}>
                           <Btn onClick={()=>agregarAbono(v, valorFlexipago, totalAbonado)} disabled={!abonoValor || Number(abonoValor)<=0 || abonoPagos.length===0 || Math.abs(abonoFaltaPagos)>=1 || abonoFaltaAUT} sm>Guardar</Btn>
@@ -5122,28 +5126,42 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
                 )}
               </div>
             )}
-            {metaHoyTienda>0 && (
-              <div style={{
-                display:"flex", alignItems:"center", gap:14,
-                background: faltaHoyTienda<=0 ? `linear-gradient(135deg, ${C.green}26, ${C.green}08)` : `linear-gradient(135deg, ${C.gold}26, ${C.gold}08)`,
-                border:`1.5px solid ${faltaHoyTienda<=0?C.green:C.gold}`, borderRadius:10, padding:"8px 18px",
-                width: isMobile?"100%":undefined, minWidth: isMobile?0:320, boxSizing:"border-box",
-                boxShadow:`0 3px 14px ${faltaHoyTienda<=0?C.green:C.gold}22`,
-              }}>
-                <div>
-                  <div style={{ fontFamily:font.body, fontSize:9.5, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", whiteSpace:"nowrap" }}>🎯 Meta de hoy</div>
-                  <div style={{ fontFamily:font.mono, fontSize:16, fontWeight:800, color:C.goldLight, whiteSpace:"nowrap" }}>{fmtCOP(faltaHoyTienda<=0 ? vendidoHoyTienda : metaHoyTienda)}</div>
-                </div>
-                <div style={{ flex:1, minWidth:120 }}>
-                  <div style={{ height:5, borderRadius:3, background:C.border, overflow:"hidden" }}>
-                    <div style={{ height:"100%", width:`${Math.min(100, Math.round((vendidoHoyTienda/metaHoyTienda)*100))}%`, background: faltaHoyTienda<=0?C.green:C.gold, transition:"width 0.4s ease" }}/>
+            {metaHoyTienda>0 && (() => {
+              // Antes esta burbuja mostraba la META arriba en grande (y solo cambiaba a vendido
+              // una vez cumplida) — lo que el asesor quiere ver protagonista todo el día es
+              // cuánto lleva VENDIDO. La barra también se quedaba pegada en un solo color (el
+              // "gold" de la marca es en realidad un azul oscuro, por eso "se veía azul sin más")
+              // — ahora cambia de etapa (azul vivo → ámbar cerca de la meta → verde al cumplirla)
+              // para que se sienta viva y dé ganas de completarla.
+              const pctRaw = (vendidoHoyTienda/metaHoyTienda)*100;
+              const pct = Math.max(0, Math.min(100, Math.round(pctRaw)));
+              const cumplida = faltaHoyTienda<=0;
+              const etapaColor = cumplida ? C.green : pctRaw>=75 ? C.amber : C.blue;
+              return (
+                <div className={cumplida?"ozen-meta-cumplida":""} style={{
+                  display:"flex", flexDirection:"column", gap:5,
+                  background: `linear-gradient(135deg, ${etapaColor}26, ${etapaColor}08)`,
+                  border:`1.5px solid ${etapaColor}`, borderRadius:12, padding:"10px 18px",
+                  width: isMobile?"100%":undefined, minWidth: isMobile?0:320, boxSizing:"border-box",
+                  boxShadow:`0 3px 14px ${etapaColor}22`, transition:"border-color 0.4s ease, background 0.4s ease",
+                }}>
+                  <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:10 }}>
+                    <div style={{ fontFamily:font.body, fontSize:9.5, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", whiteSpace:"nowrap" }}>{cumplida?"🎉":"🎯"} Vendido hoy</div>
+                    <div style={{ fontFamily:font.body, fontSize:9.5, color:C.textMuted, whiteSpace:"nowrap" }}>Meta {fmtCOP(metaHoyTienda)}</div>
                   </div>
-                  <div style={{ fontFamily:font.body, fontSize:10.5, fontWeight:700, color: faltaHoyTienda<=0?C.green:C.amber, marginTop:3, whiteSpace:"nowrap" }}>
-                    {faltaHoyTienda<=0 ? `🎉 Cumplida · +${fmtCOP(vendidoHoyTienda-metaHoyTienda)} sobre meta` : `Faltan ${fmtCOP(faltaHoyTienda)}`}
+                  <div style={{ fontFamily:font.mono, fontSize:22, fontWeight:800, color:C.goldLight, whiteSpace:"nowrap", lineHeight:1 }}>{fmtCOP(vendidoHoyTienda)}</div>
+                  <div style={{ height:9, borderRadius:5, background:C.dark, overflow:"hidden" }}>
+                    <div style={{ height:"100%", width:`${pct}%`, borderRadius:5, background:`linear-gradient(90deg, ${C.blue}, ${etapaColor})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1), background 0.4s ease" }}/>
+                  </div>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <div style={{ fontFamily:font.body, fontSize:10.5, fontWeight:700, color:etapaColor, whiteSpace:"nowrap" }}>
+                      {cumplida ? `¡Meta cumplida! +${fmtCOP(vendidoHoyTienda-metaHoyTienda)}` : `Faltan ${fmtCOP(faltaHoyTienda)}`}
+                    </div>
+                    <div style={{ fontFamily:font.mono, fontSize:10.5, fontWeight:700, color:etapaColor, whiteSpace:"nowrap" }}>{pct}%</div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         )}
       />
@@ -5201,10 +5219,10 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
               {itemEsFlexipago ? (
                 <>
                   <div style={{ marginBottom:14 }}>
-                    <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Valor total (suma de los códigos)</div>
+                    <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Valor total</div>
                     <div style={{ width:"100%", background:C.dark, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.mono, boxSizing:"border-box" }}>${itemValorCodigosFlexipago.toLocaleString("es-CO")}</div>
                   </div>
-                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Códigos separados</div>
+                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Productos separados</div>
                   {itemCodigosFlexipago.map((c,idx)=>(
                     <div key={idx} style={{ display:"grid", gridTemplateColumns: itemCodigosFlexipago.length>1 ? "1fr 1fr auto" : "1fr 1fr", gap:6, marginBottom:6, alignItems:"center" }}>
                       <input value={c.codigo} onChange={e=>setCodigoFlexipago(idx,"codigo",e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="#producto" inputMode="numeric" maxLength={6} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
@@ -5215,7 +5233,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
                   <button onClick={agregarCodigoFlexipago} style={{ background:"none", border:`1px dashed ${C.border}`, borderRadius:7, color:C.textMuted, cursor:"pointer", fontSize:11, fontFamily:font.body, padding:"6px 10px", marginBottom:10, width:"100%" }}>+ Agregar otro código</button>
                   <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr", gap:10, marginBottom:4 }}>
                     <CurrencyField label="Valor del abono" value={abonoInicialValor} onChange={setAbonoInicialValor}/>
-                    <Field label="Medio del abono" value={abonoInicialMedio} onChange={setAbonoInicialMedio} options={VENTAS_MEDIOS_REALES}/>
+                    <Field label="Medio de pago" value={abonoInicialMedio} onChange={setAbonoInicialMedio} options={VENTAS_MEDIOS_REALES}/>
                   </div>
                   {VENTAS_MEDIOS_TARJETA.includes(abonoInicialMedio) && (
                     <Field label="N.º autorización" value={abonoInicialAutorizacion} onChange={setAbonoInicialAutorizacion} placeholder="Ej: 056495"/>
@@ -7475,6 +7493,14 @@ export default function App() {
       *::-webkit-scrollbar-track { background: transparent; }
       *::-webkit-scrollbar-thumb { background-color: ${C.surfaceHover}; border-radius: 999px; }
       *::-webkit-scrollbar-thumb:hover { background-color: ${C.border}; }
+      /* El desplegable de un <select> lo dibuja el navegador con SU propio fondo (casi siempre
+         blanco), no con el fondo oscuro que se le puso al <select> — así el texto claro pensado
+         para fondo oscuro quedaba casi ilegible al abrir cualquier lista (ej. elegir asesor). Se
+         fija acá, una sola vez, para que todos los <select> de la app queden legibles. */
+      select { color-scheme: dark; }
+      option { background-color: ${C.surface}; color: ${C.text}; }
+      @keyframes ozenMetaCumplida { 0%,100% { box-shadow: 0 3px 14px rgba(46,204,113,0.35); } 50% { box-shadow: 0 3px 24px rgba(46,204,113,0.65); } }
+      .ozen-meta-cumplida { animation: ozenMetaCumplida 1.8s ease-in-out infinite; }
     `}</style>
   );
 
