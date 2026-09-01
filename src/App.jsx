@@ -5641,22 +5641,22 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
 
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${vistaAsesor?5:6}, 1fr)`, gap:10, marginBottom:16 }}>
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
-          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingresos hoy</div>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ventas hoy</div>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(ingresosHoy)}</div>
         </div>
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
-          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingresos del mes</div>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ventas mes</div>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(totalSinServicios)}</div>
         </div>
         {!vistaAsesor && (
           <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
-            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingresos con servicios</div>
+            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingreso total</div>
             <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(totalConServicios)}</div>
             <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2 }}>+{fmtCOP(totalConServicios-totalSinServicios)} en servicios</div>
           </div>
         )}
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
-          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Meta {tiendaSel?"de la tienda":"total"}</div>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Meta{tiendaSel?"":" total"}</div>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{metaTiendaTotal>0?fmtCOP(metaTiendaTotal):"—"}</div>
         </div>
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
@@ -5836,9 +5836,9 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
             <thead>
               <tr style={{ borderBottom:`1px solid ${C.border}`, color:C.textMuted, textAlign:"left" }}>
                 <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Fecha</th>
-                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Ventas</th>
-                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Sin servicios</th>
-                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Con servicios</th>
+                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}># de ventas</th>
+                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Total ventas</th>
+                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Total ingreso</th>
               </tr>
             </thead>
             <tbody>
