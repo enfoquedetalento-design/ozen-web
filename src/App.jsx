@@ -3445,6 +3445,32 @@ const FLEXIPAGO_AVISO_ITEMS = [
   { texto:"Este acuerdo se rige por las normas comerciales y civiles vigentes en Colombia." },
 ];
 
+// Flexipagos abiertos de una tienda que están vencidos, urgentes (5 días o menos) o a mitad de
+// plazo (30+ días) — mismos umbrales que ya se usan en la tarjeta de cada venta (VentaCard), acá
+// solo se recopilan en una lista para poder avisar de todos de una, sin tener que buscarlos uno
+// por uno en Lista de ventas. Ordenados: vencidos primero, luego por menos días restantes.
+const flexipagosPorVencer = (tiendaId, ventas, ventasItems, ventasAbonos, todayStr) => {
+  const items = [];
+  (ventas||[]).filter(v=>v.es_flexipago && v.tienda_id===tiendaId).forEach(v=>{
+    const abonosVenta = (ventasAbonos||[]).filter(a=>a.venta_id===v.id).sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
+    const totalAbonado = abonosVenta.reduce((a,x)=>a+Number(x.valor||0),0);
+    const valorFlexipago = (ventasItems||[]).filter(i=>i.venta_id===v.id && i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor||0)-Number(i.descuento||0),0);
+    const saldoPendiente = valorFlexipago - totalAbonado;
+    if(saldoPendiente<=0) return; // ya completo
+    const primerAbonoFecha = abonosVenta.length>0 ? abonosVenta[0].fecha : null;
+    const diasDesdeAbono = primerAbonoFecha ? diasEntre(primerAbonoFecha, todayStr) : null;
+    const fechaLimite = primerAbonoFecha ? sumarDias(primerAbonoFecha, FLEXIPAGO_PLAZO_DIAS) : null;
+    const vencido = diasDesdeAbono!==null && diasDesdeAbono>FLEXIPAGO_PLAZO_DIAS && !v.flexipago_reabierto_en;
+    const diasRestantes60 = diasDesdeAbono!==null ? FLEXIPAGO_PLAZO_DIAS - diasDesdeAbono : null;
+    const urgente = !vencido && diasRestantes60!==null && diasRestantes60<=5;
+    const aviso30 = !vencido && !urgente && diasDesdeAbono!==null && diasDesdeAbono>=30;
+    if(!vencido && !urgente && !aviso30) return;
+    items.push({ venta:v, saldoPendiente, diasRestantes60, vencido, urgente, aviso30, fechaLimite });
+  });
+  items.sort((a,b)=> a.vencido!==b.vencido ? (a.vencido?-1:1) : (a.diasRestantes60??999)-(b.diasRestantes60??999));
+  return items;
+};
+
 // Tarjeta de un registro de Nota crédito (el "espejo" del excedente, con su propio N.º de
 // factura) — usada tanto en "Ventas de hoy" como en "Lista de ventas". En Lista de ventas es
 // desplegable: colapsada solo muestra la etiqueta "🧾 Notacrédito" (para identificarla a simple
@@ -4772,6 +4798,10 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
   const metaHoyTienda = tiendaId ? Number(metas?.find(m=>m.mes===todayMesKey && m.tienda_id===tiendaId && (m.tipo||"total")==="total")?.valores_dia?.[todayDiaNum] || 0) : 0;
   const vendidoHoyTienda = tiendaId ? ventas.filter(v=>v.fecha===todayStr && v.tienda_id===tiendaId && !v.es_flexipago).reduce((s,v)=>s+Number(v.total||0),0) : 0;
   const faltaHoyTienda = Math.max(0, metaHoyTienda - vendidoHoyTienda);
+  // Flexipagos de esta tienda que hay que recordarle al cliente que venga a pagar — vencidos,
+  // urgentes (5 días o menos) o a mitad de plazo (30+ días), mismos umbrales que ya usa la
+  // tarjeta de cada venta. Se muestra arriba de todo para que sea lo primero que vea el asesor.
+  const flexipagosAvisar = tiendaId ? flexipagosPorVencer(tiendaId, ventas, ventasItems, ventasAbonos, todayStr) : [];
 
   return (
     <>
@@ -4807,6 +4837,26 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
           </div>
         )}
       />
+      {flexipagosAvisar.length>0 && (
+        <Card style={{ marginBottom:16, border:`1px solid ${flexipagosAvisar.some(f=>f.vencido||f.urgente)?C.red:C.gold}` }}>
+          <div style={{ fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.goldLight, marginBottom:8, display:"flex", alignItems:"center", gap:6 }}>
+            🔔 Flexipagos por recordarle al cliente ({flexipagosAvisar.length})
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {flexipagosAvisar.map(({venta:v, saldoPendiente, diasRestantes60, vencido})=>(
+              <div key={v.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, borderRadius:7, flexWrap:"wrap" }}>
+                <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text }}>
+                  <b>{v.cliente_nombre||"Cliente sin nombre"}</b> {v.cliente_telefono && <span style={{ color:C.textMuted }}>· Tel: {v.cliente_telefono}</span>}
+                  <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, marginTop:1 }}>Debe {fmtCOP(saldoPendiente)}</div>
+                </div>
+                <Badge color={vencido?C.red:(diasRestantes60!==null && diasRestantes60<=5?C.amber:C.gold)} sm>
+                  {vencido ? "⛔ Vencido" : `⏳ Vence en ${diasRestantes60}d`}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16, alignItems:"start" }}>
         <div>
           <SeccionVenta icon="🏬" titulo="Información general">
