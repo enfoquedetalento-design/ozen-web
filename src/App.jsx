@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, createContext, useContext, Fragment } from "react";
 import { supabase } from "./supabase";
 import { activarNotificacionesPush, notificacionesSoportadas, pushActivo, requiereInstalarEnIOS } from "./push";
-import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError } from "./sounds";
+import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError, sonidoBienvenida } from "./sounds";
 import { PDFDocument } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
@@ -6094,20 +6094,33 @@ const CajaMoneyRow = ({ label, value, onChange, placeholder, compact, narrow }) 
 // vuelven a tocar, así que no necesitan quedar siempre como una celda de formulario.
 const CajaCampoPick = ({ label, value, onChange, options, type="text", money, compact, placeholder }) => {
   const [editando, setEditando] = useState(false);
-  const inputStyle = compact?cajaInputStyleRowCompact:cajaInputStyleRow;
+  const selectRef = useRef(null);
   const digits = money ? String(value||"").replace(/[^\d]/g,"") : null;
+  // Sin cuadro: en edición se ve igual que en modo lectura (mismo texto, mismo tamaño), solo que
+  // ahora es un input/select real — nada de fondo ni borde tipo "caja". Si es una lista, se intenta
+  // abrir el desplegable de una vez al entrar en edición (soportado en navegadores recientes).
+  const bareStyle = {
+    background:"transparent", border:"none", borderRadius:0, padding:0, margin:0,
+    color:C.text, fontFamily:font.mono, fontSize: compact?12:13.5, textAlign:"right",
+    outline:"none", boxShadow:"none", WebkitAppearance:"none", appearance:"none", cursor:"pointer",
+  };
+  useEffect(()=>{
+    if(editando && options && selectRef.current){
+      try{ selectRef.current.showPicker?.(); }catch(e){ /* no soportado en este navegador, no pasa nada */ }
+    }
+  }, [editando]);
   if(editando){
     return (
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
         {label && <div style={{ fontFamily:font.body, fontSize: compact?12:13, color:C.text, flexShrink:0 }}>{label}</div>}
         {options ? (
-          <select autoFocus value={value} onChange={e=>{ onChange(e.target.value); setEditando(false); }} onBlur={()=>setEditando(false)} style={inputStyle}>
+          <select ref={selectRef} autoFocus value={value} onChange={e=>{ onChange(e.target.value); setEditando(false); }} onBlur={()=>setEditando(false)} style={bareStyle}>
             {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         ) : money ? (
-          <input autoFocus type="text" inputMode="numeric" value={digits?`$${Number(digits).toLocaleString("es-CO")}`:""} onChange={e=>onChange(e.target.value.replace(/[^\d]/g,""))} onBlur={()=>setEditando(false)} placeholder={placeholder||"$0"} style={inputStyle}/>
+          <input autoFocus type="text" inputMode="numeric" value={digits?`$${Number(digits).toLocaleString("es-CO")}`:""} onChange={e=>onChange(e.target.value.replace(/[^\d]/g,""))} onBlur={()=>setEditando(false)} placeholder={placeholder||"$0"} style={{...bareStyle, cursor:"text", width:110}}/>
         ) : (
-          <input autoFocus type={type} value={value} onChange={e=>onChange(e.target.value)} onBlur={()=>setEditando(false)} style={inputStyle}/>
+          <input autoFocus type={type} value={value} onChange={e=>onChange(e.target.value)} onBlur={()=>setEditando(false)} style={{...bareStyle, cursor:"text"}}/>
         )}
       </div>
     );
@@ -7010,7 +7023,7 @@ export default function App() {
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
 
-  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":puedeUsarAreas(u)?null:"checkin");};
+  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":puedeUsarAreas(u)?null:"checkin");sonidoBienvenida();};
   const logout=()=>{setUser(null);setArea(null);setTab(null);};
   const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?(ventasSoloLectura(user)?"lista":"registrar"):a==="firmas"?"firmar":"dashboard");};
   const backToAreas=()=>{setArea(null);setTab(null);};

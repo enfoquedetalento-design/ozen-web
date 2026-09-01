@@ -79,3 +79,12 @@ export const sonidoError = () => reproducir([
   [220, 0,    0.11, "square", 0.06],
   [196, 0.10, 0.18, "square", 0.06],
 ]);
+
+// ✨ Bienvenida al iniciar sesión — acorde cálido de 4 notas que sube y se asienta en una nota
+// larga y resonante, como un pequeño "sello" de marca al entrar a la cuenta.
+export const sonidoBienvenida = () => reproducir([
+  [392, 0,    0.20, "sine", 0.10],
+  [494, 0.09, 0.20, "sine", 0.10],
+  [587, 0.18, 0.22, "sine", 0.11],
+  [784, 0.30, 0.60, "triangle", 0.15],
+]);
