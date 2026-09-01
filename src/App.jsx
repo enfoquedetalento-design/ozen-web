@@ -5239,6 +5239,30 @@ const diasTiendaDesdeMalla = (asesorId, mesKey, turnosAsignaciones, turnosGlobal
   return porTienda;
 };
 
+// "Oficina" es una tienda más (tiene turno y horario propio, se asigna igual que Unicentro o
+// Jardín Plaza) pero no vende — cuando alguien tiene un día de Oficina, ese día resta de la meta
+// porque no estuvo vendiendo, aunque sí estuvo trabajando. Se detecta por nombre (no por un id fijo)
+// para que siga funcionando si se recrea o renombra ligeramente.
+const esTiendaOficina = (store) => !!store && /oficina/i.test(store.name||"");
+
+// Resumen automático de "novedades" (turnos especiales que no son Descanso: Vacaciones,
+// Incapacidad, DR, DNR, cumpleaños, o cualquier otro que se cree después) que tuvo un asesor ese
+// mes, sacado directo de la malla real de Turnos — ya no se escriben a mano. Se agrupan por
+// nombre del turno especial y solo se listan los que de verdad tuvo (días > 0), para no ocupar
+// espacio con categorías en cero. Como es dinámico (agrupa por el nombre que sea), cualquier
+// código nuevo que se cree en Turnos especiales aparece solo, sin tocar código.
+const novedadesDesdeMalla = (asesorId, mesKey, turnosAsignaciones, turnosGlobales) => {
+  const asigMes = (turnosAsignaciones||[]).filter(a=>a.asesor_id===asesorId && a.fecha && a.fecha.slice(0,7)===mesKey && a.turno_global_id && !a.tienda_id);
+  const porTurno = {};
+  asigMes.forEach(a=>{
+    const g = (turnosGlobales||[]).find(t=>t.id===a.turno_global_id);
+    if(!g || /descanso/i.test(g.nombre||"")) return; // Descanso ya se cuenta como día de tienda, no es "novedad"
+    porTurno[g.id] = porTurno[g.id] || { nombre:g.nombre, color:g.color, dias:0 };
+    porTurno[g.id].dias++;
+  });
+  return Object.values(porTurno);
+};
+
 // Un flexipago suma como ingreso el día que se TERMINA de pagar (con su valor completo),
 // sin importar cuándo se creó la venta ni en cuántos días/medios se fue abonando.
 // Mientras no esté completo, no suma nada a ingresos (aunque ya tenga abonos).
@@ -5284,6 +5308,10 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const irMesSiguiente = () => { if(mesIdx===11){ setMesIdx(0); setAnio(a=>a+1); } else setMesIdx(m=>m+1); };
 
   const tiendasList = tiendasVenta(stores);
+  // Para "días por tienda" en la meta personal se necesitan TODAS las tiendas, incluyendo Oficina
+  // (que no vende, por eso no está en tiendasList) — así se puede ver y asignar días ahí también,
+  // aunque esos días no sumen a la meta de ninguna tienda.
+  const tiendasListConOficina = Object.values(stores);
   const asesores = users.filter(esVendedorPosible);
   const vistaAsesor = esCuentaTienda(user);
   // La tienda del usuario (si es cuenta de tienda) va primera, luego el resto, y "Todas" de última.
@@ -5319,26 +5347,27 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     const obj = {};
     asesores.forEach(a=>{
       const existente = metasAsesor.find(m=>m.mes===mesKey && m.vendedor_id===a.id);
-      // Novedades múltiples: si el registro es viejo y solo tiene el campo único de antes,
-      // se migra automáticamente a una lista de una sola novedad.
-      const novedadesExistentes = (existente?.novedades && existente.novedades.length>0)
-        ? existente.novedades
-        : (existente?.tipo_novedad ? [{ tipo:existente.tipo_novedad, dias:existente.dias_novedad||0 }] : []);
       const diasTiendaGuardados = existente?.dias_tienda || {};
       // Si todavía no hay días por tienda guardados para este asesor este mes, se precargan
-      // (no se reemplazan) calculándolos desde la malla real de Turnos — sigue siendo editable.
+      // (no se reemplazan) calculándolos desde la malla real de Turnos — sigue siendo editable,
+      // y se puede volver a traer en cualquier momento con el botón "Actualizar desde la malla".
       const hayGuardados = Object.values(diasTiendaGuardados).some(v=>Number(v||0)>0);
       const diasTiendaAuto = hayGuardados ? {} : diasTiendaDesdeMalla(a.id, mesKey, turnosAsignaciones, turnosGlobales);
       obj[a.id] = {
-        mesCompleto: existente ? existente.mes_completo : true,
-        diasIngreso: String(existente?.dias_ingreso||""),
-        novedades: novedadesExistentes.map(n=>({ tipo:n.tipo, dias:String(n.dias||"") })),
-        diasTienda: Object.fromEntries(tiendasList.map(t=>[t.id, String(diasTiendaGuardados[t.id] || diasTiendaAuto[t.id] || "")])),
+        diasTienda: Object.fromEntries(tiendasListConOficina.map(t=>[t.id, String(diasTiendaGuardados[t.id] || diasTiendaAuto[t.id] || "")])),
       };
     });
     setDetalleInputs(obj);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesKey, metasAsesor.length, asesores.length, turnosAsignaciones, turnosGlobales]);
+
+  // Botón "Actualizar desde la malla" — recalcula los días por tienda desde los turnos reales de
+  // ese asesor ese mes y REEMPLAZA lo que haya en el formulario (aunque ya hubiera algo guardado o
+  // editado a mano). No guarda solo; hay que darle "Guardar" después para confirmarlo.
+  const actualizarDiasDesdeMalla = (asesorId) => {
+    const diasAuto = diasTiendaDesdeMalla(asesorId, mesKey, turnosAsignaciones, turnosGlobales);
+    setDetalleInputs(prev=>({ ...prev, [asesorId]: { ...prev[asesorId], diasTienda: Object.fromEntries(tiendasListConOficina.map(t=>[t.id, String(diasAuto[t.id]||"")])) } }));
+  };
 
   const setMetaDiaValor = (tiendaId, diaNum, value) => setMetaDiasInputs(prev=>({...prev, [tiendaId]: {...prev[tiendaId], [diaNum]:value}}));
   const sumaMetaDias = (tiendaId) => Object.values(metaDiasInputs[tiendaId]||{}).reduce((s,v)=>s+Number(v||0),0);
@@ -5371,33 +5400,34 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     setGuardandoMeta(null);
   };
 
-  const setDetalleField = (asesorId, field, value) => setDetalleInputs(prev=>({...prev, [asesorId]: {...prev[asesorId], [field]:value}}));
   const setDetalleTienda = (asesorId, tiendaId, value) => setDetalleInputs(prev=>({...prev, [asesorId]: {...prev[asesorId], diasTienda:{...prev[asesorId]?.diasTienda, [tiendaId]:value}}}));
-  const agregarNovedadAsesor = (asesorId) => setDetalleInputs(prev=>({...prev, [asesorId]: {...prev[asesorId], novedades:[...(prev[asesorId]?.novedades||[]), {tipo:"incapacidad", dias:""}]}}));
-  const quitarNovedadAsesor = (asesorId, idx) => setDetalleInputs(prev=>({...prev, [asesorId]: {...prev[asesorId], novedades:(prev[asesorId]?.novedades||[]).filter((_,i)=>i!==idx)}}));
-  const setNovedadAsesorCampo = (asesorId, idx, campo, value) => setDetalleInputs(prev=>({...prev, [asesorId]: {...prev[asesorId], novedades:(prev[asesorId]?.novedades||[]).map((n,i)=>i===idx?{...n,[campo]:value}:n)}}));
 
   const guardarDetalleAsesor = async (asesorId) => {
     const d = detalleInputs[asesorId];
     if(!d) return;
-    const novedadesLimpias = (d.novedades||[]).filter(n=>n.tipo && Number(n.dias)>0).map(n=>({ tipo:n.tipo, dias:Number(n.dias) }));
-    // Los días disponibles para repartir entre tiendas son los del mes (o los de ingreso, si es
-    // nuevo) menos los de las novedades — así una incapacidad sí reduce lo que se puede asignar.
-    const diasDisponibles = (d.mesCompleto ? DIAS_META : Number(d.diasIngreso||0)) - novedadesLimpias.reduce((s,n)=>s+n.dias,0);
+    // Las novedades (Vacaciones, Incapacidad, DR, DNR, cumpleaños, etc.) ya no se escriben a mano
+    // — se leen directo de la malla real de Turnos de ese asesor ese mes.
+    const novedadesAuto = novedadesDesdeMalla(asesorId, mesKey, turnosAsignaciones, turnosGlobales);
+    const diasNovedadTotal = novedadesAuto.reduce((s,n)=>s+n.dias,0);
+    // Los días disponibles del mes son siempre 30 (DIAS_META) menos los de las novedades — ya no
+    // hay un toggle manual de "ingresó nuevo": si alguien empezó a mitad de mes, simplemente no
+    // tiene turnos asignados antes de esa fecha, así que sus días por tienda ya salen más bajos
+    // solos, sin necesitar un campo aparte.
+    const diasDisponibles = DIAS_META - diasNovedadTotal;
     const sumaDiasTienda = Object.values(d.diasTienda||{}).reduce((s,v)=>s+Number(v||0),0);
     if(sumaDiasTienda > diasDisponibles){
-      setMetaMsg(`Los días por tienda de ${users.find(u=>u.id===asesorId)?.name||"este asesor"} suman ${sumaDiasTienda}, pero solo tiene ${diasDisponibles} días disponibles este mes.`);
+      setMetaMsg(`Los días por tienda de ${users.find(u=>u.id===asesorId)?.name||"este asesor"} suman ${sumaDiasTienda}, pero solo tiene ${diasDisponibles} días disponibles este mes (30 menos ${diasNovedadTotal} de novedades).`);
       return;
     }
     setGuardandoDetalle(asesorId);
     setMetaMsg("");
     const payload = {
       mes: mesKey, vendedor_id: asesorId,
-      mes_completo: d.mesCompleto,
-      dias_ingreso: d.mesCompleto ? null : Number(d.diasIngreso||0),
+      mes_completo: true,
+      dias_ingreso: null,
       tipo_novedad: null,
-      dias_novedad: novedadesLimpias.reduce((s,n)=>s+n.dias,0),
-      novedades: novedadesLimpias,
+      dias_novedad: diasNovedadTotal,
+      novedades: novedadesAuto.map(n=>({ tipo:n.nombre, dias:n.dias })),
       dias_tienda: Object.fromEntries(Object.entries(d.diasTienda||{}).map(([k,v])=>[k, Number(v||0)])),
       updated_at: new Date().toISOString(),
     };
@@ -5428,7 +5458,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     // el top/ranking dentro de una tienda compara metas reales de esa tienda, no el total del
     // asesor sumando todas las tiendas donde trabaja.
     let total = 0;
-    for(const t of tiendasList){
+    for(const t of tiendasListConOficina){
+      if(esTiendaOficina(t)) continue; // Oficina no vende, no aporta a la meta de ninguna tienda
       if(tiendaSel && t.id!==tiendaSel) continue;
       const diasEnTienda = Number((d.dias_tienda||{})[t.id]||0);
       if(diasEnTienda<=0) continue;
@@ -5680,10 +5711,13 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
           <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Metas personales de asesores</div>
           <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
             {asesores.map(a=>{
-              const d = detalleInputs[a.id] || { mesCompleto:true, diasIngreso:"", novedades:[], diasTienda:{} };
+              const d = detalleInputs[a.id] || { diasTienda:{} };
               const abierto = asesorExpandido===a.id;
-              const diasNovedadTotal = (d.novedades||[]).reduce((s,n)=>s+Number(n.dias||0),0);
-              const diasDisponibles = (d.mesCompleto ? DIAS_META : Number(d.diasIngreso||0)) - diasNovedadTotal;
+              // Novedades (Vacaciones, Incapacidad, DR, DNR, cumpleaños, etc.) ya no se escriben a
+              // mano — se leen directo de la malla real de Turnos de ese mes.
+              const novedadesAuto = novedadesDesdeMalla(a.id, mesKey, turnosAsignaciones, turnosGlobales);
+              const diasNovedadTotal = novedadesAuto.reduce((s,n)=>s+n.dias,0);
+              const diasDisponibles = DIAS_META - diasNovedadTotal;
               const sumaDiasTienda = Object.values(d.diasTienda||{}).reduce((s,v)=>s+Number(v||0),0);
               // Si lo que se está mostrando en "días por tienda" todavía no se ha guardado, es la
               // sugerencia calculada desde la malla de Turnos — se avisa para que se revise antes
@@ -5699,33 +5733,35 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                   </button>
                   <Collapse open={abierto}>
                     <div style={{ padding:"0 10px 10px" }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8, flexWrap:"wrap" }}>
-                        <label style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12, color:C.text, cursor:"pointer" }}>
-                          <input type="checkbox" checked={!d.mesCompleto} onChange={e=>setDetalleField(a.id,"mesCompleto",!e.target.checked)}/>
-                          ¿Ingresa nuevo?
-                        </label>
-                        {!d.mesCompleto && (
-                          <div style={{ width:140 }}><Field value={d.diasIngreso} onChange={v=>setDetalleField(a.id,"diasIngreso",v.replace(/[^\d]/g,""))} placeholder={`días trabajados (de ${DIAS_META})`}/></div>
-                        )}
-                        <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginLeft:"auto" }}>Días disponibles: <b style={{ fontFamily:font.mono, color:diasDisponibles>0?C.text:C.red }}>{diasDisponibles}</b></span>
+                      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                        <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginLeft:"auto" }}>Días disponibles: <b style={{ fontFamily:font.mono, color:diasDisponibles>0?C.text:C.red }}>{diasDisponibles}</b> (30 − {diasNovedadTotal} de novedades)</span>
                       </div>
 
-                      <div style={{ fontSize:10.5, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:4 }}>Novedades (incapacidad / licencia)</div>
-                      {(d.novedades||[]).map((n,idx)=>(
-                        <div key={idx} style={{ display:"grid", gridTemplateColumns:"1fr 100px auto", gap:8, marginBottom:6 }}>
-                          <Field value={n.tipo} onChange={v=>setNovedadAsesorCampo(a.id,idx,"tipo",v)} options={[{value:"incapacidad",label:"Incapacidad"},{value:"licencia",label:"Licencia"}]}/>
-                          <Field value={n.dias} onChange={v=>setNovedadAsesorCampo(a.id,idx,"dias",v.replace(/[^\d]/g,""))} placeholder="días"/>
-                          <Btn onClick={()=>quitarNovedadAsesor(a.id,idx)} variant="ghost" sm>✕</Btn>
+                      <div style={{ fontSize:10.5, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:4 }}>Novedades este mes</div>
+                      {novedadesAuto.length>0 ? (
+                        <div style={{ display:"flex", flexDirection:"column", gap:3, marginBottom:10 }}>
+                          {novedadesAuto.map(n=>(
+                            <div key={n.nombre} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text }}>
+                              <span style={{ display:"flex", alignItems:"center", gap:6 }}>{n.color && <span style={{ width:7, height:7, borderRadius:"50%", background:n.color }}/>}{n.nombre}</span>
+                              <span style={{ fontFamily:font.mono, color:C.textMuted }}>{n.dias} día{n.dias!==1?"s":""}</span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                      <Btn onClick={()=>agregarNovedadAsesor(a.id)} variant="ghost" sm>+ Agregar novedad</Btn>
+                      ) : (
+                        <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>Sin novedades este mes (según la malla de Turnos).</div>
+                      )}
 
-                      {diasTiendaEsAuto && <div style={{ fontFamily:font.body, fontSize:11, color:C.goldLight, marginTop:8 }}>📅 Calculado desde la malla de Turnos — revisa y dale "Guardar" para confirmarlo.</div>}
-                      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${Math.min(tiendasList.length||1,4)}, 1fr)`, gap:8, marginTop:diasTiendaEsAuto?4:10 }}>
-                        {tiendasList.map(t=>(
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:diasTiendaEsAuto?8:0 }}>
+                        <div style={{ fontSize:10.5, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.06em" }}>Turnos por tienda</div>
+                        <Btn onClick={()=>actualizarDiasDesdeMalla(a.id)} variant="ghost" sm>🔄 Actualizar desde la malla</Btn>
+                      </div>
+                      {diasTiendaEsAuto && <div style={{ fontFamily:font.body, fontSize:11, color:C.goldLight, marginTop:4 }}>📅 Calculado desde la malla de Turnos — revisa y dale "Guardar" para confirmarlo.</div>}
+                      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${Math.min(tiendasListConOficina.length||1,4)}, 1fr)`, gap:8, marginTop:6 }}>
+                        {tiendasListConOficina.map(t=>(
                           <Field key={t.id} label={t.name} value={d.diasTienda?.[t.id]||""} onChange={v=>setDetalleTienda(a.id,t.id,v.replace(/[^\d]/g,""))} placeholder="días"/>
                         ))}
                       </div>
+                      <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:2 }}>Oficina no suma a la meta de ninguna tienda (no vendió ese día).</div>
                       {sumaDiasTienda>diasDisponibles && <div style={{ fontFamily:font.body, fontSize:11, color:C.red, marginTop:4 }}>Los días por tienda suman {sumaDiasTienda}, pero solo hay {diasDisponibles} días disponibles.</div>}
                       <div style={{ marginTop:8 }}><Btn onClick={()=>guardarDetalleAsesor(a.id)} disabled={guardandoDetalle===a.id || sumaDiasTienda>diasDisponibles} sm>{guardandoDetalle===a.id?"Guardando...":"Guardar"}</Btn></div>
                     </div>
