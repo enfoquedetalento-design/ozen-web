@@ -6914,6 +6914,11 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     <CajaCampoPick compact label="Entrega *" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                     <CajaCampoPick compact label="Recibe *" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
                     <CajaCampoPick compact money label="Valor a recoger (días anteriores)" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
+                    {/* Informativo: el efectivo de hoy no entra en "días anteriores" (regla: no se
+                        recoge el mismo día), pero sigue existiendo — se deja siempre visible aquí
+                        debajo, con el mismo estilo de línea que el resto de la tarjeta, para que no
+                        parezca que "desapareció" solo porque ese campo da $0. */}
+                    {reFecha===todayStr && efectivoHoyPendiente>0 && <CajaReciboLinea compact label="Efectivo de hoy" value={fmtCOP(efectivoHoyPendiente)} small/>}
                     <CajaCampoPick compact money label="Base que queda" value={reBaseCaja} onChange={v=>{ setReBaseCaja(v); setReBaseCajaTocado(true); }}/>
                     {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.red, marginTop:2 }}>Hay un hueco de {fmtCOP(baseDeficit)} en la base por gastos sin cubrir (sugerido: {fmtCOP(baseVigente)}). Ajusta el valor de arriba con lo que de verdad quieras dejar de base — no tiene que ser exacto.</div>}
                     {reFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master o admin de finanzas puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
@@ -6926,13 +6931,6 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                           </label>
                           <input type="checkbox" checked={reIncluyeHoy} onChange={e=>{ setReIncluyeHoy(e.target.checked); if(!e.target.checked) setReValorHoy(""); }} disabled={efectivoHoyPendiente<=0}/>
                         </div>
-                        {/* Aunque no se marque el check (no se recoge hoy), el efectivo de hoy sigue
-                            existiendo — se deja siempre visible este dato informativo para que no
-                            parezca que "desapareció" solo porque el valor a recoger (días anteriores)
-                            da $0 y no se está recogiendo hoy en este movimiento. */}
-                        {efectivoHoyPendiente>0 && !reIncluyeHoy && (
-                          <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, textAlign:"right", marginTop:6 }}>Efectivo de hoy: {fmtCOP(efectivoHoyPendiente)} · informativo, no se recoge en este movimiento</div>
-                        )}
                         {reIncluyeHoy && (
                           <div style={{ marginTop:6 }}>
                             <CajaMoneyRow compact label={`Valor a retirar de hoy (máx. ${fmtCOP(efectivoHoyPendiente)})`} value={reValorHoy} onChange={setReValorHoy}/>
