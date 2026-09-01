@@ -4224,47 +4224,71 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
   };
 
   const imprimirVenta = (venta, d) => {
+    // Comprobante ajustado a impresora térmica 80mm (72.1mm imprimible, 203dpi fijo de
+    // hardware — 3nstar RPT005 y similares). @page usa el ancho real del rollo para que el
+    // navegador no re-escale una hoja carta/A4 hasta hacerla ilegible, y el layout va en
+    // renglones apilados (no tablas anchas) para que quepa sin reducir letra ni desperdiciar
+    // papel.
     const tienda = stores[venta.tienda_id]?.name || venta.tienda_id;
     const totalAbonado = (d?.abonos||[]).reduce((a,x)=>a+Number(x.valor),0);
     const valorFlex = (d?.items||[]).filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor),0);
     const saldo = valorFlex - totalAbonado;
     const itemsHtml = (d?.items||[]).map(i=>{
-      const fila = `<tr><td>${VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label||i.tipo}</td><td style="text-align:right">${fmtCOP(i.valor)}</td><td style="text-align:right">${Number(i.descuento)>0?fmtCOP(i.descuento):"—"}</td><td>${i.tipo==="flexipago"?(saldo<=0?"Completado":"—"):(i.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago).join(" + ")}</td></tr>`;
+      const label = VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label||i.tipo;
+      const medio = i.tipo==="flexipago" ? (saldo<=0?"Completado":"Pendiente") : (i.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago).join(" + ");
+      const detParts = [];
+      if(medio) detParts.push(medio);
+      if(Number(i.descuento)>0) detParts.push(`Desc. ${fmtCOP(i.descuento)}`);
       const codigos = (i.codigos_producto||[]).filter(c=>c.codigo||c.valor);
-      const desglose = codigos.length ? `<tr><td colspan="4" style="padding:2px 8px 8px;font-size:11px;color:#666;">${codigos.map(c=>`Código ${c.codigo||"—"}: ${c.valor?fmtCOP(Number(c.valor)):"—"}`).join(" · ")}</td></tr>` : "";
-      return fila + desglose;
+      const codigosLine = codigos.length ? `<div class="det">${codigos.map(c=>`Cód. ${c.codigo||"—"}${c.valor?`: ${fmtCOP(Number(c.valor))}`:""}`).join(" · ")}</div>` : "";
+      return `<div class="item"><div class="rl"><span>${label}</span><span>${fmtCOP(i.valor)}</span></div>${detParts.length?`<div class="det">${detParts.join(" · ")}</div>`:""}${codigosLine}</div>`;
     }).join("");
-    const abonosHtml = (d?.abonos||[]).map(a=>`<tr><td>${a.fecha}</td><td>${textoMediosAbono(a)}</td><td style="text-align:right">${fmtCOP(a.valor)}</td></tr>`).join("");
-    const avisoHtml = FLEXIPAGO_AVISO_ITEMS.map(it=>`<p style="margin:3px 0;text-align:left;">${it.n?`<b>${it.n}. ${it.titulo}:</b> `:""}${it.texto}</p>`).join("");
+    const abonosHtml = (d?.abonos||[]).map(a=>`<div class="rl"><span>${a.fecha} · ${textoMediosAbono(a)}</span><span>${fmtCOP(a.valor)}</span></div>`).join("");
+    const avisoHtml = FLEXIPAGO_AVISO_ITEMS.map(it=>`<p>${it.n?`<b>${it.n}. ${it.titulo}:</b> `:""}${it.texto}</p>`).join("");
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Venta ${venta.numero_factura||""}</title>
       <style>
-        @page{size:auto;margin:14mm;}
-        body{font-family:Arial,Helvetica,sans-serif;padding:28px;color:#111;font-size:15px;}
-        .logo-wrap{text-align:center;margin-bottom:14px;}
-        .logo-wrap img{width:280px;height:auto;}
-        h1{font-size:22px;margin:0 0 6px;text-align:center;}
-        table{width:100%;border-collapse:collapse;margin-top:10px;}
-        th,td{padding:8px 8px;border-bottom:1px solid #ddd;font-size:15px;text-align:left;}
-        .total{font-size:18px;font-weight:bold;margin-top:12px;}
-        .muted{color:#555;font-size:14px;}
-        hr{border:none;border-top:1px solid #ccc;margin:14px 0;}
-        .aviso{margin-top:22px;border:1px solid #ccc;border-radius:6px;padding:12px 16px;background:#fafafa;}
-        .aviso-titulo{font-size:14px;font-weight:bold;margin-bottom:6px;}
-        .aviso p{font-size:12.5px;color:#333;line-height:1.5;}
+        @page{size:80mm auto;margin:3mm 3mm;}
+        *{box-sizing:border-box;}
+        body{width:100%;font-family:Arial,Helvetica,sans-serif;font-size:9.5pt;line-height:1.35;color:#000;margin:0;padding:0;}
+        .logo-wrap{text-align:center;margin-bottom:2mm;}
+        .logo-wrap img{width:38mm;height:auto;}
+        h1{font-size:12pt;margin:0 0 1mm;text-align:center;font-weight:700;}
+        .sub{font-size:8pt;text-align:center;margin-bottom:1mm;}
+        .sep{border-top:1px dashed #000;margin:2mm 0;}
+        .rl{display:flex;justify-content:space-between;gap:2mm;font-size:9pt;margin:0.6mm 0;}
+        .rl b{font-weight:700;}
+        .lbl{font-size:7.5pt;text-transform:uppercase;letter-spacing:0.03em;font-weight:700;margin:0 0 1mm;}
+        .item{margin:1mm 0;}
+        .item .rl{font-size:9.5pt;font-weight:700;}
+        .item .det{font-size:8pt;color:#333;}
+        .total{font-size:12pt;font-weight:700;text-align:right;margin-top:1mm;}
+        .saldo{font-size:11pt;font-weight:700;text-align:right;}
+        .nota{font-size:8pt;margin-top:2mm;}
+        .aviso{font-size:6.8pt;line-height:1.35;margin-top:2mm;}
+        .aviso .t{font-size:7.5pt;font-weight:700;text-align:center;margin-bottom:1mm;}
+        .aviso p{margin:1mm 0;}
       </style></head><body>
       <div class="logo-wrap"><img src="/logo-print.png" alt="OZEN"/></div>
       <h1>Comprobante Flexipago</h1>
-      <div class="muted">Factura Siigo: ${venta.numero_factura||"—"} · Tienda: ${tienda} · Fecha: ${venta.fecha}</div>
-      <div class="muted">Asesor: ${venta.vendedor_nombre||""}</div>
-      <hr/>
-      <div><strong>Cliente:</strong> ${venta.cliente_nombre||"—"} · ${venta.cliente_tipo_doc||""} ${venta.cliente_documento||""} · Tel: ${venta.cliente_telefono||""}</div>
-      <table><thead><tr><th>Producto/Servicio</th><th style="text-align:right">Valor</th><th style="text-align:right">Descuento</th><th>Medio</th></tr></thead><tbody>${itemsHtml}</tbody></table>
-      <div class="total">Total venta: ${fmtCOP(venta.total)}</div>
-      <h3 style="margin-top:20px;">Plan Flexipago — Abonos</h3>
-      <table><thead><tr><th>Fecha</th><th>Medio</th><th style="text-align:right">Valor</th></tr></thead><tbody>${abonosHtml || '<tr><td colspan="3">Sin abonos registrados</td></tr>'}</tbody></table>
-      <div class="total">Saldo pendiente: ${fmtCOP(saldo)}</div>
-      ${venta.observacion?`<div class="muted" style="margin-top:14px;">Nota: ${venta.observacion}</div>`:""}
-      <div class="aviso"><div class="aviso-titulo">${FLEXIPAGO_AVISO_TITULO}</div>${avisoHtml}</div>
+      <div class="sub">Factura ${venta.numero_factura||"—"} · ${venta.fecha}</div>
+      <div class="rl"><span>Tienda</span><b>${tienda}</b></div>
+      <div class="rl"><span>Asesor</span><b>${venta.vendedor_nombre||"—"}</b></div>
+      <div class="sep"></div>
+      <div class="rl"><span>Cliente</span><b>${venta.cliente_nombre||"—"}</b></div>
+      ${venta.cliente_documento?`<div class="rl"><span>${venta.cliente_tipo_doc||"Doc"}</span><b>${venta.cliente_documento}</b></div>`:""}
+      ${venta.cliente_telefono?`<div class="rl"><span>Tel</span><b>${venta.cliente_telefono}</b></div>`:""}
+      <div class="sep"></div>
+      <div class="lbl">Productos</div>
+      ${itemsHtml}
+      <div class="sep"></div>
+      <div class="total">Total: ${fmtCOP(venta.total)}</div>
+      <div class="sep"></div>
+      <div class="lbl">Abonos</div>
+      ${abonosHtml || '<div class="rl"><span>Sin abonos registrados</span></div>'}
+      <div class="saldo">Saldo pendiente: ${fmtCOP(saldo)}</div>
+      ${venta.observacion?`<div class="nota">Nota: ${venta.observacion}</div>`:""}
+      <div class="sep"></div>
+      <div class="aviso"><div class="t">${FLEXIPAGO_AVISO_TITULO}</div>${avisoHtml}</div>
     </body></html>`;
     const w = window.open("", "_blank", "width=720,height=900");
     if(!w){ alert("El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes para este sitio e intenta de nuevo."); return; }
