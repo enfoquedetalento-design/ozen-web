@@ -5424,8 +5424,12 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     // disponibles del asesor, porque eso inflaba la meta cuando había novedades (menos días
     // disponibles con los mismos días de tienda sin ajustar). Los días de incapacidad/licencia
     // simplemente significan menos días para repartir entre tiendas, y por lo tanto una meta menor.
+    // Cuando hay una tienda seleccionada (tiendaSel), solo cuenta la porción de esa tienda — así
+    // el top/ranking dentro de una tienda compara metas reales de esa tienda, no el total del
+    // asesor sumando todas las tiendas donde trabaja.
     let total = 0;
     for(const t of tiendasList){
+      if(tiendaSel && t.id!==tiendaSel) continue;
       const diasEnTienda = Number((d.dias_tienda||{})[t.id]||0);
       if(diasEnTienda<=0) continue;
       total += (diasEnTienda/DIAS_META) * metaTiendaValor(t.id,"personal");
