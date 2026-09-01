@@ -519,6 +519,11 @@ const esUsuarioDeTurnos = (u) => u.role==="advisor" || esAdminAsignableATurnos(u
 // (ej. Caja, para elegir quién recibe una recolección). Si la columna aún no existe o es null,
 // se trata como activo por defecto.
 const activoEnMallaTurnos = (u) => u.role==="advisor" ? !!u.active : u.activo_en_turnos!==false;
+// Orden manual de columnas en la rejilla (ver botones ◀▶ en el Borrador) — campo `orden_turnos`
+// en usuarios, null si nunca se ha movido a nadie (esos quedan al final, ordenados por nombre).
+const advisorsOrdenTurnos = (users) => users
+  .filter(u=>esUsuarioDeTurnos(u) && activoEnMallaTurnos(u))
+  .sort((a,b)=> (a.orden_turnos??9999)-(b.orden_turnos??9999) || a.name.localeCompare(b.name));
 // Admin Finanzas: hace todo lo de un Administrador normal (Asistencia/Junta), más Ventas completo
 // (registrar, lista, métricas, asignar metas, aprobar notas crédito y corregir por error).
 const esAdminFinanzas = (user) => user.role==="admin_finanzas";
@@ -1441,47 +1446,56 @@ function ModalHorarioCustom({ info, turnosHorarios, onGuardar, onCerrar }) {
 }
 
 // ── Turnos: rejilla mensual (asesores en columnas, días en filas) ─────────────
-function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnosHorarios, editable, onCambiarCelda, onGuardarCustom }) {
-  const colWidth = Math.max(70, ...advisors.map(a=>primerNombre(a.name).length*8+28), 70);
-  const diaColWidth = 88;
+function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnosHorarios, editable, onCambiarCelda, onGuardarCustom, onMoverAsesor }) {
+  // Lo más compacto posible en ancho y alto (pedido de Santiago) — Día angosto (solo cabe el
+  // número + 2 letras del día), columnas de asesor más ceñidas al nombre, menos padding en filas.
+  const colWidth = Math.max(52, ...advisors.map(a=>primerNombre(a.name).length*7.5+(editable?34:14)), 52);
+  const diaColWidth = 46;
   const storeGroups = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
   const [modalInfo,setModalInfo]=useState(null);
+  const flechaStyle = { background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:10, padding:"0 1px", lineHeight:1, flexShrink:0 };
   return (
     // text-align:center + la tabla en "inline-table" hace que se centre sola cuando es más
     // angosta que el contenedor (pocos asesores), y si es más ancha simplemente aparece el
     // scroll normal — a diferencia de centrar con flex, esto no corta el borde izquierdo.
-    <div style={{ overflow:"auto", maxHeight:"72vh", border:`1px solid ${C.border}`, borderRadius:10, textAlign:"center" }}>
+    <div style={{ overflow:"auto", maxHeight:"78vh", border:`1px solid ${C.border}`, borderRadius:10, textAlign:"center" }}>
       {modalInfo && <ModalHorarioCustom info={modalInfo} turnosHorarios={turnosHorarios} onCerrar={()=>setModalInfo(null)} onGuardar={(entrada,salida,nota)=>{ onGuardarCustom(modalInfo.asesorId, modalInfo.fecha, entrada, salida, nota); setModalInfo(null); }}/>}
       <table style={{ borderCollapse:"separate", borderSpacing:0, display:"inline-table", width:diaColWidth+advisors.length*colWidth, textAlign:"left" }}>
         <thead>
           <tr>
-            <th style={{ position:"sticky", left:0, top:0, zIndex:4, background:C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, 1px 0 0 ${C.border}`, padding:"8px 10px", width:diaColWidth, minWidth:diaColWidth, textAlign:"left", fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>Día</th>
-            {advisors.map(a=>(
-              <th key={a.id} style={{ position:"sticky", top:0, zIndex:3, background:C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, -1px 0 0 ${C.border}`, padding:"8px 4px", width:colWidth, minWidth:colWidth, textAlign:"center", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{primerNombre(a.name)}</th>
+            <th style={{ position:"sticky", left:0, top:0, zIndex:4, background:C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, 1px 0 0 ${C.border}`, padding:"6px 4px", width:diaColWidth, minWidth:diaColWidth, textAlign:"left", fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.03em" }}>Día</th>
+            {advisors.map((a,i)=>(
+              <th key={a.id} style={{ position:"sticky", top:0, zIndex:3, background:C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, -1px 0 0 ${C.border}`, padding:"6px 2px", width:colWidth, minWidth:colWidth, textAlign:"center", fontFamily:font.body, fontSize:11, fontWeight:700, color:C.text }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:1 }}>
+                  {editable && <button onClick={()=>onMoverAsesor(a.id,-1)} disabled={i===0} title="Mover a la izquierda" style={{...flechaStyle, opacity:i===0?0.25:1, cursor:i===0?"default":"pointer"}}>◀</button>}
+                  <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{primerNombre(a.name)}</span>
+                  {editable && <button onClick={()=>onMoverAsesor(a.id,1)} disabled={i===advisors.length-1} title="Mover a la derecha" style={{...flechaStyle, opacity:i===advisors.length-1?0.25:1, cursor:i===advisors.length-1?"default":"pointer"}}>▶</button>}
+                </div>
+              </th>
             ))}
           </tr>
         </thead>
         <tbody>
           {dias.map(fecha=>{ const dom=esDomingo(fecha); return (
             <tr key={fecha}>
-              <td style={{ position:"sticky", left:0, zIndex:1, background:C.surface, boxShadow:`0 -1px 0 ${C.border}, 1px 0 0 ${C.border}`, padding:"5px 10px", width:diaColWidth, minWidth:diaColWidth, fontFamily:font.body, fontSize:11.5, whiteSpace:"nowrap" }}>
-                <span title={nombreDia(fecha)} style={{ color:dom?C.green:C.textMuted, fontWeight:dom?700:400 }}>{nombreDiaCorto(fecha)}</span>{" "}
+              <td style={{ position:"sticky", left:0, zIndex:1, background:C.surface, boxShadow:`0 -1px 0 ${C.border}, 1px 0 0 ${C.border}`, padding:"3px 4px", width:diaColWidth, minWidth:diaColWidth, fontFamily:font.body, fontSize:10.5, whiteSpace:"nowrap" }}>
+                <span title={nombreDia(fecha)} style={{ color:dom?C.green:C.textMuted, fontWeight:dom?700:400 }}>{nombreDiaCorto(fecha).slice(0,2)}</span>{" "}
                 <span style={{ color:C.text }}>{Number(fecha.slice(8,10))}</span>
               </td>
               {advisors.map(a=>{
                 const asig = asigMap.get(`${a.id}|${fecha}`);
                 const turno = resolverTurno(asig, stores, turnosGlobales);
                 return (
-                  <td key={a.id} style={{ borderBottom:`1px solid ${C.border}`, borderLeft:`1px solid ${C.border}`, padding:3 }}>
+                  <td key={a.id} style={{ borderBottom:`1px solid ${C.border}`, borderLeft:`1px solid ${C.border}`, padding:2 }}>
                     {editable ? (
                       <div style={{ display:"flex", alignItems:"center", gap:2 }}>
-                        <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ flex:1, minWidth:0, minHeight:28, borderRadius:7, boxSizing:"border-box", border:`1px solid ${turno?hexToRgba(oscurecerColor(turno.color,30),0.55):C.border}`, background:turno?`linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,18)})`:C.surfaceAlt, color:turno?colorTextoContraste(turno.color):C.textMuted, fontFamily:font.body, fontSize:11, fontWeight:turno?700:400, padding:"3px 2px", cursor:"pointer", outline:"none", boxShadow:turno?"0 1px 3px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.22)":"none", textShadow:turno&&colorTextoContraste(turno.color)==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none", transition:"transform .12s ease, box-shadow .12s ease" }}>
+                        <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ flex:1, minWidth:0, minHeight:24, borderRadius:6, boxSizing:"border-box", border:`1px solid ${turno?hexToRgba(oscurecerColor(turno.color,30),0.55):C.border}`, background:turno?`linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,18)})`:C.surfaceAlt, color:turno?colorTextoContraste(turno.color):C.textMuted, fontFamily:font.body, fontSize:10.5, fontWeight:turno?700:400, padding:"2px 1px", cursor:"pointer", outline:"none", boxShadow:turno?"0 1px 3px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.22)":"none", textShadow:turno&&colorTextoContraste(turno.color)==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none", transition:"transform .12s ease, box-shadow .12s ease" }}>
                           <option value="">—</option>
                           <optgroup label="Especiales">{turnosGlobales.map(g=><option key={g.id} value={`g:${g.id}`}>{g.nombre}</option>)}</optgroup>
                           {storeGroups.map(s=>(<optgroup key={s.id} label={s.name}>{s.shifts.filter(sh=>sh.activo!==false).map(sh=><option key={sh.id} value={`t:${s.id}|${encodeURIComponent(sh.nombre)}`}>{sh.nombre}</option>)}</optgroup>))}
                         </select>
                         {asig?.tienda_id && (
-                          <button onClick={()=>setModalInfo({ asesorId:a.id, fecha, asig, nombreAsesor:a.name, shiftLabel:asig.shift||"" })} title={(asig.entrada_custom||asig.salida_custom)?`Horario especial: ${asig.entrada_custom||"?"}–${asig.salida_custom||"?"}`:"Autorizar horario especial este día"} style={{ background:"none", border:"none", cursor:"pointer", fontSize:12, flexShrink:0, opacity:(asig.entrada_custom||asig.salida_custom)?1:0.45 }}>⏰</button>
+                          <button onClick={()=>setModalInfo({ asesorId:a.id, fecha, asig, nombreAsesor:a.name, shiftLabel:asig.shift||"" })} title={(asig.entrada_custom||asig.salida_custom)?`Horario especial: ${asig.entrada_custom||"?"}–${asig.salida_custom||"?"}`:"Autorizar horario especial este día"} style={{ background:"none", border:"none", cursor:"pointer", fontSize:11, flexShrink:0, opacity:(asig.entrada_custom||asig.salida_custom)?1:0.45 }}>⏰</button>
                         )}
                       </div>
                     ) : <TurnoBadgeCelda turno={turno}/>}
@@ -1626,7 +1640,7 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
 // ── SCREEN: Turnos · Ver (esta es la que ven también los asesores, como "Turnos") ──
 function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asignaciones }) {
   const { anio, mes, prev, next } = useMesSeleccionado();
-  const advisors = users.filter(u=>esUsuarioDeTurnos(u) && activoEnMallaTurnos(u));
+  const advisors = advisorsOrdenTurnos(users);
   const dias = fechasDelMesTurnos(anio, mes);
   const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
   return (
@@ -1644,9 +1658,28 @@ function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asigna
 // ── SCREEN: Turnos · Borrador (antes "Editar") ─────────────────────────────────
 function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHorarios, asignaciones, setAsignaciones }) {
   const { anio, mes, prev, next } = useMesSeleccionado();
-  const advisors = users.filter(u=>esUsuarioDeTurnos(u) && activoEnMallaTurnos(u));
+  const advisors = advisorsOrdenTurnos(users);
   const dias = fechasDelMesTurnos(anio, mes);
   const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
+  // Mover una columna a la izq/der (dirección -1/1) — reindexa TODOS los visibles a un orden
+  // secuencial (por si nunca se habían movido a mano) e intercambia los dos que cambian de lugar.
+  // Optimista en pantalla; si falla el guardado en algún registro no revierte solo (poco probable
+  // y de bajo impacto — el orden es solo visual, no afecta ningún cálculo).
+  const moverAsesor = async (advisorId, direccion) => {
+    const idx = advisors.findIndex(a=>a.id===advisorId);
+    const idx2 = idx + direccion;
+    if(idx<0 || idx2<0 || idx2>=advisors.length) return;
+    const reindexado = advisors.map((a,i)=>({ id:a.id, orden_anterior:a.orden_turnos, orden_turnos:i }));
+    const tmp = reindexado[idx].orden_turnos;
+    reindexado[idx].orden_turnos = reindexado[idx2].orden_turnos;
+    reindexado[idx2].orden_turnos = tmp;
+    setUsers(prev=>prev.map(u=>{ const r = reindexado.find(x=>x.id===u.id); return r ? {...u, orden_turnos:r.orden_turnos} : u; }));
+    for(const r of reindexado){
+      if(r.orden_anterior===r.orden_turnos) continue;
+      const { error } = await supabase.from("usuarios").update({ orden_turnos:r.orden_turnos }).eq("id", r.id);
+      if(error){ alert(`No se pudo guardar el orden de alguien: ${error.message}`); }
+    }
+  };
   const onCambiarCelda = async (asesorId, fecha, valor) => {
     const existing = asigMap.get(`${asesorId}|${fecha}`);
     if(!valor){
@@ -1680,7 +1713,7 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
       <GestionAsesoresActivosTurnos users={users} setUsers={setUsers}/>
       <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
       {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay personas activas en la malla. Actívalas arriba, en "Personas activas en la malla".</div> :
-        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom}/>}
+        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom} onMoverAsesor={moverAsesor}/>}
     </div>
   );
 }
