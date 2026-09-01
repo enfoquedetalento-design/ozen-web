@@ -7418,6 +7418,15 @@ export default function App() {
       @keyframes ozenModalPop { from { opacity:0; transform:scale(.92) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
       .ozen-modal-overlay { animation: ozenModalOverlay .18s ease both; }
       .ozen-modal-pop { animation: ozenModalPop .38s cubic-bezier(.34,1.56,.64,1) both; }
+      /* Barra de scroll del navegador/SO: por defecto se ve pálida y desentona con el fondo oscuro
+         (se nota como una franja rara al pasar el mouse justo después de hacer scroll). Se
+         redefine aquí, delgada y con los mismos colores del tema, para que se vea a propósito y no
+         como si algo estuviera mal. */
+      * { scrollbar-width: thin; scrollbar-color: ${C.surfaceHover} transparent; }
+      *::-webkit-scrollbar { width: 9px; height: 9px; }
+      *::-webkit-scrollbar-track { background: transparent; }
+      *::-webkit-scrollbar-thumb { background-color: ${C.surfaceHover}; border-radius: 999px; }
+      *::-webkit-scrollbar-thumb:hover { background-color: ${C.border}; }
     `}</style>
   );
 
