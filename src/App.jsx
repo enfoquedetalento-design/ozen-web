@@ -3445,6 +3445,32 @@ const FLEXIPAGO_AVISO_ITEMS = [
   { texto:"Este acuerdo se rige por las normas comerciales y civiles vigentes en Colombia." },
 ];
 
+// Flexipagos abiertos de una tienda que están vencidos, urgentes (5 días o menos) o a mitad de
+// plazo (30+ días) — mismos umbrales que ya se usan en la tarjeta de cada venta (VentaCard), acá
+// solo se recopilan en una lista para poder avisar de todos de una, sin tener que buscarlos uno
+// por uno en Lista de ventas. Ordenados: vencidos primero, luego por menos días restantes.
+const flexipagosPorVencer = (tiendaId, ventas, ventasItems, ventasAbonos, todayStr) => {
+  const items = [];
+  (ventas||[]).filter(v=>v.es_flexipago && v.tienda_id===tiendaId).forEach(v=>{
+    const abonosVenta = (ventasAbonos||[]).filter(a=>a.venta_id===v.id).sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
+    const totalAbonado = abonosVenta.reduce((a,x)=>a+Number(x.valor||0),0);
+    const valorFlexipago = (ventasItems||[]).filter(i=>i.venta_id===v.id && i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor||0)-Number(i.descuento||0),0);
+    const saldoPendiente = valorFlexipago - totalAbonado;
+    if(saldoPendiente<=0) return; // ya completo
+    const primerAbonoFecha = abonosVenta.length>0 ? abonosVenta[0].fecha : null;
+    const diasDesdeAbono = primerAbonoFecha ? diasEntre(primerAbonoFecha, todayStr) : null;
+    const fechaLimite = primerAbonoFecha ? sumarDias(primerAbonoFecha, FLEXIPAGO_PLAZO_DIAS) : null;
+    const vencido = diasDesdeAbono!==null && diasDesdeAbono>FLEXIPAGO_PLAZO_DIAS && !v.flexipago_reabierto_en;
+    const diasRestantes60 = diasDesdeAbono!==null ? FLEXIPAGO_PLAZO_DIAS - diasDesdeAbono : null;
+    const urgente = !vencido && diasRestantes60!==null && diasRestantes60<=5;
+    const aviso30 = !vencido && !urgente && diasDesdeAbono!==null && diasDesdeAbono>=30;
+    if(!vencido && !urgente && !aviso30) return;
+    items.push({ venta:v, saldoPendiente, diasRestantes60, vencido, urgente, aviso30, fechaLimite });
+  });
+  items.sort((a,b)=> a.vencido!==b.vencido ? (a.vencido?-1:1) : (a.diasRestantes60??999)-(b.diasRestantes60??999));
+  return items;
+};
+
 // Tarjeta de un registro de Nota crédito (el "espejo" del excedente, con su propio N.º de
 // factura) — usada tanto en "Ventas de hoy" como en "Lista de ventas". En Lista de ventas es
 // desplegable: colapsada solo muestra la etiqueta "🧾 Notacrédito" (para identificarla a simple
@@ -4772,6 +4798,10 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
   const metaHoyTienda = tiendaId ? Number(metas?.find(m=>m.mes===todayMesKey && m.tienda_id===tiendaId && (m.tipo||"total")==="total")?.valores_dia?.[todayDiaNum] || 0) : 0;
   const vendidoHoyTienda = tiendaId ? ventas.filter(v=>v.fecha===todayStr && v.tienda_id===tiendaId && !v.es_flexipago).reduce((s,v)=>s+Number(v.total||0),0) : 0;
   const faltaHoyTienda = Math.max(0, metaHoyTienda - vendidoHoyTienda);
+  // Flexipagos de esta tienda que hay que recordarle al cliente que venga a pagar — vencidos,
+  // urgentes (5 días o menos) o a mitad de plazo (30+ días), mismos umbrales que ya usa la
+  // tarjeta de cada venta. Se muestra arriba de todo para que sea lo primero que vea el asesor.
+  const flexipagosAvisar = tiendaId ? flexipagosPorVencer(tiendaId, ventas, ventasItems, ventasAbonos, todayStr) : [];
 
   return (
     <>
@@ -4807,6 +4837,26 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
           </div>
         )}
       />
+      {flexipagosAvisar.length>0 && (
+        <Card style={{ marginBottom:16, border:`1px solid ${flexipagosAvisar.some(f=>f.vencido||f.urgente)?C.red:C.gold}` }}>
+          <div style={{ fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.goldLight, marginBottom:8, display:"flex", alignItems:"center", gap:6 }}>
+            🔔 Flexipagos por recordarle al cliente ({flexipagosAvisar.length})
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {flexipagosAvisar.map(({venta:v, saldoPendiente, diasRestantes60, vencido})=>(
+              <div key={v.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, borderRadius:7, flexWrap:"wrap" }}>
+                <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text }}>
+                  <b>{v.cliente_nombre||"Cliente sin nombre"}</b> {v.cliente_telefono && <span style={{ color:C.textMuted }}>· Tel: {v.cliente_telefono}</span>}
+                  <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, marginTop:1 }}>Debe {fmtCOP(saldoPendiente)}</div>
+                </div>
+                <Badge color={vencido?C.red:(diasRestantes60!==null && diasRestantes60<=5?C.amber:C.gold)} sm>
+                  {vencido ? "⛔ Vencido" : `⏳ Vence en ${diasRestantes60}d`}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16, alignItems:"start" }}>
         <div>
           <SeccionVenta icon="🏬" titulo="Información general">
@@ -6132,38 +6182,43 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // Regla general: una recolección SIEMPRE se lleva el efectivo de días ya cerrados (anteriores a
   // hoy) — el de HOY no se recoge por defecto, sigue sumando hasta la siguiente recolección. Solo
   // si se marca "Recoges efectivo de hoy" se retira una parte de hoy, con tope de lo acumulado hoy.
+  // fechaCorte se sigue usando más abajo (gastos/base) como referencia de "desde la última
+  // recolección", pero YA NO se usa para calcular el efectivo pendiente: ese cálculo es ahora por
+  // MONTO acumulado (todo el histórico de ventas en efectivo, menos todo lo ya recogido), no por
+  // fecha de corte — así una recolección PARCIAL (recoger menos de lo sugerido) deja correctamente
+  // el resto pendiente para la próxima vez, en lugar de darlo por recogido solo porque cambió la
+  // fecha de la última recolección.
   const fechaCorte = ultimaRecoleccion ? ultimaRecoleccion.fecha : null;
-  // Si hubo más de una recolección el mismo día (varios retiros parciales de "hoy" ese día), se
-  // suman todos los valor_hoy de ese día para saber cuánto de ese día ya se retiró.
-  const retiradoEnFechaCorte = fechaCorte
-    ? recoleccionesTienda.filter(r=>r.fecha===fechaCorte).reduce((s,r)=>s+Number(r.valor_hoy||0),0)
-    : 0;
-  // Efectivo de todos los días después de la fecha de la última recolección (incluye hoy), más el
-  // remanente del día de esa recolección (lo que no se llevó ese día si no marcó "hoy", o si marcó
-  // solo una parte).
-  let efectivoDiasPosteriores = 0;
+
+  // Efectivo (ventas + abonos en efectivo) de TODOS los días anteriores a hoy, en toda la historia
+  // de la tienda — sin importar cuándo fue la última recolección.
+  let efectivoAnterioresBruto = 0;
   ventasItems.forEach(i=>{
     const v = ventasTiendaMap[i.venta_id];
     if(!v || i.tipo==="flexipago") return;
     const fechaEfectiva = (i.es_original===false && i.fecha_item) ? i.fecha_item : v.fecha;
-    if(fechaCorte && fechaEfectiva<=fechaCorte) return;
-    (i.pagos||[]).forEach(p=>{ if(p.medio_pago==="efectivo") efectivoDiasPosteriores += Number(p.valor||0); });
+    if(fechaEfectiva>=todayStr) return;
+    (i.pagos||[]).forEach(p=>{ if(p.medio_pago==="efectivo") efectivoAnterioresBruto += Number(p.valor||0); });
   });
   ventasAbonos.forEach(a=>{
     const v = ventasTiendaMap[a.venta_id];
     if(!v) return;
-    if(fechaCorte && a.fecha<=fechaCorte) return;
-    if(a.medio_pago==="efectivo") efectivoDiasPosteriores += Number(a.valor||0);
+    if(a.fecha>=todayStr) return;
+    if(a.medio_pago==="efectivo") efectivoAnterioresBruto += Number(a.valor||0);
   });
-  const efectivoEnFechaCorte = fechaCorte ? efectivoDelDia(fechaCorte) : 0;
-  const efectivoPendienteTotal = Math.max(0, efectivoDiasPosteriores + efectivoEnFechaCorte - retiradoEnFechaCorte);
+  // Lo ya recogido de "días anteriores" en TODAS las recolecciones hechas hasta ahora. El campo
+  // "valor" guarda días-anteriores + hoy juntos (ver guardarRecoleccion), así que se resta
+  // valor_hoy para aislar solo la parte de días anteriores de cada recolección.
+  const recogidoAnterioresAcumulado = recoleccionesTienda.reduce((s,r)=> s + (Number(r.valor||0) - Number(r.valor_hoy||0)), 0);
+  // Efectivo de días anteriores a hoy que sigue pendiente — esto es lo que SIEMPRE se sugiere
+  // recoger (la "regla general"). Si una recolección fue parcial, la diferencia queda acá.
+  const efectivoAnteriores = Math.max(0, efectivoAnterioresBruto - recogidoAnterioresAcumulado);
 
   // Efectivo de HOY que sigue pendiente — es el tope para el retiro esporádico de "efectivo de hoy".
   const retiradoHoyYa = recoleccionesTienda.filter(r=>r.fecha===todayStr).reduce((s,r)=>s+Number(r.valor_hoy||0),0);
   const efectivoHoyPendiente = Math.max(0, efectivoDelDia(todayStr) - retiradoHoyYa);
-  // Efectivo de días anteriores a hoy que sigue pendiente — esto es lo que SIEMPRE se sugiere
-  // recoger (la "regla general"), sin importar si hoy se marca el retiro esporádico o no.
-  const efectivoAnteriores = Math.max(0, efectivoPendienteTotal - efectivoHoyPendiente);
+
+  const efectivoPendienteTotal = efectivoAnteriores + efectivoHoyPendiente;
 
   // Gastos de caja (novedades con valor, ej. comprar un limpiavidrios) desde la última recolección —
   // se pagan con la base, así que se restan de lo que hay para recolectar.
