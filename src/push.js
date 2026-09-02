@@ -38,9 +38,15 @@ export const permisoNotificaciones = () => (notificacionesSoportadas() ? Notific
 // "granted" pero el registro de la suscripción falla igual (por ejemplo si el sistema tiene las
 // notificaciones del navegador bloqueadas a nivel de Ajustes del Sistema) — si el botón se
 // ocultara solo por el permiso, la persona se queda sin forma de reintentar.
+//
+// También se guarda CON QUÉ LLAVE VAPID se activó. Si alguna vez se rota el par de llaves (por
+// ejemplo porque nunca se había desplegado la Edge Function y tocó generar unas nuevas), la
+// suscripción vieja queda inválida — pero sin este chequeo la bandera "activo" se queda pegada
+// para siempre y el botón nunca vuelve a aparecer para que la persona se pueda volver a suscribir.
 const LS_PUSH_ACTIVO = "ozen_push_activo";
+const LS_PUSH_KEY = "ozen_push_key";
 export const pushActivo = () => {
-  try { return localStorage.getItem(LS_PUSH_ACTIVO) === "1"; } catch (e) { return false; }
+  try { return localStorage.getItem(LS_PUSH_ACTIVO) === "1" && localStorage.getItem(LS_PUSH_KEY) === VAPID_PUBLIC_KEY; } catch (e) { return false; }
 };
 
 // Pide permiso (si hace falta) y guarda la suscripción en Supabase, ligada al usuario. Debe
@@ -53,6 +59,15 @@ export const activarNotificacionesPush = async (user) => {
     const permiso = await Notification.requestPermission();
     if (permiso !== "granted") return { ok: false, motivo: "permiso_denegado" };
     let sub = await reg.pushManager.getSubscription();
+    // Si ya había una suscripción hecha con una llave VAPID distinta a la actual (rotación de
+    // llaves), hay que darla de baja primero — el navegador no permite tener dos suscripciones
+    // con llaves distintas al mismo tiempo y lanza error si se intenta suscribir de nuevo encima.
+    if (sub) {
+      const keyGuardada = sub.options?.applicationServerKey ? new Uint8Array(sub.options.applicationServerKey) : null;
+      const keyActual = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+      const cambioLlave = !keyGuardada || keyGuardada.length !== keyActual.length || keyGuardada.some((b, i) => b !== keyActual[i]);
+      if (cambioLlave) { await sub.unsubscribe(); sub = null; }
+    }
     if (!sub) {
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
@@ -65,7 +80,7 @@ export const activarNotificacionesPush = async (user) => {
       { onConflict: "endpoint" }
     );
     if (error) return { ok: false, motivo: "error_guardando", error };
-    try { localStorage.setItem(LS_PUSH_ACTIVO, "1"); } catch (e) { /* sin localStorage, no pasa nada */ }
+    try { localStorage.setItem(LS_PUSH_ACTIVO, "1"); localStorage.setItem(LS_PUSH_KEY, VAPID_PUBLIC_KEY); } catch (e) { /* sin localStorage, no pasa nada */ }
     return { ok: true };
   } catch (e) {
     return { ok: false, motivo: "error", error: e };
