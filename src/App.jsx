@@ -7394,7 +7394,14 @@ export default function App() {
     if(r.ok){ alert("Listo — vas a recibir un aviso cada vez que alguien marque asistencia."); setPushTick(t=>t+1); }
     else if(r.motivo==="permiso_denegado"){ alert("No se activaron las notificaciones — el navegador dice que el permiso está bloqueado. Revisa los ajustes de notificaciones de este sitio."); }
     else if(r.motivo==="error_guardando"){ alert("El permiso quedó concedido, pero no se pudo guardar la suscripción. Intenta de nuevo — si sigue fallando, avísame."); }
-    else { alert("El navegador concedió el permiso pero no se pudo activar el push (en Mac esto puede ser porque el Sistema tiene bloqueadas las notificaciones de este navegador — revísalo en Ajustes del Sistema ▸ Notificaciones). Puedes volver a intentar."); }
+    else {
+      // Antes esto se quedaba en un mensaje genérico sin mostrar el error real — para poder
+      // diagnosticar a distancia (ej. por chat) hace falta ver qué excepción concreta lanzó el
+      // navegador (nombre tipo NotAllowedError/AbortError, y su mensaje).
+      const detalle = r.error ? `\n\nDetalle técnico: ${r.error.name||""} ${r.error.message||String(r.error)}` : "";
+      alert(`El navegador concedió el permiso pero no se pudo activar el push (en Mac esto puede ser porque el Sistema tiene bloqueadas las notificaciones de este navegador — revísalo en Ajustes del Sistema ▸ Notificaciones). Puedes volver a intentar.${detalle}`);
+      console.error("Error activando push:", r.error);
+    }
   };
 
   // Cuenta de tienda: es el equipo compartido que queda abierto en el mostrador toda la
