@@ -104,6 +104,19 @@ const getExpectedRange = (shift, date, store, turnosHorarios, entradaCustom, sal
   return `${fmtHora12(entrada)}–${fmtHora12(salida)}`;
 };
 
+// Cuánto se pasó (o le sobró) del tiempo de almuerzo permitido — comparando "fin_almuerzo" real
+// contra "inicio_almuerzo" real, contra los 60 minutos de almuerzo que tiene todo el mundo (igual
+// para todos los turnos y tiendas por ahora). Positivo = se demoró más de la hora, negativo =
+// volvió antes de que se cumpliera. Se usa para el "+12"/"-4" chiquito junto a la hora de
+// Fin Almuerzo, para que se note de un vistazo si alguien se está pasando del tiempo.
+const DURACION_ALMUERZO_MIN = 60;
+const calcDesvioAlmuerzo = (inicioTime, finTime) => {
+  if (!inicioTime || !finTime) return null;
+  const [h1, m1] = inicioTime.split(":").map(Number);
+  const [h2, m2] = finTime.split(":").map(Number);
+  return (h2*60+m2) - (h1*60+m1) - DURACION_ALMUERZO_MIN;
+};
+
 // ── Junta Admin — rotación del Monitor ───────────────────────────────────────
 // El Monitor rota cada mes entre los líderes, en el orden de la lista
 // (se edita desde la pestaña Equipo y perfiles, con las flechas ▲▼).
@@ -770,12 +783,16 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
   });
   const jornadas = Object.values(jornadasMap).sort((a,b)=>b.date.localeCompare(a.date)||a.userName.localeCompare(b.userName));
 
-  const EventBlock = ({ label, registro, omitido, color }) => {
+  const EventBlock = ({ label, registro, omitido, color, desvio }) => {
     const isOmitido = !registro && omitido;
     return (
       <div style={{ flex:1, minWidth:0, borderRadius:8, padding:"8px 4px", background:isOmitido?`${C.red}18`:C.surfaceAlt, border:`1px solid ${isOmitido?C.red+"44":C.border}`, display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
         <div style={{ fontFamily:font.body, fontSize:9, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", textAlign:"center", lineHeight:1.2 }}>{label}</div>
-        <div style={{ fontFamily:font.mono, fontSize:12, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?"N/R":"—"}</div>
+        <div style={{ display:"flex", alignItems:"baseline", gap:2 }}>
+          <span style={{ fontFamily:font.mono, fontSize:12, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?"N/R":"—"}</span>
+          {/* +N/-N sutil junto a la hora de Fin Almuerzo — cuánto se pasó (o no) del tiempo de almuerzo permitido. */}
+          {desvio!==null && desvio!==undefined && desvio!==0 && <span style={{ fontFamily:font.mono, fontSize:9, fontWeight:700, color:desvio>0?C.amber:C.textMuted }}>{desvio>0?`+${desvio}`:desvio}</span>}
+        </div>
         <div style={{ width:36, height:36, borderRadius:6, overflow:"hidden", border:`1px solid ${C.border}`, background:C.dark, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
           {registro?.photo_url
             ? <img src={registro.photo_url} onClick={()=>setViewPhoto(registro.photo_url)} alt="foto" style={{ width:"100%", height:"100%", objectFit:"cover", cursor:"pointer", display:"block" }} />
@@ -841,7 +858,7 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
               <div style={{ display:"flex", gap:6 }}>
                 <EventBlock label="Entrada"       registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
                 <EventBlock label="Ini. Almuerzo" registro={j.inicio_almuerzo} omitido={j["inicio_almuerzo_omitido"]} color={C.amber} />
-                <EventBlock label="Fin Almuerzo"  registro={j.fin_almuerzo}   omitido={j["fin_almuerzo_omitido"]}   color={C.blue}  />
+                <EventBlock label="Fin Almuerzo"  registro={j.fin_almuerzo}   omitido={j["fin_almuerzo_omitido"]}   color={C.blue}  desvio={calcDesvioAlmuerzo(j.inicio_almuerzo?.time, j.fin_almuerzo?.time)} />
                 <EventBlock label="Salida"        registro={j.salida}         omitido={j["salida_omitido"]}         color={C.red}   />
               </div>
             </Card>
@@ -1919,13 +1936,19 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
           <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Registro de hoy</div>
           {puntHoy && (puntHoy.puntual ? <Badge color={C.green} sm>🟢 Puntual hoy</Badge> : <Badge color={C.red} sm title={rangoHoy?`Debía entrar ${rangoHoy.split("–")[0]}`:undefined}>🔴 Tarde {puntHoy.diff} min hoy</Badge>)}
         </div>
-        {ORDEN.map((ev,i)=>{ const rec=todayRecs.find(r=>r.event===ev); const isNext=ev===nextEvent; return (
+        {ORDEN.map((ev,i)=>{ const rec=todayRecs.find(r=>r.event===ev); const isNext=ev===nextEvent;
+          // +N/-N sutil junto a la hora de Fin Almuerzo — cuánto se pasó (o no) de los 60 minutos de almuerzo.
+          const desvioAlmuerzo = ev==="fin_almuerzo" && rec ? calcDesvioAlmuerzo(todayRecs.find(r=>r.event==="inicio_almuerzo")?.time, rec.time) : null;
+          return (
           <div key={ev} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<3?`1px solid ${C.border}`:"none"}}>
             <div style={{width:12,height:12,borderRadius:99,background:rec?EVENT_COLORS[ev]:C.border,boxShadow:rec?`0 0 8px ${EVENT_COLORS[ev]}`:"none",flexShrink:0}}/>
             <div style={{flex:1,fontFamily:font.body,fontSize:13,color:rec?C.text:C.textMuted}}>{EVENT_LABELS[ev]}</div>
             {isNext&&!rec&&<Badge color={C.blue} sm>Pendiente</Badge>}
             {rec?.photo_url&&<img src={rec.photo_url} alt="foto" style={{width:28,height:28,borderRadius:6,objectFit:"cover"}}/>}
-            <div style={{fontFamily:font.mono,fontSize:13,color:rec?EVENT_COLORS[ev]:C.border,fontWeight:700}}>{rec?rec.time:"--:--"}</div>
+            <div style={{display:"flex",alignItems:"baseline",gap:2}}>
+              <span style={{fontFamily:font.mono,fontSize:13,color:rec?EVENT_COLORS[ev]:C.border,fontWeight:700}}>{rec?rec.time:"--:--"}</span>
+              {desvioAlmuerzo!==null && desvioAlmuerzo!==0 && <span style={{fontFamily:font.mono,fontSize:9.5,fontWeight:700,color:desvioAlmuerzo>0?C.amber:C.textMuted}}>{desvioAlmuerzo>0?`+${desvioAlmuerzo}`:desvioAlmuerzo}</span>}
+            </div>
           </div>
         );})}
       </Card>
@@ -1946,12 +1969,16 @@ function HistoryScreen({ user, records, stores, turnosHorarios, turnosAsignacion
   });
   const jornadas = Object.values(jornadasMap).sort((a,b)=>b.date.localeCompare(a.date));
 
-  const EventBlock = ({ label, registro, omitido, color }) => {
+  const EventBlock = ({ label, registro, omitido, color, desvio }) => {
     const isOmitido = !registro && omitido;
     return (
       <div style={{ flex:1, minWidth:0, borderRadius:8, padding:"8px 4px", background:isOmitido?`${C.red}18`:C.surfaceAlt, border:`1px solid ${isOmitido?C.red+"44":C.border}`, display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
         <div style={{ fontFamily:font.body, fontSize:9, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", textAlign:"center", lineHeight:1.2 }}>{label}</div>
-        <div style={{ fontFamily:font.mono, fontSize:12, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?"N/R":"—"}</div>
+        <div style={{ display:"flex", alignItems:"baseline", gap:2 }}>
+          <span style={{ fontFamily:font.mono, fontSize:12, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?"N/R":"—"}</span>
+          {/* +N/-N sutil junto a la hora de Fin Almuerzo — cuánto se pasó (o no) del tiempo de almuerzo permitido. */}
+          {desvio!==null && desvio!==undefined && desvio!==0 && <span style={{ fontFamily:font.mono, fontSize:9, fontWeight:700, color:desvio>0?C.amber:C.textMuted }}>{desvio>0?`+${desvio}`:desvio}</span>}
+        </div>
         <div style={{ width:36, height:36, borderRadius:6, overflow:"hidden", border:`1px solid ${C.border}`, background:C.dark, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
           {registro?.photo_url
             ? <img src={registro.photo_url} onClick={()=>setViewPhoto(registro.photo_url)} alt="foto" style={{ width:"100%", height:"100%", objectFit:"cover", cursor:"pointer", display:"block" }} />
