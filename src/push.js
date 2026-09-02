@@ -3,7 +3,7 @@
 // segura de tener en el cliente (solo la privada, que vive en el Edge Function, es secreta).
 import { supabase } from "./supabase";
 
-const VAPID_PUBLIC_KEY = "BATM-jztB6zm9sDRVNSm7JMBnPL_0qkPz2bSYi11GWt9xp88EGyXuJviNcpWWcP6wzfk2VHDloOaT9v4layxpqE";
+const VAPID_PUBLIC_KEY = "BItJU0T1cB_aGuvrquwQxscuxsA1p6jIAYKCzf6iuFSGmv_Ra3nFe8636RNSs590OOiePDw5V3bX4QA7mmyCDxo";
 
 const urlBase64ToUint8Array = (base64String) => {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
