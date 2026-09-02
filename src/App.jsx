@@ -2470,7 +2470,17 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const irAEstaSemana = () => { const t = martesDeSemana(todayStr); setMesSel(t.slice(0,7)); setSemanaFiltro(t); };
   const etiquetaSemana = (mt) => new Date(mt+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"});
 
-  const tareasDelMes = compromisos.filter(c=>martesDelMesSel.includes(c.semana));
+  // Una tarea ya CERRADA (cumplida o vencida) se ubica por el mes en que de verdad se cerró
+  // (mesDeCierre — mismo criterio que ya usan los indicadores), no por el mes en que se asignó
+  // (c.semana). Sin esto, una tarea de la última semana de un mes cuya reunión de revisión cae ya
+  // en el mes siguiente (y por lo tanto vence ahí) quedaba invisible en las dos pestañas: no
+  // aparecía en el mes viejo (ya no es "activa" de ese mes) ni en el mes nuevo (su `semana` sigue
+  // siendo la del mes viejo) — así que nadie la encontraba para reabrirla. Una tarea que sigue
+  // activa (sin cerrar) todavía se ubica por su semana de asignación, porque mesDeCierre da null.
+  const tareasDelMes = compromisos.filter(c=>{
+    const cierre = mesDeCierre(c);
+    return cierre ? cierre===mesSel : martesDelMesSel.includes(c.semana);
+  });
   const tareasVista = semanaFiltro ? tareasDelMes.filter(c=>c.semana===semanaFiltro) : tareasDelMes;
 
   // ── Agrupa tareas compartidas (mismo grupo_id) en un solo bloque visual ────────
@@ -6337,7 +6347,7 @@ const CajaCard = ({ icon, titulo, children, color, headerExtra, compact }) => {
       marginBottom:compact?6:10,
     }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:compact?4:8 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:14, fontWeight:700, color:C.goldLight, textTransform:"uppercase", letterSpacing:"0.04em" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:15, fontWeight:700, color:C.goldLight, textTransform:"uppercase", letterSpacing:"0.04em" }}>
           {glass && <span style={{ width:7, height:7, borderRadius:"50%", background:color, boxShadow:`0 0 6px ${color}` }}/>}
           {icon} {titulo}
         </div>
@@ -6377,6 +6387,11 @@ const CajaBtn = ({ onClick, children, disabled }) => (
 // Línea "a modo factura" — título al frente, valor a la derecha. Usada en las tarjetas de Apertura
 // y Cierre de turno para el rediseño en dos columnas (ver diseño de Felipe). Solo presentación:
 // no calcula nada, únicamente muestra los valores que ya vienen calculados desde afuera.
+// `small` solo atenúa el color (info secundaria) — el tamaño de letra es el mismo que el resto de
+// renglones de Caja para todos, así "Base"/"Turno" no quedan más chicos que "Fecha"/"Efectivo" sin
+// ninguna razón real (esa diferencia de tamaño sin motivo era justo lo que se veía "desproporcionado").
+// Solo `bold`/`totalLine` (los totales) se ven notoriamente más grandes, para que haya una
+// jerarquía real: renglón normal vs. total, no una escala de 3-4 tamaños distintos sin lógica clara.
 const CajaReciboLinea = ({ label, value, bold, color, small, indent, totalLine, compact }) => (
   <div style={{
     display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:10,
@@ -6385,8 +6400,8 @@ const CajaReciboLinea = ({ label, value, bold, color, small, indent, totalLine, 
     paddingTop: totalLine ? (compact?4:6) : undefined,
     borderTop: totalLine ? `1px solid ${C.border}` : "none",
   }}>
-    <span style={{ fontFamily:font.body, fontSize: compact ? (small?13:14) : (small?14:15.5), color: color || (small?C.textMuted:C.text), fontWeight: bold?700:400 }}>{label}</span>
-    <span style={{ fontFamily:font.mono, fontSize: compact ? (small?14:15.5) : (small?16:17.5), fontWeight: bold?700:400, color: color || (bold?C.goldLight:C.text), whiteSpace:"nowrap" }}>{value}</span>
+    <span style={{ fontFamily:font.body, fontSize: bold?14:13.5, color: color || (small?C.textMuted:C.text), fontWeight: bold?700:400 }}>{label}</span>
+    <span style={{ fontFamily:font.mono, fontSize: bold?16.5:14.5, fontWeight: bold?700:400, color: color || (bold?C.goldLight:C.text), whiteSpace:"nowrap" }}>{value}</span>
   </div>
 );
 // Barra divisoria de sub-sección dentro de una tarjeta (p.ej. "Dinero recibido por método de pago",
@@ -6400,13 +6415,13 @@ const CajaSubHeader = ({ label, compact }) => (
 // minWidth:0 es necesario para que el input de verdad se achique en vez de salirse del cuadro —
 // por defecto un flex item no encoge más allá del ancho de su propio contenido (min-width:auto),
 // así que sin esto una etiqueta+valor largos empujan el input fuera del borde en pantallas angostas.
-const cajaInputStyleRow = { ...cajaInputStyle, width:"auto", flex:"0 1 190px", minWidth:0, textAlign:"right", fontSize:15 };
-const cajaInputStyleRowCompact = { ...cajaInputStyleRow, padding:"4px 7px", fontSize:14 };
+const cajaInputStyleRow = { ...cajaInputStyle, width:"auto", flex:"0 1 190px", minWidth:0, textAlign:"right", fontSize:14.5 };
+const cajaInputStyleRowCompact = { ...cajaInputStyleRow, padding:"4px 7px", fontSize:14.5 };
 const CajaFieldRow = ({ label, value, onChange, options, placeholder, type="text", wide, compact }) => {
   const base = compact ? cajaInputStyleRowCompact : cajaInputStyleRow;
   return (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
-      {label && <div style={{ fontFamily:font.body, fontSize: compact?13.5:15, color:C.text, flexShrink:0 }}>{label}</div>}
+      {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, flexShrink:0 }}>{label}</div>}
       {options ? (
         <select value={value} onChange={e=>onChange(e.target.value)} style={base}>
           {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
@@ -6425,7 +6440,7 @@ const CajaMoneyRow = ({ label, value, onChange, placeholder, compact, narrow }) 
   // largo, se ve mucho más proporcional al resto de la tarjeta.
   return (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
-      {label && <div style={{ fontFamily:font.body, fontSize: compact?13.5:15, color:C.text, flexShrink:0 }}>{label}</div>}
+      {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, flexShrink:0 }}>{label}</div>}
       <input type="text" inputMode="numeric" value={mostrado} onChange={e=>onChange(e.target.value.replace(/[^\d]/g,""))} placeholder={placeholder||"$0"} style={narrow ? { ...(compact?cajaInputStyleRowCompact:cajaInputStyleRow), flex:"0 0 84px", width:84 } : (compact?cajaInputStyleRowCompact:cajaInputStyleRow)}/>
     </div>
   );
@@ -6444,7 +6459,7 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
   // abrir el desplegable de una vez al entrar en edición (soportado en navegadores recientes).
   const bareStyle = {
     background:"transparent", border:"none", borderRadius:0, padding:0, margin:0,
-    color:C.text, fontFamily:font.mono, fontSize: compact?14.5:16, textAlign:"right",
+    color:C.text, fontFamily:font.mono, fontSize:14.5, textAlign:"right",
     outline:"none", boxShadow:"none", WebkitAppearance:"none", appearance:"none", cursor:"pointer",
   };
   useEffect(()=>{
@@ -6455,7 +6470,7 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
   if(editando){
     return (
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
-        {label && <div style={{ fontFamily:font.body, fontSize: compact?13.5:15, color:C.text, flexShrink:0 }}>{label}</div>}
+        {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, flexShrink:0 }}>{label}</div>}
         {options ? (
           <select ref={selectRef} autoFocus value={value} onChange={e=>{ onChange(e.target.value); setEditando(false); }} onBlur={()=>setEditando(false)} style={bareStyle}>
             {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
@@ -6471,9 +6486,9 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
   const texto = options ? (options.find(o=>o.value===value)?.label || "Selecciona...") : money ? (digits?`$${Number(digits).toLocaleString("es-CO")}`:"$0") : (value||"—");
   return (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding: compact?"1px 0":"2.5px 0" }}>
-      <span style={{ fontFamily:font.body, fontSize: compact?13.5:15, color:C.text }}>{label}</span>
+      <span style={{ fontFamily:font.body, fontSize:13.5, color:C.text }}>{label}</span>
       <button type="button" onClick={()=>setEditando(true)} style={{ display:"flex", alignItems:"center", gap:5, background:"none", border:"none", cursor:"pointer", padding:0 }}>
-        <span style={{ fontFamily:font.mono, fontSize: compact?14.5:16, color:C.text }}>{texto}</span>
+        <span style={{ fontFamily:font.mono, fontSize:14.5, color:C.text }}>{texto}</span>
         <span style={{ color:C.textMuted, fontSize:11 }}>✏️</span>
       </button>
     </div>
