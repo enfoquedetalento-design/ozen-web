@@ -7397,9 +7397,17 @@ export default function App() {
     else {
       // Antes esto se quedaba en un mensaje genérico sin mostrar el error real — para poder
       // diagnosticar a distancia (ej. por chat) hace falta ver qué excepción concreta lanzó el
-      // navegador (nombre tipo NotAllowedError/AbortError, y su mensaje).
-      const detalle = r.error ? `\n\nDetalle técnico: ${r.error.name||""} ${r.error.message||String(r.error)}` : "";
-      alert(`El navegador concedió el permiso pero no se pudo activar el push (en Mac esto puede ser porque el Sistema tiene bloqueadas las notificaciones de este navegador — revísalo en Ajustes del Sistema ▸ Notificaciones). Puedes volver a intentar.${detalle}`);
+      // navegador. "AbortError: could not retrieve the public key" es un mensaje específico de
+      // Chrome que casi nunca es un problema de la llave en sí (esa se puede validar por separado)
+      // — normalmente significa que algo le bloqueó a Chrome la conexión con el servicio de
+      // notificaciones de Google (fcm.googleapis.com): un bloqueador de anuncios, una VPN, o el
+      // firewall de la red. El aviso genérico de "Ajustes del Sistema" solo aplica a otros errores.
+      const msgErr = r.error ? `${r.error.name||""} ${r.error.message||String(r.error)}`.trim() : "";
+      const esBloqueoRed = /could not retrieve the public key|abort/i.test(msgErr);
+      const pista = esBloqueoRed
+        ? "Esto casi siempre pasa porque algo le está bloqueando a Chrome la conexión con el servicio de notificaciones de Google — un bloqueador de anuncios (uBlock, AdBlock, Privacy Badger), una VPN, o el firewall de la red/oficina. Prueba desactivando extensiones de bloqueo para este sitio, o desde otra red (ej. datos del celular), y vuelve a intentar."
+        : "En Mac esto puede ser porque el Sistema tiene bloqueadas las notificaciones de este navegador — revísalo en Ajustes del Sistema ▸ Notificaciones.";
+      alert(`El navegador concedió el permiso pero no se pudo activar el push.\n\n${pista}\n\nPuedes volver a intentar.${msgErr?`\n\nDetalle técnico: ${msgErr}`:""}`);
       console.error("Error activando push:", r.error);
     }
   };
