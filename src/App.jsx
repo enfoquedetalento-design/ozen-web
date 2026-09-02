@@ -607,7 +607,7 @@ const puedeAsignarMetas = (user) => user.role==="master" || user.role==="admin_f
 const puedeHacerRecoleccion = (user) => user.role==="master" || user.role==="admin_finanzas" || user.role==="tienda";
 // Qué pestañas le corresponden a cada quien, según su rol y el área elegida
 const tabsPara = (user, area) => !puedeUsarAreas(user)
-  ? (esCuentaTienda(user) ? ADMIN_TABS_VENTAS : ADVISOR_TABS)
+  ? (esCuentaTienda(user) ? [...ADMIN_TABS_VENTAS, { id:"turnos", icon:"📅", label:"Turnos" }] : ADVISOR_TABS)
   : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? (puedeVerRegistrar(user) ? ADMIN_TABS_VENTAS : ADMIN_TABS_VENTAS.filter(t=>t.id!=="registrar")) : area==="firmas" ? ADMIN_TABS_FIRMAS : ADMIN_TABS_ASISTENCIA);
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
@@ -5079,30 +5079,6 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
     return venta && venta.tienda_id===tiendaId ? { venta, ajuste:aj } : null;
   }).filter(Boolean);
 
-  // Meta del día de hoy para la tienda seleccionada (si ya se asignó por día en Métricas) y
-  // cuánto falta para completarla — el dato que se quiere ver de primeras al registrar ventas.
-  const todayDiaNum = Number(todayStr.slice(8,10));
-  const todayMesKey = todayStr.slice(0,7);
-  const metaHoyTienda = tiendaId ? Number(metas?.find(m=>m.mes===todayMesKey && m.tienda_id===tiendaId && (m.tipo||"total")==="total")?.valores_dia?.[todayDiaNum] || 0) : 0;
-  // "Vendido hoy" tenía un bug: contaba las ventas normales de hoy, pero excluía POR COMPLETO
-  // cualquier Flexipago — ni su abono de hoy, ni su cierre si se terminó de pagar justo hoy. Eso
-  // hacía que "faltan" saliera mal apenas había un abono o cierre de Flexipago en el día (el mismo
-  // criterio que ya usa Métricas: un Flexipago cuenta su valor completo el día que se TERMINA de
-  // pagar, y mientras sigue abierto, lo abonado ese día sí cuenta como plata real que entró hoy).
-  const cierresFlexipagoTodos = tiendaId ? calcularCierresFlexipago(ventas, ventasItems, ventasAbonos) : [];
-  const idsFlexipagoCerrados = new Set(cierresFlexipagoTodos.map(c=>c.ventaId));
-  const cierresFlexipagoHoyTienda = cierresFlexipagoTodos.filter(c=>c.tiendaId===tiendaId && c.fechaCierre===todayStr).reduce((s,c)=>s+c.valorNeto,0);
-  const abonosFlexipagoAbiertoHoyTienda = tiendaId ? (ventasAbonos||[]).filter(ab=>{
-    if(ab.fecha!==todayStr) return false;
-    const v = ventas.find(x=>x.id===ab.venta_id);
-    if(!v || !v.es_flexipago || v.tienda_id!==tiendaId) return false;
-    return !idsFlexipagoCerrados.has(v.id);
-  }).reduce((s,ab)=>s+Number(ab.valor||0),0) : 0;
-  // Notacrédito (excedentes) cuya fecha real de hoy — mismo criterio que Métricas: el excedente
-  // cuenta el día en que de verdad se generó, no el día de la factura original.
-  const ajustesHoyTienda = tiendaId ? (ventasAjustes||[]).filter(aj=>aj.fecha===todayStr && !aj.es_correccion_error && ventas.find(v=>v.id===aj.venta_id)?.tienda_id===tiendaId).reduce((s,aj)=>s+Number(aj.diferencia||0),0) : 0;
-  const vendidoHoyTienda = tiendaId ? ventas.filter(v=>v.fecha===todayStr && v.tienda_id===tiendaId && !v.es_flexipago).reduce((s,v)=>s+Number(v.total||0),0) + cierresFlexipagoHoyTienda + abonosFlexipagoAbiertoHoyTienda + ajustesHoyTienda : 0;
-  const faltaHoyTienda = Math.max(0, metaHoyTienda - vendidoHoyTienda);
   // Flexipagos de esta tienda que hay que recordarle al cliente que venga a pagar — vencidos,
   // urgentes (5 días o menos) o a mitad de plazo (30+ días), mismos umbrales que ya usa la
   // tarjeta de cada venta. Se muestra arriba de todo para que sea lo primero que vea el asesor.
@@ -5119,7 +5095,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
       <PageHeader
         title="Registrar venta"
         subtitle={stores[tiendaId]?.name ? `Tienda: ${stores[tiendaId].name}` : "Elige la tienda"}
-        action={(tiendaId && (metaHoyTienda>0 || flexipagosAvisar.length>0)) && (
+        action={(tiendaId && (tiendasVenta(stores).length>0 || flexipagosAvisar.length>0)) && (
           <div style={{ display:"flex", alignItems:"flex-start", gap:10, flexWrap:"wrap", justifyContent:"flex-end", width: isMobile?"100%":undefined }}>
             {flexipagosAvisar.length>0 && (
               <div style={{ position:"relative" }}>
@@ -5170,42 +5146,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
                 )}
               </div>
             )}
-            {metaHoyTienda>0 && (() => {
-              // Antes esta burbuja mostraba la META arriba en grande (y solo cambiaba a vendido
-              // una vez cumplida) — lo que el asesor quiere ver protagonista todo el día es
-              // cuánto lleva VENDIDO. La barra también se quedaba pegada en un solo color (el
-              // "gold" de la marca es en realidad un azul oscuro, por eso "se veía azul sin más")
-              // — ahora cambia de etapa (azul vivo → ámbar cerca de la meta → verde al cumplirla)
-              // para que se sienta viva y dé ganas de completarla.
-              const pctRaw = (vendidoHoyTienda/metaHoyTienda)*100;
-              const pct = Math.max(0, Math.min(100, Math.round(pctRaw)));
-              const cumplida = faltaHoyTienda<=0;
-              const etapaColor = cumplida ? C.green : pctRaw>=75 ? C.amber : C.blue;
-              return (
-                <div className={cumplida?"ozen-meta-cumplida":""} style={{
-                  display:"flex", flexDirection:"column", gap:5,
-                  background: `linear-gradient(135deg, ${etapaColor}26, ${etapaColor}08)`,
-                  border:`1.5px solid ${etapaColor}`, borderRadius:12, padding:"10px 18px",
-                  width: isMobile?"100%":undefined, minWidth: isMobile?0:320, boxSizing:"border-box",
-                  boxShadow:`0 3px 14px ${etapaColor}22`, transition:"border-color 0.4s ease, background 0.4s ease",
-                }}>
-                  <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:10 }}>
-                    <div style={{ fontFamily:font.body, fontSize:9.5, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", whiteSpace:"nowrap" }}>{cumplida?"🎉":"🎯"} Vendido hoy</div>
-                    <div style={{ fontFamily:font.body, fontSize:9.5, color:C.textMuted, whiteSpace:"nowrap" }}>Meta {fmtCOP(metaHoyTienda)}</div>
-                  </div>
-                  <div style={{ fontFamily:font.mono, fontSize:22, fontWeight:800, color:C.goldLight, whiteSpace:"nowrap", lineHeight:1 }}>{fmtCOP(vendidoHoyTienda)}</div>
-                  <div style={{ height:9, borderRadius:5, background:C.dark, overflow:"hidden" }}>
-                    <div style={{ height:"100%", width:`${pct}%`, borderRadius:5, background:`linear-gradient(90deg, ${C.blue}, ${etapaColor})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1), background 0.4s ease" }}/>
-                  </div>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                    <div style={{ fontFamily:font.body, fontSize:10.5, fontWeight:700, color:etapaColor, whiteSpace:"nowrap" }}>
-                      {cumplida ? `¡Meta cumplida! +${fmtCOP(vendidoHoyTienda-metaHoyTienda)}` : `Faltan ${fmtCOP(faltaHoyTienda)}`}
-                    </div>
-                    <div style={{ fontFamily:font.mono, fontSize:10.5, fontWeight:700, color:etapaColor, whiteSpace:"nowrap" }}>{pct}%</div>
-                  </div>
-                </div>
-              );
-            })()}
+            <MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaId} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>
           </div>
         )}
       />
@@ -5497,7 +5438,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
   );
 }
 
-function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, esAdmin, soloLectura }) {
+function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, metas, esAdmin, soloLectura }) {
   const isMobile = useIsMobile();
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const [filtroTienda, setFiltroTienda] = useState("");
@@ -5563,7 +5504,9 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
 
   return (
     <div>
-      <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}${abonosFiltrados.length>0?` · ${abonosFiltrados.length} abonos Flexipago`:""}`} />
+      <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}${abonosFiltrados.length>0?` · ${abonosFiltrados.length} abonos Flexipago`:""}`}
+        action={<MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaFija||filtroTienda} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ajustes} metas={metas} isMobile={isMobile}/>}
+      />
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
           <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"end" }}>
@@ -5685,6 +5628,91 @@ const calcularCierresFlexipago = (ventas, ventasItems, ventasAbonos) => {
     }
   });
   return cierres;
+};
+
+// Vendido/Meta/Falta de HOY para una tienda puntual — misma cuenta que ya usaba la burbuja de
+// "Meta de hoy" en Registrar, ahora factorizada para poder correrla sobre TODAS las tiendas a la
+// vez (ver MetaHoyCompetencia). "vendido" incluye: ventas normales de hoy, Flexipagos que se
+// terminan de pagar hoy (con su valor completo), abonos de hoy en Flexipagos que siguen
+// abiertos, y ajustes/Notacrédito de hoy.
+const calcularMetaHoyTienda = (tiendaId, ventas, ventasItems, ventasAbonos, ventasAjustes, metas) => {
+  const todayDiaNum = Number(todayStr.slice(8,10));
+  const todayMesKey = todayStr.slice(0,7);
+  const meta = Number(metas?.find(m=>m.mes===todayMesKey && m.tienda_id===tiendaId && (m.tipo||"total")==="total")?.valores_dia?.[todayDiaNum] || 0);
+  const cierresFlexipagoTodos = calcularCierresFlexipago(ventas, ventasItems, ventasAbonos);
+  const idsFlexipagoCerrados = new Set(cierresFlexipagoTodos.map(c=>c.ventaId));
+  const cierresHoy = cierresFlexipagoTodos.filter(c=>c.tiendaId===tiendaId && c.fechaCierre===todayStr).reduce((s,c)=>s+c.valorNeto,0);
+  const abonosAbiertoHoy = (ventasAbonos||[]).filter(ab=>{
+    if(ab.fecha!==todayStr) return false;
+    const v = ventas.find(x=>x.id===ab.venta_id);
+    if(!v || !v.es_flexipago || v.tienda_id!==tiendaId) return false;
+    return !idsFlexipagoCerrados.has(v.id);
+  }).reduce((s,ab)=>s+Number(ab.valor||0),0);
+  const ajustesHoy = (ventasAjustes||[]).filter(aj=>aj.fecha===todayStr && !aj.es_correccion_error && ventas.find(v=>v.id===aj.venta_id)?.tienda_id===tiendaId).reduce((s,aj)=>s+Number(aj.diferencia||0),0);
+  const vendido = ventas.filter(v=>v.fecha===todayStr && v.tienda_id===tiendaId && !v.es_flexipago).reduce((s,v)=>s+Number(v.total||0),0) + cierresHoy + abonosAbiertoHoy + ajustesHoy;
+  const falta = Math.max(0, meta - vendido);
+  return { meta, vendido, falta };
+};
+
+// Burbuja "Meta de hoy" compartida por Registrar/Lista/Métricas — antes solo mostraba la tienda
+// seleccionada; ahora compara TODAS las tiendas que venden (menos Oficina) a la vez, para que se
+// sienta como una competencia entre tiendas. Se rankean por % DE CUMPLIMIENTO (no por venta
+// bruta — cada tienda vende distinto, así que lo justo es comparar avance contra su propia
+// meta), con la barra de progreso de cada una siempre visible. Cada chip es muy angosto a
+// propósito (nombre + % + barra, nada más) para que la altura total no supere la del título de
+// la pantalla — tocarlo despliega el detalle (vendido/meta/falta) sin ocupar espacio fijo, que
+// es donde vive el "cuánto llevo y cuánto me falta" de siempre.
+const MetaHoyCompetencia = ({ stores, tiendaIdActual, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile }) => {
+  const lista = tiendasVenta(stores)
+    .map(t => ({ tienda:t, ...calcularMetaHoyTienda(t.id, ventas, ventasItems, ventasAbonos, ventasAjustes, metas) }))
+    .filter(x=>x.meta>0)
+    .sort((a,b)=> (b.vendido/b.meta) - (a.vendido/a.meta));
+  if(lista.length===0) return null;
+  return (
+    <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:isMobile?"flex-start":"flex-end", maxWidth:isMobile?"100%":400 }}>
+      {lista.map((x,idx)=>{
+        const esActual = x.tienda.id===tiendaIdActual;
+        const cumplida = x.falta<=0;
+        const pctRaw = (x.vendido/x.meta)*100;
+        const pct = Math.max(0, Math.min(100, Math.round(pctRaw)));
+        const etapaColor = cumplida ? C.green : pctRaw>=75 ? C.amber : C.blue;
+        return (
+          <HoverTooltip
+            key={x.tienda.id}
+            clickOnly
+            align={idx===lista.length-1 ? "right" : "left"}
+            width={220}
+            label={
+              <div style={{
+                minWidth:64, padding:"3px 7px", borderRadius:7, cursor:"pointer",
+                background: esActual ? `${etapaColor}1f` : "rgba(255,255,255,0.03)",
+                border:`1px solid ${esActual?etapaColor:C.border}`,
+              }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:4, fontFamily:font.body, fontSize:9.5, whiteSpace:"nowrap", marginBottom:2 }}>
+                  <span style={{ color:esActual?C.goldLight:C.textMuted, fontWeight:esActual?700:400, overflow:"hidden", textOverflow:"ellipsis" }}>{idx===0?"🥇 ":""}{x.tienda.name.replace(/^OZEN\s*/i,"")}</span>
+                  <span style={{ fontFamily:font.mono, fontWeight:700, color:etapaColor }}>{pct}%</span>
+                </div>
+                <div style={{ height:4, borderRadius:2, background:C.dark, overflow:"hidden" }}>
+                  <div style={{ height:"100%", width:`${pct}%`, borderRadius:2, background:`linear-gradient(90deg, ${C.blue}, ${etapaColor})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
+                </div>
+              </div>
+            }
+          >
+            <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>{cumplida?"🎉 ":"🎯 "}{x.tienda.name}</div>
+            <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:2 }}>
+              <span>Vendido hoy</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(x.vendido)}</span>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:2 }}>
+              <span>Meta de hoy</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(x.meta)}</span>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, fontWeight:700, color:etapaColor }}>
+              <span>{cumplida?"Superó la meta":"Falta"}</span><span style={{ fontFamily:font.mono }}>{cumplida?`+${fmtCOP(x.vendido-x.meta)}`:fmtCOP(x.falta)}</span>
+            </div>
+          </HoverTooltip>
+        );
+      })}
+    </div>
+  );
 };
 
 function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile, turnosAsignaciones, turnosGlobales }) {
@@ -6045,7 +6073,9 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
 
   return (
     <div>
-      <PageHeader title="Métricas" subtitle={tiendaSel ? `${stores[tiendaSel]?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`} />
+      <PageHeader title="Métricas" subtitle={tiendaSel ? `${stores[tiendaSel]?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`}
+        action={<MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaSel} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>}
+      />
 
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12, flexWrap:"wrap" }}>
@@ -7536,7 +7566,7 @@ export default function App() {
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
         if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
-        if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
+        if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
         if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
       } else if(area==="firmas"){
@@ -7550,9 +7580,12 @@ export default function App() {
       }
     } else if(esCuentaTienda(user)){
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
-      if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} esAdmin={false} soloLectura={false}/>;
+      if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
       if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
+      // Solo la parte visual de la rejilla de Turnos (sin Borrador ni Administrar) — para que la
+      // cuenta de tienda pueda ver quién tiene turno sin poder editar nada.
+      if(tab==="turnos")    return <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={turnosAsignaciones}/>;
     } else {
       if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>;
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
