@@ -6313,7 +6313,7 @@ const BASE_CAJA_FIJA = 100000;
 // Cuando se le pasa "color" (el color asignado a la tienda), todo el cuadro se pinta con ese
 // color — pero el contenido de adentro (campos, historiales) queda sobre un panel oscuro
 // insertado, para que siga tan legible como siempre sin importar qué tan claro sea el color.
-const cajaHeaderSelectStyle = { background:"rgba(0,0,0,0.28)", border:"1px solid rgba(255,255,255,0.28)", borderRadius:5, color:"#fff", fontSize:12.5, fontFamily:font.body, padding:"3px 7px", fontWeight:600 };
+const cajaHeaderSelectStyle = { background:"rgba(0,0,0,0.28)", border:"1px solid rgba(255,255,255,0.28)", borderRadius:5, color:"#fff", fontSize:13, fontFamily:font.body, padding:"3px 7px", fontWeight:600 };
 // `compact` = versión más apretada (menos padding/márgenes) para cuando varias tarjetas van
 // apiladas en columna y necesitan caber en un solo pantallazo (p.ej. la columna de Apertura en Caja).
 // Cuando hay `color` (tienda seleccionada en Caja) usamos un look "liquid glass": vidrio esmerilado
@@ -6347,8 +6347,8 @@ const CajaCard = ({ icon, titulo, children, color, headerExtra, compact }) => {
     </div>
   );
 };
-const cajaInputStyle = { width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:5, padding:"5px 8px", color:C.text, fontSize:13.5, fontFamily:font.body, outline:"none", boxSizing:"border-box" };
-const cajaLabelStyle = { fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:2, textTransform:"uppercase", letterSpacing:"0.05em" };
+const cajaInputStyle = { width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:5, padding:"5px 8px", color:C.text, fontSize:14.5, fontFamily:font.body, outline:"none", boxSizing:"border-box" };
+const cajaLabelStyle = { fontSize:12, color:C.textMuted, fontFamily:font.body, marginBottom:2, textTransform:"uppercase", letterSpacing:"0.05em" };
 const CajaField = ({ label, value, onChange, options, placeholder, type="text" }) => (
   <div style={{ marginBottom:0 }}>
     {label && <div style={cajaLabelStyle}>{label}</div>}
@@ -6385,8 +6385,8 @@ const CajaReciboLinea = ({ label, value, bold, color, small, indent, totalLine, 
     paddingTop: totalLine ? (compact?4:6) : undefined,
     borderTop: totalLine ? `1px solid ${C.border}` : "none",
   }}>
-    <span style={{ fontFamily:font.body, fontSize: compact ? (small?11:12.5) : (small?13:14.5), color: color || (small?C.textMuted:C.text), fontWeight: bold?700:400 }}>{label}</span>
-    <span style={{ fontFamily:font.mono, fontSize: compact ? (small?12:13.5) : (small?14.5:16.5), fontWeight: bold?700:400, color: color || (bold?C.goldLight:C.text), whiteSpace:"nowrap" }}>{value}</span>
+    <span style={{ fontFamily:font.body, fontSize: compact ? (small?13:14) : (small?14:15.5), color: color || (small?C.textMuted:C.text), fontWeight: bold?700:400 }}>{label}</span>
+    <span style={{ fontFamily:font.mono, fontSize: compact ? (small?14:15.5) : (small?16:17.5), fontWeight: bold?700:400, color: color || (bold?C.goldLight:C.text), whiteSpace:"nowrap" }}>{value}</span>
   </div>
 );
 // Barra divisoria de sub-sección dentro de una tarjeta (p.ej. "Dinero recibido por método de pago",
@@ -6400,13 +6400,13 @@ const CajaSubHeader = ({ label, compact }) => (
 // minWidth:0 es necesario para que el input de verdad se achique en vez de salirse del cuadro —
 // por defecto un flex item no encoge más allá del ancho de su propio contenido (min-width:auto),
 // así que sin esto una etiqueta+valor largos empujan el input fuera del borde en pantallas angostas.
-const cajaInputStyleRow = { ...cajaInputStyle, width:"auto", flex:"0 1 190px", minWidth:0, textAlign:"right", fontSize:14 };
-const cajaInputStyleRowCompact = { ...cajaInputStyleRow, padding:"4px 7px", fontSize:13.5 };
+const cajaInputStyleRow = { ...cajaInputStyle, width:"auto", flex:"0 1 190px", minWidth:0, textAlign:"right", fontSize:15 };
+const cajaInputStyleRowCompact = { ...cajaInputStyleRow, padding:"4px 7px", fontSize:14 };
 const CajaFieldRow = ({ label, value, onChange, options, placeholder, type="text", wide, compact }) => {
   const base = compact ? cajaInputStyleRowCompact : cajaInputStyleRow;
   return (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
-      {label && <div style={{ fontFamily:font.body, fontSize: compact?12.5:14, color:C.text, flexShrink:0 }}>{label}</div>}
+      {label && <div style={{ fontFamily:font.body, fontSize: compact?13.5:15, color:C.text, flexShrink:0 }}>{label}</div>}
       {options ? (
         <select value={value} onChange={e=>onChange(e.target.value)} style={base}>
           {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
@@ -6425,7 +6425,7 @@ const CajaMoneyRow = ({ label, value, onChange, placeholder, compact, narrow }) 
   // largo, se ve mucho más proporcional al resto de la tarjeta.
   return (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
-      {label && <div style={{ fontFamily:font.body, fontSize: compact?12.5:14, color:C.text, flexShrink:0 }}>{label}</div>}
+      {label && <div style={{ fontFamily:font.body, fontSize: compact?13.5:15, color:C.text, flexShrink:0 }}>{label}</div>}
       <input type="text" inputMode="numeric" value={mostrado} onChange={e=>onChange(e.target.value.replace(/[^\d]/g,""))} placeholder={placeholder||"$0"} style={narrow ? { ...(compact?cajaInputStyleRowCompact:cajaInputStyleRow), flex:"0 0 84px", width:84 } : (compact?cajaInputStyleRowCompact:cajaInputStyleRow)}/>
     </div>
   );
@@ -6444,7 +6444,7 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
   // abrir el desplegable de una vez al entrar en edición (soportado en navegadores recientes).
   const bareStyle = {
     background:"transparent", border:"none", borderRadius:0, padding:0, margin:0,
-    color:C.text, fontFamily:font.mono, fontSize: compact?13.5:15, textAlign:"right",
+    color:C.text, fontFamily:font.mono, fontSize: compact?14.5:16, textAlign:"right",
     outline:"none", boxShadow:"none", WebkitAppearance:"none", appearance:"none", cursor:"pointer",
   };
   useEffect(()=>{
@@ -6455,7 +6455,7 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
   if(editando){
     return (
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
-        {label && <div style={{ fontFamily:font.body, fontSize: compact?12.5:14, color:C.text, flexShrink:0 }}>{label}</div>}
+        {label && <div style={{ fontFamily:font.body, fontSize: compact?13.5:15, color:C.text, flexShrink:0 }}>{label}</div>}
         {options ? (
           <select ref={selectRef} autoFocus value={value} onChange={e=>{ onChange(e.target.value); setEditando(false); }} onBlur={()=>setEditando(false)} style={bareStyle}>
             {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
@@ -6471,9 +6471,9 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
   const texto = options ? (options.find(o=>o.value===value)?.label || "Selecciona...") : money ? (digits?`$${Number(digits).toLocaleString("es-CO")}`:"$0") : (value||"—");
   return (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding: compact?"1px 0":"2.5px 0" }}>
-      <span style={{ fontFamily:font.body, fontSize: compact?12.5:14, color:C.text }}>{label}</span>
+      <span style={{ fontFamily:font.body, fontSize: compact?13.5:15, color:C.text }}>{label}</span>
       <button type="button" onClick={()=>setEditando(true)} style={{ display:"flex", alignItems:"center", gap:5, background:"none", border:"none", cursor:"pointer", padding:0 }}>
-        <span style={{ fontFamily:font.mono, fontSize: compact?13.5:15, color:C.text }}>{texto}</span>
+        <span style={{ fontFamily:font.mono, fontSize: compact?14.5:16, color:C.text }}>{texto}</span>
         <span style={{ color:C.textMuted, fontSize:11 }}>✏️</span>
       </button>
     </div>
