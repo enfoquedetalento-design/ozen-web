@@ -233,6 +233,30 @@ const intensidadPct = (pct) => pct===null || pct===undefined ? 0.15 : Math.max(0
 // IDC de Ventas: aquí sí se busca presión visual sobre asesores/tiendas, así que se queda el
 // semáforo clásico. Sin datos = gris. 100% o más = verde. 70-99% = ámbar. Menos de 70% = rojo.
 const colorSemaforoIDC = (pct) => pct===null || pct===undefined ? C.textMuted : pct>=100 ? C.green : pct>=70 ? C.amber : C.red;
+const medalla = (idx) => idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.`;
+// Fila de un ranking (tiendas o asesores por cumplimiento): medalla + nombre + "$vendido / $meta" +
+// badge de %. En celular un nombre largo (ej. "OZEN Jardín Plaza", "Fernanda Caicedo") no cabía
+// junto a los números y el badge sin cortarse (con "...") o amontonarse — así que en celular se
+// parte en dos renglones: nombre completo arriba (con el badge, que ocupa poco espacio), números
+// abajo, indentados bajo el nombre. Nunca se trunca el nombre (se deja hacer wrap si hace falta) —
+// mejor una fila más alta que un nombre invisible. Centralizado acá para que cualquier ranking
+// nuevo que se agregue después reuse este comportamiento en vez de repetir el problema.
+const RankingRow = ({ idx, nombre, extra, sinServicios, meta, idc, isMobile }) => (
+  <div style={{ display:"flex", flexDirection:isMobile?"column":"row", alignItems:isMobile?"stretch":"center", gap:isMobile?4:10, background:idx<3?`${C.gold}0d`:C.surfaceAlt, border:`1px solid ${idx<3?C.gold:C.border}`, borderRadius:8, padding:"9px 12px" }}>
+    <div style={{ display:"flex", alignItems:"center", gap:10, minWidth:0 }}>
+      <div style={{ fontFamily:font.body, fontSize:idx<3?16:13, width:28, textAlign:"center", flexShrink:0 }}>{medalla(idx)}</div>
+      <div style={{ flex:1, display:"flex", alignItems:"center", gap:6, minWidth:0 }}>
+        <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{nombre}</span>
+        {extra}
+      </div>
+      {isMobile && <Badge color={colorSemaforoIDC(idc)} sm>{idc}%</Badge>}
+    </div>
+    <div style={{ display:"flex", alignItems:"center", justifyContent:isMobile?"space-between":"flex-end", gap:8, paddingLeft:isMobile?38:0 }}>
+      <span style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted, whiteSpace:"nowrap" }}>{fmtCOP(sinServicios)} / {fmtCOP(meta)}</span>
+      {!isMobile && <Badge color={colorSemaforoIDC(idc)} sm>{idc}%</Badge>}
+    </div>
+  </div>
+);
 // Devuelve el martes de la semana de una fecha (o la fecha misma si ya es martes)
 const martesDeSemana = (dateStr) => {
   const d = new Date(dateStr + "T12:00:00");
@@ -400,6 +424,12 @@ const HoverTooltip = ({ label, labelStyle={}, width=280, align="left", clickOnly
         onClick={()=>setShow(s=>!s)}
         style={{ textDecoration:"underline dotted", textUnderlineOffset:3, cursor:"help", fontFamily:font.body, ...labelStyle }}
       >{label}</span>
+      {show && clickOnly && (
+        // En clickOnly, además de volver a tocar el mismo ⓘ, dar clic en cualquier otra parte de
+        // la pantalla también cierra la nube — sin esto, la única forma de cerrarla era encontrar
+        // exactamente el mismo ícono, lo cual es incómodo sobre todo en celular.
+        <div onClick={()=>setShow(false)} style={{ position:"fixed", inset:0, zIndex:79 }}/>
+      )}
       {show && (
         <div style={{ position:"absolute", zIndex:80, top:"130%", [align]:0, width, maxWidth:"80vw", background:C.dark, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", boxShadow:"0 6px 24px rgba(0,0,0,0.5)", textAlign:"left" }}>
           {children}
@@ -5992,8 +6022,6 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const ajustesHoyCap = ventasAjustes.filter(aj=>aj.fecha===todayStr && !aj.es_correccion_error && ventaByIdGlobal[aj.venta_id] && (!tiendaSel || ventaByIdGlobal[aj.venta_id].tienda_id===tiendaSel));
   const ingresosHoy = sumaProductoConRecorte(itemsHoyProductoCap) + cierresHoyCap.reduce((a,c)=>a+c.valorNeto,0) + ajustesHoyCap.reduce((a,aj)=>a+Number(aj.diferencia||0),0);
 
-  const medalla = (idx) => idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.`;
-
   return (
     <div>
       <PageHeader title="Métricas" subtitle={tiendaSel ? `${stores[tiendaSel]?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`} />
@@ -6153,12 +6181,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
       <SeccionVenta icon="🏬" titulo="Top tiendas por cumplimiento">
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
           {rankingTiendas.map((d,idx)=>(
-            <div key={d.tienda.id} style={{ display:"flex", alignItems:"center", gap:10, background:idx<3?`${C.gold}0d`:C.surfaceAlt, border:`1px solid ${idx<3?C.gold:C.border}`, borderRadius:8, padding:"9px 12px" }}>
-              <div style={{ fontFamily:font.body, fontSize:idx<3?16:13, width:28, textAlign:"center" }}>{medalla(idx)}</div>
-              <div style={{ flex:1, fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{d.tienda.name}</div>
-              <div style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{fmtCOP(d.sinServicios)} / {fmtCOP(d.meta)}</div>
-              <Badge color={colorSemaforoIDC(d.idc)} sm>{d.idc}%</Badge>
-            </div>
+            <RankingRow key={d.tienda.id} idx={idx} nombre={d.tienda.name} sinServicios={d.sinServicios} meta={d.meta} idc={d.idc} isMobile={isMobile}/>
           ))}
           {rankingTiendas.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
         </div>
@@ -6169,32 +6192,24 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
           {ranking.map((d,idx)=>{
             const exp = explicacionMetaAsesor(d.asesor.id);
             return (
-            <div key={d.asesor.id} style={{ display:"flex", alignItems:"center", gap:10, background:idx<3?`${C.gold}0d`:C.surfaceAlt, border:`1px solid ${idx<3?C.gold:C.border}`, borderRadius:8, padding:"9px 12px" }}>
-              <div style={{ fontFamily:font.body, fontSize:idx<3?16:13, width:28, textAlign:"center" }}>{medalla(idx)}</div>
-              <div style={{ flex:1, display:"flex", alignItems:"center", gap:6, minWidth:0 }}>
-                <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.asesor.name}</span>
-                {!exp.sinDatos && (
-                  <HoverTooltip label="ⓘ" labelStyle={{ fontSize:11, color:C.textMuted, flexShrink:0 }} width={300} clickOnly>
-                    <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>Cómo salió la meta de {d.asesor.name.split(" ")[0]} — {MESES_NOMBRE[mesIdx]}</div>
-                    {exp.diasNovedadTotal>0 && (
-                      <div style={{ fontFamily:font.body, fontSize:11, color:C.text, lineHeight:1.5, marginBottom:6 }}>
-                        {exp.diasNovedadTotal} día{exp.diasNovedadTotal!==1?"s":""} de novedad este mes ({exp.novedadesAuto.map(n=>`${n.dias} de ${n.nombre}`).join(", ")}) → 30 − {exp.diasNovedadTotal} = {DIAS_META-exp.diasNovedadTotal} días disponibles para trabajar.
-                      </div>
-                    )}
-                    {exp.filas.map(f=>(
-                      <div key={f.nombre} style={{ fontFamily:font.body, fontSize:11, color:C.text, lineHeight:1.5 }}>
-                        <b>{f.nombre}:</b> {f.dias} días × ({fmtCOP(f.metaPersonal)} ÷ 30) = <span style={{ fontFamily:font.mono }}>{fmtCOP(f.aporte)}</span>
-                      </div>
-                    ))}
-                    <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.text, marginTop:6, paddingTop:6, borderTop:`1px solid ${C.border}` }}>
-                      Total meta: <span style={{ fontFamily:font.mono }}>{fmtCOP(exp.total)}</span>
+              <RankingRow key={d.asesor.id} idx={idx} nombre={d.asesor.name} sinServicios={d.sinServicios} meta={d.meta} idc={d.idc} isMobile={isMobile} extra={!exp.sinDatos && (
+                <HoverTooltip label="ⓘ" labelStyle={{ fontSize:11, color:C.textMuted, flexShrink:0 }} width={300} clickOnly>
+                  <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>Cómo salió la meta de {d.asesor.name.split(" ")[0]} — {MESES_NOMBRE[mesIdx]}</div>
+                  {exp.diasNovedadTotal>0 && (
+                    <div style={{ fontFamily:font.body, fontSize:11, color:C.text, lineHeight:1.5, marginBottom:6 }}>
+                      {exp.diasNovedadTotal} día{exp.diasNovedadTotal!==1?"s":""} de novedad este mes ({exp.novedadesAuto.map(n=>`${n.dias} de ${n.nombre}`).join(", ")}) → 30 − {exp.diasNovedadTotal} = {DIAS_META-exp.diasNovedadTotal} días disponibles para trabajar.
                     </div>
-                  </HoverTooltip>
-                )}
-              </div>
-              <div style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{fmtCOP(d.sinServicios)} / {fmtCOP(d.meta)}</div>
-              <Badge color={colorSemaforoIDC(d.idc)} sm>{d.idc}%</Badge>
-            </div>
+                  )}
+                  {exp.filas.map(f=>(
+                    <div key={f.nombre} style={{ fontFamily:font.body, fontSize:11, color:C.text, lineHeight:1.5 }}>
+                      <b>{f.nombre}:</b> {f.dias} días × ({fmtCOP(f.metaPersonal)} ÷ 30) = <span style={{ fontFamily:font.mono }}>{fmtCOP(f.aporte)}</span>
+                    </div>
+                  ))}
+                  <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.text, marginTop:6, paddingTop:6, borderTop:`1px solid ${C.border}` }}>
+                    Total meta: <span style={{ fontFamily:font.mono }}>{fmtCOP(exp.total)}</span>
+                  </div>
+                </HoverTooltip>
+              )}/>
             );
           })}
           {ranking.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
