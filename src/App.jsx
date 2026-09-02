@@ -5826,6 +5826,31 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     return Math.round(total);
   };
 
+  // Desglose tienda por tienda de cómo salió la meta de un asesor, para mostrarlo en una nubecita
+  // (HoverTooltip) junto a su nombre — así cualquiera (incluido el propio asesor) puede ver el
+  // paso a paso sin tener que pedirle la cuenta a un admin. Usa exactamente la misma fórmula que
+  // metaAsesorCalculada, solo que devuelve el detalle en vez del total.
+  const explicacionMetaAsesor = (asesorId) => {
+    const d = metasAsesor.find(m=>m.mes===mesKey && m.vendedor_id===asesorId);
+    const novedadesAuto = novedadesDesdeMalla(asesorId, mesKey, turnosAsignaciones, turnosGlobales);
+    const diasNovedadTotal = novedadesAuto.reduce((s,n)=>s+n.dias,0);
+    if(!d || !Object.values(d.dias_tienda||{}).some(v=>Number(v||0)>0)){
+      return { filas:[], total:0, novedadesAuto, diasNovedadTotal, sinDatos:true };
+    }
+    const filas = [];
+    let total = 0;
+    for(const t of tiendasListConOficina){
+      if(esTiendaOficina(t)) continue;
+      const diasEnTienda = Number((d.dias_tienda||{})[t.id]||0);
+      if(diasEnTienda<=0) continue;
+      const metaPersonal = metaTiendaValor(t.id,"personal");
+      const aporte = (diasEnTienda/DIAS_META) * metaPersonal;
+      total += aporte;
+      filas.push({ nombre:t.name, dias:diasEnTienda, metaPersonal, aporte:Math.round(aporte) });
+    }
+    return { filas, total:Math.round(total), novedadesAuto, diasNovedadTotal, sinDatos:false };
+  };
+
   const cierresFlexipago = calcularCierresFlexipago(ventas, ventasItems, ventasAbonos);
   const ventaByIdGlobal = {}; ventas.forEach(v=>{ ventaByIdGlobal[v.id]=v; });
 
@@ -6148,14 +6173,37 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
 
       <SeccionVenta icon="🏆" titulo="Top asesores por cumplimiento">
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-          {ranking.map((d,idx)=>(
+          {ranking.map((d,idx)=>{
+            const exp = explicacionMetaAsesor(d.asesor.id);
+            return (
             <div key={d.asesor.id} style={{ display:"flex", alignItems:"center", gap:10, background:idx<3?`${C.gold}0d`:C.surfaceAlt, border:`1px solid ${idx<3?C.gold:C.border}`, borderRadius:8, padding:"9px 12px" }}>
               <div style={{ fontFamily:font.body, fontSize:idx<3?16:13, width:28, textAlign:"center" }}>{medalla(idx)}</div>
-              <div style={{ flex:1, fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{d.asesor.name}</div>
+              <div style={{ flex:1, display:"flex", alignItems:"center", gap:6, minWidth:0 }}>
+                <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.asesor.name}</span>
+                {!exp.sinDatos && (
+                  <HoverTooltip label="ⓘ" labelStyle={{ fontSize:11, color:C.textMuted, flexShrink:0 }} width={300} clickOnly>
+                    <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>Cómo salió la meta de {d.asesor.name.split(" ")[0]} — {MESES_NOMBRE[mesIdx]}</div>
+                    {exp.diasNovedadTotal>0 && (
+                      <div style={{ fontFamily:font.body, fontSize:11, color:C.text, lineHeight:1.5, marginBottom:6 }}>
+                        {exp.diasNovedadTotal} día{exp.diasNovedadTotal!==1?"s":""} de novedad este mes ({exp.novedadesAuto.map(n=>`${n.dias} de ${n.nombre}`).join(", ")}) → 30 − {exp.diasNovedadTotal} = {DIAS_META-exp.diasNovedadTotal} días disponibles para trabajar.
+                      </div>
+                    )}
+                    {exp.filas.map(f=>(
+                      <div key={f.nombre} style={{ fontFamily:font.body, fontSize:11, color:C.text, lineHeight:1.5 }}>
+                        <b>{f.nombre}:</b> {f.dias} días × ({fmtCOP(f.metaPersonal)} ÷ 30) = <span style={{ fontFamily:font.mono }}>{fmtCOP(f.aporte)}</span>
+                      </div>
+                    ))}
+                    <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.text, marginTop:6, paddingTop:6, borderTop:`1px solid ${C.border}` }}>
+                      Total meta: <span style={{ fontFamily:font.mono }}>{fmtCOP(exp.total)}</span>
+                    </div>
+                  </HoverTooltip>
+                )}
+              </div>
               <div style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{fmtCOP(d.sinServicios)} / {fmtCOP(d.meta)}</div>
               <Badge color={colorSemaforoIDC(d.idc)} sm>{d.idc}%</Badge>
             </div>
-          ))}
+            );
+          })}
           {ranking.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
         </div>
       </SeccionVenta>

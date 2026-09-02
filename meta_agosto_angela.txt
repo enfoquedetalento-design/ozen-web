@@ -1,0 +1,38 @@
+Hola Angela, te explico el paso a paso de cómo salió tu meta de agosto ($12.206.667) y qué cuenta como "vendido" para compararla con eso.
+
+1) El paso a paso de tu meta de agosto
+Tu meta no es un número fijo igual para todas las asesoras: se arma según en qué tienda(s) trabajaste ese mes y cuántos días, tomando la malla real de turnos. La fórmula por cada tienda es:
+
+(días que trabajaste en esa tienda ÷ 30) × meta personal de esa tienda
+
+("meta personal de esa tienda" es lo que le tocaría a alguien que trabajara ahí los 30 días completos del mes.)
+
+En agosto tuviste:
+- Novedades: 3 días de Incapacidad + 2 días de DR = 5 días de novedad → 25 días disponibles para trabajar (30 − 5).
+- Turnos por tienda: 5 días en Unicentro, 16 días en Chipichape, 5 días en Jardín Plaza (suman 26 — un día más de lo esperado, es por el 10 u 11 de agosto por la emergencia del terremoto en Cali; para este cálculo lo dejamos como día normal de tienda).
+
+La meta personal configurada este mes en cada tienda:
+- Unicentro: $11.500.000
+- Chipichape: $15.700.000
+- Jardín Plaza: $11.500.000
+
+Entonces, tienda por tienda:
+- Unicentro: (5 ÷ 30) × $11.500.000 = $1.916.667
+- Chipichape: (16 ÷ 30) × $15.700.000 = $8.373.333
+- Jardín Plaza: (5 ÷ 30) × $11.500.000 = $1.916.667
+
+Suma total = $1.916.667 + $8.373.333 + $1.916.667 = $12.206.667
+
+Ese es exactamente tu número de meta de agosto — no es un valor puesto a mano, sale de esa cuenta con tus días reales en cada tienda.
+
+2) Qué cuenta como "vendido" para ver si la cumpliste
+Para el % de cumplimiento solo cuentan dos cosas:
+- Ventas de producto normales, del mes.
+- Flexipagos que se terminaron de pagar por completo en agosto (con su valor completo, el día que se pagó la última cuota) — cuentan a tu nombre porque fuiste tú quien hizo la venta original, sin importar en qué mes se creó.
+
+Lo que NO cuenta para ese %, aunque sea plata real que ya entró a la tienda:
+- Servicios (arreglos, marcaciones, grabados).
+- Flexipagos que TODAVÍA no se han terminado de pagar — aunque el cliente ya haya abonado bastante, esa venta no cuenta hasta que se complete el pago total, y cuenta en el mes en que se complete (puede no ser agosto).
+
+3) Lo más probable en tu caso
+Si sientes que vendiste más de lo que se reflejó, lo más común es que tengas uno o varios Flexipagos de agosto que el cliente todavía no ha terminado de pagar, o que parte de lo que vendiste haya sido servicios — ninguno de los dos suma al % de meta todavía. Si quieres, revisamos juntas tus ventas de agosto y te muestro el desglose exacto.
