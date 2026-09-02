@@ -467,7 +467,7 @@ const PageHeader = ({ title, subtitle, action }) => (
 // ── Camera Modal ──────────────────────────────────────────────────────────────
 function CameraModal({ eventLabel, onCapture, onCancel }) {
   const videoRef = useRef(null), canvasRef = useRef(null), streamRef = useRef(null);
-  const [ready, setReady] = useState(false), [captured, setCaptured] = useState(null), [error, setError] = useState(null), [countdown, setCountdown] = useState(null);
+  const [ready, setReady] = useState(false), [captured, setCaptured] = useState(null), [capturedAt, setCapturedAt] = useState(null), [error, setError] = useState(null), [countdown, setCountdown] = useState(null);
 
   const startCamera = useCallback(async () => {
     try {
@@ -489,7 +489,11 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
         const canvas = canvasRef.current, video = videoRef.current;
         canvas.width = video.videoWidth; canvas.height = video.videoHeight;
         canvas.getContext("2d").drawImage(video, 0, 0);
+        // La hora que de verdad importa (para que no se pueda hacer trampa dejando la foto tomada
+        // y demorando el "Confirmar" para ganar minutos de descanso) es la de ESTE momento — no la
+        // del clic en Confirmar, que puede pasar minutos después.
         setCaptured(canvas.toDataURL("image/jpeg", 0.4));
+        setCapturedAt(new Date());
         stopCamera();
       }
     }, 1000);
@@ -527,7 +531,7 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
               {!captured ? (
                 <Btn onClick={takePhoto} disabled={!ready||countdown!==null} full>📷 {countdown!==null?`Fotografiando en ${countdown}...`:"Tomar foto (3s)"}</Btn>
               ) : (
-                <><Btn onClick={()=>{ setCaptured(null); startCamera(); }} variant="ghost">↩ Repetir</Btn><Btn onClick={()=>onCapture(captured)} variant="success">✓ Confirmar</Btn></>
+                <><Btn onClick={()=>{ setCaptured(null); setCapturedAt(null); startCamera(); }} variant="ghost">↩ Repetir</Btn><Btn onClick={()=>onCapture(captured, capturedAt)} variant="success">✓ Confirmar</Btn></>
               )}
             </div>
           )}
@@ -1838,7 +1842,28 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
   const ultimoReal=[...ORDEN].reverse().find(e=>eventosReales.includes(e));
   const nextEvent=!ultimoReal?"entrada":ultimoReal==="entrada"?"inicio_almuerzo":ultimoReal==="inicio_almuerzo"?"fin_almuerzo":ultimoReal==="fin_almuerzo"?"salida":null;
   const refreshTodayRecs=async()=>{ const{data}=await supabase.from("registros").select("*").eq("user_id",user.id).eq("date",todayStr); if(data)onRefresh(data); };
-  const handleCapture=async(photoBase64)=>{ setShowCamera(false);setRecording(true); let photo_url=null; try{ const blob=await fetch(photoBase64).then(r=>r.blob()); const fileName=`${user.id}_${Date.now()}.jpg`; const{data:up}=await supabase.storage.from("fotos-registro").upload(fileName,blob,{contentType:"image/jpeg"}); if(up){const{data:ud}=supabase.storage.from("fotos-registro").getPublicUrl(fileName);photo_url=ud.publicUrl;} }catch(e){console.error(e);} const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:selStore,shift:selShift,event:nextEvent,date:todayStr,time:fmtTime(new Date()),photo_url}).select().single();
+  // Los datos globales (`records`) se cargan UNA sola vez al abrir la app y nunca se vuelven a
+  // traer solos al cambiar de cuenta (login/logout solo cambian qué usuario está activo, no
+  // recargan nada del servidor) — en un celular compartido donde varias cuentas entran y salen
+  // todo el día, eso deja a esta pantalla con datos viejos de otra sesión. Eso fue justo lo que
+  // pasó: alguien marcó "inicio de almuerzo", cambió a otra cuenta y volvió, y la pantalla —con
+  // datos viejos en memoria— pensó que ese registro no existía y volvió a marcar "entrada" desde
+  // cero, tapando visualmente el registro real. Por eso se trae SIEMPRE lo real del servidor apenas
+  // se entra a esta pantalla (o cambia el usuario), antes de mostrar nada.
+  useEffect(()=>{ refreshTodayRecs(); },[user.id]);
+  const [refrescandoAntesDeCapturar,setRefrescandoAntesDeCapturar]=useState(false);
+  // Antes de abrir la cámara se vuelve a confirmar con el servidor cuál es el próximo evento real
+  // — así, aunque los datos en memoria estuvieran desactualizados por lo que sea (cambio de cuenta,
+  // la app se quedó abierta desde otro momento del día, etc.), nunca se guarda un evento repetido
+  // ni se tapa un registro real con uno nuevo.
+  const abrirCamara=async()=>{ setRefrescandoAntesDeCapturar(true); await refreshTodayRecs(); setRefrescandoAntesDeCapturar(false); setShowCamera(true); };
+  const handleCapture=async(photoBase64,capturedAt)=>{ setShowCamera(false);setRecording(true);
+    // La hora (y por lo tanto el evento) se define con el momento REAL en que se tomó la foto
+    // (capturedAt, que llega desde CameraModal), no con el momento en que se da clic en
+    // "Confirmar" — si no, alguien podría tomarse la foto y demorar el clic a propósito para
+    // "ganar" minutos de descanso o de salida.
+    const horaReal = capturedAt||new Date();
+    let photo_url=null; try{ const blob=await fetch(photoBase64).then(r=>r.blob()); const fileName=`${user.id}_${Date.now()}.jpg`; const{data:up}=await supabase.storage.from("fotos-registro").upload(fileName,blob,{contentType:"image/jpeg"}); if(up){const{data:ud}=supabase.storage.from("fotos-registro").getPublicUrl(fileName);photo_url=ud.publicUrl;} }catch(e){console.error(e);} const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:selStore,shift:selShift,event:nextEvent,date:todayStr,time:fmtTime(horaReal),photo_url}).select().single();
     if(!error){
       onRecord(data);setLocked(true);await refreshTodayRecs();
       // Avisa a los admins de Turnos (push real, aunque tengan la app cerrada) en CADA marcación
@@ -1847,7 +1872,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
       // debe frenar el registro.
       supabase.functions.invoke("notificar-entrada", { body:{
         title:`${EVENT_LABELS[nextEvent]} marcada`,
-        body:`${user.name} marcó ${EVENT_LABELS[nextEvent].toLowerCase()} en ${stores[selStore]?.name||selStore}${selShift?` · ${selShift}`:""} · ${fmtTime(new Date())}`,
+        body:`${user.name} marcó ${EVENT_LABELS[nextEvent].toLowerCase()} en ${stores[selStore]?.name||selStore}${selShift?` · ${selShift}`:""} · ${fmtTime(horaReal)}`,
         url:"/",
       }}).catch(()=>{});
       if(nextEvent==="entrada"){
@@ -1876,7 +1901,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
           <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,marginBottom:4}}>Próximo evento</div>
           <div style={{fontFamily:font.body,fontSize:18,fontWeight:700,color:EVENT_COLORS[nextEvent],marginBottom:14}}>{EVENT_LABELS[nextEvent]}</div>
           <div style={{background:`${C.gold}10`,border:`1px solid ${C.borderGold}`,borderRadius:8,padding:"10px 12px",marginBottom:14,fontFamily:font.body,fontSize:12,color:C.textSub}}>📸 Se abrirá la cámara y se tomará una foto. Asegúrate de que tu rostro sea visible.</div>
-          <Btn onClick={()=>setShowCamera(true)} disabled={!selStore||!selShift||recording} full>{recording?"Registrando...":"📸 Abrir cámara y registrar"}</Btn>
+          <Btn onClick={abrirCamara} disabled={!selStore||!selShift||recording||refrescandoAntesDeCapturar} full>{refrescandoAntesDeCapturar?"Actualizando...":recording?"Registrando...":"📸 Abrir cámara y registrar"}</Btn>
         </Card>
       ):(
         <Card style={{marginBottom:12}}><div style={{textAlign:"center",padding:"16px 0"}}><div style={{fontSize:36,marginBottom:8}}>✅</div><div style={{fontFamily:font.body,fontSize:15,fontWeight:600,color:C.text}}>Jornada completa</div><div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,marginTop:4}}>Todos los eventos del día registrados.</div></div></Card>
@@ -5649,12 +5674,14 @@ const calcularMetaHoyTienda = (tiendaId, ventas, ventasItems, ventasAbonos, vent
 
 // Burbuja "Meta de hoy" compartida por Registrar/Lista/Métricas — antes solo mostraba la tienda
 // seleccionada; ahora compara TODAS las tiendas que venden (menos Oficina) a la vez, para que se
-// sienta como una competencia entre tiendas. Se rankean por % DE CUMPLIMIENTO (no por venta
-// bruta — cada tienda vende distinto, así que lo justo es comparar avance contra su propia
-// meta), con la barra de progreso de cada una siempre visible. Cada chip es muy angosto a
-// propósito (nombre + % + barra, nada más) para que la altura total no supere la del título de
-// la pantalla — tocarlo despliega el detalle (vendido/meta/falta) sin ocupar espacio fijo, que
-// es donde vive el "cuánto llevo y cuánto me falta" de siempre.
+// sienta como una competencia entre tiendas. Es UNA sola burbuja alargada (un carril por tienda,
+// uno debajo del otro, todos dentro del mismo marco) en vez de chips sueltos — así se ve de
+// una vez como una carrera: las barras quedan alineadas y se comparan a simple vista. Se rankean
+// por % DE CUMPLIMIENTO (no por venta bruta — cada tienda vende distinto, así que lo justo es
+// comparar avance contra su propia meta). Cada carril es angosto en altura a propósito para que
+// la burbuja completa no crezca más de lo necesario — tocar un carril despliega el detalle
+// (vendido/meta/falta) sin ocupar espacio fijo, que es donde vive el "cuánto llevo y cuánto me
+// falta" de siempre.
 const MetaHoyCompetencia = ({ stores, tiendaIdActual, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile }) => {
   const lista = tiendasVenta(stores)
     .map(t => ({ tienda:t, ...calcularMetaHoyTienda(t.id, ventas, ventasItems, ventasAbonos, ventasAjustes, metas) }))
@@ -5662,7 +5689,11 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, ventas, ventasItems, venta
     .sort((a,b)=> (b.vendido/b.meta) - (a.vendido/a.meta));
   if(lista.length===0) return null;
   return (
-    <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:isMobile?"flex-start":"flex-end", maxWidth:isMobile?"100%":400 }}>
+    <div style={{
+      display:"flex", flexDirection:"column", gap:3,
+      background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:10, padding:"6px 10px",
+      width: isMobile?"100%":undefined, minWidth: isMobile?0:260, boxSizing:"border-box",
+    }}>
       {lista.map((x,idx)=>{
         const esActual = x.tienda.id===tiendaIdActual;
         const cumplida = x.falta<=0;
@@ -5673,21 +5704,20 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, ventas, ventasItems, venta
           <HoverTooltip
             key={x.tienda.id}
             clickOnly
-            align={idx===lista.length-1 ? "right" : "left"}
+            align="right"
             width={220}
             label={
-              <div style={{
-                minWidth:64, padding:"3px 7px", borderRadius:7, cursor:"pointer",
-                background: esActual ? `${etapaColor}1f` : "rgba(255,255,255,0.03)",
-                border:`1px solid ${esActual?etapaColor:C.border}`,
-              }}>
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:4, fontFamily:font.body, fontSize:9.5, whiteSpace:"nowrap", marginBottom:2 }}>
-                  <span style={{ color:esActual?C.goldLight:C.textMuted, fontWeight:esActual?700:400, overflow:"hidden", textOverflow:"ellipsis" }}>{idx===0?"🥇 ":""}{x.tienda.name.replace(/^OZEN\s*/i,"")}</span>
-                  <span style={{ fontFamily:font.mono, fontWeight:700, color:etapaColor }}>{pct}%</span>
-                </div>
-                <div style={{ height:4, borderRadius:2, background:C.dark, overflow:"hidden" }}>
-                  <div style={{ height:"100%", width:`${pct}%`, borderRadius:2, background:`linear-gradient(90deg, ${C.blue}, ${etapaColor})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
-                </div>
+              <div style={{ display:"flex", alignItems:"center", gap:6, cursor:"pointer" }}>
+                <span style={{ width:14, textAlign:"center", fontSize:9.5, flexShrink:0, lineHeight:1 }}>{idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.`}</span>
+                <span style={{
+                  width:isMobile?50:62, flexShrink:0, fontFamily:font.body, fontSize:9.5, lineHeight:1,
+                  fontWeight:esActual?700:400, color:esActual?C.goldLight:C.textMuted,
+                  overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                }}>{x.tienda.name.replace(/^OZEN\s*/i,"")}</span>
+                <span style={{ flex:1, minWidth:44, height:7, borderRadius:4, background:C.dark, overflow:"hidden", position:"relative" }}>
+                  <span style={{ position:"absolute", inset:0, width:`${pct}%`, borderRadius:4, background:`linear-gradient(90deg, ${C.blue}, ${etapaColor})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
+                </span>
+                <span style={{ width:30, textAlign:"right", flexShrink:0, fontFamily:font.mono, fontSize:9.5, lineHeight:1, fontWeight:700, color:etapaColor }}>{pct}%</span>
               </div>
             }
           >
