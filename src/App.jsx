@@ -210,6 +210,11 @@ const mesDeCierre = (t) => {
 // tareas CERRADAS EN ese mes (ver mesDeCierre arriba), vengan de la semana que vengan — una tarea
 // todavía activa (no completada, dentro de plazo) no cuenta ni a favor ni en contra todavía, porque
 // todavía puede completarse. Contarla de una vez castigaba el % de más, de forma injusta.
+// "activas" (el aviso de "X todavía activas, no cuentan aún") solo tiene sentido para el MES EN
+// CURSO — una vez arranca el mes del siguiente Monitor, ese mes ya quedó atrás: cualquier tarea
+// suya que siga sin cerrar no va a contar para ese mes nunca (va a contar para el mes en que
+// realmente se cierre, sea cual sea — ver mesDeCierre), así que ya no tiene caso mostrarla como
+// "pendiente de este mes". Por eso en un mes ya pasado siempre da 0.
 const statsDelMes = (compromisos, anio, mes) => {
   const martes = martesDelMes(anio, mes);
   const mesStr = `${anio}-${String(mes+1).padStart(2,"0")}`;
@@ -217,7 +222,9 @@ const statsDelMes = (compromisos, anio, mes) => {
   const sesiones = new Set(tareas.map(t => t.semana)).size;
   const cerradas = compromisos.filter(c => mesDeCierre(c) === mesStr);
   const completadas = cerradas.filter(t => t.completado).length;
-  const activas = tareas.filter(t => !t.completado && !tareaVencidaNoRealizada(t)).length;
+  const hoy = toColombiaDate();
+  const esMesEnCurso = anio===hoy.getFullYear() && mes===hoy.getMonth();
+  const activas = esMesEnCurso ? tareas.filter(t => !t.completado && !tareaVencidaNoRealizada(t)).length : 0;
   const pct = cerradas.length ? Math.round((completadas / cerradas.length) * 100) : null;
   return { totalMartes: martes.length, sesiones, totalTareas: tareas.length, completadas, totalCerradas: cerradas.length, activas, pct };
 };
@@ -5219,7 +5226,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
                 )}
               </div>
             )}
-            <MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaId} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>
+            <MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>
           </div>
         )}
       />
@@ -5703,26 +5710,26 @@ const calcularCierresFlexipago = (ventas, ventasItems, ventasAbonos) => {
   return cierres;
 };
 
-// Vendido/Meta/Falta de HOY para una tienda puntual — misma cuenta que ya usaba la burbuja de
-// "Meta de hoy" en Registrar, ahora factorizada para poder correrla sobre TODAS las tiendas a la
-// vez (ver MetaHoyCompetencia). "vendido" incluye: ventas normales de hoy, Flexipagos que se
-// terminan de pagar hoy (con su valor completo), abonos de hoy en Flexipagos que siguen
-// abiertos, y ajustes/Notacrédito de hoy.
-const calcularMetaHoyTienda = (tiendaId, ventas, ventasItems, ventasAbonos, ventasAjustes, metas) => {
-  const todayDiaNum = Number(todayStr.slice(8,10));
-  const todayMesKey = todayStr.slice(0,7);
-  const meta = Number(metas?.find(m=>m.mes===todayMesKey && m.tienda_id===tiendaId && (m.tipo||"total")==="total")?.valores_dia?.[todayDiaNum] || 0);
+// Vendido/Meta/Falta de una fecha puntual para una tienda — para la burbuja de "Meta de hoy"
+// (MetaHoyCompetencia). Recibe la fecha como parámetro (normalmente hoy, pero master/admin
+// finanzas pueden cambiar la fecha en Registrar venta para trabajar sobre un día distinto — la
+// burbuja debe seguir esa fecha, no quedarse pegada en "hoy" mostrando todo en cero). "vendido"
+// es lo mismo que cuenta Métricas para el % de cumplimiento: ventas normales de esa fecha +
+// Flexipagos que se terminan de pagar ese día (con su valor completo) + ajustes/Notacrédito de
+// ese día. A propósito NO suma abonos parciales en Flexipagos que siguen abiertos — eso es plata
+// que sí entró a caja ese día (por eso "Ingreso del día" en Caja sí la incluye), pero todavía no
+// es una venta: la venta completa solo cuenta el día que se termina de pagar. Antes esta burbuja
+// sí lo sumaba (copiado de una versión vieja) y por eso mostraba "vendido" más alto que las
+// ventas reales del día — quedó desalineada de Métricas, que nunca lo sumó. Detectado porque
+// Angela vendió $665.000 reales pero la burbuja mostraba más de un millón.
+const calcularMetaHoyTienda = (tiendaId, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas) => {
+  const diaNum = Number(fecha.slice(8,10));
+  const mesKey = fecha.slice(0,7);
+  const meta = Number(metas?.find(m=>m.mes===mesKey && m.tienda_id===tiendaId && (m.tipo||"total")==="total")?.valores_dia?.[diaNum] || 0);
   const cierresFlexipagoTodos = calcularCierresFlexipago(ventas, ventasItems, ventasAbonos);
-  const idsFlexipagoCerrados = new Set(cierresFlexipagoTodos.map(c=>c.ventaId));
-  const cierresHoy = cierresFlexipagoTodos.filter(c=>c.tiendaId===tiendaId && c.fechaCierre===todayStr).reduce((s,c)=>s+c.valorNeto,0);
-  const abonosAbiertoHoy = (ventasAbonos||[]).filter(ab=>{
-    if(ab.fecha!==todayStr) return false;
-    const v = ventas.find(x=>x.id===ab.venta_id);
-    if(!v || !v.es_flexipago || v.tienda_id!==tiendaId) return false;
-    return !idsFlexipagoCerrados.has(v.id);
-  }).reduce((s,ab)=>s+Number(ab.valor||0),0);
-  const ajustesHoy = (ventasAjustes||[]).filter(aj=>aj.fecha===todayStr && !aj.es_correccion_error && ventas.find(v=>v.id===aj.venta_id)?.tienda_id===tiendaId).reduce((s,aj)=>s+Number(aj.diferencia||0),0);
-  const vendido = ventas.filter(v=>v.fecha===todayStr && v.tienda_id===tiendaId && !v.es_flexipago).reduce((s,v)=>s+Number(v.total||0),0) + cierresHoy + abonosAbiertoHoy + ajustesHoy;
+  const cierresDia = cierresFlexipagoTodos.filter(c=>c.tiendaId===tiendaId && c.fechaCierre===fecha).reduce((s,c)=>s+c.valorNeto,0);
+  const ajustesDia = (ventasAjustes||[]).filter(aj=>aj.fecha===fecha && !aj.es_correccion_error && ventas.find(v=>v.id===aj.venta_id)?.tienda_id===tiendaId).reduce((s,aj)=>s+Number(aj.diferencia||0),0);
+  const vendido = ventas.filter(v=>v.fecha===fecha && v.tienda_id===tiendaId && !v.es_flexipago).reduce((s,v)=>s+Number(v.total||0),0) + cierresDia + ajustesDia;
   const falta = Math.max(0, meta - vendido);
   return { meta, vendido, falta };
 };
@@ -5737,9 +5744,14 @@ const calcularMetaHoyTienda = (tiendaId, ventas, ventasItems, ventasAbonos, vent
 // la burbuja completa no crezca más de lo necesario — tocar un carril despliega el detalle
 // (vendido/meta/falta) sin ocupar espacio fijo, que es donde vive el "cuánto llevo y cuánto me
 // falta" de siempre.
-const MetaHoyCompetencia = ({ stores, tiendaIdActual, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile }) => {
+const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile }) => {
+  // Master/admin finanzas pueden cambiar la fecha en Registrar venta para trabajar sobre un día
+  // distinto a hoy — la burbuja sigue esa fecha (si se pasa) en vez de quedarse pegada en "hoy" y
+  // mostrar todo en cero. Lista/Métricas no pasan `fecha`, así que ahí sigue siendo siempre hoy.
+  const fechaEfectiva = fecha || todayStr;
+  const esHoy = fechaEfectiva === todayStr;
   const lista = tiendasVenta(stores)
-    .map(t => ({ tienda:t, ...calcularMetaHoyTienda(t.id, ventas, ventasItems, ventasAbonos, ventasAjustes, metas) }))
+    .map(t => ({ tienda:t, ...calcularMetaHoyTienda(t.id, fechaEfectiva, ventas, ventasItems, ventasAbonos, ventasAjustes, metas) }))
     .filter(x=>x.meta>0)
     .sort((a,b)=> (b.vendido/b.meta) - (a.vendido/a.meta));
   if(lista.length===0) return null;
@@ -5780,12 +5792,12 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, ventas, ventasItems, venta
               </div>
             }
           >
-            <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>{cumplida?"🎉 ":"🎯 "}{x.tienda.name}</div>
+            <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>{cumplida?"🎉 ":"🎯 "}{x.tienda.name}{!esHoy?` · ${fechaEfectiva}`:""}</div>
             <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:2 }}>
-              <span>Vendido hoy</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(x.vendido)}</span>
+              <span>{esHoy?"Vendido hoy":"Vendido ese día"}</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(x.vendido)}</span>
             </div>
             <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:2 }}>
-              <span>Meta de hoy</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(x.meta)}</span>
+              <span>{esHoy?"Meta de hoy":"Meta de ese día"}</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(x.meta)}</span>
             </div>
             <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, fontWeight:700, color:etapaColor }}>
               <span>{cumplida?"Superó la meta":"Falta"}</span><span style={{ fontFamily:font.mono }}>{cumplida?`+${fmtCOP(x.vendido-x.meta)}`:fmtCOP(x.falta)}</span>
@@ -7494,6 +7506,37 @@ export default function App() {
     };
   }, []);
 
+  // Refrescar los DATOS (más arriba/abajo) no sirve de nada si el CÓDIGO que corre en la pestaña
+  // ya quedó viejo — cuando se publica una actualización, quien ya tenía la app abierta se queda
+  // corriendo la versión anterior para siempre, así los datos que traiga esa versión vieja sigan
+  // siendo reales, hasta que recargue la página a mano. Esto fue justo lo que causó la diferencia
+  // de $387.000 en tarjeta entre el computador y el celular de Angela: una de las dos pestañas
+  // llevaba abierta desde antes de la última actualización. Por eso se revisa cada tanto si ya hay
+  // una versión nueva publicada (comparando el HTML real del servidor contra el que se cargó al
+  // abrir) — y si la hay, se avisa con un banner para actualizar cuando puedan, en vez de recargar
+  // de golpe y arriesgar perder algo que estén registrando a la mitad.
+  const [actualizacionDisponible, setActualizacionDisponible] = useState(false);
+  useEffect(()=>{
+    let htmlInicial = null;
+    const revisarVersionNueva = async () => {
+      try {
+        const res = await fetch(`/?_=${Date.now()}`, { cache:"no-store" });
+        const html = await res.text();
+        if(htmlInicial===null){ htmlInicial = html; return; }
+        if(html!==htmlInicial) setActualizacionDisponible(true);
+      } catch(e) { /* sin internet un momento — se reintenta en el siguiente chequeo */ }
+    };
+    revisarVersionNueva();
+    const intervalo = setInterval(revisarVersionNueva, 3*60000);
+    document.addEventListener("visibilitychange", revisarVersionNueva);
+    window.addEventListener("focus", revisarVersionNueva);
+    return () => {
+      clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", revisarVersionNueva);
+      window.removeEventListener("focus", revisarVersionNueva);
+    };
+  }, []);
+
   // Cada vez que se abre la app instalada en el computador (PWA de escritorio), se fuerza un
   // tamaño de ventana compacto y más cuadrado (4:3) en vez de dejar que quede en pantalla
   // completa — pedido de Santiago: quiere que SIEMPRE abra en este mismo tamaño, no que recuerde
@@ -7748,6 +7791,13 @@ export default function App() {
     </div>
   );
 
+  const bannerActualizacion = actualizacionDisponible && (
+    <div style={{ position:"fixed", left:0, right:0, bottom:0, zIndex:500, background:C.amber, color:"#241a00", padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"center", gap:12, flexWrap:"wrap", fontFamily:font.body, fontSize:13, fontWeight:600, boxShadow:"0 -4px 16px rgba(0,0,0,0.35)" }}>
+      <span>🔄 Hay una versión nueva de la app — actualiza cuando puedas para no ver datos desactualizados.</span>
+      <button onClick={()=>window.location.reload()} style={{ background:"#241a00", color:"#fff", border:"none", borderRadius:6, padding:"6px 14px", fontFamily:font.body, fontSize:12.5, fontWeight:700, cursor:"pointer" }}>Actualizar ahora</button>
+    </div>
+  );
+
   const modalUsuarios = mostrarUsuarios && (
     <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}} className="ozen-pane-anim-modulo">
       <div style={{maxWidth:900,margin:"0 auto"}}>
@@ -7776,6 +7826,7 @@ export default function App() {
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
+        {bannerActualizacion}
       </div>
     </ReadOnlyContext.Provider>
   );
@@ -7789,6 +7840,7 @@ export default function App() {
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
+        {bannerActualizacion}
       </div>
     </ReadOnlyContext.Provider>
   );
