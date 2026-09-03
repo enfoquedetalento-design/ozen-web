@@ -5745,9 +5745,9 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, ventas, ventasItems, venta
   if(lista.length===0) return null;
   return (
     <div style={{
-      display:"flex", flexDirection:"column", gap:6,
-      background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:12, padding:"9px 14px",
-      width: isMobile?"100%":undefined, minWidth: isMobile?0:320, boxSizing:"border-box",
+      display:"flex", flexDirection:"column", gap:7,
+      background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:12, padding:"11px 16px",
+      width: isMobile?"100%":346, boxSizing:"border-box", flexShrink:0,
     }}>
       {lista.map((x,idx)=>{
         const esActual = x.tienda.id===tiendaIdActual;
@@ -5762,17 +5762,21 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, ventas, ventasItems, venta
             align="right"
             width={220}
             label={
-              <div style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer" }}>
-                <span style={{ width:18, textAlign:"center", fontSize:13, flexShrink:0, lineHeight:1 }}>{idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.`}</span>
+              // Anchos fijos en px (nada de flex:1) a propósito — este bloque vive envuelto en el
+              // <span style="display:inline-block"> de HoverTooltip, y ahí un flex:1 no siempre
+              // se estira de verdad (por eso la barra quedaba minúscula pese a subir las fuentes).
+              // Con anchos fijos el tamaño total queda garantizado sin depender de esa cadena.
+              <div style={{ display:"flex", alignItems:"center", gap:9, width:isMobile?290:314, cursor:"pointer" }}>
+                <span style={{ width:20, textAlign:"center", fontSize:14, flexShrink:0, lineHeight:1 }}>{idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.`}</span>
                 <span style={{
-                  width:isMobile?66:82, flexShrink:0, fontFamily:font.body, fontSize:12, lineHeight:1.2,
+                  width:isMobile?80:96, flexShrink:0, fontFamily:font.body, fontSize:13, lineHeight:1.2,
                   fontWeight:esActual?700:400, color:esActual?C.goldLight:C.textMuted,
                   overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
                 }}>{x.tienda.name.replace(/^OZEN\s*/i,"")}</span>
-                <span style={{ flex:1, minWidth:60, height:11, borderRadius:6, background:C.dark, overflow:"hidden", position:"relative" }}>
-                  <span style={{ position:"absolute", inset:0, width:`${pct}%`, borderRadius:6, background:`linear-gradient(90deg, ${C.blue}, ${etapaColor})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
+                <span style={{ width:isMobile?110:130, flexShrink:0, height:13, borderRadius:7, background:C.dark, overflow:"hidden", position:"relative" }}>
+                  <span style={{ position:"absolute", inset:0, width:`${pct}%`, borderRadius:7, background:`linear-gradient(90deg, ${C.blue}, ${etapaColor})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
                 </span>
-                <span style={{ width:38, textAlign:"right", flexShrink:0, fontFamily:font.mono, fontSize:12.5, lineHeight:1, fontWeight:700, color:etapaColor }}>{pct}%</span>
+                <span style={{ width:42, textAlign:"right", flexShrink:0, fontFamily:font.mono, fontSize:14, lineHeight:1, fontWeight:700, color:etapaColor }}>{pct}%</span>
               </div>
             }
           >
