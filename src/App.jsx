@@ -815,7 +815,15 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
     if(!error) onRecordDeleted(id); else alert(`No se pudo eliminar: ${error.message}`);
   };
 
-  const advisors = users.filter(u=>u.role==="advisor");
+  // El filtro de personas se arma con quien REALMENTE tiene registros guardados (sacado directo de
+  // `records`, que ya trae el nombre) — no con `users` filtrado a rol "Asesor". Antes, si alguien
+  // cambiaba de rol, se desactivaba, o cualquier cuenta que no fuera exactamente "advisor" marcaba
+  // asistencia (master, admin_turnos, etc. también pueden marcar la suya propia), esa persona
+  // desaparecía del filtro aunque sus registros de días anteriores siguieran ahí — imposible de
+  // filtrar aunque los datos existieran.
+  const advisors = Object.values(
+    records.reduce((acc,r)=>{ if(!acc[r.user_id]) acc[r.user_id]={ id:r.user_id, name:r.user_name }; return acc; }, {})
+  ).sort((a,b)=>a.name.localeCompare(b.name));
 
   const filtered = records
     .filter(r=>storeFilter==="all"||r.store===storeFilter)
@@ -843,7 +851,10 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
           <input type="time" autoFocus value={editValue} onChange={e=>setEditValue(e.target.value)} style={{ width:62, background:C.dark, border:`1px solid ${C.gold}`, borderRadius:5, padding:"2px 3px", color:C.text, fontSize:11, fontFamily:font.mono, outline:"none" }} />
         ) : (
           <div style={{ display:"flex", alignItems:"baseline", gap:2 }}>
-            <span style={{ fontFamily:font.mono, fontSize:12, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?"N/R":"—"}</span>
+            {/* El N/R ahora también muestra a qué hora quedó marcado (created_at, no `time` — en un
+                N/R `time` guarda CUÁL evento se saltó, no una hora real) — así se puede explicar
+                "pasaron 2 horas y no marcaste" o "se marcó a tal hora porque nunca marcaste salida". */}
+            <span style={{ fontFamily:font.mono, fontSize:12, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?`N/R ${fmtTime(new Date(omitido.created_at))}`:"—"}</span>
             {/* +N/-N sutil junto a la hora de Fin Almuerzo — cuánto se pasó (o no) del tiempo de almuerzo permitido. */}
             {desvio!==null && desvio!==undefined && desvio!==0 && <span style={{ fontFamily:font.mono, fontSize:9, fontWeight:700, color:desvio>0?C.amber:C.textMuted }}>{desvio>0?`+${desvio}`:desvio}</span>}
           </div>
@@ -1995,6 +2006,46 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
     const iv=setInterval(revisarAlmuerzoVencido,60000);
     return ()=>clearInterval(iv);
   },[records,user.id]);
+  // Regla de cierre de jornada: a las 11:00pm de ESE MISMO día, sin importar el turno ni qué se
+  // haya marcado antes, se cierran solos todos los pasos que hayan quedado pendientes de ese día
+  // (Inicio Almuerzo, Fin Almuerzo y/o Salida) — incluye el caso de que se les haya olvidado TODO
+  // el almuerzo (ni inicio ni fin), no solo Salida. Si ya marcó Entrada pero a las 11pm sigue
+  // faltando algo, se marca N/R de una vez, todo junto. No toca días anteriores a hoy — eso lo
+  // pidió Santiago explícitamente (no modificar registros de días ya pasados), así que si esta
+  // pantalla nunca se abrió ese día después de las 11pm, ese día se queda como estaba.
+  const CIERRE_DIA_HORA = 23;
+  const cierreDiaLockRef = useRef(false);
+  useEffect(()=>{
+    const revisarCierreDelDia = async () => {
+      if(cierreDiaLockRef.current) return;
+      if(toColombiaDate(new Date()).getHours() < CIERRE_DIA_HORA) return;
+      const hoy = records.filter(r=>r.user_id===user.id&&r.date===todayStr);
+      const entradaRec = hoy.find(r=>r.event==="entrada");
+      if(!entradaRec) return; // si ni marcó Entrada hoy, no hay jornada que cerrar
+      const resuelto = (ev) => hoy.some(r=>r.event===ev || (r.event==="omitido"&&r.time===ev));
+      const pendientes = ["inicio_almuerzo","fin_almuerzo","salida"].filter(ev=>!resuelto(ev));
+      if(pendientes.length===0) return;
+      cierreDiaLockRef.current = true;
+      try {
+        let seCerroAlgo = false;
+        for(const ev of pendientes){
+          // Relectura al servidor justo antes de cada insert (mismo patrón ya usado arriba) para
+          // no duplicar si dos pestañas/dispositivos hacen este cierre casi al mismo tiempo.
+          const { data: existentes } = await supabase.from("registros").select("event,time").eq("user_id",user.id).eq("date",todayStr).in("event",[ev,"omitido"]);
+          const yaResuelto = (existentes||[]).some(r=>r.event===ev || (r.event==="omitido"&&r.time===ev));
+          if(yaResuelto) continue;
+          const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:entradaRec.store,shift:entradaRec.shift,event:"omitido",date:todayStr,time:ev,photo_url:null}).select().single();
+          if(!error&&data){ onRecord(data); seCerroAlgo=true; }
+        }
+        if(seCerroAlgo){ await refreshTodayRecs(); setToast("⏱ Se cerró tu jornada de hoy (11:00pm) — lo que no marcaste quedó como N/R."); setTimeout(()=>setToast(null),5000); }
+      } finally {
+        cierreDiaLockRef.current = false;
+      }
+    };
+    revisarCierreDelDia();
+    const iv2=setInterval(revisarCierreDelDia,60000);
+    return ()=>clearInterval(iv2);
+  },[records,user.id]);
   // Los datos globales (`records`) se cargan UNA sola vez al abrir la app y nunca se vuelven a
   // traer solos al cambiar de cuenta (login/logout solo cambian qué usuario está activo, no
   // recargan nada del servidor) — en un celular compartido donde varias cuentas entran y salen
@@ -2146,7 +2197,7 @@ function HistoryScreen({ user, records, stores, turnosHorarios, turnosAsignacion
     const key=`${r.user_id}_${r.date}`;
     if(!jornadasMap[key]) jornadasMap[key]={ key, userId:r.user_id, userName:r.user_name, store:r.store, shift:r.shift, date:r.date, entrada:null, inicio_almuerzo:null, fin_almuerzo:null, salida:null };
     if(r.event!=="omitido") jornadasMap[key][r.event]=r;
-    else jornadasMap[key][r.time+"_omitido"]=true;
+    else jornadasMap[key][r.time+"_omitido"]=r; // se guarda la fila completa (no solo `true`) para poder mostrar a qué hora se marcó el N/R
   });
   const jornadas = Object.values(jornadasMap).sort((a,b)=>b.date.localeCompare(a.date));
 
@@ -2156,7 +2207,10 @@ function HistoryScreen({ user, records, stores, turnosHorarios, turnosAsignacion
       <div style={{ flex:1, minWidth:0, borderRadius:8, padding:"8px 4px", background:isOmitido?`${C.red}18`:C.surfaceAlt, border:`1px solid ${isOmitido?C.red+"44":C.border}`, display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
         <div style={{ fontFamily:font.body, fontSize:9, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", textAlign:"center", lineHeight:1.2 }}>{label}</div>
         <div style={{ display:"flex", alignItems:"baseline", gap:2 }}>
-          <span style={{ fontFamily:font.mono, fontSize:12, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?"N/R":"—"}</span>
+          {/* El N/R ahora también muestra a qué hora quedó marcado (created_at, no `time` — en un
+              N/R `time` guarda CUÁL evento se saltó, no una hora real) — así se puede explicar
+              "pasaron 2 horas y no marcaste" o "se marcó a tal hora porque nunca marcaste salida". */}
+          <span style={{ fontFamily:font.mono, fontSize:12, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?`N/R ${fmtTime(new Date(omitido.created_at))}`:"—"}</span>
           {/* +N/-N sutil junto a la hora de Fin Almuerzo — cuánto se pasó (o no) del tiempo de almuerzo permitido. */}
           {desvio!==null && desvio!==undefined && desvio!==0 && <span style={{ fontFamily:font.mono, fontSize:9, fontWeight:700, color:desvio>0?C.amber:C.textMuted }}>{desvio>0?`+${desvio}`:desvio}</span>}
         </div>
