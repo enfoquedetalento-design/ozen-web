@@ -1876,7 +1876,7 @@ function MiAsistenciaScreen({ user, records, onRecord, onRefresh, stores, asigna
 
 // ── SCREEN: CheckIn ───────────────────────────────────────────────────────────
 function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignaciones, turnosHorarios }) {
-  const [selStore,setSelStore]=useState(""),[selShift,setSelShift]=useState(""),[locked,setLocked]=useState(false),[showCamera,setShowCamera]=useState(false),[recording,setRecording]=useState(false),[toast,setToast]=useState(null);
+  const [selStore,setSelStore]=useState(""),[selShift,setSelShift]=useState(""),[locked,setLocked]=useState(false),[showCamera,setShowCamera]=useState(false),[recording,setRecording]=useState(false),[toast,setToast]=useState(null),[toastError,setToastError]=useState(false);
   useEffect(()=>{ const h=records.filter(r=>r.user_id===user.id&&r.date===todayStr&&r.event!=="omitido"); if(h.length>0){setSelStore(h[0].store);setSelShift(h[0].shift);setLocked(true);} },[records]);
   // Si hoy ya tiene un turno asignado en la rejilla de Turnos (incluye apoyo en pareja — ambos
   // quedan con el mismo tienda+turno ese día), se precarga y queda fijo — ya no lo elige a mano.
@@ -1899,8 +1899,16 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
   // cuando se cumplen las 2 horas). No manda notificación push ni sonido — es una corrección
   // silenciosa de fondo, no una marcación real.
   const LIMITE_ALMUERZO_MIN = 120;
+  // Guarda contra una condición de carrera real que causaba N/R duplicados: este efecto se vuelve
+  // a montar cada vez que cambia `records` (pasa seguido, por los refrescos automáticos de datos),
+  // y si dos montajes casi simultáneos alcanzan a leer "todavía no hay N/R" ANTES de que el insert
+  // del primero se refleje de vuelta en `records`, los dos terminan insertando su propio N/R. El
+  // ref evita que dos ejecuciones de ESTA pestaña se pisen, y la relectura al servidor justo antes
+  // de insertar cubre el caso de dos pestañas/dispositivos con la misma cuenta abiertos a la vez.
+  const almuerzoVencidoLockRef = useRef(false);
   useEffect(()=>{
     const revisarAlmuerzoVencido = async () => {
+      if(almuerzoVencidoLockRef.current) return;
       const hoy = records.filter(r=>r.user_id===user.id&&r.date===todayStr);
       const inicioRec = hoy.find(r=>r.event==="inicio_almuerzo");
       const finRec = hoy.find(r=>r.event==="fin_almuerzo");
@@ -1909,8 +1917,15 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
       const [h,m] = inicioRec.time.split(":").map(Number);
       const inicioMs = new Date(`${todayStr}T${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:00`).getTime();
       if((Date.now()-inicioMs)/60000 < LIMITE_ALMUERZO_MIN) return;
-      const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:inicioRec.store,shift:inicioRec.shift,event:"omitido",date:todayStr,time:"fin_almuerzo",photo_url:null}).select().single();
-      if(!error&&data){ onRecord(data); setToast("⏱ No se registró el fin de tu almuerzo a tiempo (2h) — quedó como N/R. Ya puedes marcar tu salida."); setTimeout(()=>setToast(null),5000); }
+      almuerzoVencidoLockRef.current = true;
+      try {
+        const { data: existente } = await supabase.from("registros").select("id").eq("user_id",user.id).eq("date",todayStr).eq("event","omitido").eq("time","fin_almuerzo").limit(1);
+        if(existente && existente.length>0) return;
+        const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:inicioRec.store,shift:inicioRec.shift,event:"omitido",date:todayStr,time:"fin_almuerzo",photo_url:null}).select().single();
+        if(!error&&data){ onRecord(data); setToast("⏱ No se registró el fin de tu almuerzo a tiempo (2h) — quedó como N/R. Ya puedes marcar tu salida."); setTimeout(()=>setToast(null),5000); }
+      } finally {
+        almuerzoVencidoLockRef.current = false;
+      }
     };
     revisarAlmuerzoVencido();
     const iv=setInterval(revisarAlmuerzoVencido,60000);
@@ -1938,7 +1953,12 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
     // "ganar" minutos de descanso o de salida.
     const horaReal = capturedAt||new Date();
     let photo_url=null; try{ const blob=await fetch(photoBase64).then(r=>r.blob()); const fileName=`${user.id}_${Date.now()}.jpg`; const{data:up}=await supabase.storage.from("fotos-registro").upload(fileName,blob,{contentType:"image/jpeg"}); if(up){const{data:ud}=supabase.storage.from("fotos-registro").getPublicUrl(fileName);photo_url=ud.publicUrl;} }catch(e){console.error(e);} const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:selStore,shift:selShift,event:nextEvent,date:todayStr,time:fmtTime(horaReal),photo_url}).select().single();
-    if(!error){
+    setRecording(false);
+    // El toast de éxito antes se mostraba SIEMPRE, incluso si el insert fallaba (solo cambiaba el
+    // sonido) — alguien podía ver "✓ registrada" en pantalla sin que nada quedara guardado de
+    // verdad. Ahora el mensaje refleja lo que realmente pasó, y si falla no se marca `locked` para
+    // que la persona pueda intentar de nuevo de inmediato en vez de creer que ya quedó.
+    if(!error && data){
       onRecord(data);setLocked(true);await refreshTodayRecs();
       // Avisa a los admins de Turnos (push real, aunque tengan la app cerrada) en CADA marcación
       // — así ven en tiempo real en qué está su equipo (entrada, almuerzo, salida), no solo
@@ -1954,8 +1974,12 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
       } else if(nextEvent==="salida"){
         sonidoSalida();
       }
-    } else { sonidoError(); }
-    setRecording(false);setToast(`✓ ${EVENT_LABELS[nextEvent]} registrada`);setTimeout(()=>setToast(null),3000); };
+      setToastError(false);setToast(`✓ ${EVENT_LABELS[nextEvent]} registrada`);setTimeout(()=>setToast(null),3000);
+    } else {
+      sonidoError();
+      console.error(error);
+      setToastError(true);setToast(`✕ No se pudo guardar ${EVENT_LABELS[nextEvent]} — revisa tu conexión e intenta de nuevo.`);setTimeout(()=>setToast(null),6000);
+    } };
 
   const puntHoy = calcPuntualidad(todayRecs.find(r=>r.event==="entrada")?.time, selShift, todayStr, selStore, turnosHorarios, asigHoy?.entrada_custom);
   const rangoHoy = getExpectedRange(selShift, todayStr, selStore, turnosHorarios, asigHoy?.entrada_custom, asigHoy?.salida_custom);
@@ -1963,7 +1987,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
   return (
     <div>
       {showCamera&&<CameraModal eventLabel={EVENT_LABELS[nextEvent]} onCapture={handleCapture} onCancel={()=>setShowCamera(false)}/>}
-      {toast&&<div style={{position:"fixed",top:16,right:16,left:16,background:C.greenDim,border:`1px solid ${C.green}`,borderRadius:10,padding:"12px 16px",color:C.green,fontFamily:font.body,fontSize:13,fontWeight:600,zIndex:200,textAlign:"center"}}>{toast}</div>}
+      {toast&&<div style={{position:"fixed",top:16,right:16,left:16,background:toastError?C.redDim:C.greenDim,border:`1px solid ${toastError?C.red:C.green}`,borderRadius:10,padding:"12px 16px",color:toastError?C.red:C.green,fontFamily:font.body,fontSize:13,fontWeight:600,zIndex:200,textAlign:"center"}}>{toast}</div>}
       <PageHeader title="Marcar Asistencia" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} />
       <Card style={{marginBottom:12}}>
         <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
