@@ -258,14 +258,35 @@ const intensidadPct = (pct) => pct===null || pct===undefined ? 0.15 : Math.max(0
 // semáforo clásico. Sin datos = gris. 100% o más = verde. 70-99% = ámbar. Menos de 70% = rojo.
 const colorSemaforoIDC = (pct) => pct===null || pct===undefined ? C.textMuted : pct>=100 ? C.green : pct>=70 ? C.amber : C.red;
 const medalla = (idx) => idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.`;
-// Fila de un ranking (tiendas o asesores por cumplimiento): medalla + nombre + "$vendido / $meta" +
-// badge de %. En celular un nombre largo (ej. "OZEN Jardín Plaza", "Fernanda Caicedo") no cabía
-// junto a los números y el badge sin cortarse (con "...") o amontonarse — así que en celular se
-// parte en dos renglones: nombre completo arriba (con el badge, que ocupa poco espacio), números
-// abajo, indentados bajo el nombre. Nunca se trunca el nombre (se deja hacer wrap si hace falta) —
-// mejor una fila más alta que un nombre invisible. Centralizado acá para que cualquier ranking
-// nuevo que se agregue después reuse este comportamiento en vez de repetir el problema.
-const RankingRow = ({ idx, nombre, extra, sinServicios, meta, idc, isMobile }) => (
+// Barra de cumplimiento reutilizable (misma idea que la burbuja "Meta de hoy"): el 100% real casi
+// nunca coincide con el ancho completo de la barra — la escala se ajusta a quien va más adelante
+// en el grupo (mínimo 100%, o más si alguien ya se pasó de la meta), y una marca blanca sutil
+// señala exactamente dónde cae el 100% dentro de esa escala compartida. Así, si nadie ha llegado
+// a la meta, la barra de nadie se ve "llena" todavía; y si alguien se pasa (105%, 123%...), TODAS
+// las barras del grupo se reacomodan a esa nueva escala para que se sigan pudiendo comparar entre
+// sí de un vistazo — quien manda la escala es quien va ganando.
+const BarraCumplimiento = ({ pctRaw, escalaMax, color, width=110, height=9 }) => {
+  const escala = Math.max(100, escalaMax||100);
+  const anchoBarra = Math.max(0, Math.min(100, ((pctRaw||0)/escala)*100));
+  const marca100Pct = (100/escala)*100;
+  return (
+    <span style={{ width, flexShrink:0, height, borderRadius:height/2, background:C.dark, overflow:"hidden", position:"relative", display:"inline-block" }}>
+      <span style={{ position:"absolute", inset:0, width:`${anchoBarra}%`, borderRadius:height/2, background:`linear-gradient(90deg, ${C.blue}, ${color})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
+      {marca100Pct<100 && <span style={{ position:"absolute", top:0, bottom:0, left:`${marca100Pct}%`, width:1, background:"rgba(255,255,255,0.4)" }}/>}
+    </span>
+  );
+};
+// Fila de un ranking (tiendas o asesores por cumplimiento): medalla + nombre + barra de
+// cumplimiento + "$vendido / $meta" + badge de %. En celular un nombre largo (ej. "OZEN Jardín
+// Plaza", "Fernanda Caicedo") no cabía junto a los números y el badge sin cortarse (con "...") o
+// amontonarse — así que en celular se parte en dos renglones: nombre completo arriba (con el
+// badge, que ocupa poco espacio), números abajo, indentados bajo el nombre. Nunca se trunca el
+// nombre (se deja hacer wrap si hace falta) — mejor una fila más alta que un nombre invisible.
+// `escalaMax` (el idc más alto del grupo completo) lo calcula quien arma el ranking, para que
+// todas las barras de una misma lista compartan la misma escala. Centralizado acá para que
+// cualquier ranking nuevo que se agregue después reuse este comportamiento en vez de repetir el
+// problema.
+const RankingRow = ({ idx, nombre, extra, sinServicios, meta, idc, isMobile, escalaMax }) => (
   <div style={{ display:"flex", flexDirection:isMobile?"column":"row", alignItems:isMobile?"stretch":"center", gap:isMobile?4:10, background:idx<3?`${C.gold}0d`:C.surfaceAlt, border:`1px solid ${idx<3?C.gold:C.border}`, borderRadius:8, padding:"9px 12px" }}>
     <div style={{ display:"flex", alignItems:"center", gap:10, minWidth:0 }}>
       <div style={{ fontFamily:font.body, fontSize:idx<3?16:13, width:28, textAlign:"center", flexShrink:0 }}>{medalla(idx)}</div>
@@ -275,7 +296,8 @@ const RankingRow = ({ idx, nombre, extra, sinServicios, meta, idc, isMobile }) =
       </div>
       {isMobile && <Badge color={colorSemaforoIDC(idc)} sm>{idc}%</Badge>}
     </div>
-    <div style={{ display:"flex", alignItems:"center", justifyContent:isMobile?"space-between":"flex-end", gap:8, paddingLeft:isMobile?38:0 }}>
+    <div style={{ display:"flex", alignItems:"center", justifyContent:isMobile?"space-between":"flex-end", gap:10, paddingLeft:isMobile?38:0 }}>
+      <BarraCumplimiento pctRaw={idc} escalaMax={escalaMax} color={colorSemaforoIDC(idc)} width={isMobile?80:110} height={9}/>
       <span style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted, whiteSpace:"nowrap" }}>{fmtCOP(sinServicios)} / {fmtCOP(meta)}</span>
       {!isMobile && <Badge color={colorSemaforoIDC(idc)} sm>{idc}%</Badge>}
     </div>
@@ -5744,10 +5766,14 @@ const calcularMetaHoyTienda = (tiendaId, fecha, ventas, ventasItems, ventasAbono
 // la burbuja completa no crezca más de lo necesario — tocar un carril despliega el detalle
 // (vendido/meta/falta) sin ocupar espacio fijo, que es donde vive el "cuánto llevo y cuánto me
 // falta" de siempre.
-// Hasta qué % "llena" la barra de cada carril — pasado el 100% la barra sigue avanzando hasta
-// este tope (150%) en vez de quedarse pegada en el borde; más allá de eso ya solo el número sigue
-// subiendo. La marca blanca sutil adentro de la barra siempre cae en 100/ESCALA_MAX_PCT.
-const ESCALA_MAX_PCT = 150;
+//
+// Escalabilidad a más tiendas: la burbuja SIEMPRE muestra como máximo 4 carriles (el podio — top
+// 3 — más, si la tienda de quien mira no quedó en el podio, un carril fijo pinchado abajo con su
+// propio puesto) sin importar si hay 3 tiendas o 20 — así nunca crece descontrolada ni empuja el
+// contenido de abajo. Si hay más tiendas de las que se muestran, aparece un link chiquito "Ver
+// las N tiendas" que despliega la lista completa (con scroll) en una nube — el detalle completo
+// sigue estando a un clic, solo que no ocupa espacio fijo todo el tiempo.
+const LIMITE_PODIO = 3;
 const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile }) => {
   // Master/admin finanzas pueden cambiar la fecha en Registrar venta para trabajar sobre un día
   // distinto a hoy — la burbuja sigue esa fecha (si se pasa) en vez de quedarse pegada en "hoy" y
@@ -5759,64 +5785,106 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
     .filter(x=>x.meta>0)
     .sort((a,b)=> (b.vendido/b.meta) - (a.vendido/a.meta));
   if(lista.length===0) return null;
+  // La escala de TODAS las barras la manda quien va ganando: normalmente 100% (nadie ha llegado
+  // a la meta todavía), pero si alguien ya se pasó (105%, 123%...) la escala sube a eso, y con
+  // ella se recorren juntas tanto las barras como la marca del 100% de TODAS las tiendas —
+  // siguen siendo comparables entre sí aunque alguien esté por encima de la meta.
+  const escalaMax = Math.max(100, ...lista.map(x=>(x.vendido/x.meta)*100));
+
+  const rankActual = lista.findIndex(x=>x.tienda.id===tiendaIdActual);
+  const actualEnPodio = rankActual>=0 && rankActual<LIMITE_PODIO;
+  const podio = lista.slice(0, LIMITE_PODIO).map((x,i)=>({ x, idxReal:i }));
+  const filaActual = (!actualEnPodio && rankActual>=0) ? { x:lista[rankActual], idxReal:rankActual } : null;
+  const filas = filaActual ? [...podio, filaActual] : podio;
+  const hayMas = lista.length > filas.length;
+
+  // Una fila (carril) — usada tanto para el podio de siempre como, repetida, dentro de la lista
+  // completa que se despliega al tocar "Ver las N tiendas".
+  const Fila = ({ x, idxReal }) => {
+    const esActual = x.tienda.id===tiendaIdActual;
+    const cumplida = x.falta<=0;
+    const pctRaw = (x.vendido/x.meta)*100;
+    // El número mostrado ya NO se topa en 100 — si alguien va en 134%, se ve 134%. La barra usa
+    // la escala dinámica compartida (escalaMax) en vez de un tope fijo.
+    const pct = Math.max(0, Math.round(pctRaw));
+    const etapaColor = cumplida ? C.green : pctRaw>=75 ? C.amber : C.blue;
+    return (
+      <HoverTooltip
+        clickOnly
+        align="right"
+        width={220}
+        label={
+          // Anchos fijos en px (nada de flex:1) a propósito — este bloque vive envuelto en el
+          // <span style="display:inline-block"> de HoverTooltip, y ahí un flex:1 no siempre
+          // se estira de verdad (por eso la barra quedaba minúscula pese a subir las fuentes).
+          // Con anchos fijos el tamaño total queda garantizado sin depender de esa cadena.
+          <div style={{ display:"flex", alignItems:"center", gap:9, width:isMobile?296:320, cursor:"pointer" }}>
+            <span style={{ width:20, textAlign:"center", fontSize:14, flexShrink:0, lineHeight:1 }}>{idxReal===0?"🥇":idxReal===1?"🥈":idxReal===2?"🥉":`${idxReal+1}.`}</span>
+            <span style={{
+              width:isMobile?80:96, flexShrink:0, fontFamily:font.body, fontSize:13, lineHeight:1.2,
+              fontWeight:esActual?700:400, color:esActual?C.goldLight:C.textMuted,
+              overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+            }}>{x.tienda.name.replace(/^OZEN\s*/i,"")}</span>
+            <BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={etapaColor} width={isMobile?110:130} height={13}/>
+            <span style={{ width:48, textAlign:"right", flexShrink:0, fontFamily:font.mono, fontSize:14, lineHeight:1, fontWeight:700, color:etapaColor }}>{pct}%</span>
+          </div>
+        }
+      >
+        <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>{cumplida?"🎉 ":"🎯 "}{x.tienda.name}{!esHoy?` · ${fechaEfectiva}`:""}</div>
+        <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:2 }}>
+          <span>{esHoy?"Vendido hoy":"Vendido ese día"}</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(x.vendido)}</span>
+        </div>
+        <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:2 }}>
+          <span>{esHoy?"Meta de hoy":"Meta de ese día"}</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(x.meta)}</span>
+        </div>
+        <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, fontWeight:700, color:etapaColor }}>
+          <span>{cumplida?"Superó la meta":"Falta"}</span><span style={{ fontFamily:font.mono }}>{cumplida?`+${fmtCOP(x.vendido-x.meta)}`:fmtCOP(x.falta)}</span>
+        </div>
+      </HoverTooltip>
+    );
+  };
+
   return (
     <div style={{
       display:"flex", flexDirection:"column", gap:7,
       background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:12, padding:"11px 16px",
       width: isMobile?"100%":352, boxSizing:"border-box", flexShrink:0,
     }}>
-      {lista.map((x,idx)=>{
-        const esActual = x.tienda.id===tiendaIdActual;
-        const cumplida = x.falta<=0;
-        const pctRaw = (x.vendido/x.meta)*100;
-        // El número mostrado ya NO se topa en 100 — si alguien va en 134%, se ve 134%. La barra sí
-        // necesita un límite visual para no crecer sin fin, así que representa hasta ESCALA_MAX_PCT
-        // (150%) — pasado eso queda al tope, pero el número real se sigue viendo igual. Adentro de
-        // la barra queda una marca sutil de dónde cae exactamente el 100%, para que se note de un
-        // vistazo quién ya la cumplió y sigue sumando de más.
-        const pct = Math.max(0, Math.round(pctRaw));
-        const anchoBarra = Math.max(0, Math.min(100, (pctRaw/ESCALA_MAX_PCT)*100));
-        const marca100Pct = (100/ESCALA_MAX_PCT)*100;
-        const etapaColor = cumplida ? C.green : pctRaw>=75 ? C.amber : C.blue;
-        return (
-          <HoverTooltip
-            key={x.tienda.id}
-            clickOnly
-            align="right"
-            width={220}
-            label={
-              // Anchos fijos en px (nada de flex:1) a propósito — este bloque vive envuelto en el
-              // <span style="display:inline-block"> de HoverTooltip, y ahí un flex:1 no siempre
-              // se estira de verdad (por eso la barra quedaba minúscula pese a subir las fuentes).
-              // Con anchos fijos el tamaño total queda garantizado sin depender de esa cadena.
-              <div style={{ display:"flex", alignItems:"center", gap:9, width:isMobile?296:320, cursor:"pointer" }}>
-                <span style={{ width:20, textAlign:"center", fontSize:14, flexShrink:0, lineHeight:1 }}>{idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.`}</span>
-                <span style={{
-                  width:isMobile?80:96, flexShrink:0, fontFamily:font.body, fontSize:13, lineHeight:1.2,
-                  fontWeight:esActual?700:400, color:esActual?C.goldLight:C.textMuted,
-                  overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
-                }}>{x.tienda.name.replace(/^OZEN\s*/i,"")}</span>
-                <span style={{ width:isMobile?110:130, flexShrink:0, height:13, borderRadius:7, background:C.dark, overflow:"hidden", position:"relative" }}>
-                  <span style={{ position:"absolute", inset:0, width:`${anchoBarra}%`, borderRadius:7, background:`linear-gradient(90deg, ${C.blue}, ${etapaColor})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
-                  {marca100Pct<100 && <span style={{ position:"absolute", top:0, bottom:0, left:`${marca100Pct}%`, width:1, background:"rgba(255,255,255,0.4)" }}/>}
-                </span>
-                <span style={{ width:48, textAlign:"right", flexShrink:0, fontFamily:font.mono, fontSize:14, lineHeight:1, fontWeight:700, color:etapaColor }}>{pct}%</span>
-              </div>
-            }
-          >
-            <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>{cumplida?"🎉 ":"🎯 "}{x.tienda.name}{!esHoy?` · ${fechaEfectiva}`:""}</div>
-            <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:2 }}>
-              <span>{esHoy?"Vendido hoy":"Vendido ese día"}</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(x.vendido)}</span>
-            </div>
-            <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:2 }}>
-              <span>{esHoy?"Meta de hoy":"Meta de ese día"}</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(x.meta)}</span>
-            </div>
-            <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11, fontWeight:700, color:etapaColor }}>
-              <span>{cumplida?"Superó la meta":"Falta"}</span><span style={{ fontFamily:font.mono }}>{cumplida?`+${fmtCOP(x.vendido-x.meta)}`:fmtCOP(x.falta)}</span>
-            </div>
-          </HoverTooltip>
-        );
-      })}
+      {filas.map(({x,idxReal},i)=>(
+        <Fragment key={x.tienda.id}>
+          {/* Separador sutil entre el podio y el carril pinchado de "tu tienda" — para que quede
+              claro que no es el 4.º lugar real, solo que se fijó ahí para que siempre se vea. */}
+          {filaActual && i===podio.length && <div style={{ height:1, background:`${C.border}88`, margin:"1px 0" }}/>}
+          <Fila x={x} idxReal={idxReal}/>
+        </Fragment>
+      ))}
+      {hayMas && (
+        <HoverTooltip
+          clickOnly
+          align="right"
+          width={isMobile?280:320}
+          label={<div style={{ textAlign:"center", fontFamily:font.body, fontSize:10.5, color:C.textMuted, textDecoration:"underline dotted", textUnderlineOffset:3, cursor:"pointer", marginTop:1 }}>Ver las {lista.length} tiendas →</div>}
+        >
+          <div style={{ maxHeight:280, overflowY:"auto", display:"flex", flexDirection:"column", gap:9, paddingRight:4 }}>
+            {lista.map((x,idx)=>{
+              const esActual = x.tienda.id===tiendaIdActual;
+              const cumplida = x.falta<=0;
+              const pctRaw = (x.vendido/x.meta)*100;
+              const pct = Math.max(0, Math.round(pctRaw));
+              const etapaColor = cumplida ? C.green : pctRaw>=75 ? C.amber : C.blue;
+              return (
+                <div key={x.tienda.id} style={{ display:"flex", flexDirection:"column", gap:3 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:11.5 }}>
+                    <span style={{ color:esActual?C.goldLight:C.text, fontWeight:esActual?700:400 }}>{idx===0?"🥇 ":idx===1?"🥈 ":idx===2?"🥉 ":`${idx+1}. `}{x.tienda.name.replace(/^OZEN\s*/i,"")}</span>
+                    <span style={{ fontFamily:font.mono, fontWeight:700, color:etapaColor }}>{pct}%</span>
+                  </div>
+                  <BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={etapaColor} width="100%" height={6}/>
+                </div>
+              );
+            })}
+          </div>
+        </HoverTooltip>
+      )}
     </div>
   );
 };
@@ -6338,7 +6406,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
       <SeccionVenta icon="🏬" titulo="Top tiendas por cumplimiento">
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
           {rankingTiendas.map((d,idx)=>(
-            <RankingRow key={d.tienda.id} idx={idx} nombre={d.tienda.name} sinServicios={d.sinServicios} meta={d.meta} idc={d.idc} isMobile={isMobile}/>
+            <RankingRow key={d.tienda.id} idx={idx} nombre={d.tienda.name} sinServicios={d.sinServicios} meta={d.meta} idc={d.idc} isMobile={isMobile} escalaMax={rankingTiendas[0]?.idc}/>
           ))}
           {rankingTiendas.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
         </div>
@@ -6349,7 +6417,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
           {ranking.map((d,idx)=>{
             const exp = explicacionMetaAsesor(d.asesor.id);
             return (
-              <RankingRow key={d.asesor.id} idx={idx} nombre={d.asesor.name} sinServicios={d.sinServicios} meta={d.meta} idc={d.idc} isMobile={isMobile} extra={!exp.sinDatos && (
+              <RankingRow key={d.asesor.id} idx={idx} nombre={d.asesor.name} sinServicios={d.sinServicios} meta={d.meta} idc={d.idc} isMobile={isMobile} escalaMax={ranking[0]?.idc} extra={!exp.sinDatos && (
                 <HoverTooltip label="ⓘ" labelStyle={{ fontSize:11, color:C.textMuted, flexShrink:0 }} width={300} clickOnly>
                   <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>Cómo salió la meta de {d.asesor.name.split(" ")[0]} — {MESES_NOMBRE[mesIdx]}</div>
                   {exp.diasNovedadTotal>0 && (
