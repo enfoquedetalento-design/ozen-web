@@ -1855,10 +1855,38 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
   const asigHoy = (asignaciones||[]).find(a=>a.asesor_id===user.id && a.fecha===todayStr && a.tienda_id);
   useEffect(()=>{ if(locked||selStore) return; if(asigHoy){ setSelStore(asigHoy.tienda_id); setSelShift(asigHoy.shift||""); } },[asigHoy, locked, selStore]);
   const todayRecs=records.filter(r=>r.user_id===user.id&&r.date===todayStr);
-  const eventosReales=todayRecs.filter(r=>r.event!=="omitido").map(r=>r.event);
-  const ultimoReal=[...ORDEN].reverse().find(e=>eventosReales.includes(e));
-  const nextEvent=!ultimoReal?"entrada":ultimoReal==="entrada"?"inicio_almuerzo":ultimoReal==="inicio_almuerzo"?"fin_almuerzo":ultimoReal==="fin_almuerzo"?"salida":null;
+  // Un evento queda "resuelto" (y se puede pasar al siguiente) tanto si se registró de verdad
+  // como si quedó marcado "omitido" (N/R) — el "omitido" guarda en `time` CUÁL evento se saltó,
+  // no una hora real (ver el auto-N/R de Fin Almuerzo más abajo). Antes esto solo miraba eventos
+  // reales, así que un N/R nunca destrababa el siguiente paso.
+  const eventosResueltos = ORDEN.filter(ev => todayRecs.some(r => r.event===ev || (r.event==="omitido" && r.time===ev)));
+  const ultimoResuelto = [...ORDEN].reverse().find(ev => eventosResueltos.includes(ev));
+  const nextEvent=!ultimoResuelto?"entrada":ultimoResuelto==="entrada"?"inicio_almuerzo":ultimoResuelto==="inicio_almuerzo"?"fin_almuerzo":ultimoResuelto==="fin_almuerzo"?"salida":null;
   const refreshTodayRecs=async()=>{ const{data}=await supabase.from("registros").select("*").eq("user_id",user.id).eq("date",todayStr); if(data)onRefresh(data); };
+  // Si pasan 2 horas desde que se marcó "Inicio Almuerzo" y nunca se marcó "Fin Almuerzo", se
+  // marca solo como N/R (no registrado) — así la persona no queda trabada esperando un registro
+  // que ya no va a pasar, y puede seguir directo a marcar su salida. Se revisa apenas se entra a
+  // esta pantalla y cada minuto mientras siga abierta (por si alguien la deja abierta justo
+  // cuando se cumplen las 2 horas). No manda notificación push ni sonido — es una corrección
+  // silenciosa de fondo, no una marcación real.
+  const LIMITE_ALMUERZO_MIN = 120;
+  useEffect(()=>{
+    const revisarAlmuerzoVencido = async () => {
+      const hoy = records.filter(r=>r.user_id===user.id&&r.date===todayStr);
+      const inicioRec = hoy.find(r=>r.event==="inicio_almuerzo");
+      const finRec = hoy.find(r=>r.event==="fin_almuerzo");
+      const yaOmitido = hoy.some(r=>r.event==="omitido"&&r.time==="fin_almuerzo");
+      if(!inicioRec||finRec||yaOmitido) return;
+      const [h,m] = inicioRec.time.split(":").map(Number);
+      const inicioMs = new Date(`${todayStr}T${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:00`).getTime();
+      if((Date.now()-inicioMs)/60000 < LIMITE_ALMUERZO_MIN) return;
+      const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:inicioRec.store,shift:inicioRec.shift,event:"omitido",date:todayStr,time:"fin_almuerzo",photo_url:null}).select().single();
+      if(!error&&data){ onRecord(data); setToast("⏱ No se registró el fin de tu almuerzo a tiempo (2h) — quedó como N/R. Ya puedes marcar tu salida."); setTimeout(()=>setToast(null),5000); }
+    };
+    revisarAlmuerzoVencido();
+    const iv=setInterval(revisarAlmuerzoVencido,60000);
+    return ()=>clearInterval(iv);
+  },[records,user.id]);
   // Los datos globales (`records`) se cargan UNA sola vez al abrir la app y nunca se vuelven a
   // traer solos al cambiar de cuenta (login/logout solo cambian qué usuario está activo, no
   // recargan nada del servidor) — en un celular compartido donde varias cuentas entran y salen
@@ -1929,17 +1957,17 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
           <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Registro de hoy</div>
           {puntHoy && (puntHoy.puntual ? <Badge color={C.green} sm>🟢 Puntual hoy</Badge> : <Badge color={C.red} sm title={rangoHoy?`Debía entrar ${rangoHoy.split("–")[0]}`:undefined}>🔴 Tarde {puntHoy.diff} min hoy</Badge>)}
         </div>
-        {ORDEN.map((ev,i)=>{ const rec=todayRecs.find(r=>r.event===ev); const isNext=ev===nextEvent;
+        {ORDEN.map((ev,i)=>{ const rec=todayRecs.find(r=>r.event===ev); const omitidoRec = !rec ? todayRecs.find(r=>r.event==="omitido"&&r.time===ev) : null; const isNext=ev===nextEvent;
           // +N/-N sutil junto a la hora de Fin Almuerzo — cuánto se pasó (o no) de los 60 minutos de almuerzo.
           const desvioAlmuerzo = ev==="fin_almuerzo" && rec ? calcDesvioAlmuerzo(todayRecs.find(r=>r.event==="inicio_almuerzo")?.time, rec.time) : null;
           return (
           <div key={ev} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<3?`1px solid ${C.border}`:"none"}}>
-            <div style={{width:12,height:12,borderRadius:99,background:rec?EVENT_COLORS[ev]:C.border,boxShadow:rec?`0 0 8px ${EVENT_COLORS[ev]}`:"none",flexShrink:0}}/>
-            <div style={{flex:1,fontFamily:font.body,fontSize:13,color:rec?C.text:C.textMuted}}>{EVENT_LABELS[ev]}</div>
-            {isNext&&!rec&&<Badge color={C.blue} sm>Pendiente</Badge>}
+            <div style={{width:12,height:12,borderRadius:99,background:rec?EVENT_COLORS[ev]:omitidoRec?C.red:C.border,boxShadow:rec?`0 0 8px ${EVENT_COLORS[ev]}`:"none",flexShrink:0}}/>
+            <div style={{flex:1,fontFamily:font.body,fontSize:13,color:rec||omitidoRec?C.text:C.textMuted}}>{EVENT_LABELS[ev]}</div>
+            {isNext&&!rec&&!omitidoRec&&<Badge color={C.blue} sm>Pendiente</Badge>}
             {rec?.photo_url&&<img src={rec.photo_url} alt="foto" style={{width:28,height:28,borderRadius:6,objectFit:"cover"}}/>}
             <div style={{display:"flex",alignItems:"baseline",gap:2}}>
-              <span style={{fontFamily:font.mono,fontSize:13,color:rec?EVENT_COLORS[ev]:C.border,fontWeight:700}}>{rec?rec.time:"--:--"}</span>
+              <span style={{fontFamily:font.mono,fontSize:13,color:rec?EVENT_COLORS[ev]:omitidoRec?C.red:C.border,fontWeight:700}}>{rec?rec.time:omitidoRec?"N/R":"--:--"}</span>
               {desvioAlmuerzo!==null && desvioAlmuerzo!==0 && <span style={{fontFamily:font.mono,fontSize:9.5,fontWeight:700,color:desvioAlmuerzo>0?C.amber:C.textMuted}}>{desvioAlmuerzo>0?`+${desvioAlmuerzo}`:desvioAlmuerzo}</span>}
             </div>
           </div>
@@ -5717,9 +5745,9 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, ventas, ventasItems, venta
   if(lista.length===0) return null;
   return (
     <div style={{
-      display:"flex", flexDirection:"column", gap:3,
-      background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:10, padding:"6px 10px",
-      width: isMobile?"100%":undefined, minWidth: isMobile?0:260, boxSizing:"border-box",
+      display:"flex", flexDirection:"column", gap:6,
+      background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:12, padding:"9px 14px",
+      width: isMobile?"100%":undefined, minWidth: isMobile?0:320, boxSizing:"border-box",
     }}>
       {lista.map((x,idx)=>{
         const esActual = x.tienda.id===tiendaIdActual;
@@ -5734,17 +5762,17 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, ventas, ventasItems, venta
             align="right"
             width={220}
             label={
-              <div style={{ display:"flex", alignItems:"center", gap:6, cursor:"pointer" }}>
-                <span style={{ width:14, textAlign:"center", fontSize:9.5, flexShrink:0, lineHeight:1 }}>{idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.`}</span>
+              <div style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer" }}>
+                <span style={{ width:18, textAlign:"center", fontSize:13, flexShrink:0, lineHeight:1 }}>{idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.`}</span>
                 <span style={{
-                  width:isMobile?50:62, flexShrink:0, fontFamily:font.body, fontSize:9.5, lineHeight:1,
+                  width:isMobile?66:82, flexShrink:0, fontFamily:font.body, fontSize:12, lineHeight:1.2,
                   fontWeight:esActual?700:400, color:esActual?C.goldLight:C.textMuted,
                   overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
                 }}>{x.tienda.name.replace(/^OZEN\s*/i,"")}</span>
-                <span style={{ flex:1, minWidth:44, height:7, borderRadius:4, background:C.dark, overflow:"hidden", position:"relative" }}>
-                  <span style={{ position:"absolute", inset:0, width:`${pct}%`, borderRadius:4, background:`linear-gradient(90deg, ${C.blue}, ${etapaColor})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
+                <span style={{ flex:1, minWidth:60, height:11, borderRadius:6, background:C.dark, overflow:"hidden", position:"relative" }}>
+                  <span style={{ position:"absolute", inset:0, width:`${pct}%`, borderRadius:6, background:`linear-gradient(90deg, ${C.blue}, ${etapaColor})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
                 </span>
-                <span style={{ width:30, textAlign:"right", flexShrink:0, fontFamily:font.mono, fontSize:9.5, lineHeight:1, fontWeight:700, color:etapaColor }}>{pct}%</span>
+                <span style={{ width:38, textAlign:"right", flexShrink:0, fontFamily:font.mono, fontSize:12.5, lineHeight:1, fontWeight:700, color:etapaColor }}>{pct}%</span>
               </div>
             }
           >
@@ -7524,13 +7552,39 @@ export default function App() {
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
 
-  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":puedeUsarAreas(u)?null:"checkin");sonidoBienvenida();};
+  // Al iniciar sesión se refresca todo del servidor en segundo plano (sin bloquear la entrada) —
+  // en un dispositivo compartido donde una cuenta entra justo después de que otra salió, sin esto
+  // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
+  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":puedeUsarAreas(u)?null:"checkin");sonidoBienvenida();refreshAll();};
   const logout=()=>{setUser(null);setArea(null);setTab(null);};
   const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?(ventasSoloLectura(user)?"lista":"registrar"):a==="firmas"?"firmar":"dashboard");};
   const backToAreas=()=>{setArea(null);setTab(null);};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
+
+  // TODOS los datos (ventas, registros de asistencia, metas, turnos, caja...) se traen del
+  // servidor UNA sola vez al abrir la página y de ahí en adelante viven solo en memoria — nada se
+  // vuelve a traer solo. En un dispositivo compartido donde varias cuentas entran y salen, o
+  // simplemente si alguien deja la pestaña abierta un rato largo, eso deja a TODA la app (no solo
+  // Marcar Asistencia) viendo información vieja — y registrar o editar algo sobre datos viejos es
+  // justo lo que puede generar problemas reales (duplicados, sobrescrituras, decisiones con
+  // números desactualizados). Por eso, además del botón de refrescar manual (🔄) y del refresco ya
+  // agregado al iniciar sesión, la app se refresca sola: cada vez que se vuelve a esta pestaña
+  // (se cambia de app y se regresa, se prende la pantalla del celular, etc.) y cada 3 minutos
+  // mientras quede abierta y visible.
+  useEffect(()=>{
+    if(!user) return;
+    const refrescarSiVisible = () => { if(document.visibilityState==="visible") refreshAll(); };
+    const intervalo = setInterval(refrescarSiVisible, 3*60000);
+    document.addEventListener("visibilitychange", refrescarSiVisible);
+    window.addEventListener("focus", refrescarSiVisible);
+    return () => {
+      clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", refrescarSiVisible);
+      window.removeEventListener("focus", refrescarSiVisible);
+    };
+  }, [user?.id]);
 
   // Notificaciones push reales (avisan a los admins de Turnos aunque tengan la app cerrada) — el
   // botón que dispara esto solo se muestra a quien puede gestionar Turnos (ver Sidebar/MobileHeader).
