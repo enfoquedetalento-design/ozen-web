@@ -1972,7 +1972,19 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
     // segundos que toma posar, tomar la foto y darle "Confirmar" — así no se gasta tiempo subiendo
     // nada que de todas formas no va a llegar.
     if(!navigator.onLine){ setToastError(true); setToast("📡 Sin conexión — no se pudo enviar. Vuelve a intentar cuando tengas señal."); return; }
+    if(!nextEvent){ await refreshTodayRecs(); setToastError(true); setToast("Tu jornada ya está completa — se actualizó la pantalla."); return; }
     setRecording(true);
+    // Justo antes de gastar tiempo tomando/subiendo la foto, se le pregunta al servidor si ESTE
+    // evento puntual ya quedó registrado desde otro dispositivo/sesión mientras se posaba para la
+    // foto (ej. la misma cuenta abierta en el celular de la tienda Y en el propio, o dos personas
+    // ayudando a marcar). Sin esto, dos dispositivos podían "cruzarse" e insertar el mismo evento
+    // dos veces — nunca debe haber más de 4 registros reales por persona por día.
+    const { data: yaExiste } = await supabase.from("registros").select("id").eq("user_id",user.id).eq("date",todayStr).or(`event.eq.${nextEvent},and(event.eq.omitido,time.eq.${nextEvent})`).limit(1);
+    if(yaExiste && yaExiste.length>0){
+      await refreshTodayRecs(); setRecording(false);
+      setToastError(true); setToast(`${EVENT_LABELS[nextEvent]} ya estaba registrado desde otro dispositivo — se actualizó la pantalla.`);
+      return;
+    }
     // La hora (y por lo tanto el evento) se define con el momento REAL en que se tomó la foto
     // (capturedAt, que llega desde CameraModal), no con el momento en que se da clic en
     // "Confirmar" — si no, alguien podría tomarse la foto y demorar el clic a propósito para
