@@ -782,12 +782,34 @@ function DashboardScreen({ records, stores, isMobile }) {
 }
 
 // ── SCREEN: Records ───────────────────────────────────────────────────────────
-function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turnosAsignaciones }) {
+function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turnosAsignaciones, user, onRecordDeleted, onRecordUpdated }) {
   const [storeFilter, setStoreFilter] = useState("all");
   const [userFilter, setUserFilter]   = useState("all");
   const [dateFrom, setDateFrom]       = useState(todayStr);
   const [dateTo, setDateTo]           = useState(todayStr);
   const [viewPhoto, setViewPhoto]     = useState(null);
+  // Corrección manual — solo master puede borrar un registro puntual (para que la persona lo
+  // vuelva a marcar) o editar/crear directamente la hora de un evento (cuando ya pasó tiempo y no
+  // tiene caso hacerla repetir el proceso completo con foto). Es una edición directa a la base de
+  // datos, sin pasar por las validaciones normales del flujo de Marcar Asistencia — a propósito,
+  // porque es Santiago corrigiendo un caso puntual que ya sabe que es real.
+  const isMaster = user?.role==="master";
+  const [editingKey,setEditingKey]=useState(null),[editValue,setEditValue]=useState("");
+  const guardarHora=async(j,eventKey,existingId)=>{
+    if(!editValue) return;
+    if(existingId){
+      const{data,error}=await supabase.from("registros").update({event:eventKey,time:editValue}).eq("id",existingId).select().single();
+      if(data){ onRecordUpdated(data); setEditingKey(null); } else if(error){ alert(`No se pudo guardar: ${error.message}`); }
+    } else {
+      const{data,error}=await supabase.from("registros").insert({user_id:j.userId,user_name:j.userName,store:j.store,shift:j.shift,event:eventKey,date:j.date,time:editValue,photo_url:null}).select().single();
+      if(data){ onRecordUpdated(data); setEditingKey(null); } else if(error){ alert(`No se pudo guardar: ${error.message}`); }
+    }
+  };
+  const eliminarRegistro=async(id,descripcion)=>{
+    if(!window.confirm(`¿Eliminar ${descripcion}? La persona podrá volver a marcarlo (o usa "✏️" para dejarlo con la hora correcta sin borrarlo).`)) return;
+    const{error}=await supabase.from("registros").delete().eq("id",id);
+    if(!error) onRecordDeleted(id); else alert(`No se pudo eliminar: ${error.message}`);
+  };
 
   const advisors = users.filter(u=>u.role==="advisor");
 
@@ -801,26 +823,46 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
     const key=`${r.user_id}_${r.date}`;
     if(!jornadasMap[key]) jornadasMap[key]={ key, userId:r.user_id, userName:r.user_name, store:r.store, shift:r.shift, date:r.date, entrada:null, inicio_almuerzo:null, fin_almuerzo:null, salida:null };
     if(r.event!=="omitido") jornadasMap[key][r.event]=r;
-    else jornadasMap[key][r.time+"_omitido"]=true;
+    else jornadasMap[key][r.time+"_omitido"]=r; // se guarda la fila completa (no solo `true`) para poder borrarla/editarla
   });
   const jornadas = Object.values(jornadasMap).sort((a,b)=>b.date.localeCompare(a.date)||a.userName.localeCompare(b.userName));
 
-  const EventBlock = ({ label, registro, omitido, color, desvio }) => {
+  const EventBlock = ({ label, eventKey, jornada, registro, omitido, color, desvio }) => {
     const isOmitido = !registro && omitido;
+    const existingId = registro?.id || (isOmitido ? omitido.id : null);
+    const editKey = `${jornada.key}::${eventKey}`;
+    const editando = isMaster && editingKey===editKey;
     return (
       <div style={{ flex:1, minWidth:0, borderRadius:8, padding:"8px 4px", background:isOmitido?`${C.red}18`:C.surfaceAlt, border:`1px solid ${isOmitido?C.red+"44":C.border}`, display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
         <div style={{ fontFamily:font.body, fontSize:9, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", textAlign:"center", lineHeight:1.2 }}>{label}</div>
-        <div style={{ display:"flex", alignItems:"baseline", gap:2 }}>
-          <span style={{ fontFamily:font.mono, fontSize:12, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?"N/R":"—"}</span>
-          {/* +N/-N sutil junto a la hora de Fin Almuerzo — cuánto se pasó (o no) del tiempo de almuerzo permitido. */}
-          {desvio!==null && desvio!==undefined && desvio!==0 && <span style={{ fontFamily:font.mono, fontSize:9, fontWeight:700, color:desvio>0?C.amber:C.textMuted }}>{desvio>0?`+${desvio}`:desvio}</span>}
-        </div>
+        {editando ? (
+          <input type="time" autoFocus value={editValue} onChange={e=>setEditValue(e.target.value)} style={{ width:62, background:C.dark, border:`1px solid ${C.gold}`, borderRadius:5, padding:"2px 3px", color:C.text, fontSize:11, fontFamily:font.mono, outline:"none" }} />
+        ) : (
+          <div style={{ display:"flex", alignItems:"baseline", gap:2 }}>
+            <span style={{ fontFamily:font.mono, fontSize:12, color:isOmitido?C.red:registro?color:C.border, fontWeight:700 }}>{registro?registro.time:isOmitido?"N/R":"—"}</span>
+            {/* +N/-N sutil junto a la hora de Fin Almuerzo — cuánto se pasó (o no) del tiempo de almuerzo permitido. */}
+            {desvio!==null && desvio!==undefined && desvio!==0 && <span style={{ fontFamily:font.mono, fontSize:9, fontWeight:700, color:desvio>0?C.amber:C.textMuted }}>{desvio>0?`+${desvio}`:desvio}</span>}
+          </div>
+        )}
         <div style={{ width:36, height:36, borderRadius:6, overflow:"hidden", border:`1px solid ${C.border}`, background:C.dark, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
           {registro?.photo_url
             ? <img src={registro.photo_url} onClick={()=>setViewPhoto(registro.photo_url)} alt="foto" style={{ width:"100%", height:"100%", objectFit:"cover", cursor:"pointer", display:"block" }} />
             : <span style={{ fontSize:12, opacity:0.25 }}>📷</span>
           }
         </div>
+        {isMaster && (
+          editando ? (
+            <div style={{ display:"flex", gap:4 }}>
+              <button onClick={()=>guardarHora(jornada,eventKey,existingId)} title="Guardar" style={{ background:"none", border:`1px solid ${C.green}`, color:C.green, borderRadius:5, padding:"1px 6px", fontSize:10, cursor:"pointer" }}>✓</button>
+              <button onClick={()=>setEditingKey(null)} title="Cancelar" style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:10 }}>✕</button>
+            </div>
+          ) : (
+            <div style={{ display:"flex", gap:4 }}>
+              <button onClick={()=>{ setEditingKey(editKey); setEditValue(registro?.time||"12:00"); }} title="Editar / crear hora" style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:10 }}>✏️</button>
+              {existingId && <button onClick={()=>eliminarRegistro(existingId, `${label} de ${jornada.userName}`)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", fontSize:10 }}>🗑</button>}
+            </div>
+          )
+        )}
       </div>
     );
   };
@@ -878,10 +920,10 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
                 <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift} · {j.date}{rango?` - ${rango}`:""}</div>
               </div>
               <div style={{ display:"flex", gap:6 }}>
-                <EventBlock label="Entrada"       registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
-                <EventBlock label="Ini. Almuerzo" registro={j.inicio_almuerzo} omitido={j["inicio_almuerzo_omitido"]} color={C.amber} />
-                <EventBlock label="Fin Almuerzo"  registro={j.fin_almuerzo}   omitido={j["fin_almuerzo_omitido"]}   color={C.blue}  desvio={calcDesvioAlmuerzo(j.inicio_almuerzo?.time, j.fin_almuerzo?.time)} />
-                <EventBlock label="Salida"        registro={j.salida}         omitido={j["salida_omitido"]}         color={C.red}   />
+                <EventBlock label="Entrada"       eventKey="entrada"        jornada={j} registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
+                <EventBlock label="Ini. Almuerzo" eventKey="inicio_almuerzo" jornada={j} registro={j.inicio_almuerzo} omitido={j["inicio_almuerzo_omitido"]} color={C.amber} />
+                <EventBlock label="Fin Almuerzo"  eventKey="fin_almuerzo"   jornada={j} registro={j.fin_almuerzo}   omitido={j["fin_almuerzo_omitido"]}   color={C.blue}  desvio={calcDesvioAlmuerzo(j.inicio_almuerzo?.time, j.fin_almuerzo?.time)} />
+                <EventBlock label="Salida"        eventKey="salida"         jornada={j} registro={j.salida}         omitido={j["salida_omitido"]}         color={C.red}   />
               </div>
             </Card>
           );
@@ -7774,6 +7816,10 @@ export default function App() {
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
+  // Corrección manual de registros (solo master, desde Registros) — el borrado/edición en la base
+  // ya lo hace RecordsScreen; esto solo mantiene sincronizado el estado local en memoria.
+  const onRecordDeletedAdmin=(id)=>setRecords(prev=>prev.filter(r=>r.id!==id));
+  const onRecordUpdatedAdmin=(updated)=>setRecords(prev=>{ const yaEstaba=prev.some(r=>r.id===updated.id); return yaEstaba ? prev.map(r=>r.id===updated.id?updated:r) : [updated,...prev]; });
 
   // TODOS los datos (ventas, registros de asistencia, metas, turnos, caja...) se traen del
   // servidor UNA sola vez al abrir la página y de ahí en adelante viven solo en memoria — nada se
@@ -7889,7 +7935,7 @@ export default function App() {
         if(tab==="firmar")   return <FirmarDocumentoScreen/>;
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
-        if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
+        if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones} user={user} onRecordDeleted={onRecordDeletedAdmin} onRecordUpdated={onRecordUpdatedAdmin}/>;
         if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={puedeGestionarTurnos(user)} onSubChange={setTurnosSub}/>;
         if(tab==="mi_asistencia") return <MiAsistenciaScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
