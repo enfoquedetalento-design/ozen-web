@@ -1877,6 +1877,17 @@ function MiAsistenciaScreen({ user, records, onRecord, onRefresh, stores, asigna
 // ── SCREEN: CheckIn ───────────────────────────────────────────────────────────
 function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignaciones, turnosHorarios }) {
   const [selStore,setSelStore]=useState(""),[selShift,setSelShift]=useState(""),[locked,setLocked]=useState(false),[showCamera,setShowCamera]=useState(false),[recording,setRecording]=useState(false),[toast,setToast]=useState(null),[toastError,setToastError]=useState(false);
+  // Sin conexión, ni la cámara ni el guardado tienen caso — mejor bloquear el botón de una vez con
+  // un aviso claro que dejar que la persona haga todo el proceso (foto + confirmar) para enterarse
+  // al final que no se guardó nada. navigator.onLine detecta el caso más común (wifi/datos
+  // apagados, modo avión); no cubre "conectado pero sin señal real a internet", por eso el
+  // try/catch de handleCapture sigue siendo la defensa final para esos casos más raros.
+  const [online,setOnline]=useState(typeof navigator!=="undefined"?navigator.onLine:true);
+  useEffect(()=>{
+    const marcarOnline=()=>setOnline(true), marcarOffline=()=>setOnline(false);
+    window.addEventListener("online",marcarOnline); window.addEventListener("offline",marcarOffline);
+    return ()=>{ window.removeEventListener("online",marcarOnline); window.removeEventListener("offline",marcarOffline); };
+  },[]);
   useEffect(()=>{ const h=records.filter(r=>r.user_id===user.id&&r.date===todayStr&&r.event!=="omitido"); if(h.length>0){setSelStore(h[0].store);setSelShift(h[0].shift);setLocked(true);} },[records]);
   // Si hoy ya tiene un turno asignado en la rejilla de Turnos (incluye apoyo en pareja — ambos
   // quedan con el mismo tienda+turno ese día), se precarga y queda fijo — ya no lo elige a mano.
@@ -1919,8 +1930,15 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
       if((Date.now()-inicioMs)/60000 < LIMITE_ALMUERZO_MIN) return;
       almuerzoVencidoLockRef.current = true;
       try {
-        const { data: existente } = await supabase.from("registros").select("id").eq("user_id",user.id).eq("date",todayStr).eq("event","omitido").eq("time","fin_almuerzo").limit(1);
-        if(existente && existente.length>0) return;
+        // Se vuelve a preguntar al SERVIDOR (no a `records`, que puede estar desactualizado si esta
+        // pestaña se quedó cerrada/en segundo plano mientras la persona sí alcanzó a marcar su fin
+        // de almuerzo real desde otra sesión) si YA existe un fin_almuerzo real O un N/R — así nunca
+        // se pisa un registro real con un N/R por estar viendo datos viejos en memoria. Esto fue
+        // justo lo que le pasó a Paolo: marcó su fin de almuerzo real a tiempo, pero esta pantalla
+        // igual insertó un N/R después porque su copia local de `records` no se había enterado.
+        const { data: existentes } = await supabase.from("registros").select("event,time").eq("user_id",user.id).eq("date",todayStr).in("event",["fin_almuerzo","omitido"]);
+        const yaResuelto = (existentes||[]).some(r=>r.event==="fin_almuerzo" || (r.event==="omitido" && r.time==="fin_almuerzo"));
+        if(yaResuelto) { await refreshTodayRecs(); return; }
         const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:inicioRec.store,shift:inicioRec.shift,event:"omitido",date:todayStr,time:"fin_almuerzo",photo_url:null}).select().single();
         if(!error&&data){ onRecord(data); setToast("⏱ No se registró el fin de tu almuerzo a tiempo (2h) — quedó como N/R. Ya puedes marcar tu salida."); setTimeout(()=>setToast(null),5000); }
       } finally {
@@ -1945,8 +1963,16 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
   // — así, aunque los datos en memoria estuvieran desactualizados por lo que sea (cambio de cuenta,
   // la app se quedó abierta desde otro momento del día, etc.), nunca se guarda un evento repetido
   // ni se tapa un registro real con uno nuevo.
-  const abrirCamara=async()=>{ setRefrescandoAntesDeCapturar(true); await refreshTodayRecs(); setRefrescandoAntesDeCapturar(false); setShowCamera(true); };
-  const handleCapture=async(photoBase64,capturedAt)=>{ setShowCamera(false);setRecording(true);
+  const abrirCamara=async()=>{
+    if(!navigator.onLine){ setToastError(true); setToast("📡 Sin conexión — conéctate a internet para poder registrar."); return; }
+    setRefrescandoAntesDeCapturar(true); await refreshTodayRecs(); setRefrescandoAntesDeCapturar(false); setShowCamera(true);
+  };
+  const handleCapture=async(photoBase64,capturedAt)=>{ setShowCamera(false);
+    // Se revisa otra vez aquí (no solo al abrir la cámara) porque la conexión pudo caerse en los
+    // segundos que toma posar, tomar la foto y darle "Confirmar" — así no se gasta tiempo subiendo
+    // nada que de todas formas no va a llegar.
+    if(!navigator.onLine){ setToastError(true); setToast("📡 Sin conexión — no se pudo enviar. Vuelve a intentar cuando tengas señal."); return; }
+    setRecording(true);
     // La hora (y por lo tanto el evento) se define con el momento REAL en que se tomó la foto
     // (capturedAt, que llega desde CameraModal), no con el momento en que se da clic en
     // "Confirmar" — si no, alguien podría tomarse la foto y demorar el clic a propósito para
@@ -2017,8 +2043,12 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
         <Card style={{marginBottom:12}}>
           <div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,marginBottom:4}}>Próximo evento</div>
           <div style={{fontFamily:font.body,fontSize:18,fontWeight:700,color:EVENT_COLORS[nextEvent],marginBottom:14}}>{EVENT_LABELS[nextEvent]}</div>
-          <div style={{background:`${C.gold}10`,border:`1px solid ${C.borderGold}`,borderRadius:8,padding:"10px 12px",marginBottom:14,fontFamily:font.body,fontSize:12,color:C.textSub}}>📸 Se abrirá la cámara y se tomará una foto. Asegúrate de que tu rostro sea visible.</div>
-          <Btn onClick={abrirCamara} disabled={!selStore||!selShift||recording||refrescandoAntesDeCapturar} full>{refrescandoAntesDeCapturar?"Actualizando...":recording?"Registrando...":"📸 Abrir cámara y registrar"}</Btn>
+          {!online ? (
+            <div style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:8,padding:"10px 12px",marginBottom:14,fontFamily:font.body,fontSize:12,color:C.red,fontWeight:600}}>📡 Sin conexión — no se puede registrar hasta que vuelva la señal.</div>
+          ):(
+            <div style={{background:`${C.gold}10`,border:`1px solid ${C.borderGold}`,borderRadius:8,padding:"10px 12px",marginBottom:14,fontFamily:font.body,fontSize:12,color:C.textSub}}>📸 Se abrirá la cámara y se tomará una foto. Asegúrate de que tu rostro sea visible.</div>
+          )}
+          <Btn onClick={abrirCamara} disabled={!online||!selStore||!selShift||recording||refrescandoAntesDeCapturar} full>{!online?"📡 Sin conexión":refrescandoAntesDeCapturar?"Actualizando...":recording?"Registrando...":"📸 Abrir cámara y registrar"}</Btn>
         </Card>
       ):(
         <Card style={{marginBottom:12}}><div style={{textAlign:"center",padding:"16px 0"}}><div style={{fontSize:36,marginBottom:8}}>✅</div><div style={{fontFamily:font.body,fontSize:15,fontWeight:600,color:C.text}}>Jornada completa</div><div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,marginTop:4}}>Todos los eventos del día registrados.</div></div></Card>
