@@ -5744,6 +5744,10 @@ const calcularMetaHoyTienda = (tiendaId, fecha, ventas, ventasItems, ventasAbono
 // la burbuja completa no crezca más de lo necesario — tocar un carril despliega el detalle
 // (vendido/meta/falta) sin ocupar espacio fijo, que es donde vive el "cuánto llevo y cuánto me
 // falta" de siempre.
+// Hasta qué % "llena" la barra de cada carril — pasado el 100% la barra sigue avanzando hasta
+// este tope (150%) en vez de quedarse pegada en el borde; más allá de eso ya solo el número sigue
+// subiendo. La marca blanca sutil adentro de la barra siempre cae en 100/ESCALA_MAX_PCT.
+const ESCALA_MAX_PCT = 150;
 const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile }) => {
   // Master/admin finanzas pueden cambiar la fecha en Registrar venta para trabajar sobre un día
   // distinto a hoy — la burbuja sigue esa fecha (si se pasa) en vez de quedarse pegada en "hoy" y
@@ -5759,13 +5763,20 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
     <div style={{
       display:"flex", flexDirection:"column", gap:7,
       background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:12, padding:"11px 16px",
-      width: isMobile?"100%":346, boxSizing:"border-box", flexShrink:0,
+      width: isMobile?"100%":352, boxSizing:"border-box", flexShrink:0,
     }}>
       {lista.map((x,idx)=>{
         const esActual = x.tienda.id===tiendaIdActual;
         const cumplida = x.falta<=0;
         const pctRaw = (x.vendido/x.meta)*100;
-        const pct = Math.max(0, Math.min(100, Math.round(pctRaw)));
+        // El número mostrado ya NO se topa en 100 — si alguien va en 134%, se ve 134%. La barra sí
+        // necesita un límite visual para no crecer sin fin, así que representa hasta ESCALA_MAX_PCT
+        // (150%) — pasado eso queda al tope, pero el número real se sigue viendo igual. Adentro de
+        // la barra queda una marca sutil de dónde cae exactamente el 100%, para que se note de un
+        // vistazo quién ya la cumplió y sigue sumando de más.
+        const pct = Math.max(0, Math.round(pctRaw));
+        const anchoBarra = Math.max(0, Math.min(100, (pctRaw/ESCALA_MAX_PCT)*100));
+        const marca100Pct = (100/ESCALA_MAX_PCT)*100;
         const etapaColor = cumplida ? C.green : pctRaw>=75 ? C.amber : C.blue;
         return (
           <HoverTooltip
@@ -5778,7 +5789,7 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
               // <span style="display:inline-block"> de HoverTooltip, y ahí un flex:1 no siempre
               // se estira de verdad (por eso la barra quedaba minúscula pese a subir las fuentes).
               // Con anchos fijos el tamaño total queda garantizado sin depender de esa cadena.
-              <div style={{ display:"flex", alignItems:"center", gap:9, width:isMobile?290:314, cursor:"pointer" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:9, width:isMobile?296:320, cursor:"pointer" }}>
                 <span style={{ width:20, textAlign:"center", fontSize:14, flexShrink:0, lineHeight:1 }}>{idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.`}</span>
                 <span style={{
                   width:isMobile?80:96, flexShrink:0, fontFamily:font.body, fontSize:13, lineHeight:1.2,
@@ -5786,9 +5797,10 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
                   overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
                 }}>{x.tienda.name.replace(/^OZEN\s*/i,"")}</span>
                 <span style={{ width:isMobile?110:130, flexShrink:0, height:13, borderRadius:7, background:C.dark, overflow:"hidden", position:"relative" }}>
-                  <span style={{ position:"absolute", inset:0, width:`${pct}%`, borderRadius:7, background:`linear-gradient(90deg, ${C.blue}, ${etapaColor})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
+                  <span style={{ position:"absolute", inset:0, width:`${anchoBarra}%`, borderRadius:7, background:`linear-gradient(90deg, ${C.blue}, ${etapaColor})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
+                  {marca100Pct<100 && <span style={{ position:"absolute", top:0, bottom:0, left:`${marca100Pct}%`, width:1, background:"rgba(255,255,255,0.4)" }}/>}
                 </span>
-                <span style={{ width:42, textAlign:"right", flexShrink:0, fontFamily:font.mono, fontSize:14, lineHeight:1, fontWeight:700, color:etapaColor }}>{pct}%</span>
+                <span style={{ width:48, textAlign:"right", flexShrink:0, fontFamily:font.mono, fontSize:14, lineHeight:1, fontWeight:700, color:etapaColor }}>{pct}%</span>
               </div>
             }
           >
