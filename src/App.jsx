@@ -1952,7 +1952,20 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
     // "Confirmar" — si no, alguien podría tomarse la foto y demorar el clic a propósito para
     // "ganar" minutos de descanso o de salida.
     const horaReal = capturedAt||new Date();
-    let photo_url=null; try{ const blob=await fetch(photoBase64).then(r=>r.blob()); const fileName=`${user.id}_${Date.now()}.jpg`; const{data:up}=await supabase.storage.from("fotos-registro").upload(fileName,blob,{contentType:"image/jpeg"}); if(up){const{data:ud}=supabase.storage.from("fotos-registro").getPublicUrl(fileName);photo_url=ud.publicUrl;} }catch(e){console.error(e);} const{data,error}=await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:selStore,shift:selShift,event:nextEvent,date:todayStr,time:fmtTime(horaReal),photo_url}).select().single();
+    // TODO el intento va en un try/catch que cubre también el insert del registro — antes solo la
+    // subida de la foto estaba protegida; si el insert fallaba de forma "dura" (ej. sin conexión
+    // del todo, el fetch ni siquiera responde) la función se cortaba ahí mismo SIN pasar por
+    // setRecording(false) ni por ningún toast: la persona se quedaba viendo "Registrando..." para
+    // siempre, sin ningún aviso de éxito ni de error. Ahora, pase lo que pase, SIEMPRE se termina en
+    // uno de dos estados visibles: "✓ registrada" (con la fila ya confirmada en la base de datos) o
+    // un error explícito que invita a reintentar — nunca silencio ni un estado a medias.
+    let data=null, error=null;
+    try {
+      let photo_url=null;
+      try{ const blob=await fetch(photoBase64).then(r=>r.blob()); const fileName=`${user.id}_${Date.now()}.jpg`; const{data:up}=await supabase.storage.from("fotos-registro").upload(fileName,blob,{contentType:"image/jpeg"}); if(up){const{data:ud}=supabase.storage.from("fotos-registro").getPublicUrl(fileName);photo_url=ud.publicUrl;} }catch(e){console.error(e);}
+      const res = await supabase.from("registros").insert({user_id:user.id,user_name:user.name,store:selStore,shift:selShift,event:nextEvent,date:todayStr,time:fmtTime(horaReal),photo_url}).select().single();
+      data=res.data; error=res.error;
+    } catch(e) { console.error(e); error=e; }
     setRecording(false);
     // El toast de éxito antes se mostraba SIEMPRE, incluso si el insert fallaba (solo cambiaba el
     // sonido) — alguien podía ver "✓ registrada" en pantalla sin que nada quedara guardado de
@@ -1978,7 +1991,10 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
     } else {
       sonidoError();
       console.error(error);
-      setToastError(true);setToast(`✕ No se pudo guardar ${EVENT_LABELS[nextEvent]} — revisa tu conexión e intenta de nuevo.`);setTimeout(()=>setToast(null),6000);
+      // El toast de error NO se cierra solo — se queda hasta que la persona lo cierre a mano, para
+      // asegurar que sí lo vio antes de intentar de nuevo (un error de 6 segundos se puede perder
+      // de vista fácil si en ese momento está guardando el celular o mirando a otro lado).
+      setToastError(true);setToast(`✕ No se pudo guardar ${EVENT_LABELS[nextEvent]} — revisa tu conexión e intenta de nuevo.`);
     } };
 
   const puntHoy = calcPuntualidad(todayRecs.find(r=>r.event==="entrada")?.time, selShift, todayStr, selStore, turnosHorarios, asigHoy?.entrada_custom);
@@ -1987,7 +2003,10 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
   return (
     <div>
       {showCamera&&<CameraModal eventLabel={EVENT_LABELS[nextEvent]} onCapture={handleCapture} onCancel={()=>setShowCamera(false)}/>}
-      {toast&&<div style={{position:"fixed",top:16,right:16,left:16,background:toastError?C.redDim:C.greenDim,border:`1px solid ${toastError?C.red:C.green}`,borderRadius:10,padding:"12px 16px",color:toastError?C.red:C.green,fontFamily:font.body,fontSize:13,fontWeight:600,zIndex:200,textAlign:"center"}}>{toast}</div>}
+      {toast&&<div style={{position:"fixed",top:16,right:16,left:16,background:toastError?C.redDim:C.greenDim,border:`1px solid ${toastError?C.red:C.green}`,borderRadius:10,padding:"12px 16px",color:toastError?C.red:C.green,fontFamily:font.body,fontSize:13,fontWeight:600,zIndex:200,textAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+        <span>{toast}</span>
+        {toastError && <button onClick={()=>setToast(null)} style={{background:"none",border:`1px solid ${C.red}`,color:C.red,borderRadius:6,padding:"3px 10px",fontFamily:font.body,fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}>Entendido</button>}
+      </div>}
       <PageHeader title="Marcar Asistencia" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} />
       <Card style={{marginBottom:12}}>
         <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
