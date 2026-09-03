@@ -19,7 +19,11 @@ const C = {
   textMuted: "#B8A49C", textSub: "#D4C4BB",
   green: "#2ECC71", greenDim: "rgba(46,204,113,0.12)",
   red: "#E74C3C",   redDim: "rgba(231,76,60,0.12)",
-  blue: "#3498DB",  blueDim: "rgba(52,152,219,0.12)",
+  // Antes "#3498DB" — un azul que casi no se distinguía del fondo navy de la app (C.surface/
+  // C.surfaceAlt son también azules oscuros), por eso textos/badges en este color (ej. "Vence en
+  // Nd" de Flexipago, "Fin Almuerzo" en Asistencia) se veían apagados. Este es más claro/saturado,
+  // se sigue leyendo como "azul" pero contrasta bien contra los fondos oscuros de toda la app.
+  blue: "#58A6FF",  blueDim: "rgba(88,166,255,0.12)",
   amber: "#F39C12", amberDim: "rgba(243,156,18,0.12)",
   sidebar: "#112233",
 };
