@@ -865,7 +865,13 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
             : <span style={{ fontSize:12, opacity:0.25 }}>📷</span>
           }
         </div>
-        {isMaster && (
+        {/* Editar convierte un N/R en un registro real sin foto (una reconstrucción tuya, no lo que
+            la persona realmente hizo), y borrar un N/R ya no debería hacer falta seguido ahora que
+            los cron de Supabase evitan que se generen mal — por eso ninguno de los dos botones se
+            ofrece sobre una fila en N/R. Si de verdad hay que tocar un N/R puntual, se hace directo
+            en Supabase (con más cuidado, a propósito). Sobre un registro real o un espacio vacío
+            ("—") sí se puede editar/crear/eliminar normal. */}
+        {isMaster && !isOmitido && (
           editando ? (
             <div style={{ display:"flex", gap:4 }}>
               <button onClick={()=>guardarHora(jornada,eventKey,existingId)} title="Guardar" style={{ background:"none", border:`1px solid ${C.green}`, color:C.green, borderRadius:5, padding:"1px 6px", fontSize:10, cursor:"pointer" }}>✓</button>
