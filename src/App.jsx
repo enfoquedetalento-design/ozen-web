@@ -7416,15 +7416,20 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
           </div>
         )}
         <div style={{ display:"flex", gap:6, marginLeft:"auto" }}>
-          {!soloLectura && <Btn variant={cajaVista==="registrar"?"primary":"ghost"} sm onClick={()=>setCajaVista("registrar")}>Registrar</Btn>}
+          <Btn variant={cajaVista==="registrar"?"primary":"ghost"} sm onClick={()=>setCajaVista("registrar")}>Registrar</Btn>
           <Btn variant={cajaVista==="historial"?"primary":"ghost"} sm onClick={()=>setCajaVista("historial")}>Historial</Btn>
         </div>
       </div>
       {msg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"7px 10px", color:C.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{msg}</div>}
 
       <div key={cajaVista} className="ozen-pane-anim-tab">
-      {cajaVista==="registrar" && !soloLectura ? (
-        <>
+      {cajaVista==="registrar" ? (
+        <div style={soloLectura ? { pointerEvents:"none", opacity:0.55 } : undefined}>
+          {soloLectura && (
+            <div style={{ background:`${C.amber}18`, border:`1px solid ${C.amber}55`, borderRadius:8, padding:"8px 12px", marginBottom:12, color:C.amber, fontSize:12, fontFamily:font.body }}>
+              👁 Solo puedes ver esta pantalla — no tienes permiso para registrar movimientos de Caja.
+            </div>
+          )}
           {/* Rediseño Felipe (v2, fiel al mockup real): columna izquierda = una sola tarjeta Cierre
               (con el selector Parcial/Final en el encabezado, tabla combinada de "dinero recibido
               por método de pago", Ventas, Servicios, Descuentos, Nota crédito, Novedades del día).
@@ -7624,7 +7629,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
               </CajaCard>
             </div>
           </div>
-        </>
+        </div>
       ) : (
         <>
           {puedeBorrarCaja && solicitudesPendientes.length>0 && (
