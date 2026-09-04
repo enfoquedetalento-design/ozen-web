@@ -4591,6 +4591,14 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
         @page{size:80mm auto;margin:3mm 3mm;}
         *{box-sizing:border-box;}
         body{width:100%;font-family:Arial,Helvetica,sans-serif;font-size:9.5pt;line-height:1.35;color:#000;margin:0;padding:0;}
+        /* Lo de arriba es lo que de verdad usa la impresora térmica (@page ya define su ancho real
+           de 80mm) — pero esa regla NO aplica a la vista previa en pantalla, así que antes de
+           imprimir se veía como una hoja carta normal, con el texto pegado a los bordes. Esto solo
+           afecta cómo se VE en el navegador antes de imprimir, para que ya se parezca al tamaño y
+           margen real del comprobante en vez de sorprender con una hoja ancha sin márgenes. */
+        @media screen{
+          body{max-width:80mm;margin:0 auto;padding:4mm;background:#fff;}
+        }
         .logo-wrap{text-align:center;margin-bottom:2mm;}
         .logo-wrap img{width:38mm;height:auto;}
         h1{font-size:12pt;margin:0 0 1mm;text-align:center;font-weight:700;}
@@ -4631,7 +4639,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
       <div class="sep"></div>
       <div class="aviso"><div class="t">${FLEXIPAGO_AVISO_TITULO}</div>${avisoHtml}</div>
     </body></html>`;
-    const w = window.open("", "_blank", "width=720,height=900");
+    const w = window.open("", "_blank", "width=380,height=800");
     if(!w){ alert("El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes para este sitio e intenta de nuevo."); return; }
     w.document.write(html);
     w.document.close();
