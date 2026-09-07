@@ -6755,22 +6755,17 @@ const CajaCard = ({ icon, titulo, children, color, headerExtra, compact }) => {
       background: glass
         ? `radial-gradient(130% 65% at 0% 0%, rgba(255,255,255,0.16), transparent 60%), radial-gradient(130% 65% at 100% 0%, rgba(255,255,255,0.16), transparent 60%), linear-gradient(180deg, ${color}80 0%, ${color}45 32%, ${C.surface}f0 68%, ${C.dark}fa 100%)`
         : C.surface,
-      backdropFilter: glass ? "blur(16px) saturate(220%)" : undefined,
-      WebkitBackdropFilter: glass ? "blur(16px) saturate(220%)" : undefined,
+      // Antes tenía backdrop-filter (blur + saturate) para el efecto "vidrio esmerilado" — se quitó
+      // porque era la causa real de la franja/seam clara que aparecía y desaparecía al mover el
+      // mouse encima (bug conocido de Chrome/Safari con backdrop-filter recomponiendo mal la capa
+      // en cada repintado cercano). Forzar la tarjeta a su propia capa de composición (translateZ/
+      // isolation) no fue suficiente, así que se quitó el blur del todo — se conserva el degradado
+      // con el color de la tienda, solo sin el desenfoque.
       border: glass ? `1px solid ${color}70` : `1px solid ${C.border}`,
       borderRadius:12,
       boxShadow: glass ? `inset 0 1px 0 rgba(255,255,255,0.22), 0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px ${color}40` : "none",
       padding:compact?"7px 12px":"10px 14px",
       marginBottom:compact?6:10,
-      // Franja/seam clara que aparecía y desaparecía al mover el mouse encima (reportado por
-      // Santiago): es un bug conocido de Chrome/Safari con backdrop-filter — cuando el navegador
-      // vuelve a pintar algo cerca (aunque sea solo por el mouse pasando encima, sin ningún :hover
-      // real en la tarjeta), a veces recompone mal el borde de la capa con blur y deja una línea
-      // más clara. El arreglo es forzar esta tarjeta a su PROPIA capa de composición estable, que ya
-      // no se ve afectada por repintados vecinos.
-      transform: glass ? "translateZ(0)" : undefined,
-      WebkitTransform: glass ? "translateZ(0)" : undefined,
-      isolation: glass ? "isolate" : undefined,
     }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:compact?4:8 }}>
         <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:15, fontWeight:700, color:C.goldLight, textTransform:"uppercase", letterSpacing:"0.04em" }}>
