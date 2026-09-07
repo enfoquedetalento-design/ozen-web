@@ -6751,7 +6751,7 @@ const cajaHeaderSelectStyle = { background:"rgba(0,0,0,0.28)", border:"1px solid
 const CajaCard = ({ icon, titulo, children, color, headerExtra, compact }) => {
   const glass = !!color;
   return (
-    <div style={{
+    <div className="ozen-caja-card" style={{
       background: glass
         ? `radial-gradient(130% 65% at 0% 0%, rgba(255,255,255,0.16), transparent 60%), radial-gradient(130% 65% at 100% 0%, rgba(255,255,255,0.16), transparent 60%), linear-gradient(180deg, ${color}80 0%, ${color}45 32%, ${C.surface}f0 68%, ${C.dark}fa 100%)`
         : C.surface,
@@ -6815,7 +6815,24 @@ const CajaCapturaBtn = ({ onClick, title }) => (
 const capturarTarjetaCaja = async (ref, setToast) => {
   if(!ref?.current || !window.html2canvas){ setToast("⚠️ No se pudo generar la imagen — intenta de nuevo."); setTimeout(()=>setToast(null),2800); return; }
   try{
-    const canvas = await window.html2canvas(ref.current, { backgroundColor:C.dark, scale:2, useCORS:true });
+    const canvas = await window.html2canvas(ref.current, {
+      backgroundColor:C.surface, scale:2, useCORS:true,
+      // html2canvas no soporta backdrop-filter (el "vidrio esmerilado") ni renderiza bien los
+      // degradados en capa que usa CajaCard cuando hay color de tienda — eso era el borde grueso y
+      // las franjas de color raras que vio Santiago en las capturas. Justo antes de tomar la foto,
+      // en el DOM CLONADO (esto no toca lo que se ve en pantalla) se reemplaza ese fondo "glass"
+      // por uno plano y sin sombra, así la imagen sale limpia siempre, sin importar el color de la
+      // tienda.
+      onclone: (clonedDoc) => {
+        clonedDoc.querySelectorAll(".ozen-caja-card").forEach(el=>{
+          el.style.background = C.surface;
+          el.style.backdropFilter = "none";
+          el.style.webkitBackdropFilter = "none";
+          el.style.boxShadow = "none";
+          el.style.border = `1px solid ${C.border}`;
+        });
+      },
+    });
     canvas.toBlob(async (blob) => {
       if(!blob){ setToast("⚠️ No se pudo generar la imagen — intenta de nuevo."); setTimeout(()=>setToast(null),2800); return; }
       try{
