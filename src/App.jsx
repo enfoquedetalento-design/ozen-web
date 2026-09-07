@@ -5935,14 +5935,19 @@ const calcularCierresFlexipago = (ventas, ventasItems, ventasAbonos) => {
 // (MetaHoyCompetencia). Recibe la fecha como parámetro (normalmente hoy, pero master/admin
 // finanzas pueden cambiar la fecha en Registrar venta para trabajar sobre un día distinto — la
 // burbuja debe seguir esa fecha, no quedarse pegada en "hoy" mostrando todo en cero). "vendido"
-// es lo mismo que cuenta Métricas para el % de cumplimiento: ventas normales de esa fecha +
-// Flexipagos que se terminan de pagar ese día (con su valor completo) + ajustes/Notacrédito de
-// ese día. A propósito NO suma abonos parciales en Flexipagos que siguen abiertos — eso es plata
-// que sí entró a caja ese día (por eso "Ingreso del día" en Caja sí la incluye), pero todavía no
-// es una venta: la venta completa solo cuenta el día que se termina de pagar. Antes esta burbuja
-// sí lo sumaba (copiado de una versión vieja) y por eso mostraba "vendido" más alto que las
-// ventas reales del día — quedó desalineada de Métricas, que nunca lo sumó. Detectado porque
-// Angela vendió $665.000 reales pero la burbuja mostraba más de un millón.
+// debe ser lo mismo que cuenta Métricas para el % de cumplimiento (ver "sinServicios" en
+// VentasMetricasScreen): solo ventas de tipo "producto" de esa fecha + Flexipagos que se
+// terminan de pagar ese día (con su valor completo) + ajustes/Notacrédito de ese día. Arreglo,
+// marcación y grabado son SERVICIOS — se muestran aparte en Caja ("Total ingreso del día" sí los
+// suma, pero "Total ventas" no) y por eso Métricas tampoco los cuenta en la meta. Antes esta
+// burbuja sumaba el total COMPLETO de cada venta (venta.total, sin filtrar por tipo de ítem), así
+// que una venta con un renglón de marcación mezclado inflaba "vendido" por encima de lo que
+// Métricas y Caja reconocían como venta real ese día — detectado con Jardín Plaza el 5 de sept
+// (mostraba $1.084.000, pero "Total ventas" del cierre de ese día era $1.024.000; la diferencia
+// eran $60.000 de una marcación). A propósito tampoco suma abonos parciales en Flexipagos que
+// siguen abiertos — eso es plata que sí entró a caja ese día (por eso "Ingreso del día" en Caja sí
+// la incluye), pero todavía no es una venta: la venta completa solo cuenta el día que se termina
+// de pagar.
 const calcularMetaHoyTienda = (tiendaId, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas) => {
   const diaNum = Number(fecha.slice(8,10));
   const mesKey = fecha.slice(0,7);
@@ -5950,7 +5955,16 @@ const calcularMetaHoyTienda = (tiendaId, fecha, ventas, ventasItems, ventasAbono
   const cierresFlexipagoTodos = calcularCierresFlexipago(ventas, ventasItems, ventasAbonos);
   const cierresDia = cierresFlexipagoTodos.filter(c=>c.tiendaId===tiendaId && c.fechaCierre===fecha).reduce((s,c)=>s+c.valorNeto,0);
   const ajustesDia = (ventasAjustes||[]).filter(aj=>aj.fecha===fecha && !aj.es_correccion_error && ventas.find(v=>v.id===aj.venta_id)?.tienda_id===tiendaId).reduce((s,aj)=>s+Number(aj.diferencia||0),0);
-  const vendido = ventas.filter(v=>v.fecha===fecha && v.tienda_id===tiendaId && !v.es_flexipago).reduce((s,v)=>s+Number(v.total||0),0) + cierresDia + ajustesDia;
+  const ventasIdsTienda = new Set(ventas.filter(v=>v.tienda_id===tiendaId && !v.es_flexipago).map(v=>v.id));
+  const vendidoProducto = ventasItems.filter(i=>{
+    if(i.tipo!=="producto" || !ventasIdsTienda.has(i.venta_id)) return false;
+    const v = ventas.find(vv=>vv.id===i.venta_id);
+    if(!v) return false;
+    const esExcedente = i.es_original===false && !!i.fecha_item;
+    const fechaEfectiva = esExcedente ? i.fecha_item : v.fecha;
+    return fechaEfectiva===fecha;
+  }).reduce((s,i)=>s+Number(i.valor||0)-Number(i.descuento||0),0);
+  const vendido = vendidoProducto + cierresDia + ajustesDia;
   const falta = Math.max(0, meta - vendido);
   return { meta, vendido, falta };
 };
