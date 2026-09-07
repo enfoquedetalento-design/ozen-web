@@ -7241,7 +7241,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     ventasAbonos.forEach(a=>{
       const v = ventasTiendaMap[a.venta_id];
       if(!v || a.fecha!==fechaDia) return;
-      if(a.medio_pago==="efectivo") total += Number(a.valor||0);
+      // Un abono puede venir dividido en varios medios (ej. cierra un Flexipago con parte tarjeta,
+      // parte efectivo) — hay que mirar CADA medio del desglose (mediosDeAbono), no solo
+      // a.medio_pago, que en un abono dividido solo guarda el PRIMER medio que se agregó (columna
+      // vieja, de compatibilidad) y hacía que toda la plata en efectivo de un abono así quedara
+      // fuera de este cálculo si el primer medio agregado no era efectivo.
+      mediosDeAbono(a).forEach(p=>{ if(p.medio_pago==="efectivo") total += Number(p.valor||0); });
     });
     return total;
   };
@@ -7294,7 +7299,9 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     const v = ventasTiendaMap[a.venta_id];
     if(!v) return;
     if(a.fecha>=todayStr) return;
-    if(a.medio_pago==="efectivo") efectivoAnterioresBruto += Number(a.valor||0);
+    // Ver comentario igual en efectivoDelDia — hay que mirar cada medio del desglose, no solo
+    // a.medio_pago (que en un abono dividido en varios medios solo guarda el primero).
+    mediosDeAbono(a).forEach(p=>{ if(p.medio_pago==="efectivo") efectivoAnterioresBruto += Number(p.valor||0); });
   });
   // Lo ya recogido de "días anteriores" en TODAS las recolecciones hechas hasta ahora. El campo
   // "valor" guarda días-anteriores + hoy juntos (ver guardarRecoleccion), así que se resta
@@ -7349,7 +7356,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       ventasAbonos.forEach(a=>{
         const v = ventasTiendaMap[a.venta_id];
         if(!v || a.fecha>fechaCorte) return;
-        if(a.medio_pago==="efectivo") brutoHastaFechaCorte += Number(a.valor||0);
+        mediosDeAbono(a).forEach(p=>{ if(p.medio_pago==="efectivo") brutoHastaFechaCorte += Number(p.valor||0); });
       });
     }
     let pool = fechaCorte ? Math.max(0, brutoHastaFechaCorte + gastosNetoAntesRecoleccion - recogidoAnterioresAcumulado) : 0;
