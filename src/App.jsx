@@ -7021,6 +7021,14 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const gastosNetoAcumulado = gastosDesdeRecoleccion.reduce((s,g)=> (g.tipo==="ingreso" ? s+Number(g.valor||0) : s-Number(g.valor||0)), 0);
   const costosAcumulados = gastosDesdeRecoleccion.filter(g=>g.tipo!=="ingreso").reduce((s,g)=>s+Number(g.valor||0),0);
   const ingresosAcumulados = gastosDesdeRecoleccion.filter(g=>g.tipo==="ingreso").reduce((s,g)=>s+Number(g.valor||0),0);
+  // Novedades de ANTES de la última recolección: quedan "resueltas" (no se vuelven a listar como
+  // pendientes), pero su efecto en efectivo real (ej. vueltas no reclamadas por un cliente = plata de
+  // más en el cajón) no lo capta la venta en sí, solo la novedad — así que si no se suma una sola vez
+  // de forma permanente al histórico, esa plata física deja de contarse para siempre en cuanto la
+  // novedad pasa a ser "de antes" de la recolección. Se suma acá, UNA sola vez por novedad (nunca se
+  // vuelve a sumar después, porque desdeTS solo avanza hacia adelante).
+  const gastosAntesRecoleccion = gastosTienda.filter(g=> new Date(g.created_at).getTime() <= desdeTS);
+  const gastosNetoAntesRecoleccion = gastosAntesRecoleccion.reduce((s,g)=> (g.tipo==="ingreso" ? s+Number(g.valor||0) : s-Number(g.valor||0)), 0);
 
   // ── Efectivo pendiente por recoger ──────────────────────────────────────────
   // Regla general: una recolección SIEMPRE se lleva el efectivo de días ya cerrados (anteriores a
@@ -7058,7 +7066,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // se le resta/suma el neto de novedades desde la última recolección (costo resta, ingreso suma)
   // para que una deuda o gasto quede reflejada de forma PERMANENTE en el pendiente real — no solo
   // en la sugerencia inicial, que se perdía en cuanto Santiago editaba el valor a mano.
-  const efectivoAnteriores = Math.max(0, efectivoAnterioresBruto + gastosNetoAcumulado - recogidoAnterioresAcumulado);
+  const efectivoAnteriores = Math.max(0, efectivoAnterioresBruto + gastosNetoAntesRecoleccion + gastosNetoAcumulado - recogidoAnterioresAcumulado);
 
   // Efectivo de HOY que sigue pendiente — es el tope para el retiro esporádico de "efectivo de hoy".
   const retiradoHoyYa = recoleccionesTienda.filter(r=>r.fecha===todayStr).reduce((s,r)=>s+Number(r.valor_hoy||0),0);
@@ -7463,6 +7471,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                         <div>Efectivo histórico bruto (antes de hoy): {fmtCOP(efectivoAnterioresBruto)}</div>
                         <div>Recogido históricamente (días anteriores): −{fmtCOP(recogidoAnterioresAcumulado)}</div>
                         <div style={{ fontWeight:700 }}>= Efectivo días anteriores (antes de novedades): {fmtCOP(Math.max(0, efectivoAnterioresBruto - recogidoAnterioresAcumulado))}</div>
+                        {gastosNetoAntesRecoleccion!==0 && <div>Ajuste histórico (novedades ya resueltas, aplicado una sola vez): {gastosNetoAntesRecoleccion>=0?"+":"−"}{fmtCOP(Math.abs(gastosNetoAntesRecoleccion))}</div>}
                         <div style={{ marginTop:4 }}>Novedades desde la última recolección ({ultimaRecoleccion?fmtFechaHora(ultimaRecoleccion.created_at):"—"}):</div>
                         {gastosDesdeRecoleccion.length>0 ? gastosDesdeRecoleccion.map(g=>(
                           <div key={g.id} style={{ paddingLeft:8 }}>{fmtFechaHora(g.created_at)} · {g.motivo} ({g.estado}): {g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</div>
