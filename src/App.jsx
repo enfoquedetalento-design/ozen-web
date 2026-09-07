@@ -6762,6 +6762,15 @@ const CajaCard = ({ icon, titulo, children, color, headerExtra, compact }) => {
       boxShadow: glass ? `inset 0 1px 0 rgba(255,255,255,0.22), 0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px ${color}40` : "none",
       padding:compact?"7px 12px":"10px 14px",
       marginBottom:compact?6:10,
+      // Franja/seam clara que aparecía y desaparecía al mover el mouse encima (reportado por
+      // Santiago): es un bug conocido de Chrome/Safari con backdrop-filter — cuando el navegador
+      // vuelve a pintar algo cerca (aunque sea solo por el mouse pasando encima, sin ningún :hover
+      // real en la tarjeta), a veces recompone mal el borde de la capa con blur y deja una línea
+      // más clara. El arreglo es forzar esta tarjeta a su PROPIA capa de composición estable, que ya
+      // no se ve afectada por repintados vecinos.
+      transform: glass ? "translateZ(0)" : undefined,
+      WebkitTransform: glass ? "translateZ(0)" : undefined,
+      isolation: glass ? "isolate" : undefined,
     }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:compact?4:8 }}>
         <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:15, fontWeight:700, color:C.goldLight, textTransform:"uppercase", letterSpacing:"0.04em" }}>
