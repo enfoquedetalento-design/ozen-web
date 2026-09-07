@@ -3816,7 +3816,7 @@ const VENTAS_MEDIOS_REALES = VENTAS_MEDIOS_PAGO;
 const mediosDeAbono = (a) => (a && a.pagos && a.pagos.length)
   ? a.pagos
   : [{ medio_pago:a?.medio_pago, valor:a?.valor, numero_autorizacion:a?.numero_autorizacion }];
-const textoMediosAbono = (a) => mediosDeAbono(a).map(p=>`${VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago}${p.numero_autorizacion?` (AUT ${p.numero_autorizacion})`:""}`).join(" + ");
+const textoMediosAbono = (a) => mediosDeAbono(a).map(p=>`${VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago}${p.numero_autorizacion?` (AUT ${p.numero_autorizacion})`:""} $${Number(p.valor||0).toLocaleString("es-CO")}`).join(" + ");
 
 const VENTAS_TIPOS = [
   { value:"producto", label:"Venta" },
@@ -4103,11 +4103,30 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
 
   // Corrección directa de un abono ya registrado (solo master) — para cuando quedó con la fecha,
   // el valor o el medio de pago equivocado y no hay forma de arreglarlo desde el flujo normal.
+  // El abono INICIAL (el primero, índice 0 en la lista ordenada por fecha) nunca se puede corregir
+  // desde aquí — Santiago pidió que ese quede intocable, solo los abonos posteriores se editan así.
+  // Soporta varios medios de pago a la vez (ej. mitad tarjeta, mitad efectivo) — mismo patrón que
+  // "Agregar abono" (abonoPagos/agregarMedioAAbono), con su propio set de estados para no interferir
+  // con ese formulario si los dos llegaran a estar abiertos al tiempo.
   const [editandoAbonoId, setEditandoAbonoId] = useState(null);
   const [eaFecha, setEaFecha] = useState("");
   const [eaValor, setEaValor] = useState("");
-  const [eaMedio, setEaMedio] = useState("efectivo");
+  const [eaPagos, setEaPagos] = useState([]); // [{medio_pago, valor, numero_autorizacion}]
+  const [eaMedioNuevo, setEaMedioNuevo] = useState("");
   const [guardandoEa, setGuardandoEa] = useState(false);
+  const eaSumaMedios = eaPagos.reduce((s,p)=>s+Number(p.valor||0),0);
+  const eaFaltaPagos = Number(eaValor||0) - eaSumaMedios;
+  const eaFaltaAUT = eaPagos.some(p=>VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && !(p.numero_autorizacion||"").trim());
+  const agregarMedioAEa = (medio) => {
+    const m = medio || eaMedioNuevo;
+    if(!m) return;
+    const sugerido = Math.max(0, eaFaltaPagos);
+    setEaPagos(prev=>[...prev, { medio_pago:m, valor: sugerido>0?String(sugerido):"", numero_autorizacion:"" }]);
+    setEaMedioNuevo("");
+  };
+  const quitarMedioDeEa = (idx) => setEaPagos(prev=>prev.filter((_,i)=>i!==idx));
+  const setEaPagoValor = (idx, v) => setEaPagos(prev=>prev.map((p,i)=>i===idx?{...p,valor:v}:p));
+  const setEaPagoAutorizacion = (idx, v) => setEaPagos(prev=>prev.map((p,i)=>i===idx?{...p,numero_autorizacion:v}:p));
 
   // Corregir SOLO el medio de pago de un renglón ya registrado (ej: el asesor marcó tarjeta
   // pero fue efectivo) — el valor no se toca nunca aquí, solo cómo se pagó. Requiere la misma
@@ -4143,16 +4162,29 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     setCorrigiendoPago(null);
   };
 
-  const iniciarEdicionAbono = (a) => { setEditandoAbonoId(a.id); setEaFecha(a.fecha); setEaValor(String(a.valor)); setEaMedio(a.medio_pago); };
+  const iniciarEdicionAbono = (a) => {
+    setEditandoAbonoId(a.id);
+    setEaFecha(a.fecha);
+    setEaValor(String(a.valor));
+    setEaPagos(mediosDeAbono(a).map(p=>({ medio_pago:p.medio_pago, valor:String(p.valor||""), numero_autorizacion:p.numero_autorizacion||"" })));
+    setEaMedioNuevo("");
+  };
   const guardarEdicionAbono = async () => {
-    if(!eaFecha || !eaValor){ return; }
+    if(!eaFecha || !eaValor || eaPagos.length===0 || Math.abs(eaFaltaPagos)>=1 || eaFaltaAUT){ return; }
     setGuardandoEa(true);
-    const { data, error } = await supabase.from("ventas_abonos").update({ fecha:eaFecha, valor:Number(eaValor), medio_pago:eaMedio }).eq("id", editandoAbonoId).select().single();
+    const pagosGuardar = eaPagos.map(p=>({ medio_pago:p.medio_pago, valor:Number(p.valor||0), numero_autorizacion: VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?(p.numero_autorizacion||"").trim():null }));
+    const { data, error } = await supabase.from("ventas_abonos").update({
+      fecha:eaFecha, valor:Number(eaValor),
+      medio_pago:pagosGuardar[0]?.medio_pago, numero_autorizacion:pagosGuardar[0]?.numero_autorizacion,
+      pagos:pagosGuardar,
+    }).eq("id", editandoAbonoId).select().single();
     setGuardandoEa(false);
     if(data){
       setDetalle(prev=>({ ...prev, abonos:(prev?.abonos||[]).map(x=>x.id===data.id?data:x) }));
       if(setVentasAbonos) setVentasAbonos(prev=>prev.map(a=>a.id===data.id?data:a));
       setEditandoAbonoId(null);
+    } else if(error){
+      alert(`No se pudo guardar la corrección: ${error.message||"error desconocido"}`);
     }
   };
 
@@ -5029,24 +5061,57 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                     </div>
                   )}
                   <div style={{ display:"flex", flexDirection:"column", gap:2, marginBottom:6 }}>
-                    {(d?.abonos||[]).map(a=>(
+                    {(d?.abonos||[]).map((a,idx)=>(
                       editandoAbonoId===a.id ? (
-                        <div key={a.id} style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"end", padding:"4px 0", background:C.dark, borderRadius:6, marginBottom:2 }}>
-                          <div style={{ width:130 }}><Field label="Fecha" type="date" value={eaFecha} onChange={setEaFecha}/></div>
-                          <div style={{ width:110 }}><Field label="Valor" value={eaValor} onChange={v2=>setEaValor(v2.replace(/[^\d]/g,""))}/></div>
-                          <div style={{ width:130 }}><Field label="Medio" value={eaMedio} onChange={setEaMedio} options={VENTAS_MEDIOS_PAGO}/></div>
-                          <Btn onClick={guardarEdicionAbono} disabled={guardandoEa} sm>{guardandoEa?"...":"Guardar"}</Btn>
-                          <Btn onClick={()=>setEditandoAbonoId(null)} variant="ghost" sm>Cancelar</Btn>
+                        <div key={a.id} style={{ display:"flex", flexDirection:"column", gap:6, padding:"8px 6px", background:C.dark, borderRadius:6, marginBottom:2 }}>
+                          <div style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"end" }}>
+                            <div style={{ width:130 }}><Field label="Fecha" type="date" value={eaFecha} onChange={setEaFecha}/></div>
+                            <div style={{ width:110 }}><CurrencyField label="Valor total" value={eaValor} onChange={setEaValor}/></div>
+                          </div>
+                          {/* Mismo patrón multi-medio que "Agregar abono" — necesario porque un
+                              abono puede pagarse mitad tarjeta, mitad efectivo, etc. */}
+                          <div>
+                            <div style={{ fontSize:10.5, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.06em", margin:"2px 0 4px" }}>Medios de pago</div>
+                            {eaPagos.length>0 && (
+                              <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:6 }}>
+                                {eaPagos.map((p,pidx)=>{
+                                  const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===p.medio_pago);
+                                  return (
+                                    <div key={pidx} style={{ border:`1px solid ${C.gold}`, borderRadius:7, padding:"7px 8px", background:`${C.gold}0d` }}>
+                                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
+                                        <span style={{ fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{m?.label}</span>
+                                        <button onClick={()=>quitarMedioDeEa(pidx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
+                                      </div>
+                                      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                                        <div style={{ flex:1, minWidth:100 }}><CurrencyField label="Valor pagado" value={p.valor} onChange={v2=>setEaPagoValor(pidx,v2)}/></div>
+                                        {VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && <div style={{ flex:1, minWidth:100 }}><Field label="N.º autorización" value={p.numero_autorizacion||""} onChange={v2=>setEaPagoAutorizacion(pidx,v2)} placeholder="Ej: 056495"/></div>}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            <Field value={eaMedioNuevo} onChange={v2=>{ if(v2) agregarMedioAEa(v2); else setEaMedioNuevo(v2); }} options={[{value:"",label:"+ Agregar medio de pago"}, ...VENTAS_MEDIOS_REALES]}/>
+                            {eaPagos.length>0 && (
+                              <div style={{ fontFamily:font.body, fontSize:11.5, margin:"4px 0 6px", color:Math.abs(eaFaltaPagos)<1?C.green:C.red }}>
+                                {Math.abs(eaFaltaPagos)<1 ? "✓ Los medios cuadran con el valor" : eaFaltaPagos>0 ? `Faltan $${eaFaltaPagos.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(eaFaltaPagos).toLocaleString("es-CO")}`}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display:"flex", gap:6 }}>
+                            <Btn onClick={guardarEdicionAbono} disabled={guardandoEa || eaPagos.length===0 || Math.abs(eaFaltaPagos)>=1 || eaFaltaAUT} sm>{guardandoEa?"...":"Guardar"}</Btn>
+                            <Btn onClick={()=>setEditandoAbonoId(null)} variant="ghost" sm>Cancelar</Btn>
+                          </div>
                         </div>
                       ) : (
                         <div key={a.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, padding:"2px 0" }}>
                           <span>{a.fecha} — {textoMediosAbono(a)}</span>
                           <span style={{ display:"flex", alignItems:"center", gap:8 }}>
                             <span style={{fontFamily:font.mono}}>${Number(a.valor).toLocaleString("es-CO")}</span>
-                            {/* Corregir en línea solo aplica a abonos de un solo medio — uno dividido
-                                entre varios medios se corrige borrando/rehaciendo (no hay forma de
-                                editar un desglose completo desde este lápiz sin arriesgar dejarlo mal). */}
-                            {esAdmin && (!a.pagos || a.pagos.length<=1) && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
+                            {/* El abono INICIAL (idx 0, el más antiguo) nunca se puede corregir desde
+                                acá — Santiago pidió que ese quede intocable. Los siguientes sí, y ya
+                                soportan varios medios de pago a la vez (ver eaPagos arriba). */}
+                            {esAdmin && idx!==0 && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
                           </span>
                         </div>
                       )
