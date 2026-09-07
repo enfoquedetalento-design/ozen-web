@@ -7256,7 +7256,32 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   {
     const gastosOrdenados = [...gastosDesdeRecoleccion].sort((a,b)=> new Date(a.created_at)-new Date(b.created_at));
     let cursor = fechaCorte ? sumarDias(fechaCorte, 1) : (gastosOrdenados[0]?.fecha || null);
-    let pool = 0, guard = 0;
+    // El caminado de días arrancaba SIEMPRE en $0 justo después de la última recolección, como si
+    // esa recolección siempre dejara la caja en cero — pero una recolección puede ser PARCIAL (se
+    // puede recoger menos de lo sugerido a propósito), así que suele quedar efectivo real sin
+    // recoger desde ANTES de esa fecha. Ese sobrante sí cuenta en "Efectivo" (arriba), pero el
+    // caminado lo ignoraba por completo — por eso una novedad grande podía "pegarle" a la base
+    // aunque el Efectivo total mostrado alcanzara de sobra para cubrirla. Se arranca ahora con lo
+    // que de verdad quedó sin recoger hasta la fecha de corte (bruto acumulado hasta esa fecha,
+    // ya con las novedades de antes de la recolección aplicadas, menos lo recogido en toda la
+    // historia), no en $0.
+    let brutoHastaFechaCorte = 0;
+    if(fechaCorte){
+      ventasItems.forEach(i=>{
+        const v = ventasTiendaMap[i.venta_id];
+        if(!v || i.tipo==="flexipago") return;
+        const fechaEfectiva = (i.es_original===false && i.fecha_item) ? i.fecha_item : v.fecha;
+        if(fechaEfectiva>fechaCorte) return;
+        (i.pagos||[]).forEach(p=>{ if(p.medio_pago==="efectivo") brutoHastaFechaCorte += Number(p.valor||0); });
+      });
+      ventasAbonos.forEach(a=>{
+        const v = ventasTiendaMap[a.venta_id];
+        if(!v || a.fecha>fechaCorte) return;
+        if(a.medio_pago==="efectivo") brutoHastaFechaCorte += Number(a.valor||0);
+      });
+    }
+    let pool = fechaCorte ? Math.max(0, brutoHastaFechaCorte + gastosNetoAntesRecoleccion - recogidoAnterioresAcumulado) : 0;
+    let guard = 0;
     while(cursor && cursor<=todayStr && guard<730){
       pool += efectivoDelDia(cursor);
       gastosOrdenados.filter(g=>g.fecha===cursor).forEach(g=>{
