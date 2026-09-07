@@ -6226,14 +6226,20 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     // — se leen directo de la malla real de Turnos de ese asesor ese mes.
     const novedadesAuto = novedadesDesdeMalla(asesorId, mesKey, turnosAsignaciones, turnosGlobales);
     const diasNovedadTotal = novedadesAuto.reduce((s,n)=>s+n.dias,0);
-    // Los días disponibles del mes son siempre 30 (DIAS_META) menos los de las novedades — ya no
-    // hay un toggle manual de "ingresó nuevo": si alguien empezó a mitad de mes, simplemente no
-    // tiene turnos asignados antes de esa fecha, así que sus días por tienda ya salen más bajos
-    // solos, sin necesitar un campo aparte.
-    const diasDisponibles = DIAS_META - diasNovedadTotal;
+    // Los días disponibles del mes son los días REALES de ese mes (28-31, según el mes/año — ver
+    // diasDelMes) menos los de las novedades — antes se restaba siempre sobre 30 fijo (DIAS_META),
+    // así que en meses de 31 días un asesor sin ninguna novedad ya "perdía" un día de la nada, y
+    // uno con una sola novedad quedaba con 29 en vez de 30. El VALOR de cada día (meta/30) sigue
+    // siendo siempre sobre 30 — eso no cambia, es una tarifa diaria estándar — solo el total de
+    // días que se pueden repartir entre tiendas ahora sí refleja el mes real. Ya no hay un toggle
+    // manual de "ingresó nuevo": si alguien empezó a mitad de mes, simplemente no tiene turnos
+    // asignados antes de esa fecha, así que sus días por tienda ya salen más bajos solos, sin
+    // necesitar un campo aparte.
+    const diasDelMesActual = diasDelMes(anio, mesIdx);
+    const diasDisponibles = diasDelMesActual - diasNovedadTotal;
     const sumaDiasTienda = Object.values(d.diasTienda||{}).reduce((s,v)=>s+Number(v||0),0);
     if(sumaDiasTienda > diasDisponibles){
-      setMetaMsg(`Los días por tienda de ${users.find(u=>u.id===asesorId)?.name||"este asesor"} suman ${sumaDiasTienda}, pero solo tiene ${diasDisponibles} días disponibles este mes (30 menos ${diasNovedadTotal} de novedades).`);
+      setMetaMsg(`Los días por tienda de ${users.find(u=>u.id===asesorId)?.name||"este asesor"} suman ${sumaDiasTienda}, pero solo tiene ${diasDisponibles} días disponibles este mes (${diasDelMesActual} menos ${diasNovedadTotal} de novedades).`);
       return;
     }
     setGuardandoDetalle(asesorId);
@@ -6559,7 +6565,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
               // mano — se leen directo de la malla real de Turnos de ese mes.
               const novedadesAuto = novedadesDesdeMalla(a.id, mesKey, turnosAsignaciones, turnosGlobales);
               const diasNovedadTotal = novedadesAuto.reduce((s,n)=>s+n.dias,0);
-              const diasDisponibles = DIAS_META - diasNovedadTotal;
+              const diasDelMesActual = diasDelMes(anio, mesIdx);
+              const diasDisponibles = diasDelMesActual - diasNovedadTotal;
               const sumaDiasTienda = Object.values(d.diasTienda||{}).reduce((s,v)=>s+Number(v||0),0);
               // Si lo que se está mostrando en "días por tienda" todavía no se ha guardado, es la
               // sugerencia calculada desde la malla de Turnos — se avisa para que se revise antes
@@ -6576,7 +6583,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                   <Collapse open={abierto}>
                     <div style={{ padding:"0 10px 10px" }}>
                       <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
-                        <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginLeft:"auto" }}>Días disponibles: <b style={{ fontFamily:font.mono, color:diasDisponibles>0?C.text:C.red }}>{diasDisponibles}</b> (30 − {diasNovedadTotal} de novedades)</span>
+                        <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginLeft:"auto" }}>Días disponibles: <b style={{ fontFamily:font.mono, color:diasDisponibles>0?C.text:C.red }}>{diasDisponibles}</b> ({diasDelMesActual} − {diasNovedadTotal} de novedades)</span>
                       </div>
 
                       <div style={{ fontSize:10.5, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:4 }}>Novedades este mes</div>
@@ -6635,7 +6642,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                   <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>Cómo salió la meta de {d.asesor.name.split(" ")[0]} — {MESES_NOMBRE[mesIdx]}</div>
                   {exp.diasNovedadTotal>0 && (
                     <div style={{ fontFamily:font.body, fontSize:11, color:C.text, lineHeight:1.5, marginBottom:6 }}>
-                      {exp.diasNovedadTotal} día{exp.diasNovedadTotal!==1?"s":""} de novedad este mes ({exp.novedadesAuto.map(n=>`${n.dias} de ${n.nombre}`).join(", ")}) → 30 − {exp.diasNovedadTotal} = {DIAS_META-exp.diasNovedadTotal} días disponibles para trabajar.
+                      {exp.diasNovedadTotal} día{exp.diasNovedadTotal!==1?"s":""} de novedad este mes ({exp.novedadesAuto.map(n=>`${n.dias} de ${n.nombre}`).join(", ")}) → {diasDelMes(anio,mesIdx)} − {exp.diasNovedadTotal} = {diasDelMes(anio,mesIdx)-exp.diasNovedadTotal} días disponibles para trabajar.
                     </div>
                   )}
                   {exp.filas.map(f=>(
