@@ -6966,6 +6966,10 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const [reBaseCajaTocado, setReBaseCajaTocado] = useState(false);
 
   const [msg, setMsg] = useState("");
+  // Desglose del cálculo de "Efectivo" visible para master/admin de finanzas — para poder revisar
+  // un descuadre (como el que encontramos con Cristina) viendo los números reales que está usando
+  // la fórmula en vivo, en vez de reconstruirlos a mano con capturas de pantalla.
+  const [verDetalleCalculo, setVerDetalleCalculo] = useState(false);
 
   const aperturasTienda = aperturas.filter(a=>a.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
   const cierresTienda = cierres.filter(c=>c.tienda_id===tiendaId).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
@@ -7451,6 +7455,25 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10, color:C.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
                 {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
                 <CajaReciboLinea compact label="Efectivo" value={fmtCOP(Math.max(0, efectivoPendienteTotal))}/>
+                {esAdminDeVentas(user) && (
+                  <div style={{ marginTop:2 }}>
+                    <button onClick={()=>setVerDetalleCalculo(v=>!v)} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:10, textDecoration:"underline", padding:0 }}>{verDetalleCalculo?"Ocultar detalle del cálculo":"Ver detalle del cálculo"}</button>
+                    {verDetalleCalculo && (
+                      <div style={{ marginTop:4, padding:"8px 10px", background:"rgba(0,0,0,0.2)", borderRadius:6, fontFamily:font.mono, fontSize:10.5, color:C.textSub, display:"flex", flexDirection:"column", gap:2 }}>
+                        <div>Efectivo histórico bruto (antes de hoy): {fmtCOP(efectivoAnterioresBruto)}</div>
+                        <div>Recogido históricamente (días anteriores): −{fmtCOP(recogidoAnterioresAcumulado)}</div>
+                        <div style={{ fontWeight:700 }}>= Efectivo días anteriores (antes de novedades): {fmtCOP(Math.max(0, efectivoAnterioresBruto - recogidoAnterioresAcumulado))}</div>
+                        <div style={{ marginTop:4 }}>Novedades desde la última recolección ({ultimaRecoleccion?fmtFechaHora(ultimaRecoleccion.created_at):"—"}):</div>
+                        {gastosDesdeRecoleccion.length>0 ? gastosDesdeRecoleccion.map(g=>(
+                          <div key={g.id} style={{ paddingLeft:8 }}>{fmtFechaHora(g.created_at)} · {g.motivo} ({g.estado}): {g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</div>
+                        )) : <div style={{ paddingLeft:8 }}>Ninguna.</div>}
+                        <div style={{ fontWeight:700, marginTop:4 }}>= Efectivo días anteriores: {fmtCOP(efectivoAnteriores)}</div>
+                        <div>+ Efectivo de hoy pendiente: {fmtCOP(efectivoHoyPendiente)}</div>
+                        <div style={{ fontWeight:700 }}>= Efectivo total: {fmtCOP(Math.max(0, efectivoPendienteTotal))}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <CajaReciboLinea compact label="Total" value={fmtCOP(totalEnCajaAhora)} bold totalLine/>
                 <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end" }}>
                   <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"Registrar apertura"}</CajaBtn>
