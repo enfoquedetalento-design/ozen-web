@@ -6816,7 +6816,7 @@ const capturarTarjetaCaja = async (ref, setToast) => {
   if(!ref?.current || !window.html2canvas){ setToast("⚠️ No se pudo generar la imagen — intenta de nuevo."); setTimeout(()=>setToast(null),2800); return; }
   try{
     const canvas = await window.html2canvas(ref.current, {
-      backgroundColor:C.surface, scale:2, useCORS:true,
+      backgroundColor:C.dark, scale:2, useCORS:true,
       // html2canvas no soporta backdrop-filter (el "vidrio esmerilado") ni renderiza bien los
       // degradados en capa que usa CajaCard cuando hay color de tienda — eso era el borde grueso y
       // las franjas de color raras que vio Santiago en las capturas. Justo antes de tomar la foto,
@@ -6825,11 +6825,13 @@ const capturarTarjetaCaja = async (ref, setToast) => {
       // tienda.
       onclone: (clonedDoc) => {
         clonedDoc.querySelectorAll(".ozen-caja-card").forEach(el=>{
-          el.style.background = C.surface;
+          // Se deja el `background` (el degradado con el color de la tienda) tal cual — eso es lo
+          // que Santiago quiere conservar. Solo se quita el blur (backdrop-filter, que html2canvas
+          // no soporta) y la sombra compuesta (inset + glow), que eran las causantes reales del
+          // borde grueso y las franjas.
           el.style.backdropFilter = "none";
           el.style.webkitBackdropFilter = "none";
           el.style.boxShadow = "none";
-          el.style.border = `1px solid ${C.border}`;
         });
       },
     });
