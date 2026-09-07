@@ -6801,6 +6801,127 @@ const CajaMoney = ({ label, value, onChange, placeholder }) => {
 const CajaBtn = ({ onClick, children, disabled }) => (
   <button onClick={disabled?undefined:onClick} style={{ padding:"5px 12px", borderRadius:5, border:"none", background:C.gold, color:"#fff", fontSize:13.5, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.5:1, whiteSpace:"nowrap" }}>{children}</button>
 );
+// Botón 📸 — "fotografía" el cuadro completo (Apertura/Cierre/Recolección) y lo copia al
+// portapapeles como imagen, para pegarlo directo en WhatsApp sin tener que hacer captura de
+// pantalla manual y recortarla. Va al lado izquierdo del botón "Registrar..." de cada tarjeta.
+const CajaCapturaBtn = ({ onClick, title }) => (
+  <button type="button" onClick={onClick} title={title||"Copiar como imagen"} style={{ padding:"5px 9px", borderRadius:5, border:`1px solid ${C.border}`, background:"rgba(0,0,0,0.18)", color:C.text, fontSize:14, cursor:"pointer", lineHeight:1 }}>📸</button>
+);
+// Toma una "foto" de un cuadro de Caja (via su ref) y la copia al portapapeles como imagen —
+// ver CajaCapturaBtn. Depende de html2canvas, cargado desde CDN en index.html (no es un paquete
+// npm, así no hace falta build extra). Si el navegador no soporta copiar imágenes al portapapeles
+// (Clipboard API con ClipboardItem), en vez de fallar en silencio se descarga el PNG para poder
+// compartirlo igual — Santiago pidió blindar esto de errores silenciosos, igual que Asistencia.
+const capturarTarjetaCaja = async (ref, setToast) => {
+  if(!ref?.current || !window.html2canvas){ setToast("⚠️ No se pudo generar la imagen — intenta de nuevo."); setTimeout(()=>setToast(null),2800); return; }
+  try{
+    const canvas = await window.html2canvas(ref.current, { backgroundColor:C.dark, scale:2, useCORS:true });
+    canvas.toBlob(async (blob) => {
+      if(!blob){ setToast("⚠️ No se pudo generar la imagen — intenta de nuevo."); setTimeout(()=>setToast(null),2800); return; }
+      try{
+        if(!navigator.clipboard || !window.ClipboardItem) throw new Error("Clipboard no soportado");
+        await navigator.clipboard.write([ new window.ClipboardItem({ "image/png": blob }) ]);
+        setToast("📋 Copiado — pégalo en WhatsApp");
+      } catch(e){
+        // Respaldo: el navegador no deja copiar imágenes al portapapeles — se descarga el PNG.
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `ozen-caja-${Date.now()}.png`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(()=>URL.revokeObjectURL(url), 4000);
+        setToast("⬇️ Descargada — compártela desde tus archivos");
+      }
+      setTimeout(()=>setToast(null), 2800);
+    }, "image/png");
+  } catch(e){
+    console.error(e);
+    setToast("⚠️ No se pudo generar la imagen — intenta de nuevo.");
+    setTimeout(()=>setToast(null),2800);
+  }
+};
+const cajaFmtFechaHora = (iso) => new Date(iso).toLocaleString("es-CO",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+// Vista "congelada" de un registro de Historial (Apertura/Cierre/Recolección), armada con lo que
+// se guardó en `registro.detalle` al momento de registrar — NO se recalcula con datos de hoy, así
+// que se ve igual al pantallazo que Santiago hubiera tomado ese día (pedido explícito: poder ver
+// el cuadro completo tal como quedó, sin gastar almacenamiento guardando imágenes). Registros de
+// antes de esta función no tienen `detalle` — se avisa en vez de mostrar una tarjeta a medias.
+const FrozenCajaCard = ({ tipo, registro, tiendaColor, setToastCaptura }) => {
+  const ref = useRef(null);
+  const d = registro.detalle;
+  if(!d){
+    return <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, padding:"6px 4px", fontStyle:"italic" }}>Este registro es de antes de esta función — no tiene vista congelada disponible.</div>;
+  }
+  return (
+    <div style={{ marginTop:4, marginBottom:8 }}>
+      <div ref={ref}>
+        <CajaCard compact icon={tipo==="apertura"?"🔓":tipo==="cierre"?"🔒":"🚚"} titulo={tipo==="apertura"?"Apertura de turno":tipo==="cierre"?"Cierre de caja":"Recolección de efectivo"} color={tiendaColor}>
+          <CajaReciboLinea compact label="Fecha" value={cajaFmtFechaHora(registro.created_at)} small/>
+          {tipo==="apertura" && (<>
+            <CajaReciboLinea compact label="Asesor" value={registro.asesor_nombre} small/>
+            <CajaReciboLinea compact label="Turno" value={d.turno||"—"} small/>
+            <CajaReciboLinea compact label="Base" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C.red:undefined} small/>
+            <CajaReciboLinea compact label="Efectivo" value={fmtCOP(d.efectivoPendienteTotal)}/>
+            <CajaReciboLinea compact label="Total" value={fmtCOP(d.totalEnCajaAhora)} bold totalLine/>
+            <CajaSubHeader compact label="Última recolección"/>
+            <CajaReciboLinea compact label="Fecha" value={d.ultimaRecoleccionFecha?cajaFmtFechaHora(d.ultimaRecoleccionFecha):"—"}/>
+            <CajaReciboLinea compact label="Por" value={d.ultimaRecoleccionPor||"Sin registro previo"}/>
+            <CajaSubHeader compact label="Novedades del período"/>
+            {(d.novedadesDesdeRecoleccion||[]).length>0 ? d.novedadesDesdeRecoleccion.map((g,idx)=>(
+              <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text }}>
+                <span>{idx+1}. {g.motivo}{g.estado && g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}</span>
+                <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+              </div>
+            )) : <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin novedades registradas.</div>}
+          </>)}
+          {tipo==="cierre" && (<>
+            <CajaReciboLinea compact label="Asesor" value={registro.asesor_nombre} small/>
+            <CajaReciboLinea compact label="Turno" value={d.turno||"—"} small/>
+            <CajaReciboLinea compact label="Tipo" value={registro.tipo==="parcial"?"Parcial":"Definitivo"} small/>
+            <CajaReciboLinea compact label="Base al cierre" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C.red:undefined} small/>
+            {(d.formasDePagoVentas||[]).length>0 && (<>
+              <CajaSubHeader compact label="Formas de pago ventas"/>
+              {d.formasDePagoVentas.map((f,idx)=><CajaReciboLinea compact key={idx} label={CAJA_MEDIO_LABEL[f.medio]} value={fmtCOP(f.valor)} small/>)}
+              {d.flexipagoRedimido>0 && <CajaReciboLinea compact label="Flexipago redimido" value={fmtCOP(d.flexipagoRedimido)} small/>}
+              <CajaReciboLinea compact label="Total ventas" value={fmtCOP(d.totalVentas)} bold totalLine/>
+            </>)}
+            {(d.totalDescuentos>0 || d.totalNotaCredito>0 || d.totalCambioProducto>0) && (<>
+              <CajaSubHeader compact label="Descuentos y notas crédito"/>
+              {d.totalDescuentos>0 && <CajaReciboLinea compact label="Descuentos" value={fmtCOP(d.totalDescuentos)} small/>}
+              {d.totalNotaCredito>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(d.totalNotaCredito)} color={C.amber} small/>}
+              {d.totalCambioProducto>0 && <CajaReciboLinea compact label="🔄 Cambio de producto" value={fmtCOP(d.totalCambioProducto)} color={C.gold} small/>}
+            </>)}
+            {(d.ingresoDelDia||[]).length>0 && (<>
+              <CajaSubHeader compact label="Ingreso del día"/>
+              {d.ingresoDelDia.map((f,idx)=><CajaReciboLinea compact key={idx} label={CAJA_MEDIO_LABEL[f.medio]} value={fmtCOP(f.valor)} small/>)}
+              <CajaReciboLinea compact label="Total ingreso del día" value={fmtCOP(d.totalIngresoDelDia)} bold totalLine/>
+            </>)}
+            {(d.novedadesDelDia||[]).length>0 && (<>
+              <CajaSubHeader compact label="Novedades del día"/>
+              {d.novedadesDelDia.map((g,idx)=>(
+                <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text }}>
+                  <span>{idx+1}. {g.motivo}</span>
+                  <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+                </div>
+              ))}
+            </>)}
+            {registro.novedades && <CajaReciboLinea compact label="Nota" value={registro.novedades} small/>}
+          </>)}
+          {tipo==="recoleccion" && (<>
+            <CajaReciboLinea compact label="Entrega" value={registro.entrega_nombre} small/>
+            <CajaReciboLinea compact label="Recibe" value={registro.recibe_nombre} small/>
+            <CajaReciboLinea compact label="Valor recogido" value={fmtCOP(registro.valor)} bold totalLine/>
+            {registro.incluye_hoy && Number(registro.valor_hoy||0)>0 && <CajaReciboLinea compact label="De eso, de hoy" value={fmtCOP(registro.valor_hoy)} small/>}
+            <CajaReciboLinea compact label="Base que queda" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C.red:undefined} small/>
+            {registro.comentarios && <CajaReciboLinea compact label="Comentarios" value={registro.comentarios} small/>}
+          </>)}
+        </CajaCard>
+      </div>
+      <div style={{ display:"flex", justifyContent:"flex-end", marginTop:4 }}>
+        <CajaCapturaBtn onClick={()=>capturarTarjetaCaja(ref, setToastCaptura)} title="Copiar como imagen"/>
+      </div>
+    </div>
+  );
+};
 // Línea "a modo factura" — título al frente, valor a la derecha. Usada en las tarjetas de Apertura
 // y Cierre de turno para el rediseño en dos columnas (ver diseño de Felipe). Solo presentación:
 // no calcula nada, únicamente muestra los valores que ya vienen calculados desde afuera.
@@ -6919,6 +7040,15 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // Color asignado a la tienda que se está viendo — se usa para pintar los cuadros de Caja.
   const tiendaColor = stores[tiendaId]?.color;
   const [cajaVista, setCajaVista] = useState(soloLectura ? "historial" : "registrar"); // 'registrar' | 'historial'
+  // Refs de las 3 tarjetas que se pueden "fotografiar" con el botón 📸 (ver CajaCapturaBtn /
+  // capturarTarjetaCaja) + el toast chiquito que confirma "Copiado" o avisa si tocó descargar.
+  const aperturaCardRef = useRef(null);
+  const cierreCardRef = useRef(null);
+  const recoleccionCardRef = useRef(null);
+  const [toastCaptura, setToastCaptura] = useState(null);
+  // Qué registro de Historial tiene abierta su vista "congelada" (ver FrozenCajaCard) — solo uno a
+  // la vez, formato `${tipo}:${id}` (ej. "apertura:abc123").
+  const [verDetalleId, setVerDetalleId] = useState(null);
   const asesores = users.filter(esVendedorPosible);
   const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin"||u.role==="admin_finanzas"||u.role==="admin_turnos") && u.active);
 
@@ -7262,9 +7392,23 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     if(apFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master o admin de finanzas puede registrar una apertura con fecha distinta a hoy. Pide autorización."); return; }
     setGuardandoAp(true); setMsg("");
     const asesor = users.find(u=>u.id===apAsesorId);
+    // "detalle": foto de los números ya calculados en este momento — NO se recalcula después, así
+    // que Historial puede mostrar la tarjeta "congelada" tal cual se veía al registrar, sin
+    // depender de datos de hoy (ver FrozenCajaCard). Es solo texto/números, pesa casi nada — nada
+    // de imágenes guardadas (pedido explícito de Santiago, para no gastar almacenamiento).
+    const detalleApertura = {
+      turno: turnoAsesorTexto(apAsesorId, apFecha),
+      baseDeficit,
+      efectivoAnterioresBruto, recogidoAnterioresAcumulado,
+      novedadesAntesRecoleccion: gastosNetoAntesRecoleccion,
+      novedadesDesdeRecoleccion: gastosDesdeRecoleccion.map(g=>({ motivo:g.motivo, valor:g.valor, tipo:g.tipo, estado:g.estado })),
+      efectivoAnteriores, efectivoHoyPendiente, efectivoPendienteTotal, totalEnCajaAhora,
+      ultimaRecoleccionFecha: ultimaRecoleccion?.created_at || null,
+      ultimaRecoleccionPor: ultimaRecoleccion?.recibe_nombre || null,
+    };
     const { data, error } = await supabase.from("ventas_caja_aperturas").insert({
       tienda_id:tiendaId, fecha:apFecha, asesor_id:apAsesorId, asesor_nombre:asesor?.name||"",
-      base_caja:Number(baseVigente||0), novedades:null, registrado_por:user.name,
+      base_caja:Number(baseVigente||0), novedades:null, registrado_por:user.name, detalle:detalleApertura,
     }).select().single();
     setGuardandoAp(false);
     if(data){ setAperturas(prev=>[data,...prev]); }
@@ -7318,9 +7462,24 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     if(ciFecha!==todayStr && !puedeFechaLibre){ setMsg("Solo el master o admin de finanzas puede registrar un cierre con fecha distinta a hoy. Pide autorización."); return; }
     setGuardandoCi(true); setMsg("");
     const asesor = users.find(u=>u.id===ciAsesorId);
+    // Mismo snapshot que en Apertura (ver comentario de detalleApertura) — congela lo que ya se ve
+    // en pantalla al momento de cerrar, para Historial.
+    const detalleCierre = {
+      turno: turnoAsesorTexto(ciAsesorId, ciFecha),
+      baseDeficit,
+      formasDePagoVentas: CAJA_MEDIOS.map(m=>({ medio:m, valor:resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.abonoFlexipagoFinalMedios[m] })).filter(x=>x.valor>0),
+      flexipagoRedimido: resumenHoy.flexipagoCerradoHoy-resumenHoy.totalAbonoFlexipagoFinal,
+      totalVentas: resumenHoy.totalIngresoNeto,
+      totalDescuentos: resumenHoy.totalDescuentosDia,
+      totalNotaCredito: resumenHoy.totalNotaCreditoDia,
+      totalCambioProducto: resumenHoy.totalCambioProductoDia,
+      ingresoDelDia: CAJA_MEDIOS.map(m=>({ medio:m, valor:resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m]+resumenHoy.abonoFlexipagoFinalMedios[m] })).filter(x=>x.valor>0),
+      totalIngresoDelDia: resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia+resumenHoy.totalAbonoFlexipagoFinal,
+      novedadesDelDia: novedadesDelDia.map(g=>({ motivo:g.motivo, valor:g.valor, tipo:g.tipo })),
+    };
     const { data, error } = await supabase.from("ventas_caja_cierres").insert({
       tienda_id:tiendaId, fecha:ciFecha, tipo:ciTipo, asesor_id:ciAsesorId, asesor_nombre:asesor?.name||"",
-      base_caja:Number(baseVigente||0), novedades:ciNovedades.trim()||null, registrado_por:user.name,
+      base_caja:Number(baseVigente||0), novedades:ciNovedades.trim()||null, registrado_por:user.name, detalle:detalleCierre,
     }).select().single();
     setGuardandoCi(false);
     if(data){ setCierres(prev=>[data,...prev]); setCiNovedades(""); sonidoCierreCaja(); }
@@ -7352,11 +7511,14 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     setGuardandoRe(true); setMsg("");
     const entrega = users.find(u=>u.id===reEntregaId);
     const recibe = users.find(u=>u.id===reRecibeId);
+    // Recolección ya guarda casi todo lo necesario en sus propias columnas (valor, valor_hoy, base
+    // que queda, comentarios) — el detalle solo agrega lo que no queda en ninguna columna.
+    const detalleRecoleccion = { baseDeficit };
     const { data, error } = await supabase.from("ventas_caja_recolecciones").insert({
       tienda_id:tiendaId, fecha:reFecha, entrega_usuario_id:reEntregaId, entrega_nombre:entrega?.name||"",
       recibe_usuario_id:reRecibeId, recibe_nombre:recibe?.name||"", valor:valorFinal,
       valor_hoy:valorHoyNum, incluye_hoy:reIncluyeHoy,
-      base_caja:baseCajaFinal, comentarios:reComentarios.trim()||null, registrado_por:user.name,
+      base_caja:baseCajaFinal, comentarios:reComentarios.trim()||null, registrado_por:user.name, detalle:detalleRecoleccion,
     }).select().single();
     setGuardandoRe(false);
     if(data){ setRecolecciones(prev=>[data,...prev]); setReValor(""); setReComentarios(""); setReIncluyeHoy(false); setReValorHoy(""); setReBaseCajaTocado(false); }
@@ -7435,6 +7597,9 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
   return (
     <div>
+      {toastCaptura && (
+        <div style={{ position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:9999, background:C.dark, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 16px", color:C.text, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", whiteSpace:"nowrap" }}>{toastCaptura}</div>
+      )}
       <div style={{ display:"flex", flexWrap:"wrap", gap:10, alignItems:"center", marginBottom:10 }}>
         {!tiendaFija && (
           <div style={{ width:200 }}>
@@ -7469,6 +7634,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
               {/* Apertura, Última Recolección y Novedades del período unificados en una sola
                   burbuja (pedido de Santiago) — mismo contenido de siempre, ahora con
                   CajaSubHeader como divisores en vez de ser 3 tarjetas separadas. */}
+              <div ref={aperturaCardRef}>
               <CajaCard compact icon="🔓" titulo="Apertura de turno" color={tiendaColor}>
                 <CajaCampoPick compact label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
                 <CajaCampoPick compact label="Asesor *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
@@ -7498,7 +7664,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                   </div>
                 )}
                 <CajaReciboLinea compact label="Total" value={fmtCOP(totalEnCajaAhora)} bold totalLine/>
-                <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end" }}>
+                <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end", gap:6 }}>
+                  <CajaCapturaBtn onClick={()=>capturarTarjetaCaja(aperturaCardRef, setToastCaptura)} title="Copiar apertura como imagen"/>
                   <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"Registrar apertura"}</CajaBtn>
                 </div>
 
@@ -7522,7 +7689,9 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                   </div>
                 ) : <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin novedades registradas.</div>}
               </CajaCard>
+              </div>
 
+              <div ref={cierreCardRef}>
               <CajaCard
                 compact
                 icon="🔒"
@@ -7610,10 +7779,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                   </div>
                 )}
 
-                <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end" }}>
+                <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end", gap:6 }}>
+                  <CajaCapturaBtn onClick={()=>capturarTarjetaCaja(cierreCardRef, setToastCaptura)} title="Copiar cierre como imagen"/>
                   <CajaBtn onClick={guardarCierre} disabled={guardandoCi || !tiendaId || !ciAsesorId}>{guardandoCi?"...":"Registrar cierre"}</CajaBtn>
                 </div>
               </CajaCard>
+              </div>
             </div>
 
             <div>
@@ -7630,6 +7801,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
 
               {/* Recolección de efectivo: movida a esta columna y hecha compacta — se veía
                   desproporcionadamente grande al lado de Apertura. */}
+              <div ref={recoleccionCardRef}>
               <CajaCard compact icon="🚚" titulo="Recolección de efectivo" color={tiendaColor}>
                 {!puedeRecoleccion ? (
                   <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>No tienes permiso para registrar una recolección. Puedes verlas en Historial.</div>
@@ -7667,12 +7839,14 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                       </div>
                     )}
                     <CajaFieldRow compact label="Comentarios" wide value={reComentarios} onChange={setReComentarios} placeholder="Opcional"/>
-                    <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>
+                    <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end", gap:6 }}>
+                      <CajaCapturaBtn onClick={()=>capturarTarjetaCaja(recoleccionCardRef, setToastCaptura)} title="Copiar recolección como imagen"/>
                       <CajaBtn onClick={guardarRecoleccion} disabled={guardandoRe || !tiendaId || !reEntregaId || !reRecibeId || !reValor}>{guardandoRe?"...":"Registrar"}</CajaBtn>
                     </div>
                   </>
                 )}
               </CajaCard>
+              </div>
             </div>
           </div>
         </div>
@@ -7697,13 +7871,16 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
           <CajaCard icon="🔓" titulo="Historial de apertura" color={tiendaColor}>
             <div style={{ display:"flex", flexDirection:"column" }}>
               {aperturasTienda.slice(0,30).map(a=>(
-                <div key={a.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
-                  <span>{fmtFechaHora(a.created_at)} · {a.asesor_nombre}</span>
-                  <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                    <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base: {fmtCOP(a.base_caja)}</span>
-                    {puedeBorrarCaja && <button onClick={()=>borrarApertura(a)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
-                    {puedeSolicitarBorradoCaja && (solicitudPendientePara("apertura",a.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("apertura",a,`Apertura ${fmtFechaHora(a.created_at)} · ${a.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
-                  </span>
+                <div key={a.id}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
+                    <button onClick={()=>setVerDetalleId(id=>id===`apertura:${a.id}`?null:`apertura:${a.id}`)} style={{ background:"none", border:"none", color:C.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(a.created_at)} · {a.asesor_nombre}</button>
+                    <span style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base: {fmtCOP(a.base_caja)}</span>
+                      {puedeBorrarCaja && <button onClick={()=>borrarApertura(a)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                      {puedeSolicitarBorradoCaja && (solicitudPendientePara("apertura",a.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("apertura",a,`Apertura ${fmtFechaHora(a.created_at)} · ${a.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
+                    </span>
+                  </div>
+                  {verDetalleId===`apertura:${a.id}` && <FrozenCajaCard tipo="apertura" registro={a} tiendaColor={tiendaColor} setToastCaptura={setToastCaptura}/>}
                 </div>
               ))}
               {aperturasTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
@@ -7716,19 +7893,22 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 const rd = resumenDia(c.fecha);
                 const totalDia = rd.totalIngresoNeto + rd.totalServicios;
                 return (
-                  <div key={c.id} style={{ display:"flex", flexDirection:"column", gap:1, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"4px 2px", borderBottom:`1px solid ${C.border}` }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4 }}>
-                      <span>{fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}{c.novedades?` · ${c.novedades}`:""}</span>
-                      <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base al cierre: {fmtCOP(c.base_caja)}</span>
-                        {puedeBorrarCaja && <button onClick={()=>borrarCierre(c)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
-                        {puedeSolicitarBorradoCaja && (solicitudPendientePara("cierre",c.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("cierre",c,`Cierre ${fmtFechaHora(c.created_at)} · ${c.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
-                      </span>
+                  <div key={c.id}>
+                    <div style={{ display:"flex", flexDirection:"column", gap:1, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"4px 2px", borderBottom:`1px solid ${C.border}` }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4 }}>
+                        <button onClick={()=>setVerDetalleId(id=>id===`cierre:${c.id}`?null:`cierre:${c.id}`)} style={{ background:"none", border:"none", color:C.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}{c.novedades?` · ${c.novedades}`:""}</button>
+                        <span style={{ display:"flex", alignItems:"center", gap:8 }}>
+                          <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base al cierre: {fmtCOP(c.base_caja)}</span>
+                          {puedeBorrarCaja && <button onClick={()=>borrarCierre(c)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                          {puedeSolicitarBorradoCaja && (solicitudPendientePara("cierre",c.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("cierre",c,`Cierre ${fmtFechaHora(c.created_at)} · ${c.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
+                        </span>
+                      </div>
+                      <div style={{ fontFamily:font.mono, fontSize:10.5, color:C.textMuted }}>
+                        Ventas {fmtCOP(rd.totalIngresoNeto)} · Servicios {fmtCOP(rd.totalServicios)} · <span style={{ color:C.goldLight, fontWeight:700 }}>Total {fmtCOP(totalDia)}</span>
+                        {rd.totalNotaCreditoDia>0 && <span style={{ color:C.amber }}> · Notacrédito {fmtCOP(rd.totalNotaCreditoDia)}</span>}
+                      </div>
                     </div>
-                    <div style={{ fontFamily:font.mono, fontSize:10.5, color:C.textMuted }}>
-                      Ventas {fmtCOP(rd.totalIngresoNeto)} · Servicios {fmtCOP(rd.totalServicios)} · <span style={{ color:C.goldLight, fontWeight:700 }}>Total {fmtCOP(totalDia)}</span>
-                      {rd.totalNotaCreditoDia>0 && <span style={{ color:C.amber }}> · Notacrédito {fmtCOP(rd.totalNotaCreditoDia)}</span>}
-                    </div>
+                    {verDetalleId===`cierre:${c.id}` && <FrozenCajaCard tipo="cierre" registro={c} tiendaColor={tiendaColor} setToastCaptura={setToastCaptura}/>}
                   </div>
                 );
               })}
@@ -7739,13 +7919,16 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
           <CajaCard icon="🚚" titulo="Historial de recolección" color={tiendaColor}>
             <div style={{ display:"flex", flexDirection:"column" }}>
               {recoleccionesTienda.slice(0,30).map(r=>(
-                <div key={r.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
-                  <span>{fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}{r.comentarios?` · ${r.comentarios}`:""}{r.incluye_hoy && Number(r.valor_hoy||0)>0 ? ` · incluye ${fmtCOP(r.valor_hoy)} de ese mismo día` : ""}</span>
-                  <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                    <span style={{ fontFamily:font.mono }}>{fmtCOP(r.valor)} <span style={{ color:C.textMuted }}>(queda base {fmtCOP(r.base_caja)})</span></span>
-                    {puedeBorrarCaja && <button onClick={()=>borrarRecoleccion(r)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
-                    {puedeSolicitarBorradoCaja && (solicitudPendientePara("recoleccion",r.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("recoleccion",r,`Recolección ${fmtFechaHora(r.created_at)} · ${r.entrega_nombre} → ${r.recibe_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
-                  </span>
+                <div key={r.id}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
+                    <button onClick={()=>setVerDetalleId(id=>id===`recoleccion:${r.id}`?null:`recoleccion:${r.id}`)} style={{ background:"none", border:"none", color:C.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}{r.comentarios?` · ${r.comentarios}`:""}{r.incluye_hoy && Number(r.valor_hoy||0)>0 ? ` · incluye ${fmtCOP(r.valor_hoy)} de ese mismo día` : ""}</button>
+                    <span style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <span style={{ fontFamily:font.mono }}>{fmtCOP(r.valor)} <span style={{ color:C.textMuted }}>(queda base {fmtCOP(r.base_caja)})</span></span>
+                      {puedeBorrarCaja && <button onClick={()=>borrarRecoleccion(r)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                      {puedeSolicitarBorradoCaja && (solicitudPendientePara("recoleccion",r.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("recoleccion",r,`Recolección ${fmtFechaHora(r.created_at)} · ${r.entrega_nombre} → ${r.recibe_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
+                    </span>
+                  </div>
+                  {verDetalleId===`recoleccion:${r.id}` && <FrozenCajaCard tipo="recoleccion" registro={r} tiendaColor={tiendaColor} setToastCaptura={setToastCaptura}/>}
                 </div>
               ))}
               {recoleccionesTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
