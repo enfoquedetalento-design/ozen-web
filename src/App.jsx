@@ -602,18 +602,36 @@ const EnTurnoIndicator = ({ records, stores, isMobile }) => {
 };
 
 // Comentario opcional que la propia persona deja en uno de sus registros de asistencia (ej. "Llegué
-// tarde por tráfico"). Vive en una nube tipo HoverTooltip: un ícono chiquito, clic para abrir, no
-// crece ni deforma la tarjetita del evento. `editable` debe ser true SOLO en las pantallas donde la
-// persona ve sus propios registros (Marcar Asistencia, Mi Historial) — en Registros (donde
-// admin/master ven los de todo el mundo) siempre va en solo lectura, y ni siquiera se muestra si no
-// hay comentario: por pedido explícito de Santiago, nadie más que el dueño del registro puede
-// agregarlo o cambiarlo.
-const ComentarioRegistro = ({ registro, editable, onGuardado, align="right" }) => {
+// tarde por tráfico"). Un ícono chiquito, clic para abrir una nube — no crece ni deforma la
+// tarjetita del evento. `editable` debe ser true SOLO en las pantallas donde la persona ve sus
+// propios registros (Marcar Asistencia, Mi Historial) — en Registros (donde admin/master ven los de
+// todo el mundo) siempre va en solo lectura, y ni siquiera se muestra si no hay comentario: por
+// pedido explícito de Santiago, nadie más que el dueño del registro puede agregarlo o cambiarlo.
+//
+// No usa HoverTooltip (que alinea la nube pegada al ícono con un simple left:0/right:0) porque este
+// ícono vive dentro de tarjetitas angostas en fila (Entrada/Almuerzo/Salida) — cerca del borde
+// izquierdo o derecho de la pantalla la nube quedaba cortada, con parte del texto invisible fuera
+// del viewport. Aquí se mide la posición real del ícono (getBoundingClientRect) y se "clampea" el
+// left de la nube para que siempre quepa completa en pantalla, sin importar en qué columna esté.
+const ComentarioRegistro = ({ registro, editable, onGuardado }) => {
+  const [show, setShow] = useState(false);
+  const [pos, setPos] = useState({ top:0, left:0 });
+  const iconRef = useRef(null);
   const [valor, setValor] = useState(registro?.comentario || "");
   const [guardando, setGuardando] = useState(false);
   if (!registro) return null; // nada que comentar si el evento ni siquiera está marcado
   const tieneComentario = !!(registro.comentario || "").trim();
   if (!tieneComentario && !editable) return null; // nada que ver, y esta pantalla no puede agregarlo
+
+  const POPUP_W = 230;
+  const abrir = () => {
+    const r = iconRef.current?.getBoundingClientRect();
+    if (r) {
+      const left = Math.min(Math.max(r.left + r.width/2 - POPUP_W/2, 8), window.innerWidth - POPUP_W - 8);
+      setPos({ top: r.bottom + 6, left });
+    }
+    setShow(s=>!s);
+  };
 
   const guardar = async () => {
     setGuardando(true);
@@ -624,38 +642,47 @@ const ComentarioRegistro = ({ registro, editable, onGuardado, align="right" }) =
   };
 
   return (
-    <HoverTooltip
-      clickOnly
-      align={align}
-      width={220}
-      labelStyle={{ textDecoration:"none", cursor:"pointer" }}
-      label={
-        <span title={tieneComentario ? "Ver comentario" : "Agregar comentario"} style={{
+    <>
+      <span
+        ref={iconRef}
+        onClick={abrir}
+        title={tieneComentario ? "Ver comentario" : "Agregar comentario"}
+        style={{
           display: "inline-flex", alignItems: "center", justifyContent: "center", width: 20, height: 20,
           borderRadius: 99, fontSize: 12, lineHeight: 1, cursor: "pointer",
           background: tieneComentario ? `${C.gold}18` : "transparent",
           border: tieneComentario ? `1px solid ${C.borderGold}` : `1px dashed ${C.border}`,
           color: tieneComentario ? C.gold : C.textMuted, opacity: tieneComentario ? 1 : 0.6,
-        }}>💬</span>
-      }
-    >
-      {editable ? (
-        <div>
-          <textarea
-            value={valor}
-            onChange={e => setValor(e.target.value)}
-            placeholder="Escribe un comentario (opcional)..."
-            rows={3}
-            style={{ width: "100%", boxSizing: "border-box", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 8px", color: C.text, fontSize: 12, fontFamily: font.body, outline: "none", resize: "vertical" }}
-          />
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
-            <Btn onClick={guardar} sm disabled={guardando || valor.trim()===(registro.comentario||"").trim()}>{guardando ? "Guardando..." : "Guardar"}</Btn>
+        }}
+      >💬</span>
+      {show && (
+        <>
+          <div onClick={()=>setShow(false)} style={{ position:"fixed", inset:0, zIndex:90 }}/>
+          <div style={{
+            position:"fixed", top:pos.top, left:pos.left, zIndex:91, width:POPUP_W, maxWidth:"90vw",
+            background:C.dark, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px",
+            boxShadow:"0 6px 24px rgba(0,0,0,0.5)", boxSizing:"border-box",
+          }}>
+            {editable ? (
+              <div>
+                <textarea
+                  value={valor}
+                  onChange={e => setValor(e.target.value)}
+                  placeholder="Escribe un comentario (opcional)..."
+                  rows={3}
+                  style={{ width: "100%", boxSizing: "border-box", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 8px", color: C.text, fontSize: 12, fontFamily: font.body, outline: "none", resize: "vertical" }}
+                />
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                  <Btn onClick={guardar} sm disabled={guardando || valor.trim()===(registro.comentario||"").trim()}>{guardando ? "Guardando..." : "Guardar"}</Btn>
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontFamily: font.body, fontSize: 12.5, color: C.text, whiteSpace: "pre-wrap" }}>{registro.comentario}</div>
+            )}
           </div>
-        </div>
-      ) : (
-        <div style={{ fontFamily: font.body, fontSize: 12.5, color: C.text, whiteSpace: "pre-wrap" }}>{registro.comentario}</div>
+        </>
       )}
-    </HoverTooltip>
+    </>
   );
 };
 
