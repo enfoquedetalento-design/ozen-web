@@ -5712,11 +5712,6 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
 
   return (
     <>
-      {soloLectura && (
-        <div style={{ background:`${C.amber}18`, border:`1px solid ${C.amber}55`, borderRadius:8, padding:"10px 14px", marginBottom:14, fontFamily:font.body, fontSize:12, color:C.amber }}>
-          👁️ Puedes llenar el formulario para ver cómo quedaría, pero no podrás guardarlo — solo master o admin de finanzas pueden registrar la venta.
-        </div>
-      )}
     <div>
       {isMobile ? (
         // En celular no alcanza con envolver (flex-wrap) el mismo bloque de escritorio: el título
@@ -8474,7 +8469,7 @@ export default function App() {
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
   const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":puedeUsarAreas(u)?null:"checkin");sonidoBienvenida();refreshAll();};
   const logout=()=>{setUser(null);setArea(null);setTab(null);};
-  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?(ventasSoloLectura(user)?"lista":"registrar"):a==="firmas"?"firmar":"dashboard");};
+  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?(ventasSoloLectura(user)?"metricas":"registrar"):a==="firmas"?"firmar":"dashboard");};
   const backToAreas=()=>{setArea(null);setTab(null);};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
