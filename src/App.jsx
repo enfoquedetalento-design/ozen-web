@@ -6801,38 +6801,38 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
         </div>
       </Card>
 
-      {/* auto-fit + minmax en vez de un número fijo de columnas (repeat(6,1fr)) — con columnas
-          fijas, si la ventana se angosta (sin llegar al punto de corte de "isMobile"), el grid no
-          tiene cómo encoger más allá del contenido y las últimas tarjetas (IDC, MDA) quedaban
-          recortadas/invisibles fuera del contenedor en vez de acomodarse. Con auto-fit las
-          tarjetas pasan a la siguiente fila solas cuando ya no caben, así siempre se ven todas. */}
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(auto-fit, minmax(150px, 1fr))", gap:10, marginBottom:16 }}>
-        <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+      {/* Flexbox con wrap en vez de grid de columnas fijas — con grid, cuando una tarjeta (ej. MDA)
+          quedaba sola en la última fila, las demás columnas de esa fila se quedaban vacías (el
+          grid las reserva igual, aunque no haya nada ahí), dejando un hueco enorme a la derecha.
+          Con flex + flex-grow, lo que quede solo en la última fila se estira para llenar el ancho
+          disponible en vez de dejar espacio muerto. */}
+      <div style={{ display:"flex", flexWrap:"wrap", gap:10, marginBottom:16 }}>
+        <div style={{ flex:isMobile?"1 1 45%":"1 1 150px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
           <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ventas hoy</div>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(ingresosHoy)}</div>
         </div>
-        <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+        <div style={{ flex:isMobile?"1 1 45%":"1 1 150px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
           <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ventas mes</div>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(totalSinServicios)}</div>
         </div>
         {!vistaAsesor && (
-          <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+          <div style={{ flex:isMobile?"1 1 45%":"1 1 150px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
             <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ingreso total</div>
             <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(totalConServicios)}</div>
             <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2 }}>+{fmtCOP(totalConServicios-totalSinServicios)} en servicios</div>
           </div>
         )}
-        <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+        <div style={{ flex:isMobile?"1 1 45%":"1 1 150px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
           <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Meta{tiendaSel?"":" total"}</div>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{metaTiendaTotal>0?fmtCOP(metaTiendaTotal):"—"}</div>
         </div>
-        <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+        <div style={{ flex:isMobile?"1 1 45%":"1 1 150px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
           <HoverTooltip label="IDC" labelStyle={{ fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 }} width={240} align="right">
             <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, lineHeight:1.4 }}><b>IDC — Índice de Cumplimiento.</b> Qué porcentaje de la meta del mes ya se alcanzó: (ingresos ÷ meta) × 100.</div>
           </HoverTooltip>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:colorSemaforoIDC(idcTienda), marginTop:6 }}>{idcTienda===null?"—":`${idcTienda}%`}</div>
         </div>
-        <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
+        <div style={{ flex:isMobile?"1 1 45%":"1 1 150px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
           <HoverTooltip label="MDA" labelStyle={{ fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 }} width={240} align="right">
             <div style={{ fontFamily:font.body, fontSize:11.5, color:C.text, lineHeight:1.4 }}><b>MDA — Meta Diaria.</b> Cuánto falta vender en promedio cada día para llegar a la meta: (meta − ingresos) ÷ días que quedan del mes.</div>
           </HoverTooltip>
