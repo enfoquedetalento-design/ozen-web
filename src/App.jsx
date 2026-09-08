@@ -601,6 +601,101 @@ const EnTurnoIndicator = ({ records, stores, isMobile }) => {
   );
 };
 
+// Comentario opcional que la propia persona deja en uno de sus registros de asistencia (ej. "Llegué
+// tarde por tráfico"). Un ícono chiquito, clic para abrir una nube — no crece ni deforma la
+// tarjetita del evento. `editable` debe ser true SOLO en las pantallas donde la persona ve sus
+// propios registros (Marcar Asistencia, Mi Historial) — en Registros (donde admin/master ven los de
+// todo el mundo) siempre va en solo lectura, y ni siquiera se muestra si no hay comentario: por
+// pedido explícito de Santiago, nadie más que el dueño del registro puede agregarlo o cambiarlo.
+//
+// No usa HoverTooltip (que alinea la nube pegada al ícono con un simple left:0/right:0) porque este
+// ícono vive dentro de tarjetitas angostas en fila (Entrada/Almuerzo/Salida) — cerca del borde
+// izquierdo o derecho de la pantalla la nube quedaba cortada, con parte del texto invisible fuera
+// del viewport.
+//
+// Ojo con `position:fixed` aquí: las pestañas de la app se animan con
+// `animation: ozenPaneTab .28s ... both` — el "both" deja pegado para siempre
+// `transform:translateX(0)` en el contenedor del panel (aunque sea "sin mover"), y CUALQUIER
+// transform en un ancestro hace que `position:fixed` deje de medirse contra la pantalla real y
+// pase a medirse contra ESE contenedor — por eso una primera versión con `fixed` + coordenadas de
+// pantalla quedaba pegada muy abajo. La solución: `position:absolute` colgado del propio ícono
+// (que no le importa ese transform, siempre queda bien pegado a su dueño), y solo el `left` se
+// calcula con matemática de pantalla (para no salirse por los bordes) y se convierte a un offset
+// LOCAL relativo al ícono — restando dos getBoundingClientRect así cancela cualquier transform de
+// por medio, esté donde esté.
+const ComentarioRegistro = ({ registro, editable, onGuardado }) => {
+  const [show, setShow] = useState(false);
+  const [popLeft, setPopLeft] = useState(0);
+  const iconRef = useRef(null);
+  const [valor, setValor] = useState(registro?.comentario || "");
+  const [guardando, setGuardando] = useState(false);
+  if (!registro) return null; // nada que comentar si el evento ni siquiera está marcado
+  const tieneComentario = !!(registro.comentario || "").trim();
+  if (!tieneComentario && !editable) return null; // nada que ver, y esta pantalla no puede agregarlo
+
+  const POPUP_W = 230;
+  const abrir = () => {
+    const r = iconRef.current?.getBoundingClientRect();
+    if (r) {
+      const deseadoEnPantalla = Math.min(Math.max(r.left + r.width/2 - POPUP_W/2, 8), window.innerWidth - POPUP_W - 8);
+      setPopLeft(deseadoEnPantalla - r.left); // offset LOCAL respecto al ícono, no coordenada absoluta
+    }
+    setShow(s=>!s);
+  };
+
+  const guardar = async () => {
+    setGuardando(true);
+    const { data, error } = await supabase.from("registros").update({ comentario: valor.trim() || null }).eq("id", registro.id).select().single();
+    setGuardando(false);
+    if (data) onGuardado?.(data);
+    else if (error) alert(`No se pudo guardar el comentario: ${error.message}`);
+  };
+
+  return (
+    <span style={{ position:"relative", display:"inline-block" }}>
+      <span
+        ref={iconRef}
+        onClick={abrir}
+        title={tieneComentario ? "Ver comentario" : "Agregar comentario"}
+        style={{
+          display: "inline-flex", alignItems: "center", justifyContent: "center", width: 20, height: 20,
+          borderRadius: 99, fontSize: 12, lineHeight: 1, cursor: "pointer",
+          background: tieneComentario ? `${C.gold}18` : "transparent",
+          border: tieneComentario ? `1px solid ${C.borderGold}` : `1px dashed ${C.border}`,
+          color: tieneComentario ? C.gold : C.textMuted, opacity: tieneComentario ? 1 : 0.6,
+        }}
+      >💬</span>
+      {show && (
+        <>
+          <div onClick={()=>setShow(false)} style={{ position:"fixed", inset:0, zIndex:90 }}/>
+          <div style={{
+            position:"absolute", top:"calc(100% + 6px)", left:popLeft, zIndex:91, width:POPUP_W, maxWidth:"90vw",
+            background:C.dark, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px",
+            boxShadow:"0 6px 24px rgba(0,0,0,0.5)", boxSizing:"border-box",
+          }}>
+            {editable ? (
+              <div>
+                <textarea
+                  value={valor}
+                  onChange={e => setValor(e.target.value)}
+                  placeholder="Escribe un comentario (opcional)..."
+                  rows={3}
+                  style={{ width: "100%", boxSizing: "border-box", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 8px", color: C.text, fontSize: 12, fontFamily: font.body, outline: "none", resize: "vertical" }}
+                />
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                  <Btn onClick={guardar} sm disabled={guardando || valor.trim()===(registro.comentario||"").trim()}>{guardando ? "Guardando..." : "Guardar"}</Btn>
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontFamily: font.body, fontSize: 12.5, color: C.text, whiteSpace: "pre-wrap" }}>{registro.comentario}</div>
+            )}
+          </div>
+        </>
+      )}
+    </span>
+  );
+};
+
 // ── Camera Modal ──────────────────────────────────────────────────────────────
 function CameraModal({ eventLabel, onCapture, onCancel }) {
   const videoRef = useRef(null), canvasRef = useRef(null), streamRef = useRef(null);
@@ -956,6 +1051,9 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
             : <span style={{ fontSize:12, opacity:0.25 }}>📷</span>
           }
         </div>
+        {/* Solo lectura acá — quien administra ve el comentario (si existe) pero no lo agrega ni lo
+            edita, eso es solo del dueño del registro (ver ComentarioRegistro). */}
+        {registro && <ComentarioRegistro registro={registro} editable={false}/>}
         {/* Editar convierte un N/R en un registro real sin foto (una reconstrucción tuya, no lo que
             la persona realmente hizo), y borrar un N/R ya no debería hacer falta seguido ahora que
             los cron de Supabase evitan que se generen mal — por eso ninguno de los dos botones se
@@ -2010,7 +2108,7 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
 }
 
 // ── SCREEN: Mi Asistencia (para cuentas de líder/admin) — agrupa Marcar + Mi Historial ──
-function MiAsistenciaScreen({ user, records, onRecord, onRefresh, stores, asignaciones, turnosHorarios, turnosAsignaciones }) {
+function MiAsistenciaScreen({ user, records, onRecord, onRefresh, onRecordUpdated, stores, asignaciones, turnosHorarios, turnosAsignaciones }) {
   const [sub,setSub]=useState("marcar");
   const subTabs=[{ id:"marcar", label:"📍 Marcar" },{ id:"historial", label:"📋 Mi Historial" }];
   return (
@@ -2021,15 +2119,15 @@ function MiAsistenciaScreen({ user, records, onRecord, onRefresh, stores, asigna
         ))}
       </div>
       <div key={sub} className="ozen-pane-anim-tab">
-        {sub==="marcar"    && <CheckInScreen user={user} records={records} onRecord={onRecord} onRefresh={onRefresh} stores={stores} asignaciones={asignaciones} turnosHorarios={turnosHorarios}/>}
-        {sub==="historial" && <HistoryScreen user={user} records={records} stores={stores} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>}
+        {sub==="marcar"    && <CheckInScreen user={user} records={records} onRecord={onRecord} onRefresh={onRefresh} onRecordUpdated={onRecordUpdated} stores={stores} asignaciones={asignaciones} turnosHorarios={turnosHorarios}/>}
+        {sub==="historial" && <HistoryScreen user={user} records={records} stores={stores} onRecordUpdated={onRecordUpdated} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>}
       </div>
     </div>
   );
 }
 
 // ── SCREEN: CheckIn ───────────────────────────────────────────────────────────
-function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignaciones, turnosHorarios }) {
+function CheckInScreen({ user, records, onRecord, onRefresh, onRecordUpdated, stores, asignaciones, turnosHorarios }) {
   const [selStore,setSelStore]=useState(""),[selShift,setSelShift]=useState(""),[locked,setLocked]=useState(false),[showCamera,setShowCamera]=useState(false),[recording,setRecording]=useState(false),[toast,setToast]=useState(null),[toastError,setToastError]=useState(false);
   // Sin conexión, ni la cámara ni el guardado tienen caso — mejor bloquear el botón de una vez con
   // un aviso claro que dejar que la persona haga todo el proceso (foto + confirmar) para enterarse
@@ -2273,6 +2371,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
             <div style={{width:12,height:12,borderRadius:99,background:rec?EVENT_COLORS[ev]:omitidoRec?C.red:C.border,boxShadow:rec?`0 0 8px ${EVENT_COLORS[ev]}`:"none",flexShrink:0}}/>
             <div style={{flex:1,fontFamily:font.body,fontSize:13,color:rec||omitidoRec?C.text:C.textMuted}}>{EVENT_LABELS[ev]}</div>
             {isNext&&!rec&&!omitidoRec&&<Badge color={C.blue} sm>Pendiente</Badge>}
+            {rec && <ComentarioRegistro registro={rec} editable onGuardado={onRecordUpdated}/>}
             {rec?.photo_url&&<img src={rec.photo_url} alt="foto" style={{width:28,height:28,borderRadius:6,objectFit:"cover"}}/>}
             <div style={{display:"flex",alignItems:"baseline",gap:2}}>
               <span style={{fontFamily:font.mono,fontSize:13,color:rec?EVENT_COLORS[ev]:omitidoRec?C.red:C.border,fontWeight:700}}>{rec?rec.time:omitidoRec?"N/R":"--:--"}</span>
@@ -2286,7 +2385,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
 }
 
 // ── SCREEN: History ───────────────────────────────────────────────────────────
-function HistoryScreen({ user, records, stores, turnosHorarios, turnosAsignaciones }) {
+function HistoryScreen({ user, records, stores, onRecordUpdated, turnosHorarios, turnosAsignaciones }) {
   const [viewPhoto,setViewPhoto]=useState(null);
   const myRecs=records.filter(r=>r.user_id===user.id);
   const jornadasMap = {};
@@ -2317,6 +2416,7 @@ function HistoryScreen({ user, records, stores, turnosHorarios, turnosAsignacion
             : <span style={{ fontSize:12, opacity:0.25 }}>📷</span>
           }
         </div>
+        {registro && <ComentarioRegistro registro={registro} editable onGuardado={onRecordUpdated}/>}
       </div>
     );
   };
@@ -5476,7 +5576,7 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
 
   const guardar = async () => {
     setMsg("");
-    if(soloLectura){ setMsg("No tienes permiso para registrar ventas — solo puedes ver esta pantalla."); return; }
+    if(soloLectura){ setMsg("No tienes permiso para guardar ventas — puedes llenar el formulario, pero solo master o admin de finanzas pueden registrarla."); return; }
     if(!tiendaId){ setMsg("Falta elegir la tienda."); return; }
     if(!vendedorId){ setMsg("Falta elegir quién hizo la venta."); return; }
     if(items.length===0 || valorBruto<=0){ setMsg("Agrega al menos una venta o servicio."); return; }
@@ -5614,10 +5714,10 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
     <>
       {soloLectura && (
         <div style={{ background:`${C.amber}18`, border:`1px solid ${C.amber}55`, borderRadius:8, padding:"10px 14px", marginBottom:14, fontFamily:font.body, fontSize:12, color:C.amber }}>
-          👁️ Modo solo lectura — puedes ver esta pantalla, pero no tienes permiso para registrar ventas.
+          👁️ Puedes llenar el formulario para ver cómo quedaría, pero no podrás guardarlo — solo master o admin de finanzas pueden registrar la venta.
         </div>
       )}
-    <div style={soloLectura ? { pointerEvents:"none", opacity:0.55 } : undefined}>
+    <div>
       {isMobile ? (
         // En celular no alcanza con envolver (flex-wrap) el mismo bloque de escritorio: el título
         // queda solo en su línea (con todo el lado derecho vacío), la campana sola en la siguiente
@@ -5915,7 +6015,7 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
   );
 }
 
-function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, metas, esAdmin, soloLectura }) {
+function VentasListaScreen({ user, stores, users, records, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, metas, esAdmin, soloLectura }) {
   const isMobile = useIsMobile();
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const [filtroTienda, setFiltroTienda] = useState("");
@@ -5996,6 +6096,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   return (
     <div>
       <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}${abonosFiltrados.length>0?` · ${abonosFiltrados.length} abonos Flexipago`:""}`}
+        middle={<EnTurnoIndicator records={records} stores={stores} isMobile={isMobile}/>}
         action={<MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaFija||filtroTienda} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ajustes} metas={metas} isMobile={isMobile}/>}
       />
       <Card style={{ marginBottom:16 }} p="12px">
@@ -6295,7 +6396,7 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
   );
 };
 
-function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile, turnosAsignaciones, turnosGlobales }) {
+function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile, turnosAsignaciones, turnosGlobales }) {
   const hoy = toColombiaDate();
   const [anio, setAnio] = useState(hoy.getFullYear());
   const [mesIdx, setMesIdx] = useState(hoy.getMonth());
@@ -6660,6 +6761,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   return (
     <div>
       <PageHeader title="Métricas" subtitle={tiendaSel ? `${stores[tiendaSel]?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`}
+        middle={<EnTurnoIndicator records={records} stores={stores} isMobile={isMobile}/>}
         action={<MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaSel} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>}
       />
 
@@ -8489,8 +8591,8 @@ export default function App() {
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
         if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
-        if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
-        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
+        if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
+        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
         if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
       } else if(area==="firmas"){
         if(tab==="firmar")   return <FirmarDocumentoScreen/>;
@@ -8498,20 +8600,20 @@ export default function App() {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones} user={user} onRecordDeleted={onRecordDeletedAdmin} onRecordUpdated={onRecordUpdatedAdmin}/>;
         if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={puedeGestionarTurnos(user)} onSubChange={setTurnosSub}/>;
-        if(tab==="mi_asistencia") return <MiAsistenciaScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
+        if(tab==="mi_asistencia") return <MiAsistenciaScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} onRecordUpdated={onRecordUpdatedAdmin} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
     } else if(esCuentaTienda(user)){
       if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
-      if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
-      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
+      if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
+      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
       if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
       // Solo la parte visual de la rejilla de Turnos (sin Borrador ni Administrar) — para que la
       // cuenta de tienda pueda ver quién tiene turno sin poder editar nada.
       if(tab==="turnos")    return <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={turnosAsignaciones}/>;
     } else {
-      if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>;
-      if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
+      if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} onRecordUpdated={onRecordUpdatedAdmin} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>;
+      if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores} onRecordUpdated={onRecordUpdatedAdmin} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
       if(tab==="schedule") return <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={turnosAsignaciones}/>;
       if(tab==="firmar")   return <FirmarDocumentoScreen/>;
     }
