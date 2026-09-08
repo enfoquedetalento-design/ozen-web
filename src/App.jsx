@@ -11,21 +11,30 @@ const ReadOnlyContext = createContext(false);
 const useReadOnly = () => useContext(ReadOnlyContext);
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
+// Paleta "Tinta Elevada" (propuesta 2 del explorador de diseño, elegida por Santiago para
+// responder al comentario de Junta de que el azul se veía demasiado oscuro). Fondo principal
+// crema/Tinta (color oficial del manual de marca) en vez del azul casi-negro de antes; Sombra
+// (azul oscuro oficial) para texto; Base (azul medio oficial) para botones y acentos — la misma
+// combinación de "alto contraste" que define el manual. Caja y la barra de navegación (Sidebar/
+// BottomNav/MobileHeader) quedan fuera de este cambio a propósito: usan su propia paleta fija
+// C_DARK, definida más abajo, para no arriesgar esas dos zonas (ver el comentario junto a C_DARK).
 const C = {
   gold: "#265D7F", goldLight: "#E5D5CC", goldDark: "#1A3B52",
-  dark: "#0D1117", surface: "#1A3B52",
-  surfaceAlt: "#153047", surfaceHover: "#1E4260", border: "#265D7F",
-  borderGold: "rgba(229,213,204,0.25)", text: "#E5D5CC",
-  textMuted: "#B8A49C", textSub: "#D4C4BB",
-  green: "#2ECC71", greenDim: "rgba(46,204,113,0.12)",
-  red: "#E74C3C",   redDim: "rgba(231,76,60,0.12)",
-  // Antes "#3498DB" — un azul que casi no se distinguía del fondo navy de la app (C.surface/
-  // C.surfaceAlt son también azules oscuros), por eso textos/badges en este color (ej. "Vence en
-  // Nd" de Flexipago, "Fin Almuerzo" en Asistencia) se veían apagados. Este es más claro/saturado,
-  // se sigue leyendo como "azul" pero contrasta bien contra los fondos oscuros de toda la app.
-  blue: "#58A6FF",  blueDim: "rgba(88,166,255,0.12)",
-  amber: "#F39C12", amberDim: "rgba(243,156,18,0.12)",
-  sidebar: "#112233",
+  dark: "#E9DDD3", surface: "#F6EEE7",
+  surfaceAlt: "#FBF6F2", surfaceHover: "#E3D2C5", border: "rgba(26,59,82,0.16)",
+  borderGold: "rgba(38,93,127,0.22)", text: "#1A3B52",
+  textMuted: "#75604F", textSub: "#3D5E76",
+  // Los 4 colores de estado (verde/rojo/ámbar/azul) se usan sobre todo como COLOR DE TEXTO (en
+  // chips e íconos, casi siempre con un fondo tenue del mismo color — ver Badge). Las versiones de
+  // antes eran claras a propósito, para leerse bien sobre el azul oscuro de la app; sobre el fondo
+  // claro de ahora esas mismas versiones casi no se verían (muy poco contraste), así que se oscurecen.
+  green: "#1B7A41", greenDim: "rgba(27,122,65,0.14)",
+  red: "#C0392B",   redDim: "rgba(192,57,43,0.13)",
+  // Antes "#58A6FF" (clara, pensada para contrastar contra fondo oscuro). Ahora se reusa el Base
+  // oficial de la marca (#265D7F, igual que C.gold) — ya es la combinación de "alto contraste" del
+  // manual sobre Tinta, así que no hace falta inventar un azul nuevo fuera de la paleta oficial.
+  blue: "#265D7F",  blueDim: "rgba(38,93,127,0.14)",
+  amber: "#A85D00", amberDim: "rgba(168,93,0,0.14)",
 };
 // `mono` se usa para todos los montos en dinero de la app — antes era el monospace genérico del
 // sistema operativo (Courier/Consolas según el navegador), que es literalmente la fuente de una
@@ -851,33 +860,33 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
   const tabs = tabsPara(user, area);
   const presionarLogo = useLongPress(onAbrirUsuarios);
   return (
-    <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
-      <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C.border}`, textAlign:"center" }}>
+    <div style={{ width:220, flexShrink:0, background:C_DARK.sidebar, borderRight:`1px solid ${C_DARK.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
+      <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C_DARK.border}`, textAlign:"center" }}>
         {/* El logo, para master, también es la entrada a Usuarios — a propósito no lleva ningún
             aviso visual, y hay que mantenerlo presionado (no un clic normal) para entrar. */}
         <img src="/logo-icon.png" alt="OZEN" draggable={false} onContextMenu={e=>user.role==="master"&&e.preventDefault()} {...(user.role==="master"?presionarLogo:{})} style={{ width:44, height:44, borderRadius:"50%", cursor:user.role==="master"?"pointer":"default", userSelect:"none", WebkitTouchCallout:"none" }} />
       </div>
       <nav style={{ flex:1, padding:"12px 10px", display:"flex", flexDirection:"column", gap:2 }}>
         {tabs.map(t => { const active=tab===t.id; return (
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, border:"none", background:active?`${C.gold}18`:"transparent", borderLeft:active?`3px solid ${C.goldLight}`:"3px solid transparent", color:active?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:13, fontWeight:active?600:400, cursor:"pointer", textAlign:"left", transition:"all 0.15s" }}>
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, border:"none", background:active?`${C.gold}18`:"transparent", borderLeft:active?`3px solid ${C.goldLight}`:"3px solid transparent", color:active?C.goldLight:C_DARK.textMuted, fontFamily:font.body, fontSize:13, fontWeight:active?600:400, cursor:"pointer", textAlign:"left", transition:"all 0.15s" }}>
             <span style={{ fontSize:16 }}>{t.icon}</span>{t.label}
           </button>
         ); })}
       </nav>
-      <div style={{ padding:"14px 16px", borderTop:`1px solid ${C.border}` }}>
+      <div style={{ padding:"14px 16px", borderTop:`1px solid ${C_DARK.border}` }}>
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
           <div style={{ width:32, height:32, borderRadius:8, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:13, fontWeight:700, color:"#fff", flexShrink:0 }}>{user.name[0]}</div>
           <div>
-            <div style={{ fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
-            {!esCuentaTienda(user) && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>{ROLE_LABEL[user.role] || "Asesor"}</div>}
+            <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.text, fontWeight:600, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
+            {!esCuentaTienda(user) && <div style={{ fontFamily:font.body, fontSize:10, color:C_DARK.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>{ROLE_LABEL[user.role] || "Asesor"}</div>}
           </div>
           <button onClick={onRefresh} disabled={refreshing} title="Actualizar" style={{ marginLeft:"auto", background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:16, opacity:refreshing?0.4:1, transition:"transform 0.4s", transform:refreshing?"rotate(180deg)":"rotate(0deg)" }}>🔄</button>
         </div>
-        {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
-        {esAdminFinanzas(user) && <Btn onClick={onAbrirAccesoTiendas} variant="ghost" full sm style={{ marginBottom:8 }}>🏬 Acceso tiendas</Btn>}
-        {puedeGestionarTurnos(user) && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <Btn onClick={onActivarNotificaciones} variant="ghost" full sm style={{ marginBottom:8 }}>🔔 Activar notificaciones</Btn>}
-        {user.role!=="master" && !esCuentaTienda(user) && <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8 }}>🔑 Mi contraseña</Btn>}
-        <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
+        {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8, color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>🔀 Cambiar de área</Btn>}
+        {esAdminFinanzas(user) && <Btn onClick={onAbrirAccesoTiendas} variant="ghost" full sm style={{ marginBottom:8, color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>🏬 Acceso tiendas</Btn>}
+        {puedeGestionarTurnos(user) && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <Btn onClick={onActivarNotificaciones} variant="ghost" full sm style={{ marginBottom:8, color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>🔔 Activar notificaciones</Btn>}
+        {user.role!=="master" && !esCuentaTienda(user) && <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8, color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>🔑 Mi contraseña</Btn>}
+        <Btn onClick={onLogout} variant="ghost" full sm style={{ color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>Cerrar sesión</Btn>
       </div>
     </div>
   );
@@ -886,11 +895,11 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
 function BottomNav({ tab, setTab, user, area }) {
   const tabs = tabsPara(user, area);
   return (
-    <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:C.sidebar, paddingBottom:"env(safe-area-inset-bottom, 8px)", flexShrink:0 }}>
+    <div style={{ display:"flex", borderTop:`1px solid ${C_DARK.border}`, background:C_DARK.sidebar, paddingBottom:"env(safe-area-inset-bottom, 8px)", flexShrink:0 }}>
       {tabs.map(t => { const active=tab===t.id; return (
         <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:1, padding:"10px 4px 8px", background:"none", border:"none", display:"flex", flexDirection:"column", alignItems:"center", gap:3, cursor:"pointer" }}>
           <div style={{ fontSize:18 }}>{t.icon}</div>
-          <div style={{ fontSize:9, fontFamily:font.body, fontWeight:600, color:active?C.goldLight:C.textMuted }}>{t.label}</div>
+          <div style={{ fontSize:9, fontFamily:font.body, fontWeight:600, color:active?C.goldLight:C_DARK.textMuted }}>{t.label}</div>
           {active && <div style={{ width:4, height:4, borderRadius:99, background:C.goldLight }} />}
         </button>
       ); })}
@@ -901,7 +910,7 @@ function BottomNav({ tab, setTab, user, area }) {
 function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
   const presionarLogo = useLongPress(onAbrirUsuarios);
   return (
-    <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
+    <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C_DARK.border}`, background:C_DARK.sidebar, flexShrink:0 }}>
       {/* El logo, para master, también es la entrada a Usuarios — sin ningún aviso visual, y hay
           que mantenerlo presionado (no un toque normal) para entrar. */}
       <img src="/logo-icon.png" alt="OZEN" draggable={false} onContextMenu={e=>user.role==="master"&&e.preventDefault()} {...(user.role==="master"?presionarLogo:{})} style={{ width:34, height:34, borderRadius:"50%", userSelect:"none", WebkitTouchCallout:"none" }} />
@@ -911,8 +920,8 @@ function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onC
         {puedeGestionarTurnos(user) && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <button onClick={onActivarNotificaciones} title="Activar notificaciones" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔔</button>}
         {user.role!=="master" && !esCuentaTienda(user) && <button onClick={onCambiarPassword} title="Mi contraseña" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔑</button>}
         <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
-        <div style={{ fontFamily:font.body, fontSize:12, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
-        <button onClick={onLogout} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 10px", color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:font.body }}>Salir</button>
+        <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
+        <button onClick={onLogout} style={{ background:C_DARK.surfaceAlt, border:`1px solid ${C_DARK.border}`, borderRadius:7, padding:"5px 10px", color:C_DARK.textMuted, fontSize:11, cursor:"pointer", fontFamily:font.body }}>Salir</button>
       </div>
     </div>
   );
@@ -7058,6 +7067,27 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
 // No hay tabla de "turno" en Ventas — cada acción queda con fecha y hora exactas
 // (created_at), y todos los cálculos de dinero se sacan en vivo de ventas/abonos,
 // nunca se guardan como número fijo (así siempre reflejan la info real).
+//
+// C_DARK es una copia congelada de la paleta oscura que tenía `C` antes de pasar el resto de la
+// app a "Tinta Elevada" (propuesta 2, elegida por Santiago). Se usa en dos sitios que a propósito
+// se quedan oscuros sin importar el tema general:
+//   1) Caja: su tarjeta "vidrio" (CajaCard) depende de un fondo oscuro fijo para garantizar
+//      contraste sin importar qué color tenga cada tienda — cambiar esa base es el tipo de cosa
+//      que se ve bien en la mitad de los casos y rompe la legibilidad en la otra mitad.
+//   2) La barra de navegación (Sidebar, BottomNav, MobileHeader): se deja como "cromo" oscuro
+//      fijo, igual que antes, en vez de aclararla junto con el resto del contenido.
+const C_DARK = {
+  gold: "#265D7F", goldLight: "#E5D5CC", goldDark: "#1A3B52",
+  dark: "#0D1117", surface: "#1A3B52",
+  surfaceAlt: "#153047", surfaceHover: "#1E4260", border: "#265D7F",
+  borderGold: "rgba(229,213,204,0.25)", text: "#E5D5CC",
+  textMuted: "#B8A49C", textSub: "#D4C4BB",
+  green: "#2ECC71", greenDim: "rgba(46,204,113,0.12)",
+  red: "#E74C3C",   redDim: "rgba(231,76,60,0.12)",
+  blue: "#58A6FF",  blueDim: "rgba(88,166,255,0.12)",
+  amber: "#F39C12", amberDim: "rgba(243,156,18,0.12)",
+  sidebar: "#112233",
+};
 const CAJA_MEDIOS = ["efectivo","tarjeta","transferencia","addi"];
 const CAJA_MEDIO_LABEL = { efectivo:"Efectivo", tarjeta:"Tarjeta", transferencia:"Transferencia", addi:"ADDI" };
 const cajaZeros = () => ({ efectivo:0, tarjeta:0, transferencia:0, addi:0 });
@@ -7078,28 +7108,28 @@ const cajaHeaderSelectStyle = { background:"rgba(0,0,0,0.28)", border:"1px solid
 // translúcido con un tinte del color de la tienda sobre el fondo oscuro de siempre, en vez del
 // bloque de color sólido de antes. El contenido ya no necesita un panel oscuro interno para
 // legibilidad — el fondo sigue siendo oscuro (solo con el tinte), así que el texto normal de la
-// app (C.text/C.goldLight/C.textMuted) siempre contrasta bien, sea cual sea el color de la tienda.
+// app (C_DARK.text/C_DARK.goldLight/C_DARK.textMuted) siempre contrasta bien, sea cual sea el color de la tienda.
 const CajaCard = ({ icon, titulo, children, color, headerExtra, compact }) => {
   const glass = !!color;
   return (
     <div className="ozen-caja-card" style={{
       background: glass
-        ? `radial-gradient(130% 65% at 0% 0%, rgba(255,255,255,0.16), transparent 60%), radial-gradient(130% 65% at 100% 0%, rgba(255,255,255,0.16), transparent 60%), linear-gradient(180deg, ${color}80 0%, ${color}45 32%, ${C.surface}f0 68%, ${C.dark}fa 100%)`
-        : C.surface,
+        ? `radial-gradient(130% 65% at 0% 0%, rgba(255,255,255,0.16), transparent 60%), radial-gradient(130% 65% at 100% 0%, rgba(255,255,255,0.16), transparent 60%), linear-gradient(180deg, ${color}80 0%, ${color}45 32%, ${C_DARK.surface}f0 68%, ${C_DARK.dark}fa 100%)`
+        : C_DARK.surface,
       // Antes tenía backdrop-filter (blur + saturate) para el efecto "vidrio esmerilado" — se quitó
       // porque era la causa real de la franja/seam clara que aparecía y desaparecía al mover el
       // mouse encima (bug conocido de Chrome/Safari con backdrop-filter recomponiendo mal la capa
       // en cada repintado cercano). Forzar la tarjeta a su propia capa de composición (translateZ/
       // isolation) no fue suficiente, así que se quitó el blur del todo — se conserva el degradado
       // con el color de la tienda, solo sin el desenfoque.
-      border: glass ? `1px solid ${color}70` : `1px solid ${C.border}`,
+      border: glass ? `1px solid ${color}70` : `1px solid ${C_DARK.border}`,
       borderRadius:12,
       boxShadow: glass ? `inset 0 1px 0 rgba(255,255,255,0.22), 0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px ${color}40` : "none",
       padding:compact?"7px 12px":"10px 14px",
       marginBottom:compact?6:10,
     }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:compact?4:8 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:15, fontWeight:700, color:C.goldLight, textTransform:"uppercase", letterSpacing:"0.04em" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:15, fontWeight:700, color:C_DARK.goldLight, textTransform:"uppercase", letterSpacing:"0.04em" }}>
           {glass && <span style={{ width:7, height:7, borderRadius:"50%", background:color, boxShadow:`0 0 6px ${color}` }}/>}
           {icon} {titulo}
         </div>
@@ -7109,8 +7139,8 @@ const CajaCard = ({ icon, titulo, children, color, headerExtra, compact }) => {
     </div>
   );
 };
-const cajaInputStyle = { width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:5, padding:"5px 8px", color:C.text, fontSize:14.5, fontFamily:font.body, outline:"none", boxSizing:"border-box" };
-const cajaLabelStyle = { fontSize:12, color:C.textMuted, fontFamily:font.body, marginBottom:2, textTransform:"uppercase", letterSpacing:"0.05em" };
+const cajaInputStyle = { width:"100%", background:C_DARK.surfaceAlt, border:`1px solid ${C_DARK.border}`, borderRadius:5, padding:"5px 8px", color:C_DARK.text, fontSize:14.5, fontFamily:font.body, outline:"none", boxSizing:"border-box" };
+const cajaLabelStyle = { fontSize:12, color:C_DARK.textMuted, fontFamily:font.body, marginBottom:2, textTransform:"uppercase", letterSpacing:"0.05em" };
 const CajaField = ({ label, value, onChange, options, placeholder, type="text" }) => (
   <div style={{ marginBottom:0 }}>
     {label && <div style={cajaLabelStyle}>{label}</div>}
@@ -7134,13 +7164,13 @@ const CajaMoney = ({ label, value, onChange, placeholder }) => {
   );
 };
 const CajaBtn = ({ onClick, children, disabled }) => (
-  <button onClick={disabled?undefined:onClick} style={{ padding:"5px 12px", borderRadius:5, border:"none", background:C.gold, color:"#fff", fontSize:13.5, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.5:1, whiteSpace:"nowrap" }}>{children}</button>
+  <button onClick={disabled?undefined:onClick} style={{ padding:"5px 12px", borderRadius:5, border:"none", background:C_DARK.gold, color:"#fff", fontSize:13.5, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.5:1, whiteSpace:"nowrap" }}>{children}</button>
 );
 // Botón 📸 — "fotografía" el cuadro completo (Apertura/Cierre/Recolección) y lo copia al
 // portapapeles como imagen, para pegarlo directo en WhatsApp sin tener que hacer captura de
 // pantalla manual y recortarla. Va al lado izquierdo del botón "Registrar..." de cada tarjeta.
 const CajaCapturaBtn = ({ onClick, title }) => (
-  <button type="button" onClick={onClick} title={title||"Copiar como imagen"} style={{ padding:"5px 9px", borderRadius:5, border:`1px solid ${C.border}`, background:"rgba(0,0,0,0.18)", color:C.text, fontSize:14, cursor:"pointer", lineHeight:1 }}>📸</button>
+  <button type="button" onClick={onClick} title={title||"Copiar como imagen"} style={{ padding:"5px 9px", borderRadius:5, border:`1px solid ${C_DARK.border}`, background:"rgba(0,0,0,0.18)", color:C_DARK.text, fontSize:14, cursor:"pointer", lineHeight:1 }}>📸</button>
 );
 // Toma una "foto" de un cuadro de Caja (via su ref) y la copia al portapapeles como imagen —
 // ver CajaCapturaBtn. Depende de html2canvas, cargado desde CDN en index.html (no es un paquete
@@ -7151,7 +7181,7 @@ const capturarTarjetaCaja = async (ref, setToast) => {
   if(!ref?.current || !window.html2canvas){ setToast("⚠️ No se pudo generar la imagen — intenta de nuevo."); setTimeout(()=>setToast(null),2800); return; }
   try{
     const canvas = await window.html2canvas(ref.current, {
-      backgroundColor:C.dark, scale:2, useCORS:true,
+      backgroundColor:C_DARK.dark, scale:2, useCORS:true,
       // html2canvas no soporta backdrop-filter (el "vidrio esmerilado") ni renderiza bien los
       // degradados en capa que usa CajaCard cuando hay color de tienda — eso era el borde grueso y
       // las franjas de color raras que vio Santiago en las capturas. Justo antes de tomar la foto,
@@ -7203,7 +7233,7 @@ const FrozenCajaCard = ({ tipo, registro, tiendaColor, setToastCaptura }) => {
   const ref = useRef(null);
   const d = registro.detalle;
   if(!d){
-    return <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, padding:"6px 4px", fontStyle:"italic" }}>Este registro es de antes de esta función — no tiene vista congelada disponible.</div>;
+    return <div style={{ fontFamily:font.body, fontSize:11.5, color:C_DARK.textMuted, padding:"6px 4px", fontStyle:"italic" }}>Este registro es de antes de esta función — no tiene vista congelada disponible.</div>;
   }
   return (
     <div style={{ marginTop:4, marginBottom:8 }}>
@@ -7213,7 +7243,7 @@ const FrozenCajaCard = ({ tipo, registro, tiendaColor, setToastCaptura }) => {
           {tipo==="apertura" && (<>
             <CajaReciboLinea compact label="Asesor" value={registro.asesor_nombre} small/>
             <CajaReciboLinea compact label="Turno" value={d.turno||"—"} small/>
-            <CajaReciboLinea compact label="Base" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C.red:undefined} small/>
+            <CajaReciboLinea compact label="Base" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C_DARK.red:undefined} small/>
             <CajaReciboLinea compact label="Efectivo" value={fmtCOP(d.efectivoPendienteTotal)}/>
             <CajaReciboLinea compact label="Total" value={fmtCOP(d.totalEnCajaAhora)} bold totalLine/>
             <CajaSubHeader compact label="Última recolección"/>
@@ -7221,17 +7251,17 @@ const FrozenCajaCard = ({ tipo, registro, tiendaColor, setToastCaptura }) => {
             <CajaReciboLinea compact label="Por" value={d.ultimaRecoleccionPor||"Sin registro previo"}/>
             <CajaSubHeader compact label="Novedades del período"/>
             {(d.novedadesDesdeRecoleccion||[]).length>0 ? d.novedadesDesdeRecoleccion.map((g,idx)=>(
-              <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text }}>
-                <span>{idx+1}. {g.motivo}{g.estado && g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}</span>
-                <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+              <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C_DARK.text }}>
+                <span>{idx+1}. {g.motivo}{g.estado && g.estado!=="aprobado" && <span style={{ color:C_DARK.amber }}> · pendiente</span>}</span>
+                <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C_DARK.green:C_DARK.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
               </div>
-            )) : <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin novedades registradas.</div>}
+            )) : <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted }}>Sin novedades registradas.</div>}
           </>)}
           {tipo==="cierre" && (<>
             <CajaReciboLinea compact label="Asesor" value={registro.asesor_nombre} small/>
             <CajaReciboLinea compact label="Turno" value={d.turno||"—"} small/>
             <CajaReciboLinea compact label="Tipo" value={registro.tipo==="parcial"?"Parcial":"Definitivo"} small/>
-            <CajaReciboLinea compact label="Base al cierre" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C.red:undefined} small/>
+            <CajaReciboLinea compact label="Base al cierre" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C_DARK.red:undefined} small/>
             {(d.formasDePagoVentas||[]).length>0 && (<>
               <CajaSubHeader compact label="Formas de pago ventas"/>
               {d.formasDePagoVentas.map((f,idx)=><CajaReciboLinea compact key={idx} label={CAJA_MEDIO_LABEL[f.medio]} value={fmtCOP(f.valor)} small/>)}
@@ -7241,8 +7271,8 @@ const FrozenCajaCard = ({ tipo, registro, tiendaColor, setToastCaptura }) => {
             {(d.totalDescuentos>0 || d.totalNotaCredito>0 || d.totalCambioProducto>0) && (<>
               <CajaSubHeader compact label="Descuentos y notas crédito"/>
               {d.totalDescuentos>0 && <CajaReciboLinea compact label="Descuentos" value={fmtCOP(d.totalDescuentos)} small/>}
-              {d.totalNotaCredito>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(d.totalNotaCredito)} color={C.amber} small/>}
-              {d.totalCambioProducto>0 && <CajaReciboLinea compact label="🔄 Cambio de producto" value={fmtCOP(d.totalCambioProducto)} color={C.gold} small/>}
+              {d.totalNotaCredito>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(d.totalNotaCredito)} color={C_DARK.amber} small/>}
+              {d.totalCambioProducto>0 && <CajaReciboLinea compact label="🔄 Cambio de producto" value={fmtCOP(d.totalCambioProducto)} color={C_DARK.gold} small/>}
             </>)}
             {(d.ingresoDelDia||[]).length>0 && (<>
               <CajaSubHeader compact label="Ingreso del día"/>
@@ -7252,9 +7282,9 @@ const FrozenCajaCard = ({ tipo, registro, tiendaColor, setToastCaptura }) => {
             {(d.novedadesDelDia||[]).length>0 && (<>
               <CajaSubHeader compact label="Novedades del día"/>
               {d.novedadesDelDia.map((g,idx)=>(
-                <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text }}>
+                <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C_DARK.text }}>
                   <span>{idx+1}. {g.motivo}</span>
-                  <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+                  <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C_DARK.green:C_DARK.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
                 </div>
               ))}
             </>)}
@@ -7265,7 +7295,7 @@ const FrozenCajaCard = ({ tipo, registro, tiendaColor, setToastCaptura }) => {
             <CajaReciboLinea compact label="Recibe" value={registro.recibe_nombre} small/>
             <CajaReciboLinea compact label="Valor recogido" value={fmtCOP(registro.valor)} bold totalLine/>
             {registro.incluye_hoy && Number(registro.valor_hoy||0)>0 && <CajaReciboLinea compact label="De eso, de hoy" value={fmtCOP(registro.valor_hoy)} small/>}
-            <CajaReciboLinea compact label="Base que queda" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C.red:undefined} small/>
+            <CajaReciboLinea compact label="Base que queda" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C_DARK.red:undefined} small/>
             {registro.comentarios && <CajaReciboLinea compact label="Comentarios" value={registro.comentarios} small/>}
           </>)}
         </CajaCard>
@@ -7290,16 +7320,16 @@ const CajaReciboLinea = ({ label, value, bold, color, small, indent, totalLine, 
     padding: indent ? (compact?"0.5px 0 0.5px 12px":"1.5px 0 1.5px 14px") : (compact?"1px 0":"2.5px 0"),
     marginTop: totalLine ? (compact?3:5) : 0,
     paddingTop: totalLine ? (compact?4:6) : undefined,
-    borderTop: totalLine ? `1px solid ${C.border}` : "none",
+    borderTop: totalLine ? `1px solid ${C_DARK.border}` : "none",
   }}>
-    <span style={{ fontFamily:font.body, fontSize: bold?14:13.5, color: color || (small?C.textMuted:C.text), fontWeight: bold?700:400 }}>{label}</span>
-    <span style={{ fontFamily:font.mono, fontSize: bold?16.5:14.5, fontWeight: bold?700:400, color: color || (bold?C.goldLight:C.text), whiteSpace:"nowrap" }}>{value}</span>
+    <span style={{ fontFamily:font.body, fontSize: bold?14:13.5, color: color || (small?C_DARK.textMuted:C_DARK.text), fontWeight: bold?700:400 }}>{label}</span>
+    <span style={{ fontFamily:font.mono, fontSize: bold?16.5:14.5, fontWeight: bold?700:400, color: color || (bold?C_DARK.goldLight:C_DARK.text), whiteSpace:"nowrap" }}>{value}</span>
   </div>
 );
 // Barra divisoria de sub-sección dentro de una tarjeta (p.ej. "Dinero recibido por método de pago",
 // "Ventas", "Servicios" dentro de Cierre) — imita las barras de encabezado del diseño de Felipe.
 const CajaSubHeader = ({ label, compact }) => (
-  <div style={{ background:"rgba(255,255,255,0.06)", borderRadius:4, padding: compact?"2px 6px":"4px 8px", margin: compact?"6px 0 2px":"10px 0 4px", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
+  <div style={{ background:"rgba(255,255,255,0.06)", borderRadius:4, padding: compact?"2px 6px":"4px 8px", margin: compact?"6px 0 2px":"10px 0 4px", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C_DARK.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
 );
 // Fila de formulario "a modo factura": título/etiqueta a la izquierda, el campo editable compacto a
 // la derecha — mismo look que CajaReciboLinea pero con un input/select real en vez de texto. Usada
@@ -7313,7 +7343,7 @@ const CajaFieldRow = ({ label, value, onChange, options, placeholder, type="text
   const base = compact ? cajaInputStyleRowCompact : cajaInputStyleRow;
   return (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
-      {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, flexShrink:0 }}>{label}</div>}
+      {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C_DARK.text, flexShrink:0 }}>{label}</div>}
       {options ? (
         <select value={value} onChange={e=>onChange(e.target.value)} style={base}>
           {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
@@ -7332,7 +7362,7 @@ const CajaMoneyRow = ({ label, value, onChange, placeholder, compact, narrow }) 
   // largo, se ve mucho más proporcional al resto de la tarjeta.
   return (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
-      {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, flexShrink:0 }}>{label}</div>}
+      {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C_DARK.text, flexShrink:0 }}>{label}</div>}
       <input type="text" inputMode="numeric" value={mostrado} onChange={e=>onChange(e.target.value.replace(/[^\d]/g,""))} placeholder={placeholder||"$0"} style={narrow ? { ...(compact?cajaInputStyleRowCompact:cajaInputStyleRow), flex:"0 0 84px", width:84 } : (compact?cajaInputStyleRowCompact:cajaInputStyleRow)}/>
     </div>
   );
@@ -7351,7 +7381,7 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
   // abrir el desplegable de una vez al entrar en edición (soportado en navegadores recientes).
   const bareStyle = {
     background:"transparent", border:"none", borderRadius:0, padding:0, margin:0,
-    color:C.text, fontFamily:font.mono, fontSize:14.5, textAlign:"right",
+    color:C_DARK.text, fontFamily:font.mono, fontSize:14.5, textAlign:"right",
     outline:"none", boxShadow:"none", WebkitAppearance:"none", appearance:"none", cursor:"pointer",
   };
   useEffect(()=>{
@@ -7362,7 +7392,7 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
   if(editando){
     return (
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
-        {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, flexShrink:0 }}>{label}</div>}
+        {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C_DARK.text, flexShrink:0 }}>{label}</div>}
         {options ? (
           <select ref={selectRef} autoFocus value={value} onChange={e=>{ onChange(e.target.value); setEditando(false); }} onBlur={()=>setEditando(false)} style={bareStyle}>
             {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
@@ -7378,10 +7408,10 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
   const texto = options ? (options.find(o=>o.value===value)?.label || "Selecciona...") : money ? (digits?`$${Number(digits).toLocaleString("es-CO")}`:"$0") : (value||"—");
   return (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding: compact?"1px 0":"2.5px 0" }}>
-      <span style={{ fontFamily:font.body, fontSize:13.5, color:C.text }}>{label}</span>
+      <span style={{ fontFamily:font.body, fontSize:13.5, color:C_DARK.text }}>{label}</span>
       <button type="button" onClick={()=>setEditando(true)} style={{ display:"flex", alignItems:"center", gap:5, background:"none", border:"none", cursor:"pointer", padding:0 }}>
-        <span style={{ fontFamily:font.mono, fontSize:14.5, color:C.text }}>{texto}</span>
-        <span style={{ color:C.textMuted, fontSize:11 }}>✏️</span>
+        <span style={{ fontFamily:font.mono, fontSize:14.5, color:C_DARK.text }}>{texto}</span>
+        <span style={{ color:C_DARK.textMuted, fontSize:11 }}>✏️</span>
       </button>
     </div>
   );
@@ -7982,9 +8012,9 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   };
 
   return (
-    <div>
+    <div style={{ background:C_DARK.dark, borderRadius:14, padding:14, margin:"-2px" }}>
       {toastCaptura && (
-        <div style={{ position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:9999, background:C.dark, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 16px", color:C.text, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", whiteSpace:"nowrap" }}>{toastCaptura}</div>
+        <div style={{ position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:9999, background:C_DARK.dark, border:`1px solid ${C_DARK.border}`, borderRadius:8, padding:"9px 16px", color:C_DARK.text, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", whiteSpace:"nowrap" }}>{toastCaptura}</div>
       )}
       <div style={{ display:"flex", flexWrap:"wrap", gap:10, alignItems:"center", marginBottom:10 }}>
         {!tiendaFija && (
@@ -7993,17 +8023,17 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
           </div>
         )}
         <div style={{ display:"flex", gap:6, marginLeft:"auto" }}>
-          <Btn variant={cajaVista==="registrar"?"primary":"ghost"} sm onClick={()=>setCajaVista("registrar")}>Registrar</Btn>
-          <Btn variant={cajaVista==="historial"?"primary":"ghost"} sm onClick={()=>setCajaVista("historial")}>Historial</Btn>
+          <Btn variant={cajaVista==="registrar"?"primary":"ghost"} sm onClick={()=>setCajaVista("registrar")} style={cajaVista==="registrar"?{}:{ color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>Registrar</Btn>
+          <Btn variant={cajaVista==="historial"?"primary":"ghost"} sm onClick={()=>setCajaVista("historial")} style={cajaVista==="historial"?{}:{ color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>Historial</Btn>
         </div>
       </div>
-      {msg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"7px 10px", color:C.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{msg}</div>}
+      {msg && <div style={{ background:C_DARK.redDim, border:`1px solid ${C_DARK.red}44`, borderRadius:7, padding:"7px 10px", color:C_DARK.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{msg}</div>}
 
       <div key={cajaVista} className="ozen-pane-anim-tab">
       {cajaVista==="registrar" ? (
         <div style={soloLectura ? { pointerEvents:"none", opacity:0.55 } : undefined}>
           {soloLectura && (
-            <div style={{ background:`${C.amber}18`, border:`1px solid ${C.amber}55`, borderRadius:8, padding:"8px 12px", marginBottom:12, color:C.amber, fontSize:12, fontFamily:font.body }}>
+            <div style={{ background:`${C_DARK.amber}18`, border:`1px solid ${C_DARK.amber}55`, borderRadius:8, padding:"8px 12px", marginBottom:12, color:C_DARK.amber, fontSize:12, fontFamily:font.body }}>
               👁 Solo puedes ver esta pantalla — no tienes permiso para registrar movimientos de Caja.
             </div>
           )}
@@ -8025,15 +8055,15 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 <CajaCampoPick compact label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
                 <CajaCampoPick compact label="Asesor *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                 <CajaReciboLinea compact label="Turno" value={turnoAsesorTexto(apAsesorId, apFecha)} small/>
-                <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={baseDeficit>0?C.red:undefined} small/>
-                {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10, color:C.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
-                {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
+                <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={baseDeficit>0?C_DARK.red:undefined} small/>
+                {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10, color:C_DARK.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
+                {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10, color:puedeFechaLibre?C_DARK.amber:C_DARK.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
                 <CajaReciboLinea compact label="Efectivo" value={fmtCOP(Math.max(0, efectivoPendienteTotal))}/>
                 {esAdminDeVentas(user) && (
                   <div style={{ marginTop:2 }}>
-                    <button onClick={()=>setVerDetalleCalculo(v=>!v)} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:10, textDecoration:"underline", padding:0 }}>{verDetalleCalculo?"Ocultar detalle del cálculo":"Ver detalle del cálculo"}</button>
+                    <button onClick={()=>setVerDetalleCalculo(v=>!v)} style={{ background:"none", border:"none", color:C_DARK.textMuted, cursor:"pointer", fontSize:10, textDecoration:"underline", padding:0 }}>{verDetalleCalculo?"Ocultar detalle del cálculo":"Ver detalle del cálculo"}</button>
                     {verDetalleCalculo && (
-                      <div style={{ marginTop:4, padding:"8px 10px", background:"rgba(0,0,0,0.2)", borderRadius:6, fontFamily:font.mono, fontSize:10.5, color:C.textSub, display:"flex", flexDirection:"column", gap:2 }}>
+                      <div style={{ marginTop:4, padding:"8px 10px", background:"rgba(0,0,0,0.2)", borderRadius:6, fontFamily:font.mono, fontSize:10.5, color:C_DARK.textSub, display:"flex", flexDirection:"column", gap:2 }}>
                         <div>Efectivo histórico bruto (antes de hoy): {fmtCOP(efectivoAnterioresBruto)}</div>
                         <div>Recogido históricamente (días anteriores): −{fmtCOP(recogidoAnterioresAcumulado)}</div>
                         <div style={{ fontWeight:700 }}>= Efectivo días anteriores (antes de novedades): {fmtCOP(Math.max(0, efectivoAnterioresBruto - recogidoAnterioresAcumulado))}</div>
@@ -8060,20 +8090,20 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 <CajaReciboLinea compact label="Por" value={ultimaRecoleccion ? (ultimaRecoleccion.recibe_nombre||"—") : "Sin registro previo"}/>
 
                 <CajaSubHeader compact label="Novedades del período"/>
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:4 }}>Costos en rojo, ingresos en verde — desde la última recolección.</div>
+                <div style={{ fontFamily:font.body, fontSize:11, color:C_DARK.textMuted, marginBottom:4 }}>Costos en rojo, ingresos en verde — desde la última recolección.</div>
                 {gastosDesdeRecoleccion.length>0 ? (
                   <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
                     {gastosDesdeRecoleccion.slice(0,5).map((g,idx)=>(
-                      <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, gap:6 }}>
-                        <span>{idx+1}. {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}</span>
+                      <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C_DARK.text, gap:6 }}>
+                        <span>{idx+1}. {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C_DARK.amber }}> · pendiente</span>}</span>
                         <span style={{ display:"flex", alignItems:"center", gap:6 }}>
-                          <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
-                          {puedeAprobarNovedad && g.estado!=="aprobado" && <button onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:11, padding:"2px 6px" }}>Aprobar</button>}
+                          <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C_DARK.green:C_DARK.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+                          {puedeAprobarNovedad && g.estado!=="aprobado" && <button onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.green, cursor:"pointer", fontSize:11, padding:"2px 6px" }}>Aprobar</button>}
                         </span>
                       </div>
                     ))}
                   </div>
-                ) : <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin novedades registradas.</div>}
+                ) : <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted }}>Sin novedades registradas.</div>}
               </CajaCard>
               </div>
 
@@ -8093,9 +8123,9 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 <CajaCampoPick compact label="Fecha" type="date" value={ciFecha} onChange={setCiFecha}/>
                 <CajaCampoPick compact label="Asesor *" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                 <CajaReciboLinea compact label="Turno" value={turnoAsesorTexto(ciAsesorId, ciFecha)} small/>
-                <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={baseDeficit>0?C.red:undefined} small/>
-                {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
-                {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:11.5, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
+                <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={baseDeficit>0?C_DARK.red:undefined} small/>
+                {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C_DARK.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
+                {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:11.5, color:puedeFechaLibre?C_DARK.amber:C_DARK.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
 
                 {/* Estructura pensada para contrastar contra el cierre de Siigo (ver captura que
                     mandó Santiago): Sección 2 debe coincidir con "Totales por medio de pago" de
@@ -8125,8 +8155,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                   <>
                     <CajaSubHeader compact label="Descuentos y notas crédito"/>
                     {resumenHoy.totalDescuentosDia>0 && <CajaReciboLinea compact label="Descuentos" value={fmtCOP(resumenHoy.totalDescuentosDia)} small/>}
-                    {resumenHoy.totalNotaCreditoDia>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(resumenHoy.totalNotaCreditoDia)} color={C.amber} small/>}
-                    {resumenHoy.totalCambioProductoDia>0 && <CajaReciboLinea compact label="🔄 Cambio de producto (informativo)" value={fmtCOP(resumenHoy.totalCambioProductoDia)} color={C.gold} small/>}
+                    {resumenHoy.totalNotaCreditoDia>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(resumenHoy.totalNotaCreditoDia)} color={C_DARK.amber} small/>}
+                    {resumenHoy.totalCambioProductoDia>0 && <CajaReciboLinea compact label="🔄 Cambio de producto (informativo)" value={fmtCOP(resumenHoy.totalCambioProductoDia)} color={C_DARK.gold} small/>}
                   </>
                 )}
 
@@ -8148,9 +8178,9 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     <CajaSubHeader compact label="Novedades del día"/>
                     <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
                       {novedadesDelDia.map((g,idx)=>(
-                        <div key={g.id} style={{ fontFamily:font.body, fontSize:12, color:C.text, display:"flex", justifyContent:"space-between", gap:6 }}>
+                        <div key={g.id} style={{ fontFamily:font.body, fontSize:12, color:C_DARK.text, display:"flex", justifyContent:"space-between", gap:6 }}>
                           <span>{idx+1}. {g.motivo}</span>
-                          <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+                          <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C_DARK.green:C_DARK.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
                         </div>
                       ))}
                     </div>
@@ -8161,7 +8191,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                   <CajaFieldRow compact wide label="Nota" value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta (opcional)"/>
                 ) : (
                   <div style={{ marginTop:6 }}>
-                    <button type="button" onClick={()=>setCiNotaAbierta(true)} style={{ background:"none", border:`1px dashed ${C.border}`, borderRadius:6, color:C.textMuted, cursor:"pointer", fontSize:11.5, fontFamily:font.body, padding:"4px 10px" }}>+ Agregar nota</button>
+                    <button type="button" onClick={()=>setCiNotaAbierta(true)} style={{ background:"none", border:`1px dashed ${C_DARK.border}`, borderRadius:6, color:C_DARK.textMuted, cursor:"pointer", fontSize:11.5, fontFamily:font.body, padding:"4px 10px" }}>+ Agregar nota</button>
                   </div>
                 )}
 
@@ -8190,7 +8220,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
               <div ref={recoleccionCardRef}>
               <CajaCard compact icon="🚚" titulo="Recolección de efectivo" color={tiendaColor}>
                 {!puedeRecoleccion ? (
-                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>No tienes permiso para registrar una recolección. Puedes verlas en Historial.</div>
+                  <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted }}>No tienes permiso para registrar una recolección. Puedes verlas en Historial.</div>
                 ) : (
                   <>
                     <CajaCampoPick compact label="Fecha" type="date" value={reFecha} onChange={setReFecha}/>
@@ -8203,14 +8233,14 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                         parezca que "desapareció" solo porque ese campo da $0. */}
                     {reFecha===todayStr && efectivoHoyPendiente>0 && <CajaReciboLinea compact label="Efectivo de hoy" value={fmtCOP(efectivoHoyPendiente)} small/>}
                     <CajaCampoPick compact money label="Base que queda" value={reBaseCaja} onChange={v=>{ setReBaseCaja(v); setReBaseCajaTocado(true); }}/>
-                    {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.red, marginTop:2 }}>Hay un hueco de {fmtCOP(baseDeficit)} en la base por gastos sin cubrir (sugerido: {fmtCOP(baseVigente)}). Ajusta el valor de arriba con lo que de verdad quieras dejar de base — no tiene que ser exacto.</div>}
-                    {reFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master o admin de finanzas puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
+                    {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C_DARK.red, marginTop:2 }}>Hay un hueco de {fmtCOP(baseDeficit)} en la base por gastos sin cubrir (sugerido: {fmtCOP(baseVigente)}). Ajusta el valor de arriba con lo que de verdad quieras dejar de base — no tiene que ser exacto.</div>}
+                    {reFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C_DARK.amber:C_DARK.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master o admin de finanzas puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
                     {reFecha===todayStr && (
-                      <div style={{ marginTop:8, padding:"8px 10px", background:C.surfaceAlt, borderRadius:7, border:`1px solid ${C.border}` }}>
+                      <div style={{ marginTop:8, padding:"8px 10px", background:C_DARK.surfaceAlt, borderRadius:7, border:`1px solid ${C_DARK.border}` }}>
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
-                          <label style={{ display:"flex", alignItems:"center", gap:7, fontFamily:font.body, fontSize:12, color:C.text, cursor:"pointer" }}>
+                          <label style={{ display:"flex", alignItems:"center", gap:7, fontFamily:font.body, fontSize:12, color:C_DARK.text, cursor:"pointer" }}>
                             ¿Recoges efectivo de hoy?
-                            {efectivoHoyPendiente<=0 && <span style={{ color:C.textMuted }}> (aún no hay efectivo de hoy)</span>}
+                            {efectivoHoyPendiente<=0 && <span style={{ color:C_DARK.textMuted }}> (aún no hay efectivo de hoy)</span>}
                           </label>
                           <input type="checkbox" checked={reIncluyeHoy} onChange={e=>{ setReIncluyeHoy(e.target.checked); if(!e.target.checked) setReValorHoy(""); }} disabled={efectivoHoyPendiente<=0}/>
                         </div>
@@ -8242,11 +8272,11 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             <CajaCard icon="🗑️" titulo="Solicitudes de borrado pendientes" color={tiendaColor}>
               <div style={{ display:"flex", flexDirection:"column" }}>
                 {solicitudesPendientes.map(s=>(
-                  <div key={s.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"4px 2px", borderBottom:`1px solid ${C.border}` }}>
-                    <span>{s.resumen} <span style={{ color:C.textMuted }}>· pidió {s.solicitado_por} · {fmtFechaHora(s.fecha_solicitud)}</span></span>
+                  <div key={s.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"4px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
+                    <span>{s.resumen} <span style={{ color:C_DARK.textMuted }}>· pidió {s.solicitado_por} · {fmtFechaHora(s.fecha_solicitud)}</span></span>
                     <span style={{ display:"flex", gap:6 }}>
-                      <button onClick={()=>resolverSolicitudBorrado(s,"aprobada")} style={{ background:"none", border:`1px solid ${C.green}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Aprobar y borrar</button>
-                      <button onClick={()=>resolverSolicitudBorrado(s,"rechazada")} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Rechazar</button>
+                      <button onClick={()=>resolverSolicitudBorrado(s,"aprobada")} style={{ background:"none", border:`1px solid ${C_DARK.green}`, borderRadius:5, color:C_DARK.green, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Aprobar y borrar</button>
+                      <button onClick={()=>resolverSolicitudBorrado(s,"rechazada")} style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.textMuted, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Rechazar</button>
                     </span>
                   </div>
                 ))}
@@ -8258,18 +8288,18 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             <div style={{ display:"flex", flexDirection:"column" }}>
               {aperturasTienda.slice(0,30).map(a=>(
                 <div key={a.id}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
-                    <button onClick={()=>setVerDetalleId(id=>id===`apertura:${a.id}`?null:`apertura:${a.id}`)} style={{ background:"none", border:"none", color:C.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(a.created_at)} · {a.asesor_nombre}</button>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"3px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
+                    <button onClick={()=>setVerDetalleId(id=>id===`apertura:${a.id}`?null:`apertura:${a.id}`)} style={{ background:"none", border:"none", color:C_DARK.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(a.created_at)} · {a.asesor_nombre}</button>
                     <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                      <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base: {fmtCOP(a.base_caja)}</span>
-                      {puedeBorrarCaja && <button onClick={()=>borrarApertura(a)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
-                      {puedeSolicitarBorradoCaja && (solicitudPendientePara("apertura",a.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("apertura",a,`Apertura ${fmtFechaHora(a.created_at)} · ${a.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
+                      <span style={{ fontFamily:font.mono, color:C_DARK.textMuted }}>Base: {fmtCOP(a.base_caja)}</span>
+                      {puedeBorrarCaja && <button onClick={()=>borrarApertura(a)} title="Borrar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                      {puedeSolicitarBorradoCaja && (solicitudPendientePara("apertura",a.id) ? <span style={{ color:C_DARK.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("apertura",a,`Apertura ${fmtFechaHora(a.created_at)} · ${a.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
                     </span>
                   </div>
                   {verDetalleId===`apertura:${a.id}` && <FrozenCajaCard tipo="apertura" registro={a} tiendaColor={tiendaColor} setToastCaptura={setToastCaptura}/>}
                 </div>
               ))}
-              {aperturasTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
+              {aperturasTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted, padding:4 }}>Sin registros todavía.</div>}
             </div>
           </CajaCard>
 
@@ -8280,25 +8310,25 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 const totalDia = rd.totalIngresoNeto + rd.totalServicios;
                 return (
                   <div key={c.id}>
-                    <div style={{ display:"flex", flexDirection:"column", gap:1, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"4px 2px", borderBottom:`1px solid ${C.border}` }}>
+                    <div style={{ display:"flex", flexDirection:"column", gap:1, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"4px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
                       <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4 }}>
-                        <button onClick={()=>setVerDetalleId(id=>id===`cierre:${c.id}`?null:`cierre:${c.id}`)} style={{ background:"none", border:"none", color:C.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}{c.novedades?` · ${c.novedades}`:""}</button>
+                        <button onClick={()=>setVerDetalleId(id=>id===`cierre:${c.id}`?null:`cierre:${c.id}`)} style={{ background:"none", border:"none", color:C_DARK.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}{c.novedades?` · ${c.novedades}`:""}</button>
                         <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                          <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base al cierre: {fmtCOP(c.base_caja)}</span>
-                          {puedeBorrarCaja && <button onClick={()=>borrarCierre(c)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
-                          {puedeSolicitarBorradoCaja && (solicitudPendientePara("cierre",c.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("cierre",c,`Cierre ${fmtFechaHora(c.created_at)} · ${c.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
+                          <span style={{ fontFamily:font.mono, color:C_DARK.textMuted }}>Base al cierre: {fmtCOP(c.base_caja)}</span>
+                          {puedeBorrarCaja && <button onClick={()=>borrarCierre(c)} title="Borrar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                          {puedeSolicitarBorradoCaja && (solicitudPendientePara("cierre",c.id) ? <span style={{ color:C_DARK.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("cierre",c,`Cierre ${fmtFechaHora(c.created_at)} · ${c.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
                         </span>
                       </div>
-                      <div style={{ fontFamily:font.mono, fontSize:10.5, color:C.textMuted }}>
-                        Ventas {fmtCOP(rd.totalIngresoNeto)} · Servicios {fmtCOP(rd.totalServicios)} · <span style={{ color:C.goldLight, fontWeight:700 }}>Total {fmtCOP(totalDia)}</span>
-                        {rd.totalNotaCreditoDia>0 && <span style={{ color:C.amber }}> · Notacrédito {fmtCOP(rd.totalNotaCreditoDia)}</span>}
+                      <div style={{ fontFamily:font.mono, fontSize:10.5, color:C_DARK.textMuted }}>
+                        Ventas {fmtCOP(rd.totalIngresoNeto)} · Servicios {fmtCOP(rd.totalServicios)} · <span style={{ color:C_DARK.goldLight, fontWeight:700 }}>Total {fmtCOP(totalDia)}</span>
+                        {rd.totalNotaCreditoDia>0 && <span style={{ color:C_DARK.amber }}> · Notacrédito {fmtCOP(rd.totalNotaCreditoDia)}</span>}
                       </div>
                     </div>
                     {verDetalleId===`cierre:${c.id}` && <FrozenCajaCard tipo="cierre" registro={c} tiendaColor={tiendaColor} setToastCaptura={setToastCaptura}/>}
                   </div>
                 );
               })}
-              {cierresTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
+              {cierresTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted, padding:4 }}>Sin registros todavía.</div>}
             </div>
           </CajaCard>
 
@@ -8306,26 +8336,26 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             <div style={{ display:"flex", flexDirection:"column" }}>
               {recoleccionesTienda.slice(0,30).map(r=>(
                 <div key={r.id}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
-                    <button onClick={()=>setVerDetalleId(id=>id===`recoleccion:${r.id}`?null:`recoleccion:${r.id}`)} style={{ background:"none", border:"none", color:C.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}{r.comentarios?` · ${r.comentarios}`:""}{r.incluye_hoy && Number(r.valor_hoy||0)>0 ? ` · incluye ${fmtCOP(r.valor_hoy)} de ese mismo día` : ""}</button>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"3px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
+                    <button onClick={()=>setVerDetalleId(id=>id===`recoleccion:${r.id}`?null:`recoleccion:${r.id}`)} style={{ background:"none", border:"none", color:C_DARK.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}{r.comentarios?` · ${r.comentarios}`:""}{r.incluye_hoy && Number(r.valor_hoy||0)>0 ? ` · incluye ${fmtCOP(r.valor_hoy)} de ese mismo día` : ""}</button>
                     <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                      <span style={{ fontFamily:font.mono }}>{fmtCOP(r.valor)} <span style={{ color:C.textMuted }}>(queda base {fmtCOP(r.base_caja)})</span></span>
-                      {puedeBorrarCaja && <button onClick={()=>borrarRecoleccion(r)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
-                      {puedeSolicitarBorradoCaja && (solicitudPendientePara("recoleccion",r.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("recoleccion",r,`Recolección ${fmtFechaHora(r.created_at)} · ${r.entrega_nombre} → ${r.recibe_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
+                      <span style={{ fontFamily:font.mono }}>{fmtCOP(r.valor)} <span style={{ color:C_DARK.textMuted }}>(queda base {fmtCOP(r.base_caja)})</span></span>
+                      {puedeBorrarCaja && <button onClick={()=>borrarRecoleccion(r)} title="Borrar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                      {puedeSolicitarBorradoCaja && (solicitudPendientePara("recoleccion",r.id) ? <span style={{ color:C_DARK.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("recoleccion",r,`Recolección ${fmtFechaHora(r.created_at)} · ${r.entrega_nombre} → ${r.recibe_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
                     </span>
                   </div>
                   {verDetalleId===`recoleccion:${r.id}` && <FrozenCajaCard tipo="recoleccion" registro={r} tiendaColor={tiendaColor} setToastCaptura={setToastCaptura}/>}
                 </div>
               ))}
-              {recoleccionesTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
+              {recoleccionesTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted, padding:4 }}>Sin registros todavía.</div>}
             </div>
           </CajaCard>
 
           <CajaCard icon="🗒️" titulo="Historial de novedades" color={tiendaColor}>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:4 }}>La tienda puede editar/borrar solo las de hoy — master y admin de finanzas, cualquier día.</div>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C_DARK.textMuted, marginBottom:4 }}>La tienda puede editar/borrar solo las de hoy — master y admin de finanzas, cualquier día.</div>
             <div style={{ display:"flex", flexDirection:"column" }}>
               {gastosTienda.slice(0,30).map(g=>(
-                <div key={g.id} style={{ display:"flex", flexDirection:"column", gap:3, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"4px 2px", borderBottom:`1px solid ${C.border}` }}>
+                <div key={g.id} style={{ display:"flex", flexDirection:"column", gap:3, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"4px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
                   {gastoEditandoId===g.id ? (
                     <div style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"center" }}>
                       <CajaFieldRow compact label="Tipo" value={geTipo} onChange={setGeTipo} options={[{value:"costo",label:"Costo"},{value:"ingreso",label:"Ingreso"}]}/>
@@ -8333,28 +8363,28 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                       <CajaFieldRow compact wide label="Motivo" value={geMotivo} onChange={setGeMotivo}/>
                       <CajaFieldRow compact label="Quién autorizó" value={geAutorizoLiderId} onChange={setGeAutorizoLiderId} options={[{value:"",label:"Selecciona un líder..."}, ...lideresActivos.map(l=>({value:l.id,label:l.nombre}))]}/>
                       <span style={{ display:"flex", gap:6 }}>
-                        <button onClick={()=>guardarEdicionGasto(g)} style={{ background:"none", border:`1px solid ${C.green}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Guardar</button>
-                        <button onClick={cancelarEditarGasto} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Cancelar</button>
+                        <button onClick={()=>guardarEdicionGasto(g)} style={{ background:"none", border:`1px solid ${C_DARK.green}`, borderRadius:5, color:C_DARK.green, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Guardar</button>
+                        <button onClick={cancelarEditarGasto} style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.textMuted, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Cancelar</button>
                       </span>
                     </div>
                   ) : (
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6 }}>
                       <span>
-                        {g.fecha ? new Date(g.fecha+"T00:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"}) : "—"} · {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}
-                        <span style={{ display:"block", fontSize:10, color:C.textMuted, marginTop:1 }}>
+                        {g.fecha ? new Date(g.fecha+"T00:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"}) : "—"} · {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C_DARK.amber }}> · pendiente</span>}
+                        <span style={{ display:"block", fontSize:10, color:C_DARK.textMuted, marginTop:1 }}>
                           {[g.registrado_por?`Registró: ${g.registrado_por}`:null, g.autorizado_por?`Autorizó: ${g.autorizado_por}`:null, g.aprobado_por?`Aprobó: ${g.aprobado_por}`:null].filter(Boolean).join(" · ")}
                         </span>
                       </span>
                       <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
-                        {puedeTocarGasto(g) && <button onClick={()=>empezarEditarGasto(g)} title="Editar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.goldLight, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Editar</button>}
-                        {puedeTocarGasto(g) && <button onClick={()=>borrarGasto(g)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                        <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C_DARK.green:C_DARK.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+                        {puedeTocarGasto(g) && <button onClick={()=>empezarEditarGasto(g)} title="Editar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.goldLight, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Editar</button>}
+                        {puedeTocarGasto(g) && <button onClick={()=>borrarGasto(g)} title="Borrar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
                       </span>
                     </div>
                   )}
                 </div>
               ))}
-              {gastosTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin novedades registradas.</div>}
+              {gastosTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted, padding:4 }}>Sin novedades registradas.</div>}
             </div>
           </CajaCard>
         </>
@@ -8672,11 +8702,11 @@ export default function App() {
          (se nota como una franja rara al pasar el mouse justo después de hacer scroll). Se
          redefine aquí, delgada y con los mismos colores del tema, para que se vea a propósito y no
          como si algo estuviera mal. */
-      * { scrollbar-width: thin; scrollbar-color: ${C.surfaceHover} transparent; }
+      * { scrollbar-width: thin; scrollbar-color: rgba(38,93,127,0.35) transparent; }
       *::-webkit-scrollbar { width: 9px; height: 9px; }
       *::-webkit-scrollbar-track { background: transparent; }
-      *::-webkit-scrollbar-thumb { background-color: ${C.surfaceHover}; border-radius: 999px; }
-      *::-webkit-scrollbar-thumb:hover { background-color: ${C.border}; }
+      *::-webkit-scrollbar-thumb { background-color: rgba(38,93,127,0.35); border-radius: 999px; }
+      *::-webkit-scrollbar-thumb:hover { background-color: rgba(38,93,127,0.55); }
       /* El desplegable de un <select> lo dibuja el navegador con SU propio fondo (casi siempre
          blanco), no con el fondo oscuro que se le puso al <select> — así el texto claro pensado
          para fondo oscuro quedaba casi ilegible al abrir cualquier lista (ej. elegir asesor). Se
@@ -8695,7 +8725,7 @@ export default function App() {
   );
 
   const bannerActualizacion = actualizacionDisponible && (
-    <div style={{ position:"fixed", left:0, right:0, bottom:0, zIndex:500, background:C.amber, color:"#241a00", padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"center", gap:12, flexWrap:"wrap", fontFamily:font.body, fontSize:13, fontWeight:600, boxShadow:"0 -4px 16px rgba(0,0,0,0.35)" }}>
+    <div style={{ position:"fixed", left:0, right:0, bottom:0, zIndex:500, background:"#F39C12", color:"#241a00", padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"center", gap:12, flexWrap:"wrap", fontFamily:font.body, fontSize:13, fontWeight:600, boxShadow:"0 -4px 16px rgba(0,0,0,0.35)" }}>
       <span>🔄 Hay una versión nueva de la app — actualiza cuando puedas para no ver datos desactualizados.</span>
       <button onClick={()=>window.location.reload()} style={{ background:"#241a00", color:"#fff", border:"none", borderRadius:6, padding:"6px 14px", fontFamily:font.body, fontSize:12.5, fontWeight:700, cursor:"pointer" }}>Actualizar ahora</button>
     </div>
