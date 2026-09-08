@@ -513,20 +513,21 @@ const PageHeader = ({ title, subtitle, action, middle }) => (
   </div>
 );
 
-// Quién marcó entrada hoy en esta tienda y todavía no ha marcado salida — es SIEMPRE sobre HOY
-// (estado en vivo de quién está trabajando ahora mismo), sin importar qué `fecha` se esté viendo
-// en el formulario de Registrar venta. "En almuerzo" = su último evento de hoy fue inicio_almuerzo
-// (ya se fue a almorzar y todavía no ha marcado el regreso). Se ignoran los eventos "omitido"
-// (no son una marcación real, solo dejan constancia de que se saltó un paso).
-const advisorsEnTurnoHoy = (tiendaId, records) => {
-  if (!tiendaId) return [];
+// Quién marcó entrada hoy (en CUALQUIER tienda) y todavía no ha marcado salida — es SIEMPRE sobre
+// HOY (estado en vivo de quién está trabajando ahora mismo) y de TODAS las tiendas a la vez, sin
+// importar cuál tienda esté elegida en el formulario de Registrar venta ni qué cuenta/usuario esté
+// viendo la pantalla — pedido explícito de Santiago: esto no depende de la cuenta ni de la tienda
+// seleccionada. "En almuerzo" = su último evento de hoy fue inicio_almuerzo (ya se fue a almorzar
+// y todavía no ha marcado el regreso). Se ignoran los eventos "omitido" (no son una marcación real,
+// solo dejan constancia de que se saltó un paso).
+const advisorsEnTurnoHoy = (records) => {
   const porUsuario = {};
   (records || []).forEach(r => {
-    if (r.store !== tiendaId || r.date !== todayStr || r.event === "omitido") return;
+    if (r.date !== todayStr || r.event === "omitido") return;
     const idx = ORDEN.indexOf(r.event);
     if (idx < 0) return;
     const prev = porUsuario[r.user_id];
-    if (!prev || idx > prev.idx) porUsuario[r.user_id] = { userId: r.user_id, userName: r.user_name, idx };
+    if (!prev || idx > prev.idx) porUsuario[r.user_id] = { userId: r.user_id, userName: r.user_name, store: r.store, idx };
   });
   return Object.values(porUsuario)
     .filter(x => x.idx < ORDEN.indexOf("salida")) // ya marcó salida ⇒ no sigue en turno, no se muestra
@@ -535,18 +536,20 @@ const advisorsEnTurnoHoy = (tiendaId, records) => {
 };
 
 // Burbuja compacta (clic para desplegar nombres) que muestra quién está activo en turno / en
-// almuerzo ahora mismo en la tienda seleccionada. Pensada para vivir en el header de Registrar
-// venta, en el hueco entre el título y la campana/burbuja de meta.
-const EnTurnoIndicator = ({ tiendaId, records, isMobile }) => {
-  if (!tiendaId) return null;
-  const activos = advisorsEnTurnoHoy(tiendaId, records);
+// almuerzo ahora mismo, en TODAS las tiendas. Pensada para vivir en el header de Registrar venta,
+// en el hueco entre el título y la campana/burbuja de meta.
+const EnTurnoIndicator = ({ records, stores, isMobile }) => {
+  const activos = advisorsEnTurnoHoy(records);
   const enAlmuerzo = activos.filter(a => a.enAlmuerzo).length;
   const presentes = activos.length - enAlmuerzo;
+  // Agrupados por tienda para que el desplegable diga dónde está cada quien, no solo el nombre.
+  const porTienda = {};
+  activos.forEach(a => { (porTienda[a.store] = porTienda[a.store] || []).push(a); });
   return (
     <HoverTooltip
       clickOnly
       align={isMobile ? "right" : "left"}
-      width={230}
+      width={250}
       label={
         <div style={{
           display: "flex", alignItems: "center", gap: 6, height: isMobile ? 38 : "auto", boxSizing: "border-box",
@@ -572,15 +575,24 @@ const EnTurnoIndicator = ({ tiendaId, records, isMobile }) => {
         </div>
       }
     >
-      <div style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 700, color: C.goldLight, marginBottom: 6 }}>👤 Quién está en turno hoy</div>
+      <div style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 700, color: C.goldLight, marginBottom: 6 }}>👤 Quién está en turno hoy · todas las tiendas</div>
       {activos.length === 0 ? (
-        <div style={{ fontFamily: font.body, fontSize: 12, color: C.textMuted }}>Nadie ha marcado entrada hoy en esta tienda.</div>
+        <div style={{ fontFamily: font.body, fontSize: 12, color: C.textMuted }}>Nadie ha marcado entrada hoy.</div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          {activos.map(a => (
-            <div key={a.userId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontFamily: font.body, fontSize: 12.5 }}>
-              <span style={{ color: C.text }}>{a.userName}</span>
-              <Badge color={a.enAlmuerzo ? C.amber : C.green} sm>{a.enAlmuerzo ? "🍽️ Almuerzo" : "🟢 Activo"}</Badge>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {Object.entries(porTienda).map(([storeId, arr]) => (
+            <div key={storeId}>
+              <div style={{ fontFamily: font.body, fontSize: 10.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+                {stores[storeId]?.name || "Sin tienda"}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {arr.map(a => (
+                  <div key={a.userId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontFamily: font.body, fontSize: 12.5 }}>
+                    <span style={{ color: C.text }}>{a.userName}</span>
+                    <Badge color={a.enAlmuerzo ? C.amber : C.green} sm>{a.enAlmuerzo ? "🍽️ Almuerzo" : "🟢 Activo"}</Badge>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>
@@ -5619,7 +5631,7 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
               <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{subtitleTienda}</div>
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
-              {tiendaId && <EnTurnoIndicator tiendaId={tiendaId} records={records} isMobile/>}
+              <EnTurnoIndicator records={records} stores={stores} isMobile/>
               {bellButton}
             </div>
           </div>
@@ -5629,7 +5641,7 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
         <PageHeader
           title="Registrar venta"
           subtitle={subtitleTienda}
-          middle={tiendaId && <EnTurnoIndicator tiendaId={tiendaId} records={records}/>}
+          middle={<EnTurnoIndicator records={records} stores={stores}/>}
           action={
             <div style={{ display:"flex", alignItems:"flex-start", gap:10, flexWrap:"wrap", justifyContent:"flex-end" }}>
               {metaBubble}
