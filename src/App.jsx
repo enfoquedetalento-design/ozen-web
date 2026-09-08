@@ -601,6 +601,64 @@ const EnTurnoIndicator = ({ records, stores, isMobile }) => {
   );
 };
 
+// Comentario opcional que la propia persona deja en uno de sus registros de asistencia (ej. "Llegué
+// tarde por tráfico"). Vive en una nube tipo HoverTooltip: un ícono chiquito, clic para abrir, no
+// crece ni deforma la tarjetita del evento. `editable` debe ser true SOLO en las pantallas donde la
+// persona ve sus propios registros (Marcar Asistencia, Mi Historial) — en Registros (donde
+// admin/master ven los de todo el mundo) siempre va en solo lectura, y ni siquiera se muestra si no
+// hay comentario: por pedido explícito de Santiago, nadie más que el dueño del registro puede
+// agregarlo o cambiarlo.
+const ComentarioRegistro = ({ registro, editable, onGuardado, align="right" }) => {
+  const [valor, setValor] = useState(registro?.comentario || "");
+  const [guardando, setGuardando] = useState(false);
+  if (!registro) return null; // nada que comentar si el evento ni siquiera está marcado
+  const tieneComentario = !!(registro.comentario || "").trim();
+  if (!tieneComentario && !editable) return null; // nada que ver, y esta pantalla no puede agregarlo
+
+  const guardar = async () => {
+    setGuardando(true);
+    const { data, error } = await supabase.from("registros").update({ comentario: valor.trim() || null }).eq("id", registro.id).select().single();
+    setGuardando(false);
+    if (data) onGuardado?.(data);
+    else if (error) alert(`No se pudo guardar el comentario: ${error.message}`);
+  };
+
+  return (
+    <HoverTooltip
+      clickOnly
+      align={align}
+      width={220}
+      labelStyle={{ textDecoration:"none", cursor:"pointer" }}
+      label={
+        <span title={tieneComentario ? "Ver comentario" : "Agregar comentario"} style={{
+          display: "inline-flex", alignItems: "center", justifyContent: "center", width: 20, height: 20,
+          borderRadius: 99, fontSize: 12, lineHeight: 1, cursor: "pointer",
+          background: tieneComentario ? `${C.gold}18` : "transparent",
+          border: tieneComentario ? `1px solid ${C.borderGold}` : `1px dashed ${C.border}`,
+          color: tieneComentario ? C.gold : C.textMuted, opacity: tieneComentario ? 1 : 0.6,
+        }}>💬</span>
+      }
+    >
+      {editable ? (
+        <div>
+          <textarea
+            value={valor}
+            onChange={e => setValor(e.target.value)}
+            placeholder="Escribe un comentario (opcional)..."
+            rows={3}
+            style={{ width: "100%", boxSizing: "border-box", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 8px", color: C.text, fontSize: 12, fontFamily: font.body, outline: "none", resize: "vertical" }}
+          />
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+            <Btn onClick={guardar} sm disabled={guardando || valor.trim()===(registro.comentario||"").trim()}>{guardando ? "Guardando..." : "Guardar"}</Btn>
+          </div>
+        </div>
+      ) : (
+        <div style={{ fontFamily: font.body, fontSize: 12.5, color: C.text, whiteSpace: "pre-wrap" }}>{registro.comentario}</div>
+      )}
+    </HoverTooltip>
+  );
+};
+
 // ── Camera Modal ──────────────────────────────────────────────────────────────
 function CameraModal({ eventLabel, onCapture, onCancel }) {
   const videoRef = useRef(null), canvasRef = useRef(null), streamRef = useRef(null);
@@ -956,6 +1014,9 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
             : <span style={{ fontSize:12, opacity:0.25 }}>📷</span>
           }
         </div>
+        {/* Solo lectura acá — quien administra ve el comentario (si existe) pero no lo agrega ni lo
+            edita, eso es solo del dueño del registro (ver ComentarioRegistro). */}
+        {registro && <ComentarioRegistro registro={registro} editable={false}/>}
         {/* Editar convierte un N/R en un registro real sin foto (una reconstrucción tuya, no lo que
             la persona realmente hizo), y borrar un N/R ya no debería hacer falta seguido ahora que
             los cron de Supabase evitan que se generen mal — por eso ninguno de los dos botones se
@@ -2010,7 +2071,7 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
 }
 
 // ── SCREEN: Mi Asistencia (para cuentas de líder/admin) — agrupa Marcar + Mi Historial ──
-function MiAsistenciaScreen({ user, records, onRecord, onRefresh, stores, asignaciones, turnosHorarios, turnosAsignaciones }) {
+function MiAsistenciaScreen({ user, records, onRecord, onRefresh, onRecordUpdated, stores, asignaciones, turnosHorarios, turnosAsignaciones }) {
   const [sub,setSub]=useState("marcar");
   const subTabs=[{ id:"marcar", label:"📍 Marcar" },{ id:"historial", label:"📋 Mi Historial" }];
   return (
@@ -2021,15 +2082,15 @@ function MiAsistenciaScreen({ user, records, onRecord, onRefresh, stores, asigna
         ))}
       </div>
       <div key={sub} className="ozen-pane-anim-tab">
-        {sub==="marcar"    && <CheckInScreen user={user} records={records} onRecord={onRecord} onRefresh={onRefresh} stores={stores} asignaciones={asignaciones} turnosHorarios={turnosHorarios}/>}
-        {sub==="historial" && <HistoryScreen user={user} records={records} stores={stores} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>}
+        {sub==="marcar"    && <CheckInScreen user={user} records={records} onRecord={onRecord} onRefresh={onRefresh} onRecordUpdated={onRecordUpdated} stores={stores} asignaciones={asignaciones} turnosHorarios={turnosHorarios}/>}
+        {sub==="historial" && <HistoryScreen user={user} records={records} stores={stores} onRecordUpdated={onRecordUpdated} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>}
       </div>
     </div>
   );
 }
 
 // ── SCREEN: CheckIn ───────────────────────────────────────────────────────────
-function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignaciones, turnosHorarios }) {
+function CheckInScreen({ user, records, onRecord, onRefresh, onRecordUpdated, stores, asignaciones, turnosHorarios }) {
   const [selStore,setSelStore]=useState(""),[selShift,setSelShift]=useState(""),[locked,setLocked]=useState(false),[showCamera,setShowCamera]=useState(false),[recording,setRecording]=useState(false),[toast,setToast]=useState(null),[toastError,setToastError]=useState(false);
   // Sin conexión, ni la cámara ni el guardado tienen caso — mejor bloquear el botón de una vez con
   // un aviso claro que dejar que la persona haga todo el proceso (foto + confirmar) para enterarse
@@ -2273,6 +2334,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
             <div style={{width:12,height:12,borderRadius:99,background:rec?EVENT_COLORS[ev]:omitidoRec?C.red:C.border,boxShadow:rec?`0 0 8px ${EVENT_COLORS[ev]}`:"none",flexShrink:0}}/>
             <div style={{flex:1,fontFamily:font.body,fontSize:13,color:rec||omitidoRec?C.text:C.textMuted}}>{EVENT_LABELS[ev]}</div>
             {isNext&&!rec&&!omitidoRec&&<Badge color={C.blue} sm>Pendiente</Badge>}
+            {rec && <ComentarioRegistro registro={rec} editable onGuardado={onRecordUpdated}/>}
             {rec?.photo_url&&<img src={rec.photo_url} alt="foto" style={{width:28,height:28,borderRadius:6,objectFit:"cover"}}/>}
             <div style={{display:"flex",alignItems:"baseline",gap:2}}>
               <span style={{fontFamily:font.mono,fontSize:13,color:rec?EVENT_COLORS[ev]:omitidoRec?C.red:C.border,fontWeight:700}}>{rec?rec.time:omitidoRec?"N/R":"--:--"}</span>
@@ -2286,7 +2348,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, stores, asignacione
 }
 
 // ── SCREEN: History ───────────────────────────────────────────────────────────
-function HistoryScreen({ user, records, stores, turnosHorarios, turnosAsignaciones }) {
+function HistoryScreen({ user, records, stores, onRecordUpdated, turnosHorarios, turnosAsignaciones }) {
   const [viewPhoto,setViewPhoto]=useState(null);
   const myRecs=records.filter(r=>r.user_id===user.id);
   const jornadasMap = {};
@@ -2317,6 +2379,7 @@ function HistoryScreen({ user, records, stores, turnosHorarios, turnosAsignacion
             : <span style={{ fontSize:12, opacity:0.25 }}>📷</span>
           }
         </div>
+        {registro && <ComentarioRegistro registro={registro} editable onGuardado={onRecordUpdated}/>}
       </div>
     );
   };
@@ -8498,7 +8561,7 @@ export default function App() {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones} user={user} onRecordDeleted={onRecordDeletedAdmin} onRecordUpdated={onRecordUpdatedAdmin}/>;
         if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={puedeGestionarTurnos(user)} onSubChange={setTurnosSub}/>;
-        if(tab==="mi_asistencia") return <MiAsistenciaScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
+        if(tab==="mi_asistencia") return <MiAsistenciaScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} onRecordUpdated={onRecordUpdatedAdmin} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
     } else if(esCuentaTienda(user)){
@@ -8510,8 +8573,8 @@ export default function App() {
       // cuenta de tienda pueda ver quién tiene turno sin poder editar nada.
       if(tab==="turnos")    return <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={turnosAsignaciones}/>;
     } else {
-      if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>;
-      if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
+      if(tab==="checkin")  return <CheckInScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} onRecordUpdated={onRecordUpdatedAdmin} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>;
+      if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores} onRecordUpdated={onRecordUpdatedAdmin} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
       if(tab==="schedule") return <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={turnosAsignaciones}/>;
       if(tab==="firmar")   return <FirmarDocumentoScreen/>;
     }
