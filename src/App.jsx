@@ -3960,28 +3960,42 @@ function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
   );
 }
 
-// Tarjeta simple (no editable) para un abono de Flexipago que entró en un día distinto al de la
-// venta original — mismo caso que ya se resolvía en "Ventas de hoy" (VentasRegistrarScreen): el
-// dinero se recibió ese día aunque la factura se haya creado antes, así que en Lista de ventas
-// filtrada por esa fecha también debe aparecer un registro (antes solo se veía en Caja).
-function AbonoFlexipagoCard({ venta, abonos }) {
-  const totalDia = abonos.reduce((s,a)=>s+Number(a.valor||0),0);
-  const mediosTexto = [...new Set(abonos.flatMap(a=>mediosDeAbono(a).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago)))].join(", ");
+// Tarjeta para un abono de Flexipago que entró en un día distinto al de la venta original — el
+// dinero se recibió ese día aunque la factura se haya creado antes, así que tanto "Ventas de hoy"
+// (VentasRegistrarScreen) como "Lista de ventas" filtrada por esa fecha deben mostrar un registro.
+// Es el MISMO componente en los dos lados (antes cada uno tenía su propia versión con reglas
+// distintas — una mostraba el valor TOTAL del Flexipago cuando el abono lo completaba, la otra
+// siempre mostraba solo el abono del día — así que la misma novedad se veía con números distintos
+// según dónde se mirara, lo cual confundía al verificar cuentas). El headline muestra el valor
+// completo del Flexipago SOLO si este abono lo completa; si no, muestra lo que entró ese día.
+function AbonoFlexipagoCard({ venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy }) {
+  const abonosOrdenados = [...abonos].sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
+  // Se usa la fecha REAL del abono (no "hoy" a secas) porque este mismo componente se ve tanto en
+  // "Ventas de hoy" (siempre hoy) como en "Lista de ventas" filtrada por cualquier fecha pasada.
+  const fechaAbono = abonosOrdenados[0]?.fecha || venta.fecha;
   return (
-    <Card p="10px 14px" style={{ borderLeft:`3px solid ${C.blue}` }}>
+    <Card p="10px 14px" style={{ borderLeft:`3px solid ${completa?C.green:C.blue}` }}>
       <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
         <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
           <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{venta.numero_factura?`#${venta.numero_factura}`:"—"}</span>
           <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-            {venta.vendedor_nombre}{venta.cliente_nombre?` · ${venta.cliente_nombre}`:""}
+            {venta.cliente_nombre || venta.vendedor_nombre}
           </span>
         </div>
-        {mediosTexto && <Badge color={C.blue} sm>{mediosTexto}</Badge>}
-        <Badge color={C.blue} sm>💳 Abono Flexipago</Badge>
-        <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${totalDia.toLocaleString("es-CO")}</div>
+        <Badge color={completa?C.green:C.blue} sm title={completa?`Antes había abonado $${antes.toLocaleString("es-CO")}`:`Lleva abonado $${(antes+totalHoy).toLocaleString("es-CO")} de $${valorFlex.toLocaleString("es-CO")}`}>{completa?"✅ Completa Flexipago":"⏳ Abono Flexipago"}</Badge>
+        {mediosHoy.length===1 ? (
+          <Badge color={C.blue} sm>{VENTAS_MEDIO_ICONOS[mediosHoy[0]]||"💰"} {VENTAS_MEDIOS_PAGO.find(m=>m.value===mediosHoy[0])?.label||mediosHoy[0]}</Badge>
+        ) : (
+          <Badge color={C.blue} sm title={abonosOrdenados.map(a=>`${textoMediosAbono(a)}: $${Number(a.valor).toLocaleString("es-CO")}`).join(" · ")}>{abonosOrdenados.length} abonos ese día</Badge>
+        )}
+        <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${(completa?valorFlex:totalHoy).toLocaleString("es-CO")}</div>
       </div>
       <div style={{ marginTop:5, fontFamily:font.body, fontSize:11.5, color:C.textMuted, lineHeight:1.5 }}>
-        Abono a un Flexipago de la factura <strong style={{ color:C.text }}>#{venta.numero_factura||"—"}</strong> del {venta.fecha}.
+        {abonosOrdenados.length>1
+          ? `${fechaAbono}: ${abonosOrdenados.map(a=>`$${Number(a.valor).toLocaleString("es-CO")} (${textoMediosAbono(a)})`).join(" + ")} — antes había abonado $${antes.toLocaleString("es-CO")}`
+          : completa
+            ? `Completó el Flexipago el ${fechaAbono} con un abono de $${totalHoy.toLocaleString("es-CO")} — antes había abonado $${antes.toLocaleString("es-CO")}`
+            : `Abono parcial de $${totalHoy.toLocaleString("es-CO")} el ${fechaAbono} — lleva $${(antes+totalHoy).toLocaleString("es-CO")} de $${valorFlex.toLocaleString("es-CO")}`}
       </div>
     </Card>
   );
@@ -5769,30 +5783,7 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
             ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes}/>
         ))}
         {abonosHoyTienda.map(({venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy})=>(
-          <Card key={`abono-${venta.id}`} p="10px 14px" style={{ borderLeft:`3px solid ${completa?C.green:C.blue}` }}>
-            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-              <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"baseline", gap:6, overflow:"hidden" }}>
-                <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, flexShrink:0 }}>{venta.numero_factura?`#${venta.numero_factura}`:"—"}</span>
-                <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                  {venta.cliente_nombre || venta.vendedor_nombre}
-                </span>
-              </div>
-              <Badge color={completa?C.green:C.blue} sm title={completa?`Antes había abonado $${antes.toLocaleString("es-CO")}`:`Lleva abonado $${(antes+totalHoy).toLocaleString("es-CO")} de $${valorFlex.toLocaleString("es-CO")}`}>{completa?"✅ Completa Flexipago":"⏳ Abono Flexipago"}</Badge>
-              {mediosHoy.length===1 ? (
-                <Badge color={C.blue} sm>{VENTAS_MEDIO_ICONOS[mediosHoy[0]]||"💰"} {VENTAS_MEDIOS_PAGO.find(m=>m.value===mediosHoy[0])?.label||mediosHoy[0]}</Badge>
-              ) : (
-                <Badge color={C.blue} sm title={abonos.map(a=>`${textoMediosAbono(a)}: $${Number(a.valor).toLocaleString("es-CO")}`).join(" · ")}>{abonos.length} abonos hoy</Badge>
-              )}
-              <div style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.goldLight, flexShrink:0 }}>${(completa?valorFlex:totalHoy).toLocaleString("es-CO")}</div>
-            </div>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>
-              {abonos.length>1
-                ? `Hoy: ${abonos.map(a=>`$${Number(a.valor).toLocaleString("es-CO")} (${textoMediosAbono(a)})`).join(" + ")} — antes había abonado $${antes.toLocaleString("es-CO")}`
-                : completa
-                  ? `Completó el Flexipago hoy con un abono de $${totalHoy.toLocaleString("es-CO")} — antes había abonado $${antes.toLocaleString("es-CO")}`
-                  : `Abono parcial de $${totalHoy.toLocaleString("es-CO")} — lleva $${(antes+totalHoy).toLocaleString("es-CO")} de $${valorFlex.toLocaleString("es-CO")}`}
-            </div>
-          </Card>
+          <AbonoFlexipagoCard key={`abono-${venta.id}`} venta={venta} abonos={abonos} valorFlex={valorFlex} antes={antes} totalHoy={totalHoy} completa={completa} mediosHoy={mediosHoy}/>
         ))}
         {notaCreditoHoyTienda.map(({venta, ajuste})=>(
           <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta} ventasItems={ventasItems} desplegable={false}/>
@@ -5865,7 +5856,21 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       if(!grupos[venta.id]) grupos[venta.id] = { venta, abonos:[] };
       grupos[venta.id].abonos.push(a);
     });
-    return Object.values(grupos);
+    // Mismos campos que abonosHoyTienda en VentasRegistrarScreen (valorFlex/antes/completa/...) —
+    // así AbonoFlexipagoCard se ve y calcula IGUAL en los dos lados, sin importar si se completó
+    // "hoy" o un día que se está mirando después en Lista de ventas.
+    return Object.values(grupos).map(({venta, abonos})=>{
+      const valorFlex = ventasItems.filter(i=>i.venta_id===venta.id && i.tipo==="flexipago").reduce((s,i)=>s+Number(i.valor||0)-Number(i.descuento||0),0);
+      const todasDeEstaVenta = (ventasAbonos||[]).filter(ab=>ab.venta_id===venta.id).sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
+      const idsFiltrados = new Set(abonos.map(a=>a.id));
+      const primerIdxFiltrado = todasDeEstaVenta.findIndex(ab=>idsFiltrados.has(ab.id));
+      const antes = todasDeEstaVenta.slice(0,primerIdxFiltrado).reduce((s,ab)=>s+Number(ab.valor||0),0);
+      const abonosOrdenados = [...abonos].sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
+      const totalHoy = abonosOrdenados.reduce((s,a)=>s+Number(a.valor||0),0);
+      const completa = valorFlex>0 && (antes + totalHoy) >= valorFlex;
+      const mediosHoy = [...new Set(abonosOrdenados.flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))];
+      return { venta, abonos:abonosOrdenados, valorFlex, antes, totalHoy, completa, mediosHoy };
+    });
   })();
 
   return (
@@ -5905,9 +5910,9 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
           fecha: ajuste.fecha,
           el: <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta} ventasItems={ventasItems}/>,
         }));
-        const elementosAbonos = abonosFiltrados.map(({venta, abonos})=>({
+        const elementosAbonos = abonosFiltrados.map(({venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy})=>({
           fecha: filtroFecha,
-          el: <AbonoFlexipagoCard key={`ab-${venta.id}`} venta={venta} abonos={abonos}/>,
+          el: <AbonoFlexipagoCard key={`ab-${venta.id}`} venta={venta} abonos={abonos} valorFlex={valorFlex} antes={antes} totalHoy={totalHoy} completa={completa} mediosHoy={mediosHoy}/>,
         }));
         const combinados = [...elementosVentas, ...elementosNC, ...elementosAbonos].sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||""));
         return combinados.map(e=>e.el);
