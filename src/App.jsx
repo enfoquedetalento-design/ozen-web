@@ -6946,6 +6946,10 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
         </div>
       </SeccionVenta>
 
+      {/* Este ranking y la tabla de abajo ("Ventas por asesor") solo se muestran en "Todas las
+          tiendas" — pedido explícito de Santiago: ya no existe versión por tienda de ninguno de
+          los dos, así que en la pestaña de una tienda específica simplemente no aparecen. */}
+      {!tiendaSel && (<>
       <SeccionVenta icon="🏆" titulo="Top asesores por cumplimiento">
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
           {rankingTodasTiendas.map((d,idx)=>{
@@ -7002,6 +7006,7 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
           </table>
         </div>
       </SeccionVenta>
+      </>)}
 
       <SeccionVenta icon="📅" titulo={`Ventas por día — ${tiendaSel ? stores[tiendaSel]?.name : "Todas las tiendas"}`}>
         <div style={{ overflowX:"auto" }}>
