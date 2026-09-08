@@ -6558,7 +6558,10 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
     setGuardandoDetalle(null);
   };
 
-  const metaAsesorCalculada = (asesorId) => {
+  // `todasTiendas` fuerza a ignorar el filtro `tiendaSel` — lo usa el ranking de "Top asesores"
+  // (que ahora SIEMPRE es de todas las tiendas juntas, ya no hay versión "por tienda"), mientras
+  // que el resto de usos (ej. la tabla "Ventas por asesor") sigue respetando la tienda elegida.
+  const metaAsesorCalculada = (asesorId, todasTiendas=false) => {
     const d = metasAsesor.find(m=>m.mes===mesKey && m.vendedor_id===asesorId);
     if(!d) return 0;
     // La meta de cada tienda ya es "la meta de alguien que trabaja los 30 días ahí", así que
@@ -6566,13 +6569,13 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
     // disponibles del asesor, porque eso inflaba la meta cuando había novedades (menos días
     // disponibles con los mismos días de tienda sin ajustar). Los días de incapacidad/licencia
     // simplemente significan menos días para repartir entre tiendas, y por lo tanto una meta menor.
-    // Cuando hay una tienda seleccionada (tiendaSel), solo cuenta la porción de esa tienda — así
-    // el top/ranking dentro de una tienda compara metas reales de esa tienda, no el total del
-    // asesor sumando todas las tiendas donde trabaja.
+    // Cuando hay una tienda seleccionada (tiendaSel) y no se pidió `todasTiendas`, solo cuenta la
+    // porción de esa tienda — así la tabla detallada compara metas reales de esa tienda, no el
+    // total del asesor sumando todas las tiendas donde trabaja.
     let total = 0;
     for(const t of tiendasListConOficina){
       if(esTiendaOficina(t)) continue; // Oficina no vende, no aporta a la meta de ninguna tienda
-      if(tiendaSel && t.id!==tiendaSel) continue;
+      if(!todasTiendas && tiendaSel && t.id!==tiendaSel) continue;
       const diasEnTienda = Number((d.dias_tienda||{})[t.id]||0);
       if(diasEnTienda<=0) continue;
       total += (diasEnTienda/DIAS_META) * metaTiendaValor(t.id,"personal");
@@ -6688,7 +6691,28 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
     return { asesor:a, sinServicios, conServicios, meta, idc, mda };
   });
 
-  const ranking = [...dataAsesores].filter(d=>d.idc!==null).sort((a,b)=>b.idc-a.idc);
+  // "Top asesores por cumplimiento" ya NO tiene versión "por tienda" — pedido explícito de
+  // Santiago: sin importar qué tienda esté elegida en el filtro (tiendaSel), este ranking siempre
+  // compara a todo el mundo entre todas las tiendas juntas. Por eso se arma con datasets propios
+  // (sin filtrar por tiendaSel) en vez de reusar dataAsesores — ese sigue respetando el filtro
+  // porque lo sigue usando la tabla "Ventas por asesor" de más abajo.
+  const ventasDelMesTodasTiendas = ventas.filter(v => v.fecha && v.fecha.slice(0,7)===mesKey);
+  const idsVentasDelMesTodasTiendas = new Set(ventasDelMesTodasTiendas.map(v=>v.id));
+  const itemsDelMesTodasTiendas = ventasItems.filter(i => idsVentasDelMesTodasTiendas.has(i.venta_id));
+  const itemsDelMesProductoTodasTiendas = itemsDelMesTodasTiendas.filter(i=>i.tipo==="producto");
+  const cierresDelMesTodasTiendas = cierresFlexipago.filter(c => c.fechaCierre && c.fechaCierre.slice(0,7)===mesKey);
+  const dataAsesoresTodasTiendas = asesores.map(a=>{
+    const ventasAsesor = ventasDelMesTodasTiendas.filter(v=>v.vendedor_id===a.id);
+    const idsAsesor = new Set(ventasAsesor.map(v=>v.id));
+    const sinServiciosProducto = sumaProductoConRecorte(itemsDelMesProductoTodasTiendas.filter(i=>idsAsesor.has(i.venta_id)))
+      + ajustesDelMesTodasTiendas.filter(aj=>ventaByIdGlobal[aj.venta_id]?.vendedor_id===a.id).reduce((s,aj)=>s+Number(aj.diferencia||0),0);
+    const sinServiciosFlexipago = cierresDelMesTodasTiendas.filter(c=>c.vendedorId===a.id).reduce((s,c)=>s+c.valorNeto,0);
+    const sinServicios = sinServiciosProducto + sinServiciosFlexipago;
+    const meta = metaAsesorCalculada(a.id, true);
+    const idc = meta>0 ? Math.round((sinServicios/meta)*1000)/10 : null;
+    return { asesor:a, sinServicios, meta, idc };
+  });
+  const rankingTodasTiendas = [...dataAsesoresTodasTiendas].filter(d=>d.idc!==null).sort((a,b)=>b.idc-a.idc);
 
   const dataTiendas = tiendasList.map(t=>{
     const ventasTienda = ventas.filter(v => v.fecha && v.fecha.slice(0,7)===mesKey && v.tienda_id===t.id);
@@ -6924,10 +6948,10 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
 
       <SeccionVenta icon="🏆" titulo="Top asesores por cumplimiento">
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-          {ranking.map((d,idx)=>{
+          {rankingTodasTiendas.map((d,idx)=>{
             const exp = explicacionMetaAsesor(d.asesor.id);
             return (
-              <RankingRow key={d.asesor.id} idx={idx} nombre={d.asesor.name} sinServicios={d.sinServicios} meta={d.meta} idc={d.idc} isMobile={isMobile} escalaMax={ranking[0]?.idc} extra={!exp.sinDatos && (
+              <RankingRow key={d.asesor.id} idx={idx} nombre={d.asesor.name} sinServicios={d.sinServicios} meta={d.meta} idc={d.idc} isMobile={isMobile} escalaMax={rankingTodasTiendas[0]?.idc} extra={!exp.sinDatos && (
                 <HoverTooltip label="ⓘ" labelStyle={{ fontSize:11, color:C.textMuted, flexShrink:0 }} width={300} clickOnly>
                   <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>Cómo salió la meta de {d.asesor.name.split(" ")[0]} — {MESES_NOMBRE[mesIdx]}</div>
                   {exp.diasNovedadTotal>0 && (
@@ -6947,7 +6971,7 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
               )}/>
             );
           })}
-          {ranking.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
+          {rankingTodasTiendas.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
         </div>
       </SeccionVenta>
 
