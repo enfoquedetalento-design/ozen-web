@@ -6801,7 +6801,12 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
         </div>
       </Card>
 
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${vistaAsesor?5:6}, 1fr)`, gap:10, marginBottom:16 }}>
+      {/* auto-fit + minmax en vez de un número fijo de columnas (repeat(6,1fr)) — con columnas
+          fijas, si la ventana se angosta (sin llegar al punto de corte de "isMobile"), el grid no
+          tiene cómo encoger más allá del contenido y las últimas tarjetas (IDC, MDA) quedaban
+          recortadas/invisibles fuera del contenedor en vez de acomodarse. Con auto-fit las
+          tarjetas pasan a la siguiente fila solas cuando ya no caben, así siempre se ven todas. */}
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(auto-fit, minmax(150px, 1fr))", gap:10, marginBottom:16 }}>
         <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
           <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ventas hoy</div>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(ingresosHoy)}</div>
