@@ -611,11 +611,21 @@ const EnTurnoIndicator = ({ records, stores, isMobile }) => {
 // No usa HoverTooltip (que alinea la nube pegada al ícono con un simple left:0/right:0) porque este
 // ícono vive dentro de tarjetitas angostas en fila (Entrada/Almuerzo/Salida) — cerca del borde
 // izquierdo o derecho de la pantalla la nube quedaba cortada, con parte del texto invisible fuera
-// del viewport. Aquí se mide la posición real del ícono (getBoundingClientRect) y se "clampea" el
-// left de la nube para que siempre quepa completa en pantalla, sin importar en qué columna esté.
+// del viewport.
+//
+// Ojo con `position:fixed` aquí: las pestañas de la app se animan con
+// `animation: ozenPaneTab .28s ... both` — el "both" deja pegado para siempre
+// `transform:translateX(0)` en el contenedor del panel (aunque sea "sin mover"), y CUALQUIER
+// transform en un ancestro hace que `position:fixed` deje de medirse contra la pantalla real y
+// pase a medirse contra ESE contenedor — por eso una primera versión con `fixed` + coordenadas de
+// pantalla quedaba pegada muy abajo. La solución: `position:absolute` colgado del propio ícono
+// (que no le importa ese transform, siempre queda bien pegado a su dueño), y solo el `left` se
+// calcula con matemática de pantalla (para no salirse por los bordes) y se convierte a un offset
+// LOCAL relativo al ícono — restando dos getBoundingClientRect así cancela cualquier transform de
+// por medio, esté donde esté.
 const ComentarioRegistro = ({ registro, editable, onGuardado }) => {
   const [show, setShow] = useState(false);
-  const [pos, setPos] = useState({ top:0, left:0 });
+  const [popLeft, setPopLeft] = useState(0);
   const iconRef = useRef(null);
   const [valor, setValor] = useState(registro?.comentario || "");
   const [guardando, setGuardando] = useState(false);
@@ -627,8 +637,8 @@ const ComentarioRegistro = ({ registro, editable, onGuardado }) => {
   const abrir = () => {
     const r = iconRef.current?.getBoundingClientRect();
     if (r) {
-      const left = Math.min(Math.max(r.left + r.width/2 - POPUP_W/2, 8), window.innerWidth - POPUP_W - 8);
-      setPos({ top: r.bottom + 6, left });
+      const deseadoEnPantalla = Math.min(Math.max(r.left + r.width/2 - POPUP_W/2, 8), window.innerWidth - POPUP_W - 8);
+      setPopLeft(deseadoEnPantalla - r.left); // offset LOCAL respecto al ícono, no coordenada absoluta
     }
     setShow(s=>!s);
   };
@@ -642,7 +652,7 @@ const ComentarioRegistro = ({ registro, editable, onGuardado }) => {
   };
 
   return (
-    <>
+    <span style={{ position:"relative", display:"inline-block" }}>
       <span
         ref={iconRef}
         onClick={abrir}
@@ -659,7 +669,7 @@ const ComentarioRegistro = ({ registro, editable, onGuardado }) => {
         <>
           <div onClick={()=>setShow(false)} style={{ position:"fixed", inset:0, zIndex:90 }}/>
           <div style={{
-            position:"fixed", top:pos.top, left:pos.left, zIndex:91, width:POPUP_W, maxWidth:"90vw",
+            position:"absolute", top:"calc(100% + 6px)", left:popLeft, zIndex:91, width:POPUP_W, maxWidth:"90vw",
             background:C.dark, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px",
             boxShadow:"0 6px 24px rgba(0,0,0,0.5)", boxSizing:"border-box",
           }}>
@@ -682,7 +692,7 @@ const ComentarioRegistro = ({ registro, editable, onGuardado }) => {
           </div>
         </>
       )}
-    </>
+    </span>
   );
 };
 
