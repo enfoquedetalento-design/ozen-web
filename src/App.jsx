@@ -500,15 +500,94 @@ const StatCard = ({ label, value, icon, color }) => (
 );
 
 const Divider = () => <div style={{ height:1, background:C.border, margin:"12px 0" }} />;
-const PageHeader = ({ title, subtitle, action }) => (
+// `middle` es opcional (nadie más lo usa hoy) — un hueco extra entre el título y `action` para
+// widgets como EnTurnoIndicator, sin tocar el layout de las pantallas que no lo pasan.
+const PageHeader = ({ title, subtitle, action, middle }) => (
   <div style={{ display:"flex", flexWrap:"wrap", alignItems:"flex-start", justifyContent:"space-between", marginBottom:20, gap:10 }}>
     <div>
       <h1 style={{ margin:0, fontFamily:font.body, fontSize:20, fontWeight:700, color:C.text }}>{title}</h1>
       {subtitle && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{subtitle}</div>}
     </div>
+    {middle}
     {action}
   </div>
 );
+
+// Quién marcó entrada hoy en esta tienda y todavía no ha marcado salida — es SIEMPRE sobre HOY
+// (estado en vivo de quién está trabajando ahora mismo), sin importar qué `fecha` se esté viendo
+// en el formulario de Registrar venta. "En almuerzo" = su último evento de hoy fue inicio_almuerzo
+// (ya se fue a almorzar y todavía no ha marcado el regreso). Se ignoran los eventos "omitido"
+// (no son una marcación real, solo dejan constancia de que se saltó un paso).
+const advisorsEnTurnoHoy = (tiendaId, records) => {
+  if (!tiendaId) return [];
+  const porUsuario = {};
+  (records || []).forEach(r => {
+    if (r.store !== tiendaId || r.date !== todayStr || r.event === "omitido") return;
+    const idx = ORDEN.indexOf(r.event);
+    if (idx < 0) return;
+    const prev = porUsuario[r.user_id];
+    if (!prev || idx > prev.idx) porUsuario[r.user_id] = { userId: r.user_id, userName: r.user_name, idx };
+  });
+  return Object.values(porUsuario)
+    .filter(x => x.idx < ORDEN.indexOf("salida")) // ya marcó salida ⇒ no sigue en turno, no se muestra
+    .map(x => ({ ...x, enAlmuerzo: x.idx === ORDEN.indexOf("inicio_almuerzo") }))
+    .sort((a, b) => a.userName.localeCompare(b.userName, "es"));
+};
+
+// Burbuja compacta (clic para desplegar nombres) que muestra quién está activo en turno / en
+// almuerzo ahora mismo en la tienda seleccionada. Pensada para vivir en el header de Registrar
+// venta, en el hueco entre el título y la campana/burbuja de meta.
+const EnTurnoIndicator = ({ tiendaId, records, isMobile }) => {
+  if (!tiendaId) return null;
+  const activos = advisorsEnTurnoHoy(tiendaId, records);
+  const enAlmuerzo = activos.filter(a => a.enAlmuerzo).length;
+  const presentes = activos.length - enAlmuerzo;
+  return (
+    <HoverTooltip
+      clickOnly
+      align={isMobile ? "right" : "left"}
+      width={230}
+      label={
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6, height: isMobile ? 38 : "auto", boxSizing: "border-box",
+          padding: isMobile ? "0 10px" : "8px 13px", borderRadius: 99, background: C.surfaceAlt,
+          border: `1.5px solid ${activos.length > 0 ? C.blue : C.border}`,
+          fontFamily: font.body, fontSize: isMobile ? 12 : 12.5, color: C.text, whiteSpace: "nowrap",
+        }}>
+          <span>👤</span>
+          {activos.length === 0 ? (
+            <span style={{ color: C.textMuted }}>Nadie en turno</span>
+          ) : (
+            <>
+              <span style={{ fontWeight: 700, color: C.green }}>{presentes}</span>
+              <span style={{ color: C.textMuted, fontSize: 11 }}>en turno</span>
+              {enAlmuerzo > 0 && (
+                <>
+                  <span style={{ color: C.textMuted }}>·</span>
+                  <span style={{ fontWeight: 700, color: C.amber }}>🍽️ {enAlmuerzo}</span>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      }
+    >
+      <div style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 700, color: C.goldLight, marginBottom: 6 }}>👤 Quién está en turno hoy</div>
+      {activos.length === 0 ? (
+        <div style={{ fontFamily: font.body, fontSize: 12, color: C.textMuted }}>Nadie ha marcado entrada hoy en esta tienda.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          {activos.map(a => (
+            <div key={a.userId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontFamily: font.body, fontSize: 12.5 }}>
+              <span style={{ color: C.text }}>{a.userName}</span>
+              <Badge color={a.enAlmuerzo ? C.amber : C.green} sm>{a.enAlmuerzo ? "🍽️ Almuerzo" : "🟢 Activo"}</Badge>
+            </div>
+          ))}
+        </div>
+      )}
+    </HoverTooltip>
+  );
+};
 
 // ── Camera Modal ──────────────────────────────────────────────────────────────
 function CameraModal({ eventLabel, onCapture, onCancel }) {
@@ -5256,7 +5335,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
   );
 }
 
-function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
+function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   // OJO: el valor por defecto debe salir de tiendasVenta() (las que sí venden), no de todas las
   // tiendas — si no, el dropdown solo MUESTRA tiendas válidas pero el valor de por debajo puede
@@ -5464,6 +5543,61 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
   // tarjeta de cada venta. Se muestra arriba de todo para que sea lo primero que vea el asesor.
   const flexipagosAvisar = tiendaId ? flexipagosPorVencer(tiendaId, ventas, ventasItems, ventasAbonos, todayStr) : [];
 
+  // Botón de campana + su desplegable — igual en escritorio y celular, solo cambia dónde se ubica
+  // (por eso se separa en una variable en vez de repetir todo el JSX en las dos ramas de abajo).
+  const bellButton = flexipagosAvisar.length>0 && (
+    <div style={{ position:"relative" }}>
+      <button
+        onClick={()=>setFlexipagoBellOpen(s=>!s)}
+        title="Flexipagos por recordarle al cliente"
+        style={{
+          position:"relative", display:"flex", alignItems:"center", justifyContent:"center",
+          width:38, height:38, borderRadius:99, cursor:"pointer", fontSize:17,
+          background: flexipagoBellOpen ? C.surfaceAlt : "transparent",
+          border:`1.5px solid ${flexipagosAvisar.some(f=>f.vencido||f.urgente)?C.red:C.gold}`,
+        }}
+      >
+        🔔
+        <span style={{
+          position:"absolute", top:-5, right:-5, minWidth:17, height:17, padding:"0 4px",
+          borderRadius:99, background:flexipagosAvisar.some(f=>f.vencido||f.urgente)?C.red:C.gold,
+          color:"#111", fontFamily:font.mono, fontSize:10, fontWeight:800,
+          display:"flex", alignItems:"center", justifyContent:"center", lineHeight:1,
+        }}>{flexipagosAvisar.length}</span>
+      </button>
+      {flexipagoBellOpen && (
+        <>
+          <div onClick={()=>setFlexipagoBellOpen(false)} style={{ position:"fixed", inset:0, zIndex:90 }}/>
+          <div style={{
+            position:"absolute", zIndex:91, top:"120%", right:0, width:300, maxWidth:"88vw",
+            maxHeight:340, overflowY:"auto", background:C.dark, border:`1px solid ${C.border}`,
+            borderRadius:10, boxShadow:"0 10px 30px rgba(0,0,0,0.5)", padding:8,
+          }}>
+            <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, padding:"4px 6px 8px", textTransform:"uppercase", letterSpacing:"0.04em" }}>
+              🔔 Flexipagos por recordarle al cliente
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+              {flexipagosAvisar.map(({venta:v, saldoPendiente, diasRestantes60, vencido})=>(
+                <div key={v.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, borderRadius:7, flexWrap:"wrap" }}>
+                  <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text }}>
+                    <b>{v.cliente_nombre||"Cliente sin nombre"}</b> {v.cliente_telefono && <span style={{ color:C.textMuted }}>· Tel: {v.cliente_telefono}</span>}
+                    <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, marginTop:1 }}>Debe {fmtCOP(saldoPendiente)}</div>
+                  </div>
+                  <Badge color={vencido?C.red:(diasRestantes60!==null && diasRestantes60<=5?C.amber:C.gold)} sm>
+                    {vencido ? "⛔ Vencido" : `⏳ Vence en ${diasRestantes60}d`}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  const metaBubble = <MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>;
+  const subtitleTienda = stores[tiendaId]?.name ? `Tienda: ${stores[tiendaId].name}` : "Elige la tienda";
+
   return (
     <>
       {soloLectura && (
@@ -5472,64 +5606,38 @@ function VentasRegistrarScreen({ user, stores, users, ventas, setVentas, ventasI
         </div>
       )}
     <div style={soloLectura ? { pointerEvents:"none", opacity:0.55 } : undefined}>
-      <PageHeader
-        title="Registrar venta"
-        subtitle={stores[tiendaId]?.name ? `Tienda: ${stores[tiendaId].name}` : "Elige la tienda"}
-        action={(tiendaId && (tiendasVenta(stores).length>0 || flexipagosAvisar.length>0)) && (
-          <div style={{ display:"flex", alignItems:"flex-start", gap:10, flexWrap:"wrap", justifyContent:"flex-end", width: isMobile?"100%":undefined }}>
-            {flexipagosAvisar.length>0 && (
-              <div style={{ position:"relative" }}>
-                <button
-                  onClick={()=>setFlexipagoBellOpen(s=>!s)}
-                  title="Flexipagos por recordarle al cliente"
-                  style={{
-                    position:"relative", display:"flex", alignItems:"center", justifyContent:"center",
-                    width:38, height:38, borderRadius:99, cursor:"pointer", fontSize:17,
-                    background: flexipagoBellOpen ? C.surfaceAlt : "transparent",
-                    border:`1.5px solid ${flexipagosAvisar.some(f=>f.vencido||f.urgente)?C.red:C.gold}`,
-                  }}
-                >
-                  🔔
-                  <span style={{
-                    position:"absolute", top:-5, right:-5, minWidth:17, height:17, padding:"0 4px",
-                    borderRadius:99, background:flexipagosAvisar.some(f=>f.vencido||f.urgente)?C.red:C.gold,
-                    color:"#111", fontFamily:font.mono, fontSize:10, fontWeight:800,
-                    display:"flex", alignItems:"center", justifyContent:"center", lineHeight:1,
-                  }}>{flexipagosAvisar.length}</span>
-                </button>
-                {flexipagoBellOpen && (
-                  <>
-                    <div onClick={()=>setFlexipagoBellOpen(false)} style={{ position:"fixed", inset:0, zIndex:90 }}/>
-                    <div style={{
-                      position:"absolute", zIndex:91, top:"120%", right:0, width:300, maxWidth:"88vw",
-                      maxHeight:340, overflowY:"auto", background:C.dark, border:`1px solid ${C.border}`,
-                      borderRadius:10, boxShadow:"0 10px 30px rgba(0,0,0,0.5)", padding:8,
-                    }}>
-                      <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, padding:"4px 6px 8px", textTransform:"uppercase", letterSpacing:"0.04em" }}>
-                        🔔 Flexipagos por recordarle al cliente
-                      </div>
-                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                        {flexipagosAvisar.map(({venta:v, saldoPendiente, diasRestantes60, vencido})=>(
-                          <div key={v.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, borderRadius:7, flexWrap:"wrap" }}>
-                            <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text }}>
-                              <b>{v.cliente_nombre||"Cliente sin nombre"}</b> {v.cliente_telefono && <span style={{ color:C.textMuted }}>· Tel: {v.cliente_telefono}</span>}
-                              <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, marginTop:1 }}>Debe {fmtCOP(saldoPendiente)}</div>
-                            </div>
-                            <Badge color={vencido?C.red:(diasRestantes60!==null && diasRestantes60<=5?C.amber:C.gold)} sm>
-                              {vencido ? "⛔ Vencido" : `⏳ Vence en ${diasRestantes60}d`}
-                            </Badge>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-            <MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>
+      {isMobile ? (
+        // En celular no alcanza con envolver (flex-wrap) el mismo bloque de escritorio: el título
+        // queda solo en su línea (con todo el lado derecho vacío), la campana sola en la siguiente
+        // (con todo el lado izquierdo vacío) y la burbuja al final. Por eso aquí se arma un layout
+        // propio: título + estado de turno + campana comparten la primera fila, y la burbuja de
+        // meta ocupa su propia fila completa debajo.
+        <div style={{ marginBottom:20 }}>
+          <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10, marginBottom:10 }}>
+            <div>
+              <h1 style={{ margin:0, fontFamily:font.body, fontSize:20, fontWeight:700, color:C.text }}>Registrar venta</h1>
+              <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{subtitleTienda}</div>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+              {tiendaId && <EnTurnoIndicator tiendaId={tiendaId} records={records} isMobile/>}
+              {bellButton}
+            </div>
           </div>
-        )}
-      />
+          {metaBubble}
+        </div>
+      ) : (
+        <PageHeader
+          title="Registrar venta"
+          subtitle={subtitleTienda}
+          middle={tiendaId && <EnTurnoIndicator tiendaId={tiendaId} records={records}/>}
+          action={
+            <div style={{ display:"flex", alignItems:"flex-start", gap:10, flexWrap:"wrap", justifyContent:"flex-end" }}>
+              {metaBubble}
+              {bellButton}
+            </div>
+          }
+        />
+      )}
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16, alignItems:"start" }}>
         <div>
           <SeccionVenta icon="🏬" titulo="Información general">
@@ -6101,14 +6209,17 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
           // <span style="display:inline-block"> de HoverTooltip, y ahí un flex:1 no siempre
           // se estira de verdad (por eso la barra quedaba minúscula pese a subir las fuentes).
           // Con anchos fijos el tamaño total queda garantizado sin depender de esa cadena.
-          <div style={{ display:"flex", alignItems:"center", gap:9, width:isMobile?296:320, cursor:"pointer" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:9, width:isMobile?328:320, cursor:"pointer" }}>
             <span style={{ width:20, textAlign:"center", fontSize:14, flexShrink:0, lineHeight:1 }}>{idxReal===0?"🥇":idxReal===1?"🥈":idxReal===2?"🥉":`${idxReal+1}.`}</span>
             <span style={{
-              width:isMobile?80:96, flexShrink:0, fontFamily:font.body, fontSize:13, lineHeight:1.2,
+              width:isMobile?76:96, flexShrink:0, fontFamily:font.body, fontSize:13, lineHeight:1.2,
               fontWeight:esActual?700:400, color:esActual?C.goldLight:C.textMuted,
               overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
             }}>{x.tienda.name.replace(/^OZEN\s*/i,"")}</span>
-            <BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={etapaColor} width={isMobile?110:130} height={13}/>
+            {/* En celular la barra crece (110→150) para aprovechar el ancho completo de la burbuja
+                (100% de la pantalla) en vez de dejar un hueco vacío a la derecha — en escritorio
+                la burbuja es una tarjeta angosta de tamaño fijo, así que ahí se deja igual. */}
+            <BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={etapaColor} width={isMobile?150:130} height={13}/>
             <span style={{ width:48, textAlign:"right", flexShrink:0, fontFamily:font.mono, fontSize:14, lineHeight:1, fontWeight:700, color:etapaColor }}>{pct}%</span>
           </div>
         }
@@ -8365,7 +8476,7 @@ export default function App() {
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
-        if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
+        if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
         if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
@@ -8379,7 +8490,7 @@ export default function App() {
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
     } else if(esCuentaTienda(user)){
-      if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
+      if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
       if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
