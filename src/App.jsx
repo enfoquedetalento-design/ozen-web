@@ -3525,7 +3525,7 @@ function LoginScreen({ onLogin }) {
       `}</style>
       <div style={{width:"100%",maxWidth:380}}>
         <div style={{textAlign:"center",marginBottom:28}}>
-          <img src="/logo-horizontal.png" alt="OZEN" style={{width:300,height:"auto"}}/>
+          <img src="/logo-horizontal-dark.png" alt="OZEN" style={{width:300,height:"auto"}}/>
         </div>
         <Card glow>
           <form onSubmit={handle} autoComplete="off">
@@ -3604,7 +3604,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
       `}</style>
       <div style={{ width:"100%", maxWidth:540 }}>
         <div style={{ textAlign:"center", marginBottom:32, animation:"ozenPopIn .5s cubic-bezier(.34,1.56,.64,1) both" }}>
-          <img src="/logo-horizontal.png" alt="OZEN" style={{ width:260, height:"auto", marginBottom:14 }} />
+          <img src="/logo-horizontal-dark.png" alt="OZEN" style={{ width:260, height:"auto", marginBottom:14 }} />
           <div style={{ fontFamily:font.body, fontSize:13.5, color:C.textMuted }}>Hola, {user.name.split(" ")[0]} — ¿qué quieres abrir?</div>
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
@@ -7593,9 +7593,17 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     mediosDeAbono(a).forEach(p=>{ if(p.medio_pago==="efectivo") efectivoAnterioresBruto += Number(p.valor||0); });
   });
   // Lo ya recogido de "días anteriores" en TODAS las recolecciones hechas hasta ahora. El campo
-  // "valor" guarda días-anteriores + hoy juntos (ver guardarRecoleccion), así que se resta
-  // valor_hoy para aislar solo la parte de días anteriores de cada recolección.
-  const recogidoAnterioresAcumulado = recoleccionesTienda.reduce((s,r)=> s + (Number(r.valor||0) - Number(r.valor_hoy||0)), 0);
+  // "valor" guarda días-anteriores + hoy juntos (ver guardarRecoleccion). Si la recolección fue
+  // HOY MISMO, su valor_hoy todavía es "de hoy" (efectivoHoyPendiente ya lo resta aparte más abajo),
+  // así que se aísla restándolo acá para no descontarlo dos veces. Pero si la recolección fue de un
+  // día YA PASADO, ese "hoy" de ese día ya es un día anterior desde la perspectiva de HOY — y como
+  // efectivoAnterioresBruto (abajo) vuelve a sumar TODO el efectivo de ese día pasado (sin distinguir
+  // qué parte se recogió como "de hoy" en su momento), hay que contar el valor COMPLETO de esas
+  // recolecciones viejas como recogido, o si no esa plata se cuenta como pendiente para siempre
+  // aunque ya se haya recogido — este era el bug: en Jardín Plaza se recogieron $2.015.550 el 11 de
+  // sept (incluyendo $179.000 "de hoy" de ese mismo día), y al día siguiente esos $179.000
+  // reaparecían como pendientes porque nunca se restaban de anteriores.
+  const recogidoAnterioresAcumulado = recoleccionesTienda.reduce((s,r)=> s + (r.fecha<todayStr ? Number(r.valor||0) : (Number(r.valor||0) - Number(r.valor_hoy||0))), 0);
   // Efectivo de días anteriores a hoy que sigue pendiente — esto es lo que SIEMPRE se sugiere
   // recoger (la "regla general"). Si una recolección fue parcial, la diferencia queda acá. También
   // se le resta/suma el neto de novedades desde la última recolección (costo resta, ingreso suma)
@@ -8624,7 +8632,7 @@ export default function App() {
   if(booting) return (
     <div style={{minHeight:"100vh",background:C.dark,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,fontFamily:font.body,color:C.textMuted,fontSize:14}}>
       <style>{`@keyframes ozenBootPulse { 0%,100% { opacity:.5; transform:scale(.97); } 50% { opacity:1; transform:scale(1); } }`}</style>
-      <img src="/logo-horizontal.png" alt="OZEN" style={{ width:150, height:"auto", animation:"ozenBootPulse 1.3s cubic-bezier(.34,1.2,.5,1) infinite" }} />
+      <img src="/logo-horizontal-dark.png" alt="OZEN" style={{ width:150, height:"auto", animation:"ozenBootPulse 1.3s cubic-bezier(.34,1.2,.5,1) infinite" }} />
       <div>Cargando...</div>
     </div>
   );
@@ -8632,7 +8640,7 @@ export default function App() {
 
   if(passwordVencida(user)) return (
     <div style={{minHeight:"100vh",background:C.dark,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:16,gap:20}}>
-      <img src="/logo-horizontal.png" alt="OZEN" style={{width:280,height:"auto"}}/>
+      <img src="/logo-horizontal-dark.png" alt="OZEN" style={{width:280,height:"auto"}}/>
       <CambiarPasswordForm user={user} obligatorio onUpdated={setUser}/>
       <Btn onClick={logout} variant="ghost" sm>Cerrar sesión</Btn>
     </div>
