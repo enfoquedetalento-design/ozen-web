@@ -7563,17 +7563,16 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     mediosDeAbono(a).forEach(p=>{ if(p.medio_pago==="efectivo") efectivoAnterioresBruto += Number(p.valor||0); });
   });
   // Lo ya recogido de "días anteriores" en TODAS las recolecciones hechas hasta ahora. El campo
-  // "valor" guarda días-anteriores + hoy juntos (ver guardarRecoleccion). Si la recolección fue
-  // HOY MISMO, su valor_hoy todavía es "de hoy" (efectivoHoyPendiente ya lo resta aparte más abajo),
-  // así que se aísla restándolo acá para no descontarlo dos veces. Pero si la recolección fue de un
-  // día YA PASADO, ese "hoy" de ese día ya es un día anterior desde la perspectiva de HOY — y como
-  // efectivoAnterioresBruto (abajo) vuelve a sumar TODO el efectivo de ese día pasado (sin distinguir
-  // qué parte se recogió como "de hoy" en su momento), hay que contar el valor COMPLETO de esas
-  // recolecciones viejas como recogido, o si no esa plata se cuenta como pendiente para siempre
-  // aunque ya se haya recogido — este era el bug: en Jardín Plaza se recogieron $2.015.550 el 11 de
-  // sept (incluyendo $179.000 "de hoy" de ese mismo día), y al día siguiente esos $179.000
-  // reaparecían como pendientes porque nunca se restaban de anteriores.
-  const recogidoAnterioresAcumulado = recoleccionesTienda.reduce((s,r)=> s + (r.fecha<todayStr ? Number(r.valor||0) : (Number(r.valor||0) - Number(r.valor_hoy||0))), 0);
+  // "valor" guarda días-anteriores + hoy juntos (ver guardarRecoleccion), así que se resta
+  // valor_hoy para aislar solo la parte de días anteriores de cada recolección.
+  //
+  // NOTA (13 sept): hubo un intento de "corregir" esto para que, una vez pasado el día de una
+  // recolección, su valor_hoy contara completo como recogido — pero eso asume que ese día no volvió
+  // a entrar más efectivo después de la recolección, cosa que no siempre es cierta (pasó en
+  // Unicentro: se revirtió esa versión porque restaba $149.000 de más). El caso real que la motivó
+  // (Jardín Plaza, $179.000 reapareciendo) sigue pendiente de diagnosticar con datos reales antes de
+  // tocar esta fórmula otra vez.
+  const recogidoAnterioresAcumulado = recoleccionesTienda.reduce((s,r)=> s + (Number(r.valor||0) - Number(r.valor_hoy||0)), 0);
   // Efectivo de días anteriores a hoy que sigue pendiente — esto es lo que SIEMPRE se sugiere
   // recoger (la "regla general"). Si una recolección fue parcial, la diferencia queda acá. También
   // se le resta/suma el neto de novedades desde la última recolección (costo resta, ingreso suma)
