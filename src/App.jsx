@@ -7566,13 +7566,27 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // "valor" guarda días-anteriores + hoy juntos (ver guardarRecoleccion), así que se resta
   // valor_hoy para aislar solo la parte de días anteriores de cada recolección.
   //
-  // NOTA (13 sept): hubo un intento de "corregir" esto para que, una vez pasado el día de una
-  // recolección, su valor_hoy contara completo como recogido — pero eso asume que ese día no volvió
-  // a entrar más efectivo después de la recolección, cosa que no siempre es cierta (pasó en
-  // Unicentro: se revirtió esa versión porque restaba $149.000 de más). El caso real que la motivó
-  // (Jardín Plaza, $179.000 reapareciendo) sigue pendiente de diagnosticar con datos reales antes de
-  // tocar esta fórmula otra vez.
-  const recogidoAnterioresAcumulado = recoleccionesTienda.reduce((s,r)=> s + (Number(r.valor||0) - Number(r.valor_hoy||0)), 0);
+  // EXCEPCIÓN (13 sept): si la recolección es de un día YA PASADO y ese día se recogió el 100% del
+  // efectivo real de ese día (nada quedó suelto), su "hoy" ya se puede dar por recogido para
+  // siempre — si no, ese dinero se cuenta como pendiente eternamente aunque ya se recogió (esto le
+  // pasaba a Jardín Plaza: recogieron $2.015.550 el 11 sept, de los cuales $179.000 eran "de hoy" y
+  // ESE MISMO DÍA no entró ni un peso más en efectivo, así que se llevaron el 100% — pero al día
+  // siguiente esos $179.000 seguían apareciendo como pendientes).
+  //
+  // La verificación de "se llevó el 100%" es real, no un supuesto: se compara valor_hoy contra
+  // efectivoDelDia(esa fecha), el efectivo REAL de ese día completo. Si NO coinciden — porque ese
+  // día siguió entrando efectivo después de la recolección — NO se acredita de más, y ese sobrante
+  // se sigue contando como pendiente hasta que lo recoja la siguiente recolección (que sí barre todo
+  // lo anterior sin condición). Esto es justo lo que le pasó a Unicentro el 5 de sept: un primer
+  // intento de este fix daba por recogido el 100% de ese día sin verificar, y como sí quedó un
+  // sobrante sin recoger ese día, se restaron $149.000 de más — por eso ahora se compara contra
+  // efectivoDelDia en vez de asumir.
+  const recogidoAnterioresAcumulado = recoleccionesTienda.reduce((s,r)=>{
+    const valor = Number(r.valor||0);
+    const valorHoy = Number(r.valor_hoy||0);
+    const diaYaPasoYSeRecogioCompleto = r.fecha<todayStr && valorHoy>0 && efectivoDelDia(r.fecha)===valorHoy;
+    return s + (diaYaPasoYSeRecogioCompleto ? valor : (valor - valorHoy));
+  }, 0);
   // Efectivo de días anteriores a hoy que sigue pendiente — esto es lo que SIEMPRE se sugiere
   // recoger (la "regla general"). Si una recolección fue parcial, la diferencia queda acá. También
   // se le resta/suma el neto de novedades desde la última recolección (costo resta, ingreso suma)
