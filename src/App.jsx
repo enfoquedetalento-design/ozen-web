@@ -4234,10 +4234,24 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
 
   // Notacrédito aprobada (no confundir con "corregir por error", que sigue siendo libre): el
   // piso es siempre venta.valor_original — el nuevo valor nunca puede quedar por debajo de eso.
-  const [ncItems, setNcItems] = useState([]); // venta normal: [{id, tipo, valor, descuento}]
+  const [ncItems, setNcItems] = useState([]); // venta normal: [{id, tipo, valor, descuento, pagos:[{medio_pago,valor,numero_autorizacion}]}]
   const [ncCliente, setNcCliente] = useState({ tipoDoc:"CC", documento:"", nombre:"", telefono:"" }); // flexipago
   const [ncCodigos, setNcCodigos] = useState([{ codigo:"", valor:"" }]); // flexipago
   const [ncAbonoMedio, setNcAbonoMedio] = useState("efectivo"); // flexipago
+  // Medios de pago por renglón en "Aplicar Notacrédito" (ncItems): igual patrón que editItemPagos
+  // y eaPagos — el excedente necesita quedar con su propio medio de pago para que Caja/efectivo
+  // del día lo vean, si no el dinero queda "invisible" en los reportes que suman `pagos`.
+  const agregarMedioANcItem = (itemIdx, medio) => {
+    setNcItems(prev=>prev.map((it,i)=>{
+      if(i!==itemIdx) return it;
+      const sumaActual = (it.pagos||[]).reduce((s,p)=>s+Number(p.valor||0),0);
+      const sugerido = Math.max(0, Number(it.valor||0)-sumaActual);
+      return { ...it, pagos:[...(it.pagos||[]), { medio_pago:medio, valor: sugerido>0?String(sugerido):"", numero_autorizacion:"" }] };
+    }));
+  };
+  const quitarMedioDeNcItem = (itemIdx, pidx) => setNcItems(prev=>prev.map((it,i)=>i!==itemIdx?it:{...it, pagos:(it.pagos||[]).filter((_,i2)=>i2!==pidx)}));
+  const setNcItemPagoValor = (itemIdx, pidx, v2) => setNcItems(prev=>prev.map((it,i)=>i!==itemIdx?it:{...it, pagos:(it.pagos||[]).map((p,i2)=>i2===pidx?{...p,valor:v2}:p)}));
+  const setNcItemPagoAutorizacion = (itemIdx, pidx, v2) => setNcItems(prev=>prev.map((it,i)=>i!==itemIdx?it:{...it, pagos:(it.pagos||[]).map((p,i2)=>i2===pidx?{...p,numero_autorizacion:v2}:p)}));
   // Fecha real del excedente/ajuste (puede ser distinta a hoy: ej. dinero que entró hace unos
   // días y se está registrando apenas ahora). Solo master/admin_finanzas pueden cambiarla —
   // igual que con abonoFecha — el resto siempre queda con la fecha de hoy.
@@ -4448,7 +4462,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
       const primerAbono = (d?.abonos||[])[0];
       setNcAbonoMedio(primerAbono?.medio_pago || "efectivo");
     } else {
-      setNcItems((d?.items||[]).map(i=>({ id:i.id, tipo:i.tipo, valor:String(i.valor), descuento:Number(i.descuento||0) })));
+      setNcItems((d?.items||[]).map(i=>({ id:i.id, tipo:i.tipo, valor:String(i.valor), descuento:Number(i.descuento||0), pagos:(i.pagos||[]).map(p=>({ medio_pago:p.medio_pago, valor:String(p.valor||""), numero_autorizacion:p.numero_autorizacion||"" })) })));
     }
   };
 
@@ -4714,7 +4728,8 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), numero_factura:editNumeroFactura.trim()||null, valor_bruto:nuevoBruto, descuento_total:descuentoOriginal, total:nuevoTotal, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
     const itemsActualizados = [];
     for(const it of ncItems){
-      const { data } = await supabase.from("ventas_items").update({ tipo:it.tipo, valor:Number(it.valor||0) }).eq("id",it.id).select().single();
+      const pagosGuardarIt = (it.pagos||[]).map(p=>({ medio_pago:p.medio_pago, valor:Number(p.valor||0), numero_autorizacion: VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?(p.numero_autorizacion||"").trim():null }));
+      const { data } = await supabase.from("ventas_items").update({ tipo:it.tipo, valor:Number(it.valor||0), pagos:pagosGuardarIt }).eq("id",it.id).select().single();
       if(data) itemsActualizados.push(data);
     }
     for(const s of aprobadasSinAplicar){
@@ -5222,13 +5237,43 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                 </div>
               ) : (
                 <div style={{ marginBottom:10 }}>
-                  <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:10 }}>
-                    {ncItems.map((it,idx)=>(
-                      <div key={it.id} style={{ display:"flex", gap:8, alignItems:"end", flexWrap:"wrap", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
-                        <div style={{ minWidth:140, flex:1 }}><Field label="Tipo" value={it.tipo} onChange={v2=>setNcItems(prev=>prev.map((x,i2)=>i2===idx?{...x,tipo:v2}:x))} options={VENTAS_TIPOS.filter(t=>t.value!=="flexipago")}/></div>
-                        <div style={{ minWidth:120, flex:1 }}><CurrencyField label="Valor" value={it.valor} onChange={v2=>setNcItems(prev=>prev.map((x,i2)=>i2===idx?{...x,valor:v2}:x))}/></div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:10 }}>
+                    {ncItems.map((it,idx)=>{
+                      const sumaMediosIt = (it.pagos||[]).reduce((s,p)=>s+Number(p.valor||0),0);
+                      const faltaIt = Number(it.valor||0) - sumaMediosIt;
+                      return (
+                      <div key={it.id} style={{ display:"flex", flexDirection:"column", gap:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
+                        <div style={{ display:"flex", gap:8, alignItems:"end", flexWrap:"wrap" }}>
+                          <div style={{ minWidth:140, flex:1 }}><Field label="Tipo" value={it.tipo} onChange={v2=>setNcItems(prev=>prev.map((x,i2)=>i2===idx?{...x,tipo:v2}:x))} options={VENTAS_TIPOS.filter(t=>t.value!=="flexipago")}/></div>
+                          <div style={{ minWidth:120, flex:1 }}><CurrencyField label="Valor" value={it.valor} onChange={v2=>setNcItems(prev=>prev.map((x,i2)=>i2===idx?{...x,valor:v2}:x))}/></div>
+                        </div>
+                        <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Medios de pago</div>
+                        {(it.pagos||[]).length>0 && (
+                          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                            {it.pagos.map((p,pidx)=>{
+                              const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===p.medio_pago);
+                              return (
+                                <div key={pidx} style={{ border:`1px solid ${C.gold}`, borderRadius:8, padding:"9px 10px", background:`${C.gold}0d` }}>
+                                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                                    <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{m?.label}</span>
+                                    <button onClick={()=>quitarMedioDeNcItem(idx,pidx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
+                                  </div>
+                                  <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?"1fr 1fr":"1fr", gap:10 }}>
+                                    <CurrencyField label="Valor pagado" value={p.valor} onChange={v2=>setNcItemPagoValor(idx,pidx,v2)}/>
+                                    {VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && <Field label="N.º autorización" value={p.numero_autorizacion||""} onChange={v2=>setNcItemPagoAutorizacion(idx,pidx,v2)} placeholder="Ej: 056495"/>}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <Field value="" onChange={v2=>{ if(v2) agregarMedioANcItem(idx,v2); }} options={[{value:"",label:"+ Agregar medio de pago"}, ...VENTAS_MEDIOS_PAGO]}/>
+                        <div style={{ fontFamily:font.body, fontSize:12, color:Math.abs(faltaIt)<1?C.green:C.red }}>
+                          {Math.abs(faltaIt)<1 ? "✓ Los medios cuadran con el valor de este renglón" : faltaIt>0 ? `Faltan $${faltaIt.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(faltaIt).toLocaleString("es-CO")}`}
+                        </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
                   <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
@@ -5241,18 +5286,26 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                     const nuevoTotal = nuevoBruto - descuentoOriginal;
                     const piso = Number(v.valor_original ?? v.total);
                     const ok = nuevoTotal>=piso;
+                    const pagosCuadranTodos = ncItems.every(it=>{
+                      const sumaMediosIt = (it.pagos||[]).reduce((s,p)=>s+Number(p.valor||0),0);
+                      return Math.abs(Number(it.valor||0)-sumaMediosIt)<1;
+                    });
+                    const faltaAUTAlgunNcItem = ncItems.some(it=>(it.pagos||[]).some(p=>VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && !(p.numero_autorizacion||"").trim()));
                     return (
                       <>
                         <div style={{ fontFamily:font.body, fontSize:12, margin:"2px 0 10px", color: ok?C.green:C.red }}>
                           Nuevo total: <strong>${nuevoTotal.toLocaleString("es-CO")}</strong> {!ok && `— debe ser al menos $${piso.toLocaleString("es-CO")}`}
                         </div>
+                        {!pagosCuadranTodos && (
+                          <div style={{ fontFamily:font.body, fontSize:12, margin:"-4px 0 10px", color:C.red }}>Los medios de pago de cada renglón deben sumar exactamente su valor.</div>
+                        )}
                         {editErrorMsg && (
                           <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.red}18`, border:`1px solid ${C.red}`, color:C.red }}>
                             {editErrorMsg}
                           </div>
                         )}
                         <div style={{ display:"flex", gap:8 }}>
-                          <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || !ok} sm>{guardando?"Guardando...":"Guardar"}</Btn>
+                          <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || !ok || !pagosCuadranTodos || faltaAUTAlgunNcItem} sm>{guardando?"Guardando...":"Guardar"}</Btn>
                           <Btn onClick={()=>{ setEditando(false); setEditErrorMsg(""); }} variant="ghost" sm>Cancelar</Btn>
                         </div>
                       </>
