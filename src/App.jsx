@@ -4722,6 +4722,10 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
       setEditErrorMsg(`El nuevo valor ($${nuevoTotal.toLocaleString("es-CO")}) no puede quedar por debajo de lo ya registrado ($${piso.toLocaleString("es-CO")}).`);
       return;
     }
+    if(!editNumeroFactura.trim()){
+      setEditErrorMsg("Falta el N.º de factura (Siigo) — es obligatorio para aplicar la Notacrédito.");
+      return;
+    }
     setEditErrorMsg("");
     setGuardando(true);
     const valorAnterior = Number(venta.total);
@@ -5276,7 +5280,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                     })}
                   </div>
                   <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
-                  <Field label="N.º de factura (Siigo)" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
+                  <Field label="N.º de factura (Siigo) — obligatorio *" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
                   {puedeEditarFechaAjuste && (
                     <Field label="Fecha real de la Notacrédito" type="date" value={ajusteFecha} onChange={setAjusteFecha}/>
                   )}
@@ -5305,7 +5309,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
                           </div>
                         )}
                         <div style={{ display:"flex", gap:8 }}>
-                          <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || !ok || !pagosCuadranTodos || faltaAUTAlgunNcItem} sm>{guardando?"Guardando...":"Guardar"}</Btn>
+                          <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || !ok || !pagosCuadranTodos || faltaAUTAlgunNcItem || !editNumeroFactura.trim()} sm>{guardando?"Guardando...":"Guardar"}</Btn>
                           <Btn onClick={()=>{ setEditando(false); setEditErrorMsg(""); }} variant="ghost" sm>Cancelar</Btn>
                         </div>
                       </>
