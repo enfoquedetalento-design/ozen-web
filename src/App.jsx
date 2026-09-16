@@ -4720,7 +4720,9 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     setEditErrorMsg("");
     setGuardando(true);
     const valorAnterior = Number(venta.total);
-    const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), numero_factura:editNumeroFactura.trim()||null, valor_bruto:nuevoBruto, descuento_total:descuentoOriginal, total:nuevoTotal, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
+    // La factura original NUNCA se toca aquí — el N.º nuevo de Siigo que se escribió es el de
+    // ESTA Notacrédito (el excedente), y va aparte en el ajuste/registro espejo, no en la venta.
+    const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), valor_bruto:nuevoBruto, descuento_total:descuentoOriginal, total:nuevoTotal, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
     const itemsActualizados = [];
     for(const it of ncItems){
       const pagosGuardarIt = (it.pagos||[]).map(p=>({ medio_pago:p.medio_pago, valor:Number(p.valor||0), numero_autorizacion: VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?(p.numero_autorizacion||"").trim():null }));
@@ -4734,7 +4736,7 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     // HOY para Métricas — el valor original se queda contando en su día de venta (no se toca acá,
     // ver recortePorVenta en VentasMetricasScreen). Así "Ventas de hoy" solo ve lo que entró hoy.
     if(nuevoTotal !== valorAnterior){
-      const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:(puedeEditarFechaAjuste && ajusteFecha) || todayStr, valor_anterior:valorAnterior, valor_nuevo:nuevoTotal, diferencia:nuevoTotal-valorAnterior, motivo:editObservacion.trim()||null, aplicado_por:user.name }).select().single();
+      const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:(puedeEditarFechaAjuste && ajusteFecha) || todayStr, valor_anterior:valorAnterior, valor_nuevo:nuevoTotal, diferencia:nuevoTotal-valorAnterior, motivo:editObservacion.trim()||null, aplicado_por:user.name, es_correccion_error:false, numero_factura:editNumeroFactura.trim() }).select().single();
       if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
     }
     setGuardando(false);
