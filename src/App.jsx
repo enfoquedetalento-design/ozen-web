@@ -7626,11 +7626,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // Regla general: una recolección SIEMPRE se lleva el efectivo de días ya cerrados (anteriores a
   // hoy) — el de HOY no se recoge por defecto, sigue sumando hasta la siguiente recolección. Solo
   // si se marca "Recoges efectivo de hoy" se retira una parte de hoy, con tope de lo acumulado hoy.
-  // fechaCorte se sigue usando más abajo (base) como referencia de "desde la última recolección",
-  // pero YA NO se usa para calcular el efectivo pendiente: ese cálculo es ahora por
-  // fecha de corte — así una recolección PARCIAL (recoger menos de lo sugerido) deja correctamente
-  // el resto pendiente para la próxima vez, en lugar de darlo por recogido solo porque cambió la
-  // fecha de la última recolección.
+  // fechaCorte marca ese punto de corte: todo lo anterior a la última recolección se da por
+  // recogido al 100%, sin revisarlo de nuevo (ver el cálculo de efectivoAnteriores más abajo).
   const fechaCorte = ultimaRecoleccion ? ultimaRecoleccion.fecha : null;
 
   // Efectivo (ventas + abonos en efectivo) de TODOS los días anteriores a hoy, en toda la historia
@@ -7651,6 +7648,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     // a.medio_pago (que en un abono dividido en varios medios solo guarda el primero).
     mediosDeAbono(a).forEach(p=>{ if(p.medio_pago==="efectivo") efectivoAnterioresBruto += Number(p.valor||0); });
   });
+<<<<<<< Updated upstream
   // Lo ya recogido de "días anteriores" en TODAS las recolecciones hechas hasta ahora. El campo
   // "valor" guarda días-anteriores + hoy juntos (ver guardarRecoleccion). Si la recolección fue
   // HOY MISMO, su valor_hoy todavía es "de hoy" (efectivoHoyPendiente ya lo resta aparte más abajo),
@@ -7682,6 +7680,34 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // para que una deuda o gasto quede reflejada de forma PERMANENTE en el pendiente real — no solo
   // en la sugerencia inicial, que se perdía en cuanto Santiago editaba el valor a mano.
   const efectivoAnteriores = Math.max(0, efectivoAnterioresBruto + gastosNetoAntesRecoleccion + gastosNetoAcumulado - recogidoAnterioresAcumulado);
+=======
+  // Rediseño (16 sept): ANTES, esto recorría TODAS las recolecciones desde el inicio de la tienda
+  // y revalidaba cada una contra los datos de HOY (efectivoDelDia recalculado en vivo). Eso era
+  // frágil: un cambio en una venta vieja (ej. corregir un descuento) podía voltear por completo el
+  // resultado de una recolección de hace semanas, sin que nada real hubiera cambiado — le pasó a
+  // Unicentro con la recolección del 14 de sept, que de repente "perdía" $200.000 de crédito por
+  // culpa de una diferencia en una venta de otro día, sin relación real con esos $200.000.
+  //
+  // Ahora se confía en la ÚLTIMA recolección como un corte fijo, sin revalidar nunca más lo de
+  // antes: ella se llevó TODO el efectivo de los días anteriores a su fecha (regla de negocio: una
+  // recolección SIEMPRE se lleva el 100% de lo anterior). Lo único que puede quedar suelto es el
+  // propio día de esa recolección, si siguió entrando efectivo DESPUÉS de hacerla (ej. Unicentro 5
+  // sept) — eso se calcula una sola vez, comparando el efectivo real de ese día contra lo que esa
+  // recolección declaró haberse llevado de "hoy" (valor_hoy), y nunca se vuelve a tocar después.
+  const efectivoAnteriores = ultimaRecoleccion ? (()=>{
+    const valorHoyRecolectado = Number(ultimaRecoleccion.valor_hoy||0);
+    const sobranteDelDiaDeLaRecoleccion = Math.max(0, efectivoDelDia(ultimaRecoleccion.fecha) - valorHoyRecolectado);
+    let acumulado = sobranteDelDiaDeLaRecoleccion;
+    let cursor = sumarDias(ultimaRecoleccion.fecha, 1);
+    let guard = 0;
+    while(cursor && cursor<todayStr && guard<730){
+      acumulado += efectivoDelDia(cursor);
+      cursor = sumarDias(cursor, 1);
+      guard++;
+    }
+    return Math.max(0, acumulado + gastosNetoAcumulado);
+  })() : Math.max(0, efectivoAnterioresBruto + gastosNetoAntesRecoleccion + gastosNetoAcumulado);
+>>>>>>> Stashed changes
 
   // Efectivo de HOY que sigue pendiente — es el tope para el retiro esporádico de "efectivo de hoy".
   const retiradoHoyYa = recoleccionesTienda.filter(r=>r.fecha===todayStr).reduce((s,r)=>s+Number(r.valor_hoy||0),0);
@@ -7703,32 +7729,12 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   let baseDeficit = 0;
   {
     const gastosOrdenados = [...gastosDesdeRecoleccion].sort((a,b)=> new Date(a.created_at)-new Date(b.created_at));
+    // Mismo corte que arriba: se confía en la última recolección (se llevó el 100% de lo anterior),
+    // y el único remanente posible es lo que siguió entrando el mismo día de esa recolección
+    // después de hacerla — se arranca el caminado con ese sobrante, no con un recálculo de toda
+    // la historia.
     let cursor = fechaCorte ? sumarDias(fechaCorte, 1) : (gastosOrdenados[0]?.fecha || null);
-    // El caminado de días arrancaba SIEMPRE en $0 justo después de la última recolección, como si
-    // esa recolección siempre dejara la caja en cero — pero una recolección puede ser PARCIAL (se
-    // puede recoger menos de lo sugerido a propósito), así que suele quedar efectivo real sin
-    // recoger desde ANTES de esa fecha. Ese sobrante sí cuenta en "Efectivo" (arriba), pero el
-    // caminado lo ignoraba por completo — por eso una novedad grande podía "pegarle" a la base
-    // aunque el Efectivo total mostrado alcanzara de sobra para cubrirla. Se arranca ahora con lo
-    // que de verdad quedó sin recoger hasta la fecha de corte (bruto acumulado hasta esa fecha,
-    // ya con las novedades de antes de la recolección aplicadas, menos lo recogido en toda la
-    // historia), no en $0.
-    let brutoHastaFechaCorte = 0;
-    if(fechaCorte){
-      ventasItems.forEach(i=>{
-        const v = ventasTiendaMap[i.venta_id];
-        if(!v || i.tipo==="flexipago") return;
-        const fechaEfectiva = (i.es_original===false && i.fecha_item) ? i.fecha_item : v.fecha;
-        if(fechaEfectiva>fechaCorte) return;
-        (i.pagos||[]).forEach(p=>{ if(p.medio_pago==="efectivo") brutoHastaFechaCorte += Number(p.valor||0); });
-      });
-      ventasAbonos.forEach(a=>{
-        const v = ventasTiendaMap[a.venta_id];
-        if(!v || a.fecha>fechaCorte) return;
-        mediosDeAbono(a).forEach(p=>{ if(p.medio_pago==="efectivo") brutoHastaFechaCorte += Number(p.valor||0); });
-      });
-    }
-    let pool = fechaCorte ? Math.max(0, brutoHastaFechaCorte + gastosNetoAntesRecoleccion - recogidoAnterioresAcumulado) : 0;
+    let pool = fechaCorte ? Math.max(0, efectivoDelDia(fechaCorte) - Number(ultimaRecoleccion?.valor_hoy||0)) : 0;
     let guard = 0;
     while(cursor && cursor<=todayStr && guard<730){
       pool += efectivoDelDia(cursor);
@@ -7895,7 +7901,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     const detalleApertura = {
       turno: turnoAsesorTexto(apAsesorId, apFecha),
       baseDeficit,
-      efectivoAnterioresBruto, recogidoAnterioresAcumulado,
+      efectivoAnterioresBruto,
       novedadesAntesRecoleccion: gastosNetoAntesRecoleccion,
       novedadesDesdeRecoleccion: gastosDesdeRecoleccion.map(g=>({ motivo:g.motivo, valor:g.valor, tipo:g.tipo, estado:g.estado })),
       efectivoAnteriores, efectivoHoyPendiente, efectivoPendienteTotal, totalEnCajaAhora,
@@ -8143,11 +8149,23 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                   <div style={{ marginTop:2 }}>
                     <button onClick={()=>setVerDetalleCalculo(v=>!v)} style={{ background:"none", border:"none", color:C_DARK.textMuted, cursor:"pointer", fontSize:10, textDecoration:"underline", padding:0 }}>{verDetalleCalculo?"Ocultar detalle del cálculo":"Ver detalle del cálculo"}</button>
                     {verDetalleCalculo && (
+<<<<<<< Updated upstream
                       <div style={{ marginTop:4, padding:"8px 10px", background:"rgba(0,0,0,0.2)", borderRadius:6, fontFamily:font.mono, fontSize:10.5, color:C_DARK.textSub, display:"flex", flexDirection:"column", gap:2 }}>
                         <div>Efectivo histórico bruto (antes de hoy): {fmtCOP(efectivoAnterioresBruto)}</div>
                         <div>Recogido históricamente (días anteriores): −{fmtCOP(recogidoAnterioresAcumulado)}</div>
                         <div style={{ fontWeight:700 }}>= Efectivo días anteriores (antes de novedades): {fmtCOP(Math.max(0, efectivoAnterioresBruto - recogidoAnterioresAcumulado))}</div>
                         {gastosNetoAntesRecoleccion!==0 && <div>Ajuste histórico (novedades ya resueltas, aplicado una sola vez): {gastosNetoAntesRecoleccion>=0?"+":"−"}{fmtCOP(Math.abs(gastosNetoAntesRecoleccion))}</div>}
+=======
+                      <div style={{ marginTop:4, padding:"8px 10px", background:"rgba(0,0,0,0.2)", borderRadius:6, fontFamily:font.mono, fontSize:10.5, color:C.textSub, display:"flex", flexDirection:"column", gap:2 }}>
+                        {ultimaRecoleccion ? (
+                          <>
+                            <div>Corte (última recolección, {fmtFechaHora(ultimaRecoleccion.created_at)}): se llevó {fmtCOP(ultimaRecoleccion.valor)}{Number(ultimaRecoleccion.valor_hoy||0)>0 ? ` (incluye ${fmtCOP(ultimaRecoleccion.valor_hoy)} de ese mismo día)` : ""}</div>
+                            <div>Todo lo anterior a esa fecha queda en $0 pendiente — no se revisa de nuevo.</div>
+                          </>
+                        ) : (
+                          <div>Efectivo histórico bruto (antes de hoy, nunca se ha recogido): {fmtCOP(efectivoAnterioresBruto)}</div>
+                        )}
+>>>>>>> Stashed changes
                         <div style={{ marginTop:4 }}>Novedades desde la última recolección ({ultimaRecoleccion?fmtFechaHora(ultimaRecoleccion.created_at):"—"}):</div>
                         {gastosDesdeRecoleccion.length>0 ? gastosDesdeRecoleccion.map(g=>(
                           <div key={g.id} style={{ paddingLeft:8 }}>{fmtFechaHora(g.created_at)} · {g.motivo} ({g.estado}): {g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</div>
