@@ -3085,13 +3085,20 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
     await supabase.from("junta_compromisos").delete().in("id", g.map(m=>m.id));
     setCompromisos(prev=>prev.filter(c=>!g.some(m=>m.id===c.id)));
   };
+  // Una tarea CONGELADA (de un mes ya entregado) deja de estarlo si alguien la reabrió — reabrir
+  // existe justo para cuando la reunión de traspaso se corrió de fecha y la tarea necesita más
+  // tiempo en el mes nuevo; si el congelamiento la bloqueara de todos modos, reabrirla no serviría
+  // de nada. No hay riesgo de alterar un indicador ya cerrado: mientras siga activa (sin marcar)
+  // no cuenta para ningún mes (ver mesDeCierre), y en cuanto se cierre contará para el mes real en
+  // que eso pase — nunca para el mes viejo que ya se congeló.
+  const estaCongelada = (t) => semanaCongelada(t.semana) && !t.reabierta_por;
   // El monitor solo puede borrar tareas activas de un período no congelado; lo cerrado o lo de
   // meses ya entregados queda solo para master.
   const puedeBorrarGrupo = (g) => {
     if (soloLectura) return false;
     if (user.role==="master") return true;
     const cerrada = esGrupoVencido(g) || esGrupoCompletado(g);
-    return esMonitor && !cerrada && !semanaCongelada(g[0].semana);
+    return esMonitor && !cerrada && !estaCongelada(g[0]);
   };
 
   const selectStyle = { background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" };
@@ -3167,8 +3174,9 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
           const autorreportadoGrupo = !completadoGrupo && g.every(m=>m.autorreportado);
           const enGracia = completadoGrupo && dentroDeGracia(base);
           // El mes ya entregado por el monitor anterior queda congelado (salvo su última semana,
-          // por si la reunión de traspaso se corrió de fecha) — master siempre puede entrar.
-          const puedeEditarPeriodo = user.role==="master" || !semanaCongelada(base.semana);
+          // por si la reunión de traspaso se corrió de fecha, o si ya se reabrió — ver estaCongelada
+          // arriba) — master siempre puede entrar.
+          const puedeEditarPeriodo = user.role==="master" || !estaCongelada(base);
           // Se marca como un solo bloque (no por persona) — pero cada fila individual sigue
           // guardando su propio completado=true/false para que el crédito en Indicadores por
           // líder siga contando igual que antes. Hay 5 minutos de gracia para desmarcar por error.
