@@ -4462,7 +4462,10 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
       const primerAbono = (d?.abonos||[])[0];
       setNcAbonoMedio(primerAbono?.medio_pago || "efectivo");
     } else {
-      setNcItems((d?.items||[]).map(i=>({ id:i.id, tipo:i.tipo, valor:String(i.valor), descuento:Number(i.descuento||0), pagos:(i.pagos||[]).map(p=>({ medio_pago:p.medio_pago, valor:String(p.valor||""), numero_autorizacion:p.numero_autorizacion||"" })) })));
+      // valorOriginalItem/pagosOriginalCount: foto de cómo estaba este renglón ANTES de editar —
+      // en guardarEdicion se usa para separar la plata que ya estaba (se queda con su fecha
+      // original) de la plata nueva del excedente (que debe quedar fechada hoy, ver más abajo).
+      setNcItems((d?.items||[]).map(i=>({ id:i.id, tipo:i.tipo, valor:String(i.valor), descuento:Number(i.descuento||0), valorOriginalItem:Number(i.valor||0), pagosOriginalCount:(i.pagos||[]).length, pagos:(i.pagos||[]).map(p=>({ medio_pago:p.medio_pago, valor:String(p.valor||""), numero_autorizacion:p.numero_autorizacion||"" })) })));
     }
   };
 
@@ -4732,11 +4735,33 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     // La factura original NUNCA se toca aquí — el N.º nuevo de Siigo que se escribió es el de
     // ESTA Notacrédito (el excedente), y va aparte en el ajuste/registro espejo, no en la venta.
     const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), valor_bruto:nuevoBruto, descuento_total:descuentoOriginal, total:nuevoTotal, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
+    // Fecha efectiva del excedente de esta Notacrédito — la misma que se usa para el ajuste de
+    // abajo (hoy, o la fecha real si master/admin_finanzas la cambió).
+    const fechaExcedenteItems = (puedeEditarFechaAjuste && ajusteFecha) || todayStr;
     const itemsActualizados = [];
+    const itemsNuevosExcedente = [];
     for(const it of ncItems){
       const pagosGuardarIt = (it.pagos||[]).map(p=>({ medio_pago:p.medio_pago, valor:Number(p.valor||0), numero_autorizacion: VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?(p.numero_autorizacion||"").trim():null }));
-      const { data } = await supabase.from("ventas_items").update({ tipo:it.tipo, valor:Number(it.valor||0), pagos:pagosGuardarIt }).eq("id",it.id).select().single();
-      if(data) itemsActualizados.push(data);
+      const valorOriginalItem = Number(it.valorOriginalItem||0);
+      const nuevoValorItem = Number(it.valor||0);
+      const deltaItem = nuevoValorItem - valorOriginalItem;
+      // Si este renglón subió de valor y se le agregaron medios de pago nuevos (el excedente), esa
+      // plata NUEVA se guarda en un renglón aparte fechado HOY — la plata que ya estaba registrada
+      // se queda intacta, con su fecha original. Así Caja distingue cuál efectivo entró hoy y cuál
+      // es de antes (ver efectivoDelDia/efectivoAnteriores en VentasCajaScreen); antes, todo el
+      // pago quedaba mezclado en el mismo renglón y fecha original, así que un excedente cobrado
+      // hoy en efectivo se contaba como si hubiera entrado el día de la venta original.
+      if(deltaItem>0 && it.pagos.length>(it.pagosOriginalCount||0)){
+        const pagosOriginales = pagosGuardarIt.slice(0, it.pagosOriginalCount||0);
+        const pagosExcedente = pagosGuardarIt.slice(it.pagosOriginalCount||0);
+        const { data } = await supabase.from("ventas_items").update({ tipo:it.tipo, valor:valorOriginalItem, pagos:pagosOriginales }).eq("id",it.id).select().single();
+        if(data) itemsActualizados.push(data);
+        const { data:itemNuevo } = await supabase.from("ventas_items").insert({ venta_id:venta.id, tipo:it.tipo, valor:deltaItem, descuento:0, pagos:pagosExcedente, es_original:false, fecha_item:fechaExcedenteItems }).select().single();
+        if(itemNuevo) itemsNuevosExcedente.push(itemNuevo);
+      } else {
+        const { data } = await supabase.from("ventas_items").update({ tipo:it.tipo, valor:nuevoValorItem, pagos:pagosGuardarIt }).eq("id",it.id).select().single();
+        if(data) itemsActualizados.push(data);
+      }
     }
     for(const s of aprobadasSinAplicar){
       await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
@@ -4745,17 +4770,17 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     // HOY para Métricas — el valor original se queda contando en su día de venta (no se toca acá,
     // ver recortePorVenta en VentasMetricasScreen). Así "Ventas de hoy" solo ve lo que entró hoy.
     if(nuevoTotal !== valorAnterior){
-      const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:(puedeEditarFechaAjuste && ajusteFecha) || todayStr, valor_anterior:valorAnterior, valor_nuevo:nuevoTotal, diferencia:nuevoTotal-valorAnterior, motivo:editObservacion.trim()||null, aplicado_por:user.name, es_correccion_error:false, numero_factura:editNumeroFactura.trim() }).select().single();
+      const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:fechaExcedenteItems, valor_anterior:valorAnterior, valor_nuevo:nuevoTotal, diferencia:nuevoTotal-valorAnterior, motivo:editObservacion.trim()||null, aplicado_por:user.name, es_correccion_error:false, numero_factura:editNumeroFactura.trim() }).select().single();
       if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
     }
     setGuardando(false);
     if(ventaAct){
       setVentas(prev=>prev.map(v2=>v2.id===venta.id?ventaAct:v2));
       setDetalle(prev=>({...prev,
-        items:(prev?.items||[]).map(i=>itemsActualizados.find(x=>x.id===i.id)||i),
+        items:(prev?.items||[]).map(i=>itemsActualizados.find(x=>x.id===i.id)||i).concat(itemsNuevosExcedente),
         solicitudes:(prev?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s),
       }));
-      if(setVentasItems && itemsActualizados.length) setVentasItems(prev=>prev.map(i=>itemsActualizados.find(x=>x.id===i.id)||i));
+      if(setVentasItems && (itemsActualizados.length || itemsNuevosExcedente.length)) setVentasItems(prev=>[...prev.map(i=>itemsActualizados.find(x=>x.id===i.id)||i), ...itemsNuevosExcedente]);
     }
     setEditando(false);
   };
