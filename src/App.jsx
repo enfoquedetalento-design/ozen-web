@@ -172,39 +172,23 @@ const martesDelMes = (anio, mes) => {
   }
   return dias;
 };
-// Una tarea vence en su fecha_estimada (por defecto el martes de la siguiente semana, editable
-// a una fecha más lejana) — es cuando se revisa en la siguiente reunión si se cumplió o no. Si
-// pasa ese día y no se marcó completada, queda cerrada como "no realizada" sin poder marcarse.
-const tareaVencidaNoRealizada = (t) => !t.completado && !!t.fecha_estimada && todayStr > t.fecha_estimada;
+// Rediseño (21 sept): las semanas de la Junta corren de LUNES a DOMINGO — no importa qué día de
+// esa semana se haga la reunión, la tarea sigue vigente toda la semana. `fecha_estimada` se sigue
+// guardando como el MARTES de la semana objetivo (mismo formato de siempre, para no migrar datos
+// viejos — y porque el martes sigue siendo el que decide de qué mes/Monitor es esa semana, ver
+// getMonitorDeMes/martesDelMes), pero el plazo real ahora corre hasta el DOMINGO de esa semana
+// (martes + 5 días) — antes vencía justo en el martes.
+const domingoDeLaSemana = (martesStr) => sumarDias(martesStr, 5);
+const tareaVencidaNoRealizada = (t) => !t.completado && !!t.fecha_estimada && todayStr > domingoDeLaSemana(t.fecha_estimada);
 // Al marcar una tarea como hecha hay 5 minutos de gracia para desmarcarla por si fue un error
 // (típico durante la reunión en vivo). Pasado ese tiempo queda fija.
 const GRACIA_DESMARCAR_MS = 5 * 60 * 1000;
 const dentroDeGracia = (t) => !!t.completado_en && (Date.now() - new Date(t.completado_en).getTime()) < GRACIA_DESMARCAR_MS;
-// El monitor de turno solo puede gestionar (marcar, reabrir, borrar) las tareas de su mes en
-// curso. La última semana del monitor anterior queda editable un poco más — durante la semana 1
-// y la semana 2 del mes nuevo — por si la reunión de traspaso se corrió de fecha. A partir de la
-// semana 3 del mes nuevo, esa última semana también se congela: todo el mes anterior queda de
-// solo lectura (salvo para master), para que el indicador de un mes ya cerrado no se pueda
-// alterar después de que ese monitor entregó el turno.
-const fronteraCongelamiento = () => {
-  const hoy = toColombiaDate();
-  const anio = hoy.getFullYear(), mes = hoy.getMonth();
-  const semanasMes = martesDelMes(anio, mes);
-  const terceraSemana = semanasMes[2];
-  if (terceraSemana && todayStr >= terceraSemana) {
-    // Ya empezó la semana 3 del mes en curso: el mes anterior queda congelado por completo.
-    return semanasMes[0] || null;
-  }
-  // Semana 1 o 2 del mes en curso: todavía se puede tocar la última semana del mes anterior.
-  let anioPrev = anio, mesPrev = mes - 1;
-  if (mesPrev < 0) { mesPrev = 11; anioPrev -= 1; }
-  const semanasMesAnterior = martesDelMes(anioPrev, mesPrev);
-  return semanasMesAnterior.length ? semanasMesAnterior[semanasMesAnterior.length - 1] : null;
-};
-const semanaCongelada = (semanaTarea) => {
-  const frontera = fronteraCongelamiento();
-  return !!frontera && !!semanaTarea && semanaTarea < frontera;
-};
+// Rediseño (21 sept): se quitó toda la regla de "congelamiento" por mes (semana de gracia, mes
+// anterior de solo lectura, etc.) — el monitor y el master pueden gestionar cualquier tarea activa
+// o reabrir cualquier vencida, sin importar de qué mes sea. En su lugar, cada fin de mes se guarda
+// una foto fija de los indicadores (ver junta_indicadores_congelados / JuntaIndicadoresTab) que ya
+// no se recalcula después, así que reabrir una tarea vieja nunca altera un indicador ya publicado.
 // Mes al que se le "atribuye" una tarea ya cerrada, para efectos de indicadores — no es el mes en
 // que se asignó (c.semana), sino el mes en que de verdad se resolvió: para una cumplida, el mes en
 // que se marcó (completado_en); para una vencida, el mes en que venció (fecha_estimada, que es
@@ -3016,22 +3000,34 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
     : new Date(a[0].created_at||0) - new Date(b[0].created_at||0));
 
   // ── Crear tarea (uno o varios líderes a la vez) ────────────────────────────────
-  // La fecha sugerida siempre es "el próximo martes desde hoy" — sin importar qué se esté
+  // La semana objetivo sugerida siempre es "la semana siguiente a hoy" — sin importar qué se esté
   // viendo/filtrando en pantalla — para que agregar una tarea fuera de la reunión (por ejemplo
   // días después) no herede una semana equivocada.
   const abrirNueva = () => { setNueva({ descripcion:"", lider_ids:[], fecha_estimada: sumarDias(martesDeSemana(todayStr),7), comentarios:"" }); setShowNueva(true); };
   const toggleLiderNueva = (id) => setNueva(p => ({...p, lider_ids: p.lider_ids.includes(id) ? p.lider_ids.filter(x=>x!==id) : [...p.lider_ids, id]}));
   const todosMarcados = lideres.length>0 && nueva.lider_ids.length===lideres.length;
   const toggleTodosNueva = () => setNueva(p => ({...p, lider_ids: todosMarcados ? [] : lideres.map(l=>l.id)}));
+  // Semanas que se pueden elegir como objetivo al crear una tarea: desde la semana actual hasta
+  // 2 meses adelante (de sobra para cualquier caso real), etiquetadas "Semana N · mes" igual que
+  // el selector de arriba — por dentro cada opción sigue siendo el martes de esa semana.
+  const semanasParaSelector = () => {
+    const hoyMartes = martesDeSemana(todayStr);
+    const base = new Date(todayStr+"T12:00:00");
+    const out = [];
+    for (let offset=0; offset<3; offset++) {
+      const d = new Date(base.getFullYear(), base.getMonth()+offset, 1, 12);
+      martesDelMes(d.getFullYear(), d.getMonth()).forEach((mt,i)=>{
+        if (mt>=hoyMartes) out.push({ valor:mt, etiqueta:`Semana ${i+1} · ${new Date(mt+"T12:00:00").toLocaleDateString("es-CO",{month:"short"})}` });
+      });
+    }
+    return out;
+  };
 
   const crear = async () => {
     if (!nueva.descripcion.trim() || nueva.lider_ids.length===0) return;
     // Si se está viendo una semana específica, la tarea nueva queda ahí; si se está viendo
     // "todo el mes", queda en la semana real de hoy.
     const semanaTarea = semanaFiltro || martesDeSemana(todayStr);
-    // No se pueden crear tareas retroactivas en un período ya congelado (eso permitiría inflar
-    // el indicador de un mes que ya se cerró).
-    if (semanaCongelada(semanaTarea) && user.role!=="master") { alert("Ese período ya quedó congelado — no se pueden agregar tareas ahí."); return; }
     const grupoId = nueva.lider_ids.length>1 ? crypto.randomUUID() : null;
     const filas = nueva.lider_ids.map(lid=>({
       semana:semanaTarea, descripcion:nueva.descripcion.trim(), lider_id:lid,
@@ -3080,9 +3076,13 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   // diferencia de antes, se guarda el HISTORIAL completo (no solo la última vez), para poder ver
   // si una tarea se ha ido aplazando varias veces en vez de resolverse.
   const reabrirVencida = (g) => {
-    const nueva = window.prompt("Esta tarea venció antes de poder revisarla. ¿Hasta qué fecha le damos más tiempo? (aaaa-mm-dd)", sumarDias(todayStr, 1));
-    if (!nueva) return;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { alert("Fecha inválida — usa el formato aaaa-mm-dd."); return; }
+    const respuesta = window.prompt("Esta tarea venció antes de poder revisarla. ¿En qué fecha cae la semana en la que le damos más tiempo? (aaaa-mm-dd, cualquier día de esa semana)", sumarDias(todayStr, 1));
+    if (!respuesta) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(respuesta)) { alert("Fecha inválida — usa el formato aaaa-mm-dd."); return; }
+    // Se normaliza al martes de esa semana (mismo formato que fecha_estimada siempre ha tenido) —
+    // así el nuevo plazo (hasta el domingo de esa semana) queda bien calculado sin importar qué
+    // día exacto se haya escrito.
+    const nueva = martesDeSemana(respuesta);
     const ahora = new Date().toISOString();
     g.forEach(m => {
       const historial = [...(m.reaperturas||[]), { fecha_anterior:m.fecha_estimada||null, fecha_nueva:nueva, por:user.name, en:ahora }];
@@ -3094,20 +3094,13 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
     await supabase.from("junta_compromisos").delete().in("id", g.map(m=>m.id));
     setCompromisos(prev=>prev.filter(c=>!g.some(m=>m.id===c.id)));
   };
-  // Una tarea CONGELADA (de un mes ya entregado) deja de estarlo si alguien la reabrió — reabrir
-  // existe justo para cuando la reunión de traspaso se corrió de fecha y la tarea necesita más
-  // tiempo en el mes nuevo; si el congelamiento la bloqueara de todos modos, reabrirla no serviría
-  // de nada. No hay riesgo de alterar un indicador ya cerrado: mientras siga activa (sin marcar)
-  // no cuenta para ningún mes (ver mesDeCierre), y en cuanto se cierre contará para el mes real en
-  // que eso pase — nunca para el mes viejo que ya se congeló.
-  const estaCongelada = (t) => semanaCongelada(t.semana) && !t.reabierta_por;
-  // El monitor solo puede borrar tareas activas de un período no congelado; lo cerrado o lo de
-  // meses ya entregados queda solo para master.
+  // El monitor solo puede borrar tareas activas; lo cerrado (vencida o cumplida) queda solo para
+  // master — sin importar de qué mes sea (ya no hay congelamiento por período, ver arriba).
   const puedeBorrarGrupo = (g) => {
     if (soloLectura) return false;
     if (user.role==="master") return true;
     const cerrada = esGrupoVencido(g) || esGrupoCompletado(g);
-    return esMonitor && !cerrada && !estaCongelada(g[0]);
+    return esMonitor && !cerrada;
   };
 
   const selectStyle = { background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" };
@@ -3166,7 +3159,9 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             );})}
           </div>
           <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1.3fr", gap:6, marginBottom:6 }}>
-            <input type="date" value={nueva.fecha_estimada} onChange={e=>setNueva(p=>({...p,fecha_estimada:e.target.value}))} style={{ width:"100%", minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box", WebkitAppearance:"none", appearance:"none" }}/>
+            <select value={nueva.fecha_estimada} onChange={e=>setNueva(p=>({...p,fecha_estimada:e.target.value}))} style={{ width:"100%", minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}>
+              {semanasParaSelector().map(s=><option key={s.valor} value={s.valor}>{s.etiqueta}</option>)}
+            </select>
             <input value={nueva.comentarios} onChange={e=>setNueva(p=>({...p,comentarios:e.target.value}))} placeholder="Comentario (opcional)" style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
           </div>
           <div style={{ display:"flex", gap:6 }}><Btn onClick={crear} sm disabled={!nueva.descripcion.trim()||nueva.lider_ids.length===0}>Guardar</Btn><Btn onClick={()=>setShowNueva(false)} variant="ghost" sm>Cancelar</Btn></div>
@@ -3182,19 +3177,15 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
           const completadoGrupo = esGrupoCompletado(g);
           const autorreportadoGrupo = !completadoGrupo && g.every(m=>m.autorreportado);
           const enGracia = completadoGrupo && dentroDeGracia(base);
-          // El mes ya entregado por el monitor anterior queda congelado (salvo su última semana,
-          // por si la reunión de traspaso se corrió de fecha, o si ya se reabrió — ver estaCongelada
-          // arriba) — master siempre puede entrar.
-          const puedeEditarPeriodo = user.role==="master" || !estaCongelada(base);
           // Se marca como un solo bloque (no por persona) — pero cada fila individual sigue
           // guardando su propio completado=true/false para que el crédito en Indicadores por
           // líder siga contando igual que antes. Hay 5 minutos de gracia para desmarcar por error.
           // El check REAL (cuenta para Indicadores) solo lo puede dar el monitor de turno — si la
           // tarea ya venía autorreportada por su responsable, este mismo clic la confirma.
-          const puedeConfirmar = puedeGestionar && puedeEditarPeriodo && (completadoGrupo ? enGracia : !vencida);
+          const puedeConfirmar = puedeGestionar && (completadoGrupo ? enGracia : !vencida);
           // Quien no es el monitor, pero sí es responsable de la tarea, puede prender/apagar su
           // propio "check visual" — es solo un autorreporte, no el check real.
-          const puedeAutorreportar = !soloLectura && !puedeGestionar && puedeEditarPeriodo && !completadoGrupo && !vencida && esTareaDelUsuario(g);
+          const puedeAutorreportar = !soloLectura && !puedeGestionar && !completadoGrupo && !vencida && esTareaDelUsuario(g);
           const puedeMarcar = puedeConfirmar || puedeAutorreportar;
           const expandida = expandidas.has(compartida ? base.grupo_id : base.id);
           const toggleId = compartida ? base.grupo_id : base.id;
@@ -3206,9 +3197,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
           // Mensaje del check según quién está viendo y en qué estado quedó — mismo botón para
           // autorreportar (responsable) y confirmar (monitor), así que el texto es el que explica
           // qué hace el clic en cada caso.
-          const checkTitle = !puedeEditarPeriodo
-            ? "Período congelado — ya se cerró el turno del monitor anterior, solo master puede editarlo"
-            : completadoGrupo
+          const checkTitle = completadoGrupo
             ? (enGracia ? "Marcada como hecha — se puede desmarcar unos minutos más" : "Ya marcada como hecha — no se puede desmarcar")
             : vencida
             ? (autorreportadoGrupo ? `Vencida — ${base.autorreportado_por} la había autorreportado, pero no se confirmó a tiempo. Reábrela para poder confirmarla.` : "Vencida — ya pasó el plazo, no se puede marcar")
@@ -3228,8 +3217,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
                 {completadoGrupo && <Badge color={C.green} sm>Cumplida</Badge>}
                 {autorreportadoGrupo && <Badge color={C.blue} sm title="Marcada por su responsable, falta que el monitor la confirme">Autorreportada</Badge>}
                 {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
-                {!puedeEditarPeriodo && <Badge color={C.textMuted} sm>Congelada</Badge>}
-                {vencida && puedeGestionar && puedeEditarPeriodo && <button onClick={()=>reabrirVencida(g)} title="La reunión se corrió de fecha — reabrir con nuevo plazo" style={{ background:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir</button>}
+                {vencida && puedeGestionar && <button onClick={()=>reabrirVencida(g)} title="La reunión se corrió de fecha — reabrir con nuevo plazo" style={{ background:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir</button>}
                 {completadoGrupo && base.completado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· marcada por {base.completado_por}</div>}
                 {autorreportadoGrupo && base.autorreportado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· por {base.autorreportado_por}</div>}
                 {base.reabierta_por && (
@@ -3263,9 +3251,31 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   );
 }
 
+// Busca la foto fija ya guardada de un mes (o null si ese mes todavía no se congeló).
+const congeladoDeMes = (congelados, anio, mes) => (congelados||[]).find(c=>c.anio===anio && c.mes===mes+1) || null;
+// Convierte una fila de junta_indicadores_congelados al mismo formato que devuelve statsDelMes,
+// para que el resto de la pantalla no tenga que distinguir entre foto fija y cálculo en vivo.
+const statsDesdeCongelado = (c) => ({ totalMartes:c.total_martes, sesiones:c.sesiones, totalTareas:c.total_tareas, completadas:c.completadas, totalCerradas:c.total_cerradas, activas:0, pct:c.pct });
+
 // ── SCREEN: Junta Admin — Indicadores (cumplimiento del Monitor) ────────────
-function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
+function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongelados, isMobile }) {
   const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const [congelando, setCongelando] = useState(false);
+  // Guarda a mano la foto fija de un mes ya terminado — pensado como respaldo de la tarea
+  // programada automática (por si no llegó a correr), no como el camino normal. Una vez guardada,
+  // ese mes ya no se vuelve a recalcular nunca, sin importar qué pase después con sus tareas.
+  const congelarMesAhora = async (anio, mes) => {
+    if (!window.confirm(`¿Guardar la foto fija de ${MESES[mes]} ${anio}? Después de esto, el indicador de ese mes queda congelado para siempre, aunque se reabran o cambien tareas suyas más adelante.`)) return;
+    setCongelando(true);
+    const s = statsDelMes(compromisos, anio, mes);
+    const { data, error } = await supabase.from("junta_indicadores_congelados").insert({
+      anio, mes:mes+1, sesiones:s.sesiones, total_martes:s.totalMartes, total_tareas:s.totalTareas,
+      completadas:s.completadas, total_cerradas:s.totalCerradas, pct:s.pct, congelado_por:user.name,
+    }).select().single();
+    setCongelando(false);
+    if (!error && data) setCongelados(prev=>[...prev, data]);
+    else if (error) alert(`No se pudo congelar: ${error.message||"error desconocido"}`);
+  };
 
   const listaMeses = () => {
     const meses = [];
@@ -3288,7 +3298,11 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
   const [selMesIdx, setSelMesIdx] = useState(0);
   const seleccionado = meses[selMesIdx] || actual;
   const monitorSel = seleccionado ? getMonitorDeMes(lideres, seleccionado.anio, seleccionado.mes) : null;
-  const statsSel = seleccionado ? statsDelMes(compromisos, seleccionado.anio, seleccionado.mes) : null;
+  const congeladoSel = seleccionado ? congeladoDeMes(congelados, seleccionado.anio, seleccionado.mes) : null;
+  const statsSel = seleccionado ? (congeladoSel ? statsDesdeCongelado(congeladoSel) : statsDelMes(compromisos, seleccionado.anio, seleccionado.mes)) : null;
+  // El desglose por líder es informativo, no forma parte de la foto fija (no se guarda ahí) — para
+  // un mes ya congelado se sigue calculando en vivo, así que en teoría podría no cuadrar 100% con
+  // el total de la foto si se reabre y cambia algo después. Es la única parte que no queda fija.
   const statsLideresSel = seleccionado ? statsPorLiderDelMes(compromisos, lideres, seleccionado.anio, seleccionado.mes) : [];
   // Cumplimiento (%) y cantidad de tareas son cosas distintas — alguien puede tener pocas
   // tareas con 100% de cumplimiento, y otra persona muchas tareas con menor %. Se muestran
@@ -3311,6 +3325,8 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
                 {meses.map((m,i)=><option key={`${m.anio}-${m.mes}`} value={i}>{MESES[m.mes]} {m.anio}</option>)}
               </select>
               {selMesIdx===0 && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>· mes en curso</div>}
+              {congeladoSel && <Badge color={C.textMuted} sm title={`Foto fija guardada el ${fmtFechaHora(congeladoSel.congelado_en)}${congeladoSel.congelado_por?" · "+congeladoSel.congelado_por:""} — no se vuelve a calcular.`}>🔒 Congelado</Badge>}
+              {!congeladoSel && selMesIdx>0 && user.role==="master" && <button onClick={()=>congelarMesAhora(seleccionado.anio, seleccionado.mes)} disabled={congelando} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"3px 8px", fontFamily:font.body }}>{congelando?"...":"Congelar este mes ahora"}</button>}
             </div>
             <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub }}>Monitor: <span style={{ color:C.goldLight, fontWeight:700 }}>{monitorSel ? (monitorSel.nombre || "— sin nombre") : "—"}</span></div>
           </div>
@@ -3367,11 +3383,12 @@ function JuntaIndicadoresTab({ lideres, compromisos, isMobile }) {
         <div style={{ padding:"14px 16px", borderBottom:`1px solid ${C.border}`, fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text }}>Historial por mes</div>
         {meses.map(({ anio, mes }, idx) => {
           const monitor = getMonitorDeMes(lideres, anio, mes);
-          const s = statsDelMes(compromisos, anio, mes);
+          const congelado = congeladoDeMes(congelados, anio, mes);
+          const s = congelado ? statsDesdeCongelado(congelado) : statsDelMes(compromisos, anio, mes);
           return (
             <div key={`${anio}-${mes}`} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderBottom:idx<meses.length-1?`1px solid ${C.border}`:"none", flexWrap:"wrap" }}>
               <div style={{ minWidth:120 }}>
-                <div style={{ fontFamily:font.body, fontSize:12, fontWeight:600, color:C.text }}>{MESES[mes]} {anio}</div>
+                <div style={{ fontFamily:font.body, fontSize:12, fontWeight:600, color:C.text }}>{MESES[mes]} {anio}{congelado && " 🔒"}</div>
                 <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{monitor ? (monitor.nombre || "— sin nombre") : "—"}</div>
               </div>
               <div style={{ flex:1, minWidth:160, display:"flex", gap:8, flexWrap:"wrap" }}>
@@ -8496,6 +8513,8 @@ export default function App() {
   const [turnosSub, setTurnosSub] = useState(null);
   const [juntaLideres,setJuntaLideres]=useState([]),[juntaCompromisos,setJuntaCompromisos]=useState([]),[juntaAcuerdos,setJuntaAcuerdos]=useState([]);
   const [juntaAreas,setJuntaAreas]=useState([]),[juntaLiderAreas,setJuntaLiderAreas]=useState([]);
+  // Fotos fijas de indicadores mensuales ya congelados — ver junta_indicadores_congelados abajo.
+  const [juntaIndicadoresCongelados,setJuntaIndicadoresCongelados]=useState([]);
   const [ventas,setVentas]=useState([]),[ventasItems,setVentasItems]=useState([]),[ventasMetas,setVentasMetas]=useState([]),[ventasMetasAsesor,setVentasMetasAsesor]=useState([]);
   const [ventasAbonos,setVentasAbonos]=useState([]),[cajaAperturas,setCajaAperturas]=useState([]),[cajaCierres,setCajaCierres]=useState([]),[cajaRecolecciones,setCajaRecolecciones]=useState([]),[cajaGastos,setCajaGastos]=useState([]);
   const [cajaSolicitudesBorrado,setCajaSolicitudesBorrado]=useState([]);
@@ -8568,7 +8587,7 @@ export default function App() {
   }, []);
 
   const loadAll=async()=>{
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj},{data:csb},{data:tg},{data:tas},{data:th}]=await Promise.all([
+    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:jic},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj},{data:csb},{data:tg},{data:tas},{data:th}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
       supabase.from("registros").select("*").order("date",{ascending:false}),
@@ -8577,6 +8596,7 @@ export default function App() {
       supabase.from("junta_acuerdos").select("*").order("fecha",{ascending:false}),
       supabase.from("junta_areas").select("*").order("nombre",{ascending:true}),
       supabase.from("junta_lider_areas").select("*"),
+      supabase.from("junta_indicadores_congelados").select("*"),
       supabase.from("ventas").select("*").order("fecha",{ascending:false}),
       supabase.from("ventas_items").select("*"),
       supabase.from("ventas_metas").select("*"),
@@ -8599,6 +8619,7 @@ export default function App() {
     setJuntaAcuerdos(ja||[]);
     setJuntaAreas(jar||[]);
     setJuntaLiderAreas(jla||[]);
+    setJuntaIndicadoresCongelados(jic||[]);
     setVentas(v||[]);
     setVentasItems(vi||[]);
     setVentasMetas(vm||[]);
@@ -8734,7 +8755,7 @@ export default function App() {
       if(area==="junta"){
         if(tab==="equipo")       return <JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} areas={juntaAreas} setAreas={setJuntaAreas} liderAreas={juntaLiderAreas} setLiderAreas={setJuntaLiderAreas} isMobile={isMobile}/>;
         if(tab==="seguimiento")  return <JuntaSeguimientoScreen user={user} lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos} isMobile={isMobile}/>;
-        if(tab==="indicadores")  return <JuntaIndicadoresTab lideres={juntaLideres} compromisos={juntaCompromisos} isMobile={isMobile}/>;
+        if(tab==="indicadores")  return <JuntaIndicadoresTab user={user} lideres={juntaLideres} compromisos={juntaCompromisos} congelados={juntaIndicadoresCongelados} setCongelados={setJuntaIndicadoresCongelados} isMobile={isMobile}/>;
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
