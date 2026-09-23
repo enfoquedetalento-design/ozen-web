@@ -3247,6 +3247,9 @@ const congeladoDeMes = (congelados, anio, mes) => (congelados||[]).find(c=>c.ani
 // Convierte una fila de junta_indicadores_congelados al mismo formato que devuelve statsDelMes,
 // para que el resto de la pantalla no tenga que distinguir entre foto fija y cálculo en vivo.
 const statsDesdeCongelado = (c) => ({ totalMartes:c.total_martes, sesiones:c.sesiones, totalTareas:c.total_tareas, completadas:c.completadas, totalCerradas:c.total_cerradas, activas:0, pct:c.pct });
+// Convierte el desglose por líder guardado en la foto fija (c.por_lider, jsonb) al mismo formato
+// que devuelve statsPorLiderDelMes, para que el resto de la pantalla no tenga que distinguir.
+const statsLideresDesdeCongelado = (c) => (c.por_lider || []).map(p => ({ lider:{ id:p.lider_id, nombre:p.nombre }, total:p.total, completadas:p.completadas, totalCerradas:p.totalCerradas, pct:p.pct }));
 
 // ── SCREEN: Junta Admin — Indicadores (cumplimiento del Monitor) ────────────
 function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongelados, isMobile }) {
@@ -3259,9 +3262,12 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
     if (!window.confirm(`¿Guardar la foto fija de ${MESES[mes]} ${anio}? Después de esto, el indicador de ese mes queda congelado para siempre, aunque se reabran o cambien tareas suyas más adelante.`)) return;
     setCongelando(true);
     const s = statsDelMes(compromisos, anio, mes);
+    const porLider = statsPorLiderDelMes(compromisos, lideres, anio, mes)
+      .map(x => ({ lider_id:x.lider.id, nombre:x.lider.nombre, total:x.total, completadas:x.completadas, totalCerradas:x.totalCerradas, pct:x.pct }));
     const { data, error } = await supabase.from("junta_indicadores_congelados").insert({
       anio, mes:mes+1, sesiones:s.sesiones, total_martes:s.totalMartes, total_tareas:s.totalTareas,
       completadas:s.completadas, total_cerradas:s.totalCerradas, pct:s.pct, congelado_por:user.name,
+      por_lider:porLider,
     }).select().single();
     setCongelando(false);
     if (!error && data) setCongelados(prev=>[...prev, data]);
@@ -3291,10 +3297,9 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
   const monitorSel = seleccionado ? getMonitorDeMes(lideres, seleccionado.anio, seleccionado.mes) : null;
   const congeladoSel = seleccionado ? congeladoDeMes(congelados, seleccionado.anio, seleccionado.mes) : null;
   const statsSel = seleccionado ? (congeladoSel ? statsDesdeCongelado(congeladoSel) : statsDelMes(compromisos, seleccionado.anio, seleccionado.mes)) : null;
-  // El desglose por líder es informativo, no forma parte de la foto fija (no se guarda ahí) — para
-  // un mes ya congelado se sigue calculando en vivo, así que en teoría podría no cuadrar 100% con
-  // el total de la foto si se reabre y cambia algo después. Es la única parte que no queda fija.
-  const statsLideresSel = seleccionado ? statsPorLiderDelMes(compromisos, lideres, seleccionado.anio, seleccionado.mes) : [];
+  // El desglose por líder también queda dentro de la foto fija (congeladoSel.por_lider) cuando el
+  // mes ya está congelado — así nunca se desajusta del total, igual que statsSel.
+  const statsLideresSel = seleccionado ? (congeladoSel ? statsLideresDesdeCongelado(congeladoSel) : statsPorLiderDelMes(compromisos, lideres, seleccionado.anio, seleccionado.mes)) : [];
   // Cumplimiento (%) y cantidad de tareas son cosas distintas — alguien puede tener pocas
   // tareas con 100% de cumplimiento, y otra persona muchas tareas con menor %. Se muestran
   // como dos rankings separados en vez de una sola lista. pct puede ser null (sin tareas
