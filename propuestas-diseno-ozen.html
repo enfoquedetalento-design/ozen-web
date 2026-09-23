@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>OZEN — Propuestas de diseño visual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@400;500;600;700&family=Julius+Sans+One&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --p1-dark:#1A3B52; --p1-mid:#265D7F; --p1-surf:#22496A; --p1-surfAlt:#1E4260; --p1-cream:#E5D5CC;
+    --p2-bg:#E5D5CC; --p2-panel:#F2E8E2; --p2-navy:#1A3B52; --p2-blue:#265D7F; --p2-line:rgba(26,59,82,0.18);
+    --p3-dark:#1A3B52; --p3-surf:#204B69; --p3-surfAlt:#245676; --p3-blue:#265D7F; --p3-cream:#E5D5CC;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:'Josefin Sans','Segoe UI',sans-serif; background:#F4F1EE; color:#1A1A1A;}
+  .wrap{max-width:1200px; margin:0 auto; padding:36px 24px 80px;}
+  h1{font-size:26px; font-weight:700; margin:0 0 4px;}
+  .lead{color:#5c5c5c; font-size:14.5px; line-height:1.6; max-width:820px;}
+  .brief{background:#fff; border:1px solid #e2ddd7; border-radius:10px; padding:18px 20px; margin:24px 0 40px; font-size:13.5px; line-height:1.65; color:#3a3a3a;}
+  .brief b{color:#1A3B52;}
+  .brief .facts{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px; margin-top:12px;}
+  .fact{background:#F8F5F2; border-radius:8px; padding:10px 12px; font-size:12.5px;}
+  .fact .sw{display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:6px; border:1px solid rgba(0,0,0,0.15);}
+
+  .proposal{margin-bottom:56px; border-radius:16px; overflow:hidden; border:1px solid #e2ddd7; background:#fff;}
+  .p-head{padding:22px 26px; display:flex; justify-content:space-between; align-items:flex-start; gap:20px; flex-wrap:wrap;}
+  .p-head h2{margin:0 0 6px; font-size:19px; font-weight:700;}
+  .p-head .tag{font-family:'Julius Sans One',sans-serif; letter-spacing:1.5px; font-size:11px; text-transform:uppercase; opacity:0.75;}
+  .p-head .desc{font-size:13.5px; line-height:1.6; max-width:560px; margin-top:8px;}
+  .palette{display:flex; gap:8px; flex-wrap:wrap;}
+  .chip{width:64px; text-align:center; font-size:10px; font-family:'JetBrains Mono',monospace;}
+  .chip .box{width:64px; height:40px; border-radius:6px; border:1px solid rgba(0,0,0,0.12); margin-bottom:4px;}
+
+  .why{padding:0 26px 22px; display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+  .why .card{background:#F8F5F2; border-radius:10px; padding:14px 16px; font-size:12.8px; line-height:1.6;}
+  .why .card h4{margin:0 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:0.6px; color:#1A3B52;}
+  .flag{background:#fdf3e6; border:1px solid #f0d9ad; color:#7a5a12;}
+  .flag h4{color:#8a6710;}
+
+  /* mockup shell */
+  .demo{margin:0 26px 26px; border-radius:12px; overflow:hidden; border:1px solid rgba(0,0,0,0.08); box-shadow:0 8px 24px rgba(0,0,0,0.08);}
+  .demo-inner{display:flex; min-height:360px;}
+  .side{width:150px; padding:18px 14px; flex-shrink:0;}
+  .side .logo{font-family:'Julius Sans One',sans-serif; font-size:15px; letter-spacing:2px; margin-bottom:22px;}
+  .side .nav-item{font-size:12px; padding:8px 10px; border-radius:6px; margin-bottom:4px; opacity:0.8;}
+  .side .nav-item.active{opacity:1; font-weight:600;}
+  .main{flex:1; padding:20px 22px;}
+  .topbar{display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; flex-wrap:wrap; gap:10px;}
+  .topbar h3{margin:0; font-size:17px; font-weight:700;}
+  .topbar .sub{font-size:11px; opacity:0.65; margin-top:2px;}
+  .turno{font-size:11px; padding:6px 10px; border-radius:20px; display:inline-flex; gap:6px; align-items:center;}
+  .cards{display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;}
+  .stat{flex:0 0 118px; border-radius:8px; padding:10px 12px;}
+  .stat .lbl{font-size:9.5px; text-transform:uppercase; letter-spacing:0.4px; opacity:0.7; margin-bottom:4px;}
+  .stat .val{font-family:'JetBrains Mono',monospace; font-weight:700; font-size:15px;}
+  .row{display:flex; justify-content:space-between; align-items:center; padding:9px 12px; border-radius:8px; font-size:12px; margin-bottom:6px;}
+  .btn{display:inline-block; font-size:12px; font-weight:600; padding:9px 18px; border-radius:8px; margin-top:4px;}
+
+  /* Proposal 1 skin — Sombra oficial */
+  .skin-p1 .demo-inner{background:var(--p1-dark); color:var(--p1-cream); font-family:'Josefin Sans',sans-serif;}
+  .skin-p1 .side{background:#153047;}
+  .skin-p1 .nav-item.active{background:var(--p1-mid); color:#fff;}
+  .skin-p1 .turno{background:rgba(229,213,204,0.12); border:1px solid rgba(229,213,204,0.3);}
+  .skin-p1 .stat{background:var(--p1-surfAlt); border:1px solid rgba(229,213,204,0.14);}
+  .skin-p1 .row{background:var(--p1-surf);}
+  .skin-p1 .btn{background:var(--p1-mid); color:#fff;}
+  .skin-p1 .val{color:#fff;}
+
+  /* Proposal 2 skin — Tinta elevada */
+  .skin-p2 .demo-inner{background:var(--p2-bg); color:var(--p2-navy); font-family:'Josefin Sans',sans-serif;}
+  .skin-p2 .side{background:var(--p2-navy); color:var(--p2-bg);}
+  .skin-p2 .side .nav-item{opacity:0.75;}
+  .skin-p2 .side .nav-item.active{background:var(--p2-blue); color:#fff; opacity:1;}
+  .skin-p2 .turno{background:#fff; border:1px solid var(--p2-line); color:var(--p2-navy);}
+  .skin-p2 .stat{background:var(--p2-panel); border:1px solid var(--p2-line);}
+  .skin-p2 .row{background:#fff; border:1px solid var(--p2-line);}
+  .skin-p2 .btn{background:var(--p2-blue); color:#fff;}
+  .skin-p2 .val{color:var(--p2-navy);}
+
+  /* Proposal 3 skin — Híbrido balanceado */
+  .skin-p3 .demo-inner{background:var(--p3-dark); color:#EFE6E0; font-family:'Josefin Sans',sans-serif;}
+  .skin-p3 .side{background:#153047;}
+  .skin-p3 .nav-item.active{background:var(--p3-blue); color:#fff;}
+  .skin-p3 .turno{background:var(--p3-cream); color:#1A3B52; font-weight:600;}
+  .skin-p3 .stat{background:var(--p3-surfAlt); border:1px solid rgba(229,213,204,0.12);}
+  .skin-p3 .stat.accent{border:1px solid var(--p3-cream);}
+  .skin-p3 .stat.accent .val{color:var(--p3-cream);}
+  .skin-p3 .row{background:var(--p3-surf);}
+  .skin-p3 .btn{background:var(--p3-blue); color:#fff;}
+  .skin-p3 .btn.ghost{background:transparent; border:1px solid var(--p3-cream); color:var(--p3-cream); margin-left:8px;}
+  .skin-p3 .val{color:#fff;}
+
+  footer{max-width:1200px; margin:0 auto; padding:0 24px 60px; font-size:12.5px; color:#8a8a8a; line-height:1.6;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>OZEN — 3 propuestas de diseño visual</h1>
+  <p class="lead">Mockups comparativos para responder al comentario de Junta sobre el azul actual (demasiado oscuro) y la identidad visual del sitio. Solo se explora color, tipografía y jerarquía visual — ningún texto, dato ni estructura de contenido cambia. Cada propuesta usa componentes reales de la app (barra lateral, encabezado, burbuja "en turno", tarjetas de métricas, tabla, botones) para que se vea lo más parecido posible a como quedaría.</p>
+
+  <div class="brief">
+    <b>Lo que dice el Manual de Marca y por qué importa:</b> la paleta oficial de OZEN tiene solo 3 colores. El azul oscuro que hoy usa la app como fondo principal (<code>#0D1117</code>) <b>no es uno de los 3 colores oficiales</b> — es más oscuro y desaturado que el azul más oscuro de la marca (Sombra, <code>#1A3B52</code>). Eso probablemente explica el comentario de Junta: no es "el azul de la marca" el que se ve mal, es un azul que ni siquiera es de la marca.
+    <div class="facts">
+      <div class="fact"><span class="sw" style="background:#E5D5CC"></span><b>Tinta</b> #E5D5CC — crema/beige, para fondos claros y texto sobre azul</div>
+      <div class="fact"><span class="sw" style="background:#265D7F"></span><b>Base</b> #265D7F — azul medio, color de marca principal</div>
+      <div class="fact"><span class="sw" style="background:#1A3B52"></span><b>Sombra</b> #1A3B52 — azul oscuro oficial (el "azul oscuro" que sí es de marca)</div>
+      <div class="fact">Regla de contraste del manual: evitar azul-sobre-azul ("bajo contraste"); combinar siempre Tinta con Sombra o Base ("alto contraste").</div>
+      <div class="fact">Tipografía: Josefin Sans (igual a la que ya usa la app hoy — no hay que cambiarla) + Julius Sans One para detalles.</div>
+      <div class="fact">Las fotos de producto del manual usan tanto fondos oscuros como fondos claros/crema — ambos son "de marca".</div>
+    </div>
+  </div>
+
+  <!-- PROPOSAL 1 -->
+  <div class="proposal skin-p1">
+    <div class="p-head">
+      <div>
+        <div class="tag">Propuesta 1</div>
+        <h2>Sombra Oficial</h2>
+        <div class="desc">La corrección más directa: se reemplaza el azul casi-negro (<code>#0D1117</code>) por el azul oscuro oficial <b>Sombra (#1A3B52)</b> en todos los fondos, y se usa <b>Base (#265D7F)</b> para botones y acentos. Mismo estilo oscuro de hoy, pero cada color ahora sí existe en el manual.</div>
+      </div>
+      <div class="palette">
+        <div class="chip"><div class="box" style="background:#1A3B52"></div>Sombra</div>
+        <div class="chip"><div class="box" style="background:#265D7F"></div>Base</div>
+        <div class="chip"><div class="box" style="background:#E5D5CC"></div>Tinta</div>
+      </div>
+    </div>
+    <div class="why">
+      <div class="card">
+        <h4>Resuelve el azul oscuro</h4>
+        Sombra es notablemente más clara y más "azul" (menos negra) que el <code>#0D1117</code> actual — sigue siendo un modo oscuro, pero deja de leerse como un azul casi negro sin identidad.
+      </div>
+      <div class="card">
+        <h4>Encaje de marca</h4>
+        Es el cambio con menos riesgo: usa exactamente los 3 colores del manual, sin inventar tonos nuevos ni apartarse de ninguna regla. Cero elementos a justificar.
+      </div>
+    </div>
+    <div class="demo">
+      <div class="demo-inner">
+        <div class="side">
+          <div class="logo">OZEN</div>
+          <div class="nav-item active">Ventas</div>
+          <div class="nav-item">Asistencia</div>
+          <div class="nav-item">Junta</div>
+          <div class="nav-item">Firmas</div>
+        </div>
+        <div class="main">
+          <div class="topbar">
+            <div><h3>Métricas</h3><div class="sub">Todas las tiendas · Septiembre 2026</div></div>
+            <div class="turno">👤 6 en turno · 🍽️ 1 almuerzo</div>
+          </div>
+          <div class="cards">
+            <div class="stat"><div class="lbl">Ventas hoy</div><div class="val">$1.701.000</div></div>
+            <div class="stat"><div class="lbl">Ventas mes</div><div class="val">$38.240.500</div></div>
+            <div class="stat"><div class="lbl">Meta total</div><div class="val">$45.000.000</div></div>
+            <div class="stat"><div class="lbl">IDC</div><div class="val">84.9%</div></div>
+            <div class="stat"><div class="lbl">MDA</div><div class="val">76.2%</div></div>
+          </div>
+          <div class="row"><span>Fernanda López — Bogotá</span><span style="font-family:'JetBrains Mono',monospace">$4.120.000</span></div>
+          <div class="row"><span>Mariana Gómez — Cali</span><span style="font-family:'JetBrains Mono',monospace">$3.860.000</span></div>
+          <button class="btn">Registrar venta</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PROPOSAL 2 -->
+  <div class="proposal skin-p2">
+    <div class="p-head">
+      <div>
+        <div class="tag">Propuesta 2</div>
+        <h2>Tinta Elevada</h2>
+        <div class="desc">La más distinta a lo actual: se abandona el modo oscuro en las pantallas de trabajo y el fondo principal pasa a ser <b>Tinta (#E5D5CC)</b>, el crema/beige de marca — igual al que se ve en la papelería y empaques del manual. Sombra y Base quedan para la barra lateral, textos y botones.</div>
+      </div>
+      <div class="palette">
+        <div class="chip"><div class="box" style="background:#E5D5CC"></div>Tinta</div>
+        <div class="chip"><div class="box" style="background:#1A3B52"></div>Sombra</div>
+        <div class="chip"><div class="box" style="background:#265D7F"></div>Base</div>
+      </div>
+    </div>
+    <div class="why">
+      <div class="card">
+        <h4>Resuelve el azul oscuro</h4>
+        Elimina el problema de raíz: ya no hay una pantalla dominada por azul oscuro. El azul queda como acento (barra lateral, botones, texto), no como fondo — imposible que "se vea muy oscuro" si el fondo ya no es oscuro.
+      </div>
+      <div class="card">
+        <h4>Encaje de marca</h4>
+        Es el look que el manual más muestra en sus propias piezas (papelería, bolsas, redes sociales): fondo claro/crema con el azul como color de contraste. Es la aplicación "de catálogo" de la marca, casi sin adaptar nada.
+      </div>
+    </div>
+    <div class="demo">
+      <div class="demo-inner">
+        <div class="side">
+          <div class="logo">OZEN</div>
+          <div class="nav-item active">Ventas</div>
+          <div class="nav-item">Asistencia</div>
+          <div class="nav-item">Junta</div>
+          <div class="nav-item">Firmas</div>
+        </div>
+        <div class="main">
+          <div class="topbar">
+            <div><h3>Métricas</h3><div class="sub">Todas las tiendas · Septiembre 2026</div></div>
+            <div class="turno">👤 6 en turno · 🍽️ 1 almuerzo</div>
+          </div>
+          <div class="cards">
+            <div class="stat"><div class="lbl">Ventas hoy</div><div class="val">$1.701.000</div></div>
+            <div class="stat"><div class="lbl">Ventas mes</div><div class="val">$38.240.500</div></div>
+            <div class="stat"><div class="lbl">Meta total</div><div class="val">$45.000.000</div></div>
+            <div class="stat"><div class="lbl">IDC</div><div class="val">84.9%</div></div>
+            <div class="stat"><div class="lbl">MDA</div><div class="val">76.2%</div></div>
+          </div>
+          <div class="row"><span>Fernanda López — Bogotá</span><span style="font-family:'JetBrains Mono',monospace">$4.120.000</span></div>
+          <div class="row"><span>Mariana Gómez — Cali</span><span style="font-family:'JetBrains Mono',monospace">$3.860.000</span></div>
+          <button class="btn">Registrar venta</button>
+        </div>
+      </div>
+    </div>
+    <div class="why" style="grid-template-columns:1fr;">
+      <div class="card flag">
+        <h4>⚠️ A tener en cuenta (no es una regla rota, es un riesgo práctico)</h4>
+        El manual no muestra esta paleta aplicada a un software denso de datos (tablas, muchos números en pantalla por horas). Un fondo claro sostenido puede cansar más la vista en turnos largos que un modo oscuro, y algunos estados de color (verde de "a tiempo", rojo de "atrasado") pueden perder algo de fuerza sobre crema comparado con sobre azul oscuro. Se puede mitigar dejando estos colores de estado sin cambios y solo ajustando su fondo. No es una desviación del manual — es una recomendación de uso que valdría la pena probar con el equipo antes de decidirse.
+      </div>
+    </div>
+  </div>
+
+  <!-- PROPOSAL 3 -->
+  <div class="proposal skin-p3">
+    <div class="p-head">
+      <div>
+        <div class="tag">Propuesta 3 — sugerida</div>
+        <h2>Híbrido Balanceado</h2>
+        <div class="desc">Mantiene el modo oscuro (lo que el equipo ya conoce y usa a diario), corrige el fondo a <b>Sombra oficial</b> como en la Propuesta 1, pero además soluciona el problema exacto que señala el manual como "bajo contraste": hoy la app resalta cosas importantes con más azul sobre azul. Aquí, lo que debe destacar (la burbuja de "en turno", cifras clave, badges) usa <b>Tinta</b> como acento cálido — la combinación de "alto contraste" que el manual recomienda.</div>
+      </div>
+      <div class="palette">
+        <div class="chip"><div class="box" style="background:#1A3B52"></div>Sombra</div>
+        <div class="chip"><div class="box" style="background:#265D7F"></div>Base</div>
+        <div class="chip"><div class="box" style="background:#E5D5CC"></div>Tinta</div>
+      </div>
+    </div>
+    <div class="why">
+      <div class="card">
+        <h4>Resuelve el azul oscuro</h4>
+        Mismo fondo correctivo que la Propuesta 1 (Sombra en vez de <code>#0D1117</code>), y además ataca la causa exacta que el manual describe como error de contraste: elementos importantes dejan de ser "azul sobre azul" y pasan a ser "crema sobre azul" — se ven, literalmente, con más luz.
+      </div>
+      <div class="card">
+        <h4>Encaje de marca</h4>
+        Es la propuesta que mejor sigue la regla explícita del manual de "alto contraste = Tinta + Sombra/Base", aplicándola donde más se necesita (lo que el usuario debe notar primero), sin perder la comodidad de un software de uso diario en modo oscuro.
+      </div>
+    </div>
+    <div class="demo">
+      <div class="demo-inner">
+        <div class="side">
+          <div class="logo">OZEN</div>
+          <div class="nav-item active">Ventas</div>
+          <div class="nav-item">Asistencia</div>
+          <div class="nav-item">Junta</div>
+          <div class="nav-item">Firmas</div>
+        </div>
+        <div class="main">
+          <div class="topbar">
+            <div><h3>Métricas</h3><div class="sub">Todas las tiendas · Septiembre 2026</div></div>
+            <div class="turno">👤 6 en turno · 🍽️ 1 almuerzo</div>
+          </div>
+          <div class="cards">
+            <div class="stat"><div class="lbl">Ventas hoy</div><div class="val">$1.701.000</div></div>
+            <div class="stat"><div class="lbl">Ventas mes</div><div class="val">$38.240.500</div></div>
+            <div class="stat"><div class="lbl">Meta total</div><div class="val">$45.000.000</div></div>
+            <div class="stat accent"><div class="lbl">IDC</div><div class="val">84.9%</div></div>
+            <div class="stat accent"><div class="lbl">MDA</div><div class="val">76.2%</div></div>
+          </div>
+          <div class="row"><span>Fernanda López — Bogotá</span><span style="font-family:'JetBrains Mono',monospace">$4.120.000</span></div>
+          <div class="row"><span>Mariana Gómez — Cali</span><span style="font-family:'JetBrains Mono',monospace">$3.860.000</span></div>
+          <button class="btn">Registrar venta</button><button class="btn ghost">Ver historial</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Las 3 propuestas usan únicamente los colores oficiales del Manual de Marca OZEN (Tinta #E5D5CC, Base #265D7F, Sombra #1A3B52) y la tipografía Josefin Sans ya en uso — ningún dato, texto ni componente cambia de estructura, solo su color. Este archivo es una comparación visual; no modifica la aplicación real. Cuando elijas una, la implementamos primero en staging.
+  </footer>
+</div>
+</body>
+</html>

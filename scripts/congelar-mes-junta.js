@@ -45,6 +45,21 @@ const statsDelMes = (compromisos, anio, mes, todayStr) => {
   const pct = cerradas.length ? Math.round((completadas / cerradas.length) * 100) : null;
   return { totalMartes: martes.length, sesiones, totalTareas: tareas.length, completadas, totalCerradas: cerradas.length, pct };
 };
+const statsPorLiderDelMes = (compromisos, lideres, anio, mes, todayStr) => {
+  const martes = martesDelMes(anio, mes);
+  const mesStr = `${anio}-${String(mes+1).padStart(2,"0")}`;
+  const tareas = compromisos.filter(c => martes.includes(c.semana));
+  const cerradasMes = compromisos.filter(c => mesDeCierre(c, todayStr) === mesStr);
+  return lideres
+    .map(l => {
+      const deLider = tareas.filter(t => t.lider_id === l.id);
+      const cerradasLider = cerradasMes.filter(t => t.lider_id === l.id);
+      const completadas = cerradasLider.filter(t => t.completado).length;
+      const pct = cerradasLider.length ? Math.round((completadas / cerradasLider.length) * 100) : null;
+      return { lider_id: l.id, nombre: l.nombre, total: deLider.length, completadas, totalCerradas: cerradasLider.length, pct };
+    })
+    .filter(x => x.total > 0 || x.totalCerradas > 0);
+};
 
 async function main() {
   const headers = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
@@ -66,7 +81,12 @@ async function main() {
   const compromisos = await compRes.json();
   if (!Array.isArray(compromisos)) throw new Error("No se pudo leer junta_compromisos: " + JSON.stringify(compromisos));
 
+  const lidRes = await fetch(`${SUPABASE_URL}/rest/v1/junta_lideres?select=*`, { headers });
+  const lideres = await lidRes.json();
+  if (!Array.isArray(lideres)) throw new Error("No se pudo leer junta_lideres: " + JSON.stringify(lideres));
+
   const s = statsDelMes(compromisos, anio, mes, todayStr);
+  const porLider = statsPorLiderDelMes(compromisos, lideres, anio, mes, todayStr);
 
   const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/junta_indicadores_congelados`, {
     method: "POST",
@@ -74,6 +94,7 @@ async function main() {
     body: JSON.stringify({
       anio, mes: mes+1, sesiones: s.sesiones, total_martes: s.totalMartes, total_tareas: s.totalTareas,
       completadas: s.completadas, total_cerradas: s.totalCerradas, pct: s.pct, congelado_por: "tarea automática",
+      por_lider: porLider,
     }),
   });
   const insertData = await insertRes.json();
