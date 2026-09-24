@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, createContext, useContext, Fragment } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, createContext, useContext, Fragment } from "react";
 import { supabase } from "./supabase";
 import { activarNotificacionesPush, notificacionesSoportadas, pushActivo, requiereInstalarEnIOS } from "./push";
 import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError, sonidoBienvenida } from "./sounds";
@@ -19,9 +19,15 @@ const useReadOnly = () => useContext(ReadOnlyContext);
 // BottomNav/MobileHeader) quedan fuera de este cambio a propósito: usan su propia paleta fija
 // C_DARK, definida más abajo, para no arriesgar esas dos zonas (ver el comentario junto a C_DARK).
 const C = {
-  gold: "#265D7F", goldLight: "#E5D5CC", goldDark: "#1A3B52",
-  dark: "#E9DDD3", surface: "#F6EEE7",
-  surfaceAlt: "#FBF6F2", surfaceHover: "#E3D2C5", border: "rgba(26,59,82,0.16)",
+  // `goldLight` se usa en ~50 lugares como color de TEXTO destacado (títulos de sección, pestaña
+  // activa, tienda actual) — con el crema de antes esos textos quedaban casi invisibles sobre el
+  // fondo claro. Ahora es Sombra; el crema oficial vive aparte en `tinta` (texto sobre Sombra,
+  // fichas, avatar).
+  gold: "#265D7F", goldLight: "#1A3B52", goldDark: "#1A3B52", tinta: "#E5D5CC",
+  // Propuesta A ("Mostrador"): fondo Tinta muy suave y superficies blancas, como en el mockup
+  // elegido — el crema oficial (Tinta) se reserva para acentos (fichas, avatar, selector de área).
+  dark: "#F6F0EB", surface: "#FFFFFF",
+  surfaceAlt: "#FBF8F5", surfaceHover: "#F2E9E2", border: "rgba(26,59,82,0.14)",
   borderGold: "rgba(38,93,127,0.22)", text: "#1A3B52",
   textMuted: "#75604F", textSub: "#3D5E76",
   // Los 4 colores de estado (verde/rojo/ámbar/azul) se usan sobre todo como COLOR DE TEXTO (en
@@ -41,6 +47,56 @@ const C = {
 // terminal de comandos y se veía como tal. JetBrains Mono es una fuente monoespaciada real (los
 // números siguen alineados en columna) pero diseñada para pantalla, no para consola.
 const font = { body: "'Josefin Sans', 'Segoe UI', system-ui, sans-serif", mono: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace" };
+
+// ── Íconos de línea (Propuesta A) ─────────────────────────────────────────────
+// Reemplazan a los emojis en la navegación: los emojis cambian de dibujo según el celular o el
+// computador y le restaban seriedad a la marca. Todos comparten el mismo trazo (1.7) y se pintan
+// con `currentColor`, así toman el color del texto donde estén.
+const IC = {
+  receipt:<><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></>,
+  list:<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>,
+  chart:<path d="M5 20v-8M12 20V5M19 20v-5M3 20h18"/>,
+  wallet:<><rect x="3" y="6" width="18" height="14" rx="2.5"/><path d="M3 10h18M16 15h2M7 3.5h10"/></>,
+  clock:<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
+  users:<><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M16 4.6a3.5 3.5 0 010 6.8M18 14.3c2 .7 3.5 2.6 3.5 5.7"/></>,
+  pen:<><path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 7l3 3"/></>,
+  cal:<><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/></>,
+  plus:<path d="M12 5v14M5 12h14"/>,
+  search:<><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></>,
+  bell:<><path d="M6 16v-5a6 6 0 0112 0v5l2 2H4z"/><path d="M10 21a2 2 0 004 0"/></>,
+  check:<path d="M5 12.5l4.5 4.5L19 7"/>,
+  unlock:<><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 017.6-1.7"/></>,
+  lock:<><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 018 0V11"/></>,
+  truck:<><path d="M3 6h11v10H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/></>,
+  store:<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M10 20v-5h4v5"/>,
+  down:<path d="M6 9l6 6 6-6"/>,
+  right:<path d="M9 6l6 6-6 6"/>,
+  note:<><path d="M5 3h10l4 4v14H5z"/><path d="M14 3v5h5M8 13h8M8 17h5"/></>,
+  history:<><path d="M3.5 12a8.5 8.5 0 102.6-6.1"/><path d="M3 4v4.5h4.5M12 7.5V12l3 2"/></>,
+  x:<path d="M6 6l12 12M18 6L6 18"/>,
+  user:<><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></>,
+  camera:<><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></>,
+  bag:<><path d="M5 8h14l-1 12H6z"/><path d="M9 8V6.5a3 3 0 016 0V8"/></>,
+  wrench:<path d="M14.5 5.5a4 4 0 00-5 5L4 16l4 4 5.5-5.5a4 4 0 005-5l-2.2 2.2-3-3z"/>,
+  tag:<><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.3"/></>,
+  nib:<><path d="M12 3l6 7-6 11-6-11z"/><path d="M12 10v5"/></>,
+  box:<><path d="M3 7.5l9-4 9 4v9l-9 4-9-4z"/><path d="M3 7.5l9 4 9-4M12 11.5v9"/></>,
+  cash:<><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></>,
+  card:<><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6 15h4"/></>,
+  bank:<path d="M4 9h14l-3.5-3.5M20 15H6l3.5 3.5"/>,
+  phone:<><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18h2"/></>,
+  lunch:<path d="M7 3v8M5 3v5a2 2 0 004 0V3M7 11v10M17 3c-2 1-3 3.5-3 7h3v11"/>,
+  flag:<path d="M5 21V4h11l-2 4 2 4H5"/>,
+  grid:<><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></>,
+  pin:<><path d="M12 21s-7-6.2-7-11.5a7 7 0 0114 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></>,
+  refresh:<><path d="M20 11a8 8 0 00-14.3-4.9L4 8"/><path d="M4 3.5V8h4.5M4 13a8 8 0 0014.3 4.9L20 16"/><path d="M20 20.5V16h-4.5"/></>,
+  key:<><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3"/></>,
+  logout:<><path d="M14 4h5v16h-5"/><path d="M10 8l-4 4 4 4M6 12h10"/></>,
+  swap:<path d="M4 8h13l-3-3M20 16H7l3 3"/>,
+};
+const Icon = ({ n, s=18, sw=1.7, style }) => (
+  <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0, display:"block", ...style }} aria-hidden="true">{IC[n]}</svg>
+);
 
 const ORDEN = ["entrada", "inicio_almuerzo", "fin_almuerzo", "salida"];
 const EVENT_LABELS = { entrada:"Entrada", inicio_almuerzo:"Inicio Almuerzo", fin_almuerzo:"Fin Almuerzo", salida:"Salida", omitido:"No registrado" };
@@ -262,14 +318,14 @@ const medalla = (idx) => idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.
 // a la meta, la barra de nadie se ve "llena" todavía; y si alguien se pasa (105%, 123%...), TODAS
 // las barras del grupo se reacomodan a esa nueva escala para que se sigan pudiendo comparar entre
 // sí de un vistazo — quien manda la escala es quien va ganando.
-const BarraCumplimiento = ({ pctRaw, escalaMax, color, width=110, height=9 }) => {
+const BarraCumplimiento = ({ pctRaw, escalaMax, color, width=110, height=9, solido }) => {
   const escala = Math.max(100, escalaMax||100);
   const anchoBarra = Math.max(0, Math.min(100, ((pctRaw||0)/escala)*100));
   const marca100Pct = (100/escala)*100;
   return (
-    <span style={{ width, flexShrink:0, height, borderRadius:height/2, background:C.dark, overflow:"hidden", position:"relative", display:"inline-block" }}>
-      <span style={{ position:"absolute", inset:0, width:`${anchoBarra}%`, borderRadius:height/2, background:`linear-gradient(90deg, ${C.blue}, ${color})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
-      {marca100Pct<100 && <span style={{ position:"absolute", top:0, bottom:0, left:`${marca100Pct}%`, width:1, background:"rgba(255,255,255,0.4)" }}/>}
+    <span style={{ width, flexShrink:0, height, borderRadius:height/2, background:C.surfaceHover, overflow:"hidden", position:"relative", display:"inline-block" }}>
+      <span style={{ position:"absolute", inset:0, width:`${anchoBarra}%`, borderRadius:height/2, background:solido ? color : `linear-gradient(90deg, ${C.blue}, ${color})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
+      {marca100Pct<100 && <span style={{ position:"absolute", top:0, bottom:0, left:`${marca100Pct}%`, width:1, background:"rgba(26,59,82,0.35)" }}/>}
     </span>
   );
 };
@@ -364,10 +420,12 @@ const Badge = ({ color, children, sm, title, intensity }) => {
 
 const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={} }) => {
   const [hov, setHov] = useState(false);
-  const base = { display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, padding:sm?"6px 14px":"9px 18px", borderRadius:8, border:"none", cursor:disabled?"not-allowed":"pointer", fontSize:sm?12:13, fontWeight:600, fontFamily:font.body, transition:"all 0.15s", opacity:disabled?0.4:1, width:full?"100%":undefined };
+  const base = { display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, padding:sm?"7px 14px":"11px 20px", borderRadius:10, border:"none", cursor:disabled?"not-allowed":"pointer", fontSize:sm?12:13.5, fontWeight:600, fontFamily:font.body, letterSpacing:"0.01em", transition:"all 0.15s", opacity:disabled?0.4:1, width:full?"100%":undefined };
   const styles = {
-    primary: { background:hov?"#1e4d6b":C.gold, color:"#fff" },
-    ghost:   { background:hov?C.surfaceHover:"transparent", color:C.textSub, border:`1px solid ${C.border}` },
+    // Propuesta A: tres niveles de botón — principal en Sombra con texto Tinta (uno por pantalla,
+    // lo más importante), secundario con borde Base (acciones de apoyo) y enlaces de texto.
+    primary: { background:hov?C.gold:C.goldDark, color:C.tinta },
+    ghost:   { background:hov?"rgba(38,93,127,0.07)":"transparent", color:C.gold, border:`1px solid rgba(38,93,127,0.4)` },
     danger:  { background:hov?"rgba(231,76,60,0.22)":C.redDim, color:C.red, border:`1px solid ${C.red}44` },
     success: { background:hov?"rgba(46,204,113,0.22)":C.greenDim, color:C.green, border:`1px solid ${C.green}44` },
   };
@@ -384,8 +442,8 @@ const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={
 const Card = ({ children, style={}, glow, p="20px" }) => (
   <div style={{
     background: C.surface,
-    borderRadius: 12,
-    border: `1px solid ${glow ? C.borderGold : `${C.border}60`}`,
+    borderRadius: 14,
+    border: `1px solid ${glow ? C.borderGold : C.border}`,
     boxShadow: "none",
     padding: p,
     ...style,
@@ -498,8 +556,8 @@ const Divider = () => <div style={{ height:1, background:C.border, margin:"12px 
 const PageHeader = ({ title, subtitle, action, middle }) => (
   <div style={{ display:"flex", flexWrap:"wrap", alignItems:"flex-start", justifyContent:"space-between", marginBottom:20, gap:10 }}>
     <div>
-      <h1 style={{ margin:0, fontFamily:font.body, fontSize:20, fontWeight:700, color:C.text }}>{title}</h1>
-      {subtitle && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{subtitle}</div>}
+      <h1 style={{ margin:0, fontFamily:font.body, fontSize:24, fontWeight:700, color:C.text }}>{title}</h1>
+      {subtitle && <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:4 }}>{subtitle}</div>}
     </div>
     {middle}
     {action}
@@ -541,34 +599,24 @@ const EnTurnoIndicator = ({ records, stores, isMobile }) => {
   return (
     <HoverTooltip
       clickOnly
-      align={isMobile ? "right" : "left"}
+      align="right"
       width={250}
+      labelStyle={{ textDecoration:"none" }}
       label={
-        <div style={{
-          display: "flex", alignItems: "center", gap: 6, height: isMobile ? 38 : "auto", boxSizing: "border-box",
-          padding: isMobile ? "0 10px" : "8px 13px", borderRadius: 99, background: C.surfaceAlt,
-          border: `1.5px solid ${activos.length > 0 ? C.blue : C.border}`,
-          fontFamily: font.body, fontSize: isMobile ? 12 : 12.5, color: C.text, whiteSpace: "nowrap",
-        }}>
-          <span>👤</span>
+        // Propuesta A: dos píldoras (en turno / en almuerzo) en la barra de pestañas de Ventas.
+        <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:isMobile?11.5:12, fontWeight:600, whiteSpace:"nowrap", cursor:"pointer" }}>
           {activos.length === 0 ? (
-            <span style={{ color: C.textMuted }}>Nadie en turno</span>
+            <span style={{ display:"inline-flex", alignItems:"center", gap:6, borderRadius:99, padding:"5px 11px", background:C.surfaceHover, color:C.textMuted }}><Icon n="user" s={14}/>Nadie en turno</span>
           ) : (
             <>
-              <span style={{ fontWeight: 700, color: C.green }}>{presentes}</span>
-              <span style={{ color: C.textMuted, fontSize: 11 }}>en turno</span>
-              {enAlmuerzo > 0 && (
-                <>
-                  <span style={{ color: C.textMuted }}>·</span>
-                  <span style={{ fontWeight: 700, color: C.amber }}>🍽️ {enAlmuerzo}</span>
-                </>
-              )}
+              <span style={{ display:"inline-flex", alignItems:"center", gap:6, borderRadius:99, padding:"5px 11px", background:C.greenDim, color:C.green }}><Icon n="user" s={14}/>{presentes} en turno</span>
+              {enAlmuerzo > 0 && <span style={{ display:"inline-flex", alignItems:"center", gap:6, borderRadius:99, padding:"5px 11px", background:C.amberDim, color:C.amber }}><Icon n="lunch" s={14}/>{enAlmuerzo} en almuerzo</span>}
             </>
           )}
         </div>
       }
     >
-      <div style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 700, color: C.goldLight, marginBottom: 6 }}>👤 Quién está en turno hoy · todas las tiendas</div>
+      <div style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 700, color: C.goldLight, marginBottom: 6 }}>Quién está en turno hoy · todas las tiendas</div>
       {activos.length === 0 ? (
         <div style={{ fontFamily: font.body, fontSize: 12, color: C.textMuted }}>Nadie ha marcado entrada hoy.</div>
       ) : (
@@ -576,7 +624,7 @@ const EnTurnoIndicator = ({ records, stores, isMobile }) => {
           {Object.entries(porTienda).map(([storeId, arr]) => (
             <div key={storeId}>
               <div style={{ fontFamily: font.body, fontSize: 10.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
-                {stores[storeId]?.name || "Sin tienda"}
+                {stores[storeId] ? <EtiquetaTienda store={stores[storeId]} sm/> : "Sin tienda"}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                 {arr.map(a => (
@@ -840,38 +888,178 @@ const passwordVencida = (u) => {
   return dias >= DIAS_EXPIRACION_PASSWORD;
 };
 
-function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
-  const tabs = tabsPara(user, area);
+// ── Navegación (Propuesta A · "Mostrador") ───────────────────────────────────
+// Sin barra lateral: arriba una barra con la marca, las ÁREAS como selector (se cambia de área con
+// un clic, sin volver a la pantalla de módulos), la TIENDA activa y el menú de la cuenta. Debajo,
+// las pestañas del área con una línea que se desliza a la pestaña elegida, y bajo ellas una franja
+// fina del color de la tienda (cuando la pantalla trabaja sobre una tienda). En celular las
+// pestañas bajan a una barra inferior, como antes.
+const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet" };
+const AREAS_NAV = [
+  { id:"ventas", label:"Ventas", ic:"receipt" },
+  { id:"asistencia", label:"Asistencia", ic:"clock" },
+  { id:"junta", label:"La Junta", ic:"users" },
+  { id:"firmas", label:"Firmas", ic:"pen" },
+];
+const areasPara = (user) => AREAS_NAV.filter(a => a.id!=="ventas" || puedeUsarVentasArea(user));
+// "OZEN Unicentro" → "Unicentro": en la barra y en las etiquetas el prefijo de marca sobra.
+const nombreTiendaCorto = (s) => (s?.name || "").replace(/^OZEN\s+/i, "") || "—";
+const colorTienda = (s) => s?.color || "#6b7280";
+
+// Punto de color de una tienda (con un halo suave del mismo color).
+const PuntoTienda = ({ color, size=9 }) => (
+  <span style={{ width:size, height:size, borderRadius:"50%", background:color, boxShadow:`0 0 0 3px ${hexToRgba(color,0.18)}`, display:"inline-block", flexShrink:0 }}/>
+);
+// Etiqueta de tienda para listas e historiales donde se mezclan tiendas: punto + nombre sobre un
+// fondo muy suave del color de la tienda (10 %) — identifica sin gritar.
+const EtiquetaTienda = ({ store, sm }) => {
+  const col = colorTienda(store);
+  return (
+    <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:sm?11:12, fontWeight:600, color:C.text, borderRadius:99, padding:sm?"2px 9px 2px 7px":"3px 11px 3px 9px", background:hexToRgba(col,0.1), whiteSpace:"nowrap" }}>
+      <span style={{ width:sm?6:7, height:sm?6:7, borderRadius:"50%", background:col, flexShrink:0 }}/>{nombreTiendaCorto(store)}
+    </span>
+  );
+};
+
+// Menú flotante (tienda, cuenta). Un clic fuera lo cierra.
+function MenuFlotante({ abierto, onCerrar, children, align="right", width=250, top=46 }) {
+  if(!abierto) return null;
+  return (
+    <>
+      <div onClick={onCerrar} style={{ position:"fixed", inset:0, zIndex:90 }}/>
+      <div className="ozen-menu-pop" style={{ position:"absolute", top, [align]:0, width, background:"#fff", border:`1px solid ${C.border}`, borderRadius:12, boxShadow:"0 20px 40px -18px rgba(26,59,82,0.45)", padding:6, zIndex:91 }}>{children}</div>
+    </>
+  );
+}
+const MenuItem = ({ ic, children, onClick, color, activo, extra }) => (
+  <button onClick={onClick} className="ozen-menu-item" style={{ display:"flex", alignItems:"center", gap:10, width:"100%", padding:"10px 12px", border:"none", background:activo?C.surfaceHover:"none", borderRadius:8, cursor:"pointer", fontFamily:font.body, fontSize:13.5, fontWeight:activo?600:400, color:color||C.text, textAlign:"left" }}>
+    {ic}{children}{extra && <span style={{ marginLeft:"auto" }}>{extra}</span>}
+  </button>
+);
+
+function SelectorTienda({ stores, tiendaId, setTiendaId, fija, compact }) {
+  const [abierto, setAbierto] = useState(false);
+  const actual = stores[tiendaId];
+  const chip = { display:"flex", alignItems:"center", gap:8, border:`1px solid ${C.border}`, borderRadius:10, padding:compact?"6px 10px":"7px 12px", background:"#fff", fontFamily:font.body, fontSize:compact?12.5:13, fontWeight:600, color:C.text, whiteSpace:"nowrap" };
+  if(fija || !setTiendaId) return <div style={chip}><PuntoTienda color={colorTienda(actual)} size={compact?8:9}/>{nombreTiendaCorto(actual)}</div>;
+  return (
+    <div style={{ position:"relative" }}>
+      <button onClick={()=>setAbierto(a=>!a)} style={{ ...chip, cursor:"pointer" }} title="Tienda con la que estás trabajando">
+        <PuntoTienda color={colorTienda(actual)} size={compact?8:9}/>{nombreTiendaCorto(actual)}<Icon n="down" s={14} style={{ color:C.textMuted }}/>
+      </button>
+      <MenuFlotante abierto={abierto} onCerrar={()=>setAbierto(false)} width={230}>
+        <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.1em", textTransform:"uppercase", color:C.textMuted, padding:"6px 12px 4px", fontWeight:600 }}>Tienda</div>
+        {tiendasVenta(stores).map(t=>(
+          <MenuItem key={t.id} activo={t.id===tiendaId} onClick={()=>{ setTiendaId(t.id); setAbierto(false); }} ic={<PuntoTienda color={colorTienda(t)}/>} extra={t.id===tiendaId ? <Icon n="check" s={15} style={{ color:C.gold }}/> : null}>{nombreTiendaCorto(t)}</MenuItem>
+        ))}
+      </MenuFlotante>
+    </div>
+  );
+}
+
+function SelectorArea({ user, area, onChooseArea, compact }) {
+  return (
+    <div style={{ display:"flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, ...(compact?{ width:"100%" }:{}) }}>
+      {areasPara(user).map(a=>{ const on=a.id===area; return (
+        <button key={a.id} onClick={()=>!on && onChooseArea(a.id)} className="ozen-area-btn" style={{ flex:compact?1:undefined, display:"flex", alignItems:"center", justifyContent:"center", gap:7, padding:compact?"7px 4px":"8px 16px", borderRadius:99, border:"none", cursor:on?"default":"pointer", background:on?C.goldDark:"transparent", color:on?"#fff":C.textSub, fontFamily:font.body, fontSize:compact?11.5:13, fontWeight:on?600:500, transition:"background .25s ease, color .25s ease", whiteSpace:"nowrap" }}>
+          {!compact && <Icon n={a.ic} s={15}/>}{a.label}
+        </button>
+      ); })}
+    </div>
+  );
+}
+
+function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, onActivarNotificaciones }) {
+  const [abierto, setAbierto] = useState(false);
+  const cerrarY = (fn) => () => { setAbierto(false); fn(); };
+  const nombre = esCuentaTienda(user) ? user.name : user.name.split(" ")[0];
+  return (
+    <div style={{ position:"relative" }}>
+      <button onClick={()=>setAbierto(a=>!a)} title="Tu cuenta" style={{ width:36, height:36, borderRadius:"50%", background:C.tinta, border:"none", display:"grid", placeItems:"center", fontFamily:font.body, fontSize:14, fontWeight:700, color:C.goldDark, cursor:"pointer" }}>{user.name[0]}</button>
+      <MenuFlotante abierto={abierto} onCerrar={()=>setAbierto(false)} width={250}>
+        <div style={{ padding:"10px 12px 12px", borderBottom:`1px solid ${C.border}`, marginBottom:4 }}>
+          <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{nombre}</div>
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginTop:2 }}>{ROLE_LABEL[user.role] || "Asesor"}</div>
+        </div>
+        {esAdminFinanzas(user) && <MenuItem ic={<Icon n="store" s={16}/>} onClick={cerrarY(onAbrirAccesoTiendas)}>Acceso tiendas</MenuItem>}
+        {puedeGestionarTurnos(user) && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <MenuItem ic={<Icon n="bell" s={16}/>} onClick={cerrarY(onActivarNotificaciones)}>Activar notificaciones</MenuItem>}
+        {user.role!=="master" && !esCuentaTienda(user) && <MenuItem ic={<Icon n="key" s={16}/>} onClick={cerrarY(onCambiarPassword)}>Mi contraseña</MenuItem>}
+        <MenuItem ic={<Icon n="logout" s={16}/>} color={C.red} onClick={cerrarY(onLogout)}>Cerrar sesión</MenuItem>
+      </MenuFlotante>
+    </div>
+  );
+}
+
+// Marca: el logo, para master, también es la entrada a Usuarios — a propósito sin ningún aviso
+// visual, y hay que mantenerlo presionado (no un clic normal) para entrar.
+function MarcaOzen({ user, onAbrirUsuarios, compact }) {
   const presionarLogo = useLongPress(onAbrirUsuarios);
   return (
-    <div style={{ width:220, flexShrink:0, background:C_DARK.sidebar, borderRight:`1px solid ${C_DARK.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
-      <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C_DARK.border}`, textAlign:"center" }}>
-        {/* El logo, para master, también es la entrada a Usuarios — a propósito no lleva ningún
-            aviso visual, y hay que mantenerlo presionado (no un clic normal) para entrar. */}
-        <img src="/logo-icon.png" alt="OZEN" draggable={false} onContextMenu={e=>user.role==="master"&&e.preventDefault()} {...(user.role==="master"?presionarLogo:{})} style={{ width:44, height:44, borderRadius:"50%", cursor:user.role==="master"?"pointer":"default", userSelect:"none", WebkitTouchCallout:"none" }} />
+    <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
+      <img src="/logo-icon.png" alt="OZEN" draggable={false} onContextMenu={e=>user.role==="master"&&e.preventDefault()} {...(user.role==="master"?presionarLogo:{})} style={{ width:compact?28:32, height:compact?28:32, borderRadius:"50%", cursor:user.role==="master"?"pointer":"default", userSelect:"none", WebkitTouchCallout:"none" }} />
+      <span style={{ fontFamily:font.body, fontWeight:700, letterSpacing:"0.34em", fontSize:compact?15:17, color:C.goldDark }}>OZEN</span>
+    </div>
+  );
+}
+
+const BotonRefrescar = ({ onRefresh, refreshing }) => (
+  <button onClick={onRefresh} disabled={refreshing} title="Actualizar datos" style={{ width:36, height:36, borderRadius:10, border:"none", background:"transparent", display:"grid", placeItems:"center", color:C.textSub, cursor:refreshing?"not-allowed":"pointer", opacity:refreshing?0.5:1 }}>
+    <Icon n="refresh" s={18} style={{ transition:"transform .6s ease", transform:refreshing?"rotate(360deg)":"none" }}/>
+  </button>
+);
+
+function BarraSuperior({ user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
+  return (
+    <div style={{ height:62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", padding:"0 24px", gap:26, flexShrink:0, position:"relative", zIndex:20 }}>
+      <MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios}/>
+      {puedeUsarAreas(user) && <SelectorArea user={user} area={area} onChooseArea={onChooseArea}/>}
+      <div style={{ flex:1 }}/>
+      {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija}/>}
+      <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
+      <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones}/>
+    </div>
+  );
+}
+
+// Pestañas del área, con la línea inferior que se DESLIZA hasta la pestaña elegida (en vez de
+// saltar). Se mide la posición real de la pestaña activa y la línea se anima a ese sitio.
+function BarraPestanas({ tabs, tab, setTab, derecha }) {
+  const refs = useRef({});
+  const [linea, setLinea] = useState(null);
+  useLayoutEffect(()=>{
+    const medir = () => { const el = refs.current[tab]; if(el) setLinea({ left:el.offsetLeft, width:el.offsetWidth }); };
+    medir();
+    window.addEventListener("resize", medir);
+    return () => window.removeEventListener("resize", medir);
+  }, [tab, tabs.length]);
+  return (
+    <div style={{ height:50, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"stretch", padding:"0 24px", gap:30, flexShrink:0, position:"relative" }}>
+      {tabs.map(t=>{ const on=t.id===tab; return (
+        <button key={t.id} ref={el=>{ refs.current[t.id]=el; }} onClick={()=>setTab(t.id)} className="ozen-tab-btn" style={{ display:"flex", alignItems:"center", gap:8, border:"none", background:"none", padding:0, cursor:"pointer", fontFamily:font.body, fontSize:14, fontWeight:on?600:400, color:on?C.goldDark:C.textMuted, transition:"color .2s ease", whiteSpace:"nowrap" }}>
+          <Icon n={TAB_ICON[t.id]||"right"} s={16}/>{t.label}
+        </button>
+      ); })}
+      {linea && <span className="ozen-tab-linea" style={{ position:"absolute", bottom:0, height:2.5, borderRadius:2, background:C.gold, left:linea.left, width:linea.width }}/>}
+      {derecha && <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:10 }}>{derecha}</div>}
+    </div>
+  );
+}
+
+// Franja de 3 px con el color de la tienda activa — dice "dónde estás" en toda el área de Ventas.
+const FranjaTienda = ({ color }) => <div style={{ height:3, background:color, transition:"background-color .35s ease", flexShrink:0 }}/>;
+
+function BarraSuperiorMovil({ extra, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
+  return (
+    <div style={{ background:"#fff", borderBottom:`1px solid ${C.border}`, padding:"10px 14px", flexShrink:0, position:"relative", zIndex:20 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+        <MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios} compact/>
+        <div style={{ flex:1 }}/>
+        {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija} compact/>}
+        <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
+        <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones}/>
       </div>
-      <nav style={{ flex:1, padding:"12px 10px", display:"flex", flexDirection:"column", gap:2 }}>
-        {tabs.map(t => { const active=tab===t.id; return (
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, border:"none", background:active?`${C.gold}18`:"transparent", borderLeft:active?`3px solid ${C.goldLight}`:"3px solid transparent", color:active?C.goldLight:C_DARK.textMuted, fontFamily:font.body, fontSize:13, fontWeight:active?600:400, cursor:"pointer", textAlign:"left", transition:"all 0.15s" }}>
-            <span style={{ fontSize:16 }}>{t.icon}</span>{t.label}
-          </button>
-        ); })}
-      </nav>
-      <div style={{ padding:"14px 16px", borderTop:`1px solid ${C_DARK.border}` }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-          <div style={{ width:32, height:32, borderRadius:8, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:13, fontWeight:700, color:"#fff", flexShrink:0 }}>{user.name[0]}</div>
-          <div>
-            <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.text, fontWeight:600, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
-            {!esCuentaTienda(user) && <div style={{ fontFamily:font.body, fontSize:10, color:C_DARK.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>{ROLE_LABEL[user.role] || "Asesor"}</div>}
-          </div>
-          <button onClick={onRefresh} disabled={refreshing} title="Actualizar" style={{ marginLeft:"auto", background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:16, opacity:refreshing?0.4:1, transition:"transform 0.4s", transform:refreshing?"rotate(180deg)":"rotate(0deg)" }}>🔄</button>
-        </div>
-        {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8, color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>🔀 Cambiar de área</Btn>}
-        {esAdminFinanzas(user) && <Btn onClick={onAbrirAccesoTiendas} variant="ghost" full sm style={{ marginBottom:8, color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>🏬 Acceso tiendas</Btn>}
-        {puedeGestionarTurnos(user) && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <Btn onClick={onActivarNotificaciones} variant="ghost" full sm style={{ marginBottom:8, color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>🔔 Activar notificaciones</Btn>}
-        {user.role!=="master" && !esCuentaTienda(user) && <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8, color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>🔑 Mi contraseña</Btn>}
-        <Btn onClick={onLogout} variant="ghost" full sm style={{ color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>Cerrar sesión</Btn>
-      </div>
+      {puedeUsarAreas(user) && <div style={{ marginTop:10 }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/></div>}
+      {extra && <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>{extra}</div>}
     </div>
   );
 }
@@ -879,34 +1067,14 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
 function BottomNav({ tab, setTab, user, area }) {
   const tabs = tabsPara(user, area);
   return (
-    <div style={{ display:"flex", borderTop:`1px solid ${C_DARK.border}`, background:C_DARK.sidebar, paddingBottom:"env(safe-area-inset-bottom, 8px)", flexShrink:0 }}>
+    <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:"#fff", paddingBottom:"env(safe-area-inset-bottom, 8px)", flexShrink:0 }}>
       {tabs.map(t => { const active=tab===t.id; return (
-        <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:1, padding:"10px 4px 8px", background:"none", border:"none", display:"flex", flexDirection:"column", alignItems:"center", gap:3, cursor:"pointer" }}>
-          <div style={{ fontSize:18 }}>{t.icon}</div>
-          <div style={{ fontSize:9, fontFamily:font.body, fontWeight:600, color:active?C.goldLight:C_DARK.textMuted }}>{t.label}</div>
-          {active && <div style={{ width:4, height:4, borderRadius:99, background:C.goldLight }} />}
+        <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:1, padding:"9px 2px 7px", background:"none", border:"none", display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer", color:active?C.goldDark:C.textMuted, position:"relative" }}>
+          <span style={{ position:"absolute", top:0, left:"28%", right:"28%", height:2.5, borderRadius:2, background:active?C.gold:"transparent", transition:"background .25s ease" }}/>
+          <Icon n={TAB_ICON[t.id]||"right"} s={20} sw={active?2:1.7}/>
+          <div style={{ fontSize:10, fontFamily:font.body, fontWeight:active?700:500, lineHeight:1.1, textAlign:"center" }}>{t.label}</div>
         </button>
       ); })}
-    </div>
-  );
-}
-
-function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
-  const presionarLogo = useLongPress(onAbrirUsuarios);
-  return (
-    <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C_DARK.border}`, background:C_DARK.sidebar, flexShrink:0 }}>
-      {/* El logo, para master, también es la entrada a Usuarios — sin ningún aviso visual, y hay
-          que mantenerlo presionado (no un toque normal) para entrar. */}
-      <img src="/logo-icon.png" alt="OZEN" draggable={false} onContextMenu={e=>user.role==="master"&&e.preventDefault()} {...(user.role==="master"?presionarLogo:{})} style={{ width:34, height:34, borderRadius:"50%", userSelect:"none", WebkitTouchCallout:"none" }} />
-      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-        {puedeUsarAreas(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
-        {esAdminFinanzas(user) && <button onClick={onAbrirAccesoTiendas} title="Acceso tiendas" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🏬</button>}
-        {puedeGestionarTurnos(user) && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <button onClick={onActivarNotificaciones} title="Activar notificaciones" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔔</button>}
-        {user.role!=="master" && !esCuentaTienda(user) && <button onClick={onCambiarPassword} title="Mi contraseña" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔑</button>}
-        <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
-        <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
-        <button onClick={onLogout} style={{ background:C_DARK.surfaceAlt, border:`1px solid ${C_DARK.border}`, borderRadius:7, padding:"5px 10px", color:C_DARK.textMuted, fontSize:11, cursor:"pointer", fontFamily:font.body }}>Salir</button>
-      </div>
     </div>
   );
 }
@@ -2945,7 +3113,13 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const martesDelMesSel = martesDelMes(anioSel, mesNumSel-1);
   const cambiarMes = (valorMes) => { setMesSel(valorMes); setSemanaFiltro(""); };
   const irAEstaSemana = () => { const t = martesDeSemana(todayStr); setMesSel(t.slice(0,7)); setSemanaFiltro(t); };
-  const etiquetaSemana = (mt) => new Date(mt+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"});
+  // Propuesta A: las semanas se muestran como rango lunes–domingo ("22–28 sep") en fichas.
+  const rangoSemana = (mt) => {
+    const lun = new Date(sumarDias(mt,-1)+"T12:00:00"), dom = new Date(sumarDias(mt,5)+"T12:00:00");
+    const mesCorto = (d) => d.toLocaleDateString("es-CO",{month:"short"}).replace(".","");
+    return lun.getMonth()===dom.getMonth() ? `${lun.getDate()}–${dom.getDate()} ${mesCorto(dom)}` : `${lun.getDate()} ${mesCorto(lun)} – ${dom.getDate()} ${mesCorto(dom)}`;
+  };
+  const semanaDeHoy = martesDeSemana(todayStr);
 
   // Una tarea ya CERRADA (cumplida o vencida) se ubica por el mes en que de verdad se cerró
   // (mesDeCierre — mismo criterio que ya usan los indicadores), no por el mes en que se asignó
@@ -3107,27 +3281,30 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
 
   return (
     <div>
-      <PageHeader title="Seguimiento semanal" subtitle="Checklist de tareas de la Junta" />
-
-      <Card glow style={{ marginBottom:16 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-          <div style={{ width:44, height:44, borderRadius:10, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontSize:19, flexShrink:0 }}>🎯</div>
-          <div>
-            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:2 }}>Monitor de turno · rota cada mes{esMonitor && " · eres tú"}</div>
-            <div style={{ fontFamily:font.body, fontSize:17, fontWeight:700, color:C.goldLight }}>{monitor ? (monitor.nombre || "— sin nombre") : "— sin líderes configurados"}</div>
+      {/* Propuesta A — encabezado con el avance y la acción principal (Nueva tarea) a la derecha. */}
+      <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12, flexWrap:"wrap", marginBottom:18 }}>
+        <div>
+          <h1 style={{ margin:0, fontFamily:font.body, fontSize:isMobile?22:26, fontWeight:700, color:C.text }}>Seguimiento semanal</h1>
+          <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:4, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+            <span>Checklist de tareas de la Junta</span>
+            <span style={{ display:"inline-flex", alignItems:"center", gap:6, borderRadius:99, padding:"3px 10px", background:C.surfaceHover, color:C.goldDark, fontWeight:600, fontSize:12 }}>
+              <Icon n="flag" s={13}/>Monitor: {monitor ? (monitor.nombre || "— sin nombre") : "— sin líderes configurados"}{esMonitor && " · eres tú"}
+            </span>
           </div>
         </div>
-      </Card>
+        {puedeGestionar && <Btn onClick={abrirNueva}><Icon n="plus" s={15}/>Nueva tarea</Btn>}
+      </div>
 
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
           <input type="month" value={mesSel} onChange={e=>cambiarMes(e.target.value)} style={selectStyle}/>
-          <select value={semanaFiltro} onChange={e=>setSemanaFiltro(e.target.value)} style={selectStyle}>
-            <option value="">Todo el mes</option>
-            {martesDelMesSel.map((mt,i)=><option key={mt} value={mt}>Semana {i+1} · {etiquetaSemana(mt)}</option>)}
-          </select>
-          <Btn onClick={irAEstaSemana} variant="ghost" sm>Esta semana</Btn>
-          {puedeGestionar && <Btn onClick={abrirNueva} sm style={{ marginLeft:"auto" }}>+ Nueva tarea</Btn>}
+          {/* Las semanas como fichas visibles todas a la vez (antes era una lista desplegable). */}
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {[{ v:"", t:"Todo el mes" }, ...martesDelMesSel.map(mt=>({ v:mt, t:`${rangoSemana(mt)}${mt===semanaDeHoy?" · esta semana":""}` }))].map(w=>{ const on=semanaFiltro===w.v; return (
+              <button key={w.v||"mes"} onClick={()=>setSemanaFiltro(w.v)} style={{ border:`1px solid ${on?C.goldDark:C.border}`, background:on?C.goldDark:"#fff", color:on?"#fff":C.textSub, borderRadius:99, padding:"6px 12px", fontFamily:font.body, fontSize:12.5, fontWeight:on?600:500, cursor:"pointer", transition:"all .2s ease", whiteSpace:"nowrap" }}>{w.t}</button>
+            ); })}
+          </div>
+          {semanaFiltro!==semanaDeHoy && <button onClick={irAEstaSemana} style={{ background:"none", border:"none", color:C.gold, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer", padding:"4px 6px" }}>Ir a esta semana →</button>}
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginTop:8, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
           <select value={filtroLider} onChange={e=>setFiltroLider(e.target.value)} style={selectStyle}>
@@ -3138,11 +3315,11 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             <option value="cronologico">Ordenar: más vieja primero</option>
             <option value="lider">Ordenar: por líder</option>
           </select>
-          <div style={{ display:"flex", marginLeft:"auto" }}>
-            <button onClick={()=>setVistaEstado("activas")} style={{ ...selectStyle, borderRadius:"7px 0 0 7px", background:vistaEstado==="activas"?C.gold:C.surfaceAlt, color:vistaEstado==="activas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Activas ({gruposActivos.length})</button>
-            <button onClick={()=>setVistaEstado("todas")} style={{ ...selectStyle, borderRadius:0, borderLeft:"none", background:vistaEstado==="todas"?C.gold:C.surfaceAlt, color:vistaEstado==="todas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Todas ({gruposFiltrados.length})</button>
-            <button onClick={()=>setVistaEstado("cumplidas")} style={{ ...selectStyle, borderRadius:0, borderLeft:"none", background:vistaEstado==="cumplidas"?C.gold:C.surfaceAlt, color:vistaEstado==="cumplidas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Cumplidas ({gruposCumplidos.length})</button>
-            <button onClick={()=>setVistaEstado("vencidas")} style={{ ...selectStyle, borderRadius:"0 7px 7px 0", borderLeft:"none", background:vistaEstado==="vencidas"?C.gold:C.surfaceAlt, color:vistaEstado==="vencidas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Vencidas ({gruposVencidos.length})</button>
+          <div style={{ display:"flex", marginLeft:"auto", background:C.surfaceHover, borderRadius:10, padding:3, gap:2 }}>
+            <button onClick={()=>setVistaEstado("activas")} style={{ ...selectStyle, borderRadius:8, background:vistaEstado==="activas"?"#fff":C.surfaceHover, color:vistaEstado==="activas"?C.goldDark:C.textSub, border:"none", boxShadow:vistaEstado==="activas"?"0 1px 2px rgba(26,59,82,0.15)":"none", cursor:"pointer", fontWeight:600 }}>Activas ({gruposActivos.length})</button>
+            <button onClick={()=>setVistaEstado("todas")} style={{ ...selectStyle, borderRadius:8, background:vistaEstado==="todas"?"#fff":C.surfaceHover, color:vistaEstado==="todas"?C.goldDark:C.textSub, border:"none", boxShadow:vistaEstado==="todas"?"0 1px 2px rgba(26,59,82,0.15)":"none", cursor:"pointer", fontWeight:600 }}>Todas ({gruposFiltrados.length})</button>
+            <button onClick={()=>setVistaEstado("cumplidas")} style={{ ...selectStyle, borderRadius:8, background:vistaEstado==="cumplidas"?"#fff":C.surfaceHover, color:vistaEstado==="cumplidas"?C.goldDark:C.textSub, border:"none", boxShadow:vistaEstado==="cumplidas"?"0 1px 2px rgba(26,59,82,0.15)":"none", cursor:"pointer", fontWeight:600 }}>Cumplidas ({gruposCumplidos.length})</button>
+            <button onClick={()=>setVistaEstado("vencidas")} style={{ ...selectStyle, borderRadius:8, background:vistaEstado==="vencidas"?"#fff":C.surfaceHover, color:vistaEstado==="vencidas"?C.goldDark:C.textSub, border:"none", boxShadow:vistaEstado==="vencidas"?"0 1px 2px rgba(26,59,82,0.15)":"none", cursor:"pointer", fontWeight:600 }}>Vencidas ({gruposVencidos.length})</button>
           </div>
         </div>
         {!puedeGestionar && !soloLectura && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:8 }}>Solo el monitor de turno puede crear tareas nuevas.</div>}
@@ -3168,9 +3345,12 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
         </Card>
       )}
 
-      <div key={vistaEstado} className="ozen-pane-anim-tab" style={{ display:"flex", flexDirection:"column", gap:6 }}>
-        {gruposOrdenados.map(g=>{
+      <div key={vistaEstado} className="ozen-pane-anim-tab" style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {gruposOrdenados.map((g,gi)=>{
           const base = g[0];
+          // Propuesta A: en orden cronológico, las tareas se agrupan por semana con un encabezado.
+          const nuevaSemana = orden==="cronologico" && (gi===0 || gruposOrdenados[gi-1][0].semana!==base.semana);
+          const tareasSemana = nuevaSemana ? gruposOrdenados.filter(x=>x[0].semana===base.semana) : null;
           const vencida = esGrupoVencido(g);
           const compartida = g.length>1;
           const puedeBorrar = puedeBorrarGrupo(g);
@@ -3209,11 +3389,19 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             ? `Autorreportada por ${base.autorreportado_por} — falta que el monitor la confirme`
             : "Solo el monitor de turno (o el responsable de la tarea) puede marcarla";
           return (
-            <div key={toggleId} style={{ padding:"7px 10px", background:C.surface, borderRadius:9, borderTop:`1px solid ${C.border}`, borderRight:`1px solid ${C.border}`, borderBottom:`1px solid ${C.border}`, borderLeft:`3px solid ${compartida?C.blue:C.border}`, display:"flex", flexDirection:"column", gap:4 }}>
+            <Fragment key={toggleId}>
+            {nuevaSemana && (
+              <div style={{ display:"flex", alignItems:"center", gap:10, margin:gi===0?"0 0 4px":"14px 0 4px", padding:"0 4px", fontFamily:font.body, fontSize:13 }}>
+                <b style={{ fontSize:14, color:C.text }}>Semana del {rangoSemana(base.semana)}</b>
+                <span style={{ color:C.textMuted, fontSize:12.5 }}>{base.semana===semanaDeHoy ? "esta semana · vence el domingo" : base.semana<semanaDeHoy ? "cerrada" : "próxima"}</span>
+                <span style={{ marginLeft:"auto", borderRadius:99, padding:"3px 10px", background:C.surfaceHover, fontSize:12, fontWeight:600, color:C.goldDark }}>{tareasSemana.length} {tareasSemana.length===1?"tarea":"tareas"} · {tareasSemana.filter(esGrupoCompletado).length} cumplidas</span>
+              </div>
+            )}
+            <div style={{ padding:"12px 16px", background:"#fff", borderRadius:12, border:`1px solid ${C.border}`, borderLeft:`3px solid ${compartida?C.blue:C.border}`, display:"flex", flexDirection:"column", gap:6 }}>
               {/* Línea 1: líder(es), fecha, estado (vencida/cumplida), reabrir */}
               <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textSub, fontWeight:600 }}>👤 {nombresLideres}</div>
-                {base.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:10.5, color:vencida?C.amber:C.textMuted }}>📅 {base.fecha_estimada}</div>}
+                <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:11.5, color:C.goldDark, fontWeight:600, background:C.surfaceHover, borderRadius:99, padding:"2px 9px" }}><Icon n="user" s={12}/>{nombresLideres}</div>
+                {base.fecha_estimada && <div style={{ display:"inline-flex", alignItems:"center", gap:4, fontFamily:font.mono, fontSize:10.5, color:vencida?C.amber:C.textMuted }}><Icon n="cal" s={12}/>{base.fecha_estimada}</div>}
                 {completadoGrupo && <Badge color={C.green} sm>Cumplida</Badge>}
                 {autorreportadoGrupo && <Badge color={C.blue} sm title="Marcada por su responsable, falta que el monitor la confirme">Autorreportada</Badge>}
                 {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
@@ -3240,9 +3428,10 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
               {/* Línea 3: comentario (ancho libre) + eliminar */}
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <input placeholder="Comentario..." defaultValue={base.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==base.comentarios) (compartida?actualizarComentarioGrupo(g,e.target.value):actualizar(base.id,{comentarios:e.target.value})); }} style={{ flex:1, minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
-                {puedeBorrar && <button onClick={()=>eliminarGrupo(g)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, fontSize:13 }}>🗑</button>}
+                {puedeBorrar && <button onClick={()=>eliminarGrupo(g)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, padding:2, display:"grid" }}><Icon n="x" s={15}/></button>}
               </div>
             </div>
+            </Fragment>
           );
         })}
         {gruposOrdenados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>{vistaEstado==="activas" ? "Sin tareas activas." : vistaEstado==="cumplidas" ? "Sin tareas cumplidas todavía." : vistaEstado==="vencidas" ? "Sin tareas vencidas." : "Sin tareas para este período."}</div>}
@@ -3614,11 +3803,13 @@ function LoginScreen({ onLogin }) {
 
 // ── SELECTOR DE ÁREA (solo admin) ───────────────────────────────────────────
 function AreaSelector({ user, onChoose, onLogout }) {
+  // Propuesta A: mismo orden e íconos de línea que el selector de áreas de la barra superior, y un
+  // solo color de acento (Base) — antes cada módulo tenía un color propio fuera de la paleta.
   const modulos = [
-    { id:"junta", icon:"🗓️", titulo:"La Junta Administrativa", desc:"Equipo, seguimiento semanal y guion de la reunión", accent:C.goldLight, mostrar:true },
-    { id:"asistencia", icon:"📋", titulo:"Registro de Asistencia", desc:"Panel, registros, turnos, asesores, tiendas e informes", accent:"#6ea8fe", mostrar:true },
-    { id:"ventas", icon:"💰", titulo:"Ventas", desc:ventasSoloLectura(user) ? "Solo para ver — no se puede registrar ni corregir nada" : "Registro de ventas, metas y métricas por tienda", accent:C.green, mostrar:puedeUsarVentasArea(user) },
-    { id:"firmas", icon:"✍️", titulo:"Firmar Documentos", desc:"Sube un PDF, ubica tu firma y descárgalo — nada queda guardado", accent:"#c084fc", mostrar:true },
+    { id:"ventas", icon:<Icon n="receipt" s={24}/>, titulo:"Ventas", desc:ventasSoloLectura(user) ? "Solo para ver — no se puede registrar ni corregir nada" : "Registro de ventas, caja, metas y métricas por tienda", accent:C.gold, mostrar:puedeUsarVentasArea(user) },
+    { id:"asistencia", icon:<Icon n="clock" s={24}/>, titulo:"Registro de Asistencia", desc:"Panel, registros, turnos, asesores, tiendas e informes", accent:C.gold, mostrar:true },
+    { id:"junta", icon:<Icon n="users" s={24}/>, titulo:"La Junta Administrativa", desc:"Equipo, seguimiento semanal y guion de la reunión", accent:C.gold, mostrar:true },
+    { id:"firmas", icon:<Icon n="pen" s={24}/>, titulo:"Firmar Documentos", desc:"Sube un PDF, ubica tu firma y descárgalo — nada queda guardado", accent:C.gold, mostrar:true },
   ].filter(m=>m.mostrar);
   return (
     <div style={{ minHeight:"100vh", background:`radial-gradient(1100px 520px at 50% -10%, ${C.goldLight}14, transparent 60%), ${C.dark}`, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
@@ -3650,10 +3841,10 @@ function AreaSelector({ user, onChoose, onLogout }) {
                 fontSize:26, flexShrink:0, width:52, height:52, borderRadius:14,
                 display:"flex", alignItems:"center", justifyContent:"center",
                 background:`linear-gradient(135deg, ${hexToRgba(m.accent,0.22)}, ${hexToRgba(m.accent,0.06)})`,
-                border:`1px solid ${hexToRgba(m.accent,0.35)}`,
+                border:`1px solid ${hexToRgba(m.accent,0.35)}`, color:m.accent,
               }}>{m.icon}</div>
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontFamily:font.body, fontSize:15.5, fontWeight:700, color:m.accent }}>{m.titulo}</div>
+                <div style={{ fontFamily:font.body, fontSize:15.5, fontWeight:700, color:C.goldDark }}>{m.titulo}</div>
                 <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{m.desc}</div>
               </div>
               <div className="ozen-modulo-arrow" style={{ fontSize:18, color:m.accent, flexShrink:0 }}>→</div>
@@ -4055,6 +4246,9 @@ const VENTAS_TIPOS = [
   { value:"grabado", label:"Grabado" },
   { value:"flexipago", label:"Flexipago" },
 ];
+// Íconos de línea (Propuesta A) para las fichas de tipo y de medio de pago en Registrar venta.
+const TIPO_VENTA_ICON = { producto:"bag", arreglo:"wrench", marcacion:"tag", grabado:"nib", flexipago:"box" };
+const MEDIO_PAGO_ICON = { efectivo:"cash", tarjeta:"card", transferencia:"bank", addi:"phone" };
 const VENTAS_TIPO_ICONOS = { producto:"🛍️", arreglo:"🔧", marcacion:"🖊️", grabado:"✒️", flexipago:"📦" };
 const VENTAS_TIPO_COLORES = { producto:C.blue, arreglo:C.amber, marcacion:C.blue, grabado:C.blue, flexipago:C.gold };
 const VENTAS_MEDIO_ICONOS = { efectivo:"💵", tarjeta:"💳", transferencia:"🏦", addi:"📱" };
@@ -5026,11 +5220,11 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
   // completa, ahí sí se muestra el valor total de la venta.
   const valorHeaderMostrar = (v.es_flexipago && !flexipagoCompletado) ? totalAbonado : valorOriginalMostrar;
   return (
-    <Card p="0" style={{ overflow:"hidden" }}>
-      <button onClick={toggleExpand} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
+    <Card p="0" style={{ overflow:"hidden", borderLeft:`3px solid ${colorTienda(stores[v.tienda_id])}` }}>
+      <button onClick={toggleExpand} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"9px 14px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
         <Badge color={C.blue} sm>#{v.numero_factura||"—"}</Badge>
         <div style={{ flex:1, minWidth:140, minHeight:30 }}>
-          <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha} · {stores[v.tienda_id]?.name||v.tienda_id}</span></div>
+          <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha}</span> {stores[v.tienda_id] ? <EtiquetaTienda store={stores[v.tienda_id]} sm/> : <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.tienda_id}</span>}</div>
           {(v.cliente_nombre || v.cliente_documento || v.cliente_telefono) && (
             <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, lineHeight:1.3 }}>
               {v.cliente_nombre||""}{v.cliente_nombre && (v.cliente_documento||v.cliente_telefono) ? " · " : ""}{v.cliente_tipo_doc||""} {v.cliente_documento||""}{v.cliente_documento && v.cliente_telefono ? " · " : ""}{v.cliente_telefono ? `Tel: ${v.cliente_telefono}` : ""}
@@ -5570,12 +5764,15 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
   );
 }
 
-function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
+function VentasRegistrarScreen({ tiendaActiva, user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   // OJO: el valor por defecto debe salir de tiendasVenta() (las que sí venden), no de todas las
   // tiendas — si no, el dropdown solo MUESTRA tiendas válidas pero el valor de por debajo puede
   // quedar en una tienda excluida (ej. Ozen Oficina) sin que se note, y la venta se guarda mal.
-  const [tiendaId, setTiendaId] = useState(tiendaFija || tiendasVenta(stores)[0]?.id || "");
+  const [tiendaIdLocal] = useState(tiendaFija || tiendasVenta(stores)[0]?.id || "");
+  // Propuesta A: la tienda sale de la barra superior (compartida con Caja). Se deja el estado local
+  // solo como respaldo si la pantalla se usa sin esa barra.
+  const tiendaId = tiendaFija || tiendaActiva || tiendaIdLocal;
   const [fecha, setFecha] = useState(todayStr);
   const [numeroFactura, setNumeroFactura] = useState("");
   const [vendedorId, setVendedorId] = useState("");
@@ -5830,97 +6027,72 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
     </div>
   );
 
-  const metaBubble = <MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>;
-  const subtitleTienda = stores[tiendaId]?.name ? `Tienda: ${stores[tiendaId].name}` : "Elige la tienda";
+  const esHoyVenta = fecha===todayStr;
+  const tiendaActual = stores[tiendaId];
+  const vendedorSel = asesores.find(a=>a.id===vendedorId);
+  const puedeCambiarFecha = user.role==="master" || user.role==="admin_finanzas";
+  const agregarDeshabilitado = itemEsFlexipago ? !itemFlexipagoValido : (itemValorNum<=0 || itemPagos.length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT);
+  const pagadoPorMedio = (m) => itemPagos.filter(p=>p.medio_pago===m).reduce((a,p)=>a+Number(p.valor||0),0);
+  const reciboRef = useRef(null);
+  const etiquetaPaso = { display:"flex", alignItems:"center", gap:12, marginBottom:14 };
+  const numPaso = (n) => <span style={{ width:26, height:26, borderRadius:"50%", background:C.tinta, color:C.goldDark, fontFamily:font.body, fontWeight:700, fontSize:13, display:"grid", placeItems:"center", flexShrink:0 }}>{n}</span>;
+  const tituloPaso = (t) => <b style={{ fontFamily:font.body, fontSize:15, color:C.text }}>{t}</b>;
+  const notaPaso = (t) => <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:12.5, color:C.textMuted, textAlign:"right" }}>{t}</span>;
+  const lineaRecibo = { display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, fontFamily:font.body, fontSize:13, color:C.textSub, padding:"5px 0" };
+  const guiones = <div style={{ borderTop:`1.5px dashed ${C.border}`, margin:"12px 0" }}/>;
+  const resumenMedios = Object.entries(items.flatMap(it=>it.pagos).reduce((acc,p)=>{ acc[p.medio_pago]=(acc[p.medio_pago]||0)+Number(p.valor); return acc; },{}));
 
   return (
     <>
     <div>
-      {isMobile ? (
-        // En celular no alcanza con envolver (flex-wrap) el mismo bloque de escritorio: el título
-        // queda solo en su línea (con todo el lado derecho vacío), la campana sola en la siguiente
-        // (con todo el lado izquierdo vacío) y la burbuja al final. Por eso aquí se arma un layout
-        // propio: título + estado de turno + campana comparten la primera fila, y la burbuja de
-        // meta ocupa su propia fila completa debajo.
-        <div style={{ marginBottom:20 }}>
-          <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10, marginBottom:10 }}>
-            <div>
-              <h1 style={{ margin:0, fontFamily:font.body, fontSize:20, fontWeight:700, color:C.text }}>Registrar venta</h1>
-              <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{subtitleTienda}</div>
-            </div>
-            <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
-              <EnTurnoIndicator records={records} stores={stores} isMobile/>
-              {bellButton}
-            </div>
-          </div>
-          {metaBubble}
-        </div>
-      ) : (
-        <PageHeader
-          title="Registrar venta"
-          subtitle={subtitleTienda}
-          middle={<EnTurnoIndicator records={records} stores={stores}/>}
-          action={
-            <div style={{ display:"flex", alignItems:"flex-start", gap:10, flexWrap:"wrap", justifyContent:"flex-end" }}>
-              {metaBubble}
-              {bellButton}
-            </div>
-          }
-        />
-      )}
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16, alignItems:"start" }}>
+      {/* Encabezado: título + tienda/fecha, y la campana de Flexipagos por recordar. */}
+      <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12, marginBottom:18 }}>
         <div>
-          <SeccionVenta icon="🏬" titulo="Información general">
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:12 }}>
-              {!tiendaFija ? (
-                <Field label="Tienda" value={tiendaId} onChange={setTiendaId} options={tiendasVenta(stores).map(s=>({value:s.id,label:s.name}))}/>
-              ) : (
-                <div>
-                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Tienda</div>
-                  <div style={{ fontFamily:font.body, fontSize:13, color:C.text, padding:"9px 0" }}>{stores[tiendaId]?.name || "—"}</div>
-                </div>
-              )}
-              {(user.role==="master" || user.role==="admin_finanzas") ? (
-                <Field label="Fecha" type="date" value={fecha} onChange={setFecha}/>
-              ) : (
-                <div>
-                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Fecha</div>
-                  <div style={{ fontFamily:font.body, fontSize:13, color:C.text, padding:"9px 0" }}>{fecha} (hoy)</div>
-                </div>
-              )}
-            </div>
-            <Field label="¿Quién hizo la venta?" value={vendedorId} onChange={setVendedorId} options={[{value:"",label:"Selecciona un asesor"},...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-          </SeccionVenta>
+          <h1 style={{ margin:0, fontFamily:font.body, fontSize:isMobile?22:26, fontWeight:700, color:C.text }}>Registrar venta</h1>
+          <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:4, display:"flex", alignItems:"center", gap:8 }}>
+            <PuntoTienda color={colorTienda(tiendaActual)} size={8}/>{nombreTiendaCorto(tiendaActual)} · {esHoyVenta ? "hoy" : fecha}
+          </div>
+        </div>
+        {bellButton}
+      </div>
 
-          <SeccionVenta icon="🛍️" titulo="Ventas y servicios">
-            <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:14 }}>
-              {items.map((it,idx)=>(
-                <div key={idx} style={{ display:"flex", flexDirection:"column", gap:4, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                    <Badge color={it.tipo==="producto"?C.green:it.tipo==="flexipago"?C.blue:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label}</Badge>
-                    <div style={{ flex:1, fontFamily:font.mono, fontSize:12, color:C.text, textAlign:"right" }}>${it.valorTotal.toLocaleString("es-CO")}{it.descuento>0 && ` (desc $${it.descuento.toLocaleString("es-CO")})`}</div>
-                    <button onClick={()=>quitarItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
-                  </div>
-                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                    {it.tipo==="flexipago" ? (
-                      <Badge color={C.blue} sm>📦 Flexipago — se cobra con abonos</Badge>
-                    ) : it.pagos.map((p,pidx)=>(
-                      <Badge key={pidx} color={C.blue} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {items.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Todavía no has agregado nada.</div>}
-            </div>
+      <MetaHoyFranja stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>
 
-            <div style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"12px" }}>
-              <Field label="Tipo" value={itemTipo} onChange={setItemTipo} options={itemTipoOptions}/>
-              {items.length>0 && (esFlexipago
-                ? <div style={{ fontFamily:font.body, fontSize:11, color:C.blue, marginTop:-8, marginBottom:10 }}>📦 Esta factura ya tiene un Flexipago — no se puede mezclar con otros tipos.</div>
-                : <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:-8, marginBottom:10 }}>Ya hay ítems normales en esta factura — para un Flexipago, hazlo en una factura aparte.</div>
-              )}
-              {itemEsFlexipago ? (
-                <>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(0,1fr) 390px", gap:22, alignItems:"start" }}>
+        <Card p={isMobile?"18px":"22px"}>
+          {/* Paso 1 — quién vendió (y la fecha, solo para quien puede cambiarla). */}
+          <div style={etiquetaPaso}>{numPaso(1)}{tituloPaso("¿Quién hizo la venta?")}{notaPaso(`${nombreTiendaCorto(tiendaActual)} · ${esHoyVenta?"hoy":fecha}`)}</div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {asesores.map(a=>{ const on=a.id===vendedorId; const ini=a.name.split(" ").filter(Boolean).slice(0,2).map(x=>x[0]).join("").toUpperCase(); return (
+              <button key={a.id} onClick={()=>setVendedorId(on?"":a.id)} style={{ display:"flex", alignItems:"center", gap:8, border:`1px solid ${on?C.gold:C.border}`, background:on?"rgba(38,93,127,0.07)":"#fff", borderRadius:99, padding:"5px 14px 5px 5px", fontFamily:font.body, fontSize:13, fontWeight:on?600:400, color:C.text, cursor:"pointer", transition:"all .18s ease" }}>
+                <span style={{ width:26, height:26, borderRadius:"50%", background:on?C.gold:C.surfaceHover, color:on?"#fff":C.goldDark, display:"grid", placeItems:"center", fontSize:10.5, fontWeight:700, transition:"all .18s ease" }}>{ini}</span>{a.name}
+              </button>
+            ); })}
+          </div>
+          {puedeCambiarFecha && (
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:14 }}>
+              <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>Fecha</span>
+              <div style={{ width:170 }}><Field type="date" value={fecha} onChange={setFecha}/></div>
+            </div>
+          )}
+
+          <div style={{ height:1, background:C.border, margin:puedeCambiarFecha?"8px 0 22px":"22px 0" }}/>
+
+          {/* Paso 2 — qué se vendió: el tipo como fichas grandes en vez de una lista desplegable. */}
+          <div style={etiquetaPaso}>{numPaso(2)}{tituloPaso("Ventas y servicios")}{notaPaso(items.length ? `${items.length} ${items.length===1?"renglón agregado":"renglones agregados"}` : "Elige el tipo")}</div>
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(3,1fr)":"repeat(5,1fr)", gap:10, marginBottom:14 }}>
+            {VENTAS_TIPOS.map(t=>{ const on=itemTipo===t.value; const permitido=itemTipoOptions.some(o=>o.value===t.value); return (
+              <button key={t.value} disabled={!permitido} onClick={()=>permitido&&setItemTipo(t.value)} title={permitido?"":(esFlexipago?"Esta factura ya tiene un Flexipago":"Para un Flexipago, hazlo en una factura aparte")} style={{ height:isMobile?64:78, border:`1.5px solid ${on?C.gold:C.border}`, background:on?"rgba(38,93,127,0.07)":"#fff", borderRadius:12, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:7, fontFamily:font.body, fontSize:13, fontWeight:on?600:400, color:on?C.goldDark:C.textSub, cursor:permitido?"pointer":"not-allowed", opacity:permitido?1:0.35, transition:"all .18s ease" }}>
+                <Icon n={TIPO_VENTA_ICON[t.value]||"bag"} s={22}/>{t.label}
+              </button>
+            ); })}
+          </div>
+          {items.length>0 && (esFlexipago
+            ? <div style={{ fontFamily:font.body, fontSize:11.5, color:C.blue, marginTop:-4, marginBottom:12 }}>Esta factura ya tiene un Flexipago — no se puede mezclar con otros tipos.</div>
+            : <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:-4, marginBottom:12 }}>Ya hay ítems normales en esta factura — para un Flexipago, hazlo en una factura aparte.</div>
+          )}
+          {itemEsFlexipago ? (
+            <>
                   <div style={{ marginBottom:14 }}>
                     <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Valor total</div>
                     <div style={{ width:"100%", background:C.dark, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.mono, boxSizing:"border-box" }}>${itemValorCodigosFlexipago.toLocaleString("es-CO")}</div>
@@ -5967,9 +6139,9 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
                       ))}
                     </HoverTooltip>
                   </div>
-                </>
-              ) : (
-                <>
+            </>
+          ) : (
+            <>
                   {isMobile ? (
                     <div style={{ marginBottom:4 }}>
                       <CurrencyField label="Valor total" value={itemValor} onChange={setItemValor}/>
@@ -5999,7 +6171,16 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
                     </div>
                   )}
 
-                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Medios de pago</div>
+              {/* Paso 3 — cómo pagó: los medios como fichas; tocar una agrega ese medio con lo que falta. */}
+              <div style={{ ...etiquetaPaso, marginTop:20 }}>{numPaso(3)}{tituloPaso("¿Cómo pagó?")}{notaPaso("Puede combinar varios medios")}</div>
+              <div style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(4,1fr)", gap:8, marginBottom:10 }}>
+                {VENTAS_MEDIOS_PAGO.map(m=>{ const v=pagadoPorMedio(m.value); const on=v>0 || itemPagos.some(p=>p.medio_pago===m.value); return (
+                  <button key={m.value} onClick={()=>agregarMedioAItem(m.value)} title={`Agregar ${m.label}`} style={{ border:`1.5px solid ${on?C.gold:C.border}`, background:on?"rgba(38,93,127,0.06)":"#fff", borderRadius:12, padding:"10px 12px", display:"flex", flexDirection:"column", alignItems:"flex-start", gap:4, fontFamily:font.body, fontSize:12.5, color:on?C.goldDark:C.textSub, cursor:"pointer", textAlign:"left", transition:"all .18s ease" }}>
+                    <span style={{ display:"flex", alignItems:"center", gap:7 }}><Icon n={MEDIO_PAGO_ICON[m.value]||"cash"} s={15}/>{m.value==="tarjeta"?"Tarjeta":m.label}</span>
+                    <span style={{ fontFamily:font.mono, fontSize:13, fontWeight:on?700:500, color:on?C.goldDark:"#b3bfc8" }}>{on ? fmtCOP(v) : "—"}</span>
+                  </button>
+                ); })}
+              </div>
                   {itemPagos.length>0 && (
                     <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:8 }}>
                       {itemPagos.map((p,idx)=>{
@@ -6019,101 +6200,82 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
                       })}
                     </div>
                   )}
-                  <Field value={itemMedioNuevo} onChange={v=>{ if(v) agregarMedioAItem(v); else setItemMedioNuevo(v); }} options={[{value:"",label:"+ Agregar medio de pago"}, ...VENTAS_MEDIOS_PAGO]}/>
-                  {itemPagos.length>0 && (
-                    <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(itemFalta)<1?C.green:C.red }}>
-                      {Math.abs(itemFalta)<1 ? "✓ Los medios cuadran con el valor de este renglón" : itemFalta>0 ? `Faltan $${itemFalta.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(itemFalta).toLocaleString("es-CO")}`}
-                    </div>
-                  )}
-                </>
-              )}
-              <Btn onClick={agregarItem} disabled={itemEsFlexipago ? !itemFlexipagoValido : (itemValorNum<=0 || itemPagos.length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT)} sm full>+ Agregar</Btn>
-            </div>
-          </SeccionVenta>
-        </div>
-
-        <div style={{ position:isMobile?"static":"sticky", top:16 }}>
-          <Card glow style={{ marginBottom:16, padding:0, overflow:"hidden" }}>
-            <div style={{ padding:"14px 16px", borderBottom:`1px solid ${C.border}` }}>
-              <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color:C.goldLight }}>🧾 Venta actual</div>
-              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>
-                {[
-                  esFlexipago && clienteNombre ? clienteNombre : null,
-                  stores[tiendaId]?.name || null,
-                  asesores.find(a=>a.id===vendedorId)?.name || null,
-                ].filter(Boolean).join(" · ") || "Completa los datos para empezar"}
-              </div>
-            </div>
-
-            <div style={{ padding:"14px 16px" }}>
-              {items.length>0 && (
-                <>
-                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Ventas y servicios</div>
-                  {items.map((it,idx)=>(
-                    <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:4 }}>
-                      <span>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label} · {it.tipo==="flexipago" ? "pago diferido" : it.pagos.map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label).join(" + ")}</span><span style={{fontFamily:font.mono}}>${it.valorTotal.toLocaleString("es-CO")}</span>
-                    </div>
-                  ))}
-                  <Divider/>
-                </>
-              )}
-              <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:6, marginTop:items.length>0?10:0 }}>
-                <span>Valor bruto</span><span style={{fontFamily:font.mono}}>${valorBruto.toLocaleString("es-CO")}</span>
-              </div>
-              <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.red, marginBottom:10 }}>
-                <span>Descuento</span><span style={{fontFamily:font.mono}}>- ${descuentoNum.toLocaleString("es-CO")}</span>
-              </div>
-              <Divider/>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", margin:"10px 0" }}>
-                <span style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.text }}>Total a pagar</span>
-                <span style={{ fontFamily:font.mono, fontSize:22, fontWeight:700, color:C.goldLight }}>${total.toLocaleString("es-CO")}</span>
-              </div>
-
-              {items.length>0 && (
-                <>
-                  <Divider/>
-                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"10px 0 6px" }}>Resumen por medio de pago</div>
-                  {Object.entries(items.flatMap(it=>it.pagos).reduce((acc,p)=>{ acc[p.medio_pago]=(acc[p.medio_pago]||0)+Number(p.valor); return acc; },{})).map(([medio,v])=>(
-                    <div key={medio} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:4 }}>
-                      <span>{VENTAS_MEDIOS_PAGO.find(m=>m.value===medio)?.label}</span><span style={{fontFamily:font.mono}}>${v.toLocaleString("es-CO")}</span>
-                    </div>
-                  ))}
-                  {valorFlexipago>0 && (
-                    <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.blue, marginBottom:4 }}>
-                      <span>Flexipago (pago diferido)</span><span style={{fontFamily:font.mono}}>${valorFlexipago.toLocaleString("es-CO")}</span>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {esFlexipago && (
-                <>
-                  <Divider/>
-                  <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.textSub, marginTop:10, marginBottom:4 }}>
-                    <span>Abono inicial</span><span style={{fontFamily:font.mono}}>${Number(abonoInicialValor||0).toLocaleString("es-CO")}</span>
-                  </div>
-                  <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.amber, fontWeight:700 }}>
-                    <span>Saldo pendiente</span><span style={{fontFamily:font.mono}}>${saldoPendiente.toLocaleString("es-CO")}</span>
-                  </div>
-                </>
-              )}
-            </div>
-          </Card>
-          {requiereSiigo && (
-            <div style={{ marginBottom:16 }}>
-              <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>
-            </div>
+            </>
           )}
-          <div style={{ marginBottom:16 }}>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.06em" }}>Notas (opcional)</div>
-            <Field value={observacion} onChange={setObservacion} multiline rows={2}/>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginTop:16, flexWrap:"wrap" }}>
+            {!itemEsFlexipago && itemPagos.length>0 ? (
+              <span style={{ display:"inline-flex", alignItems:"center", gap:6, borderRadius:99, padding:"5px 12px", fontFamily:font.body, fontSize:12, fontWeight:600, background:Math.abs(itemFalta)<1?C.greenDim:C.redDim, color:Math.abs(itemFalta)<1?C.green:C.red }}>
+                {Math.abs(itemFalta)<1 ? <><Icon n="check" s={14}/>Cuadra: pagado = valor</> : itemFalta>0 ? `Faltan ${fmtCOP(itemFalta)} por asignar` : `Te pasaste por ${fmtCOP(Math.abs(itemFalta))}`}
+              </span>
+            ) : <span/>}
+            <Btn onClick={agregarItem} disabled={agregarDeshabilitado} variant="ghost" style={{ minWidth:isMobile?"100%":240, borderWidth:1.5 }}><Icon n="plus" s={15}/>Agregar a la venta</Btn>
           </div>
-          {msg && <div style={{ background: msg.startsWith("✓")?`${C.green}18`:C.redDim, border:`1px solid ${msg.startsWith("✓")?C.green:C.red}44`, borderRadius:7, padding:"9px 12px", color: msg.startsWith("✓")?C.green:C.red, fontSize:12, marginBottom:12, fontFamily:font.body }}>{msg}</div>}
-          <Btn onClick={guardar} disabled={guardando} full>{guardando?"Guardando...":"Registrar venta"}</Btn>
+        </Card>
+
+        {/* Recibo en curso — se arma solo a medida que se agregan renglones. El borde superior lleva
+            el color de la tienda, como un sello. */}
+        <div ref={reciboRef} style={{ position:isMobile?"static":"sticky", top:0 }}>
+          <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderBottom:"none", borderTop:`4px solid ${colorTienda(tiendaActual)}`, borderRadius:"14px 14px 0 0", padding:"20px 22px 24px", transition:"border-color .35s ease" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+              <b style={{ fontFamily:font.body, fontSize:15, color:C.text }}>Recibo en curso</b>
+              {tiendaActual && <EtiquetaTienda store={tiendaActual}/>}
+            </div>
+            <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginTop:4, marginBottom:12 }}>
+              {[esHoyVenta?"Hoy":fecha, vendedorSel?.name, esFlexipago && clienteNombre ? clienteNombre : null].filter(Boolean).join(" · ")}
+            </div>
+            {items.length===0 && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, padding:"10px 0" }}>Todavía no has agregado nada.</div>}
+            {items.map((it,idx)=>(
+              <div key={`${idx}-${it.tipo}-${it.valorTotal}`} className="ozen-recibo-linea" style={lineaRecibo}>
+                <span style={{ minWidth:0 }}><b style={{ color:C.text }}>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label}</b> · {it.tipo==="flexipago" ? "pago diferido" : it.pagos.map(p=>`${VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.value==="tarjeta"?"Tarjeta":VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label}${p.numero_autorizacion?` (AUT ${p.numero_autorizacion})`:""}`).join(" + ")}{it.descuento>0 && <span style={{ color:C.red }}> · desc {fmtCOP(it.descuento)}</span>}</span>
+                <span style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                  <span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(it.valorTotal)}</span>
+                  <button onClick={()=>quitarItem(idx)} title="Quitar renglón" style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", padding:2, display:"grid" }}><Icon n="x" s={14}/></button>
+                </span>
+              </div>
+            ))}
+            {guiones}
+            <div style={lineaRecibo}><span>Valor bruto</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(valorBruto)}</span></div>
+            <div style={{ ...lineaRecibo, color:C.red }}><span>Descuento</span><span style={{ fontFamily:font.mono }}>− {fmtCOP(descuentoNum)}</span></div>
+            {guiones}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:10, padding:"4px 0" }}>
+              <b style={{ fontFamily:font.body, fontSize:15, color:C.text }}>Total a pagar</b>
+              <span style={{ fontFamily:font.mono, fontSize:isMobile?26:30, fontWeight:700, color:C.goldDark, letterSpacing:"-0.01em" }}>{fmtCOP(total)}</span>
+            </div>
+            {(resumenMedios.length>0 || valorFlexipago>0) && (
+              <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:4, lineHeight:1.6 }}>
+                {resumenMedios.map(([medio,v])=>`${medio==="tarjeta"?"Tarjeta":VENTAS_MEDIOS_PAGO.find(m=>m.value===medio)?.label} ${fmtCOP(v)}`).join(" · ")}
+                {valorFlexipago>0 && <span style={{ color:C.blue }}>{resumenMedios.length?" · ":""}Flexipago (pago diferido) {fmtCOP(valorFlexipago)}</span>}
+              </div>
+            )}
+            {esFlexipago && (
+              <>
+                {guiones}
+                <div style={lineaRecibo}><span>Abono inicial</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(Number(abonoInicialValor||0))}</span></div>
+                <div style={{ ...lineaRecibo, color:C.amber, fontWeight:700 }}><span>Saldo pendiente</span><span style={{ fontFamily:font.mono }}>{fmtCOP(saldoPendiente)}</span></div>
+              </>
+            )}
+            <div style={{ marginTop:16 }}>
+              {requiereSiigo && <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>}
+              <Field label="Notas (opcional)" value={observacion} onChange={setObservacion} multiline rows={2}/>
+            </div>
+            {msg && <div style={{ background: msg.startsWith("✓")?C.greenDim:C.redDim, border:`1px solid ${msg.startsWith("✓")?C.green:C.red}44`, borderRadius:9, padding:"10px 12px", color: msg.startsWith("✓")?C.green:C.red, fontSize:12.5, marginBottom:12, fontFamily:font.body }}>{msg}</div>}
+            <Btn onClick={guardar} disabled={guardando} full style={{ height:54, fontSize:16, borderRadius:12 }}>{guardando ? "Guardando..." : <><Icon n="check" s={18}/>Registrar venta</>}</Btn>
+          </div>
+          <div className="ozen-recibo-zigzag"/>
         </div>
       </div>
 
-      <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, margin:"24px 0 10px" }}>Ventas de hoy en esta tienda ({ventasHoy.length + abonosHoyTienda.length + notaCreditoHoyTienda.length})</div>
+      {/* En celular, el total y el acceso al botón quedan fijos abajo mientras se llena el formulario. */}
+      {isMobile && items.length>0 && (
+        <div style={{ position:"sticky", bottom:0, marginTop:14, background:C.goldDark, color:C.tinta, borderRadius:14, padding:"10px 12px 10px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, boxShadow:"0 12px 24px -12px rgba(26,59,82,0.6)", zIndex:5 }}>
+          <div><div style={{ fontFamily:font.body, fontSize:10, opacity:.75, textTransform:"uppercase", letterSpacing:"0.08em" }}>Total · {items.length} {items.length===1?"renglón":"renglones"}</div><b style={{ fontFamily:font.mono, fontSize:17 }}>{fmtCOP(total)}</b></div>
+          <button onClick={()=>reciboRef.current?.scrollIntoView({ behavior:"smooth", block:"start" })} style={{ background:C.tinta, color:C.goldDark, border:"none", borderRadius:10, padding:"10px 14px", fontFamily:font.body, fontWeight:700, fontSize:13.5, cursor:"pointer" }}>Ver recibo</button>
+        </div>
+      )}
+
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", margin:"28px 0 12px" }}>
+        <b style={{ fontFamily:font.body, fontSize:16, color:C.text }}>Ventas de hoy en {nombreTiendaCorto(tiendaActual)} <span style={{ color:C.textMuted, fontWeight:500 }}>· {ventasHoy.length + abonosHoyTienda.length + notaCreditoHoyTienda.length}</span></b>
+      </div>
       <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
         {ventasHoy.map(v=>(
           <VentaCard key={v.id} venta={v} stores={stores} user={user} esAdmin={esAdmin} soloLectura={soloLectura} isMobile={isMobile}
@@ -6133,7 +6295,8 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
   );
 }
 
-function VentasListaScreen({ user, stores, users, records, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, metas, esAdmin, soloLectura }) {
+
+function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, metas, esAdmin, soloLectura }) {
   const isMobile = useIsMobile();
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const [filtroTienda, setFiltroTienda] = useState("");
@@ -6214,7 +6377,6 @@ function VentasListaScreen({ user, stores, users, records, ventas, setVentas, ve
   return (
     <div>
       <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}${abonosFiltrados.length>0?` · ${abonosFiltrados.length} abonos Flexipago`:""}`}
-        middle={<EnTurnoIndicator records={records} stores={stores} isMobile={isMobile}/>}
         action={<MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaFija||filtroTienda} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ajustes} metas={metas} isMobile={isMobile}/>}
       />
       <Card style={{ marginBottom:16 }} p="12px">
@@ -6395,6 +6557,61 @@ const calcularMetaHoyTienda = (tiendaId, fecha, ventas, ventasItems, ventasAbono
 // contenido de abajo. Si hay más tiendas de las que se muestran, aparece un link chiquito "Ver
 // las N tiendas" que despliega la lista completa (con scroll) en una nube — el detalle completo
 // sigue estando a un clic, solo que no ocupa espacio fijo todo el tiempo.
+// Propuesta A: la meta del día como una FRANJA horizontal arriba de Registrar venta — la tienda
+// activa ocupa la celda más ancha (con cuánto se ha vendido de cuánto), y las demás compiten al lado
+// con su % y su barra. Cada barra va en el COLOR DE SU TIENDA (el mismo de Administrar ▸ Tiendas).
+const MetaHoyFranja = ({ stores, tiendaIdActual, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile }) => {
+  const fechaMeta = fecha || todayStr;
+  const pct = (x) => x.meta>0 ? Math.round(x.vendido/x.meta*100) : 0;
+  const lista = tiendasVenta(stores)
+    .map(t => ({ tienda:t, ...calcularMetaHoyTienda(t.id, fechaMeta, ventas, ventasItems, ventasAbonos, ventasAjustes, metas) }))
+    .filter(x => x.meta>0);
+  if(lista.length===0) return null;
+  const actual = lista.find(x=>x.tienda.id===tiendaIdActual);
+  const otras = lista.filter(x=>x!==actual).sort((a,b)=>pct(b)-pct(a));
+  const esHoy = fechaMeta===todayStr;
+  const barra = (x, grosor=7, atenuada) => (
+    <div style={{ height:grosor, borderRadius:9, background:C.surfaceHover, overflow:"hidden", marginTop:8 }}>
+      <div style={{ width:`${Math.min(100,pct(x))}%`, height:"100%", borderRadius:9, background:colorTienda(x.tienda), opacity:atenuada?0.85:1, transition:"width .6s cubic-bezier(.34,1.2,.5,1)" }}/>
+    </div>
+  );
+  const cols = isMobile ? "1fr" : `${actual?"1.45fr ":""}${otras.map(()=>"1fr").join(" ")}`;
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:cols, background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, marginBottom:20, overflow:"hidden" }}>
+      {actual && (
+        <div className={pct(actual)>=100?"ozen-meta-cumplida":undefined} style={{ padding:"14px 18px", background:hexToRgba(colorTienda(actual.tienda),0.05), boxShadow:`inset 0 3px 0 ${colorTienda(actual.tienda)}`, borderRight:isMobile?"none":`1px solid ${C.border}`, borderBottom:isMobile?`1px solid ${C.border}`:"none" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+            <b style={{ fontFamily:font.body, fontSize:14, color:C.text, display:"flex", alignItems:"center", gap:8 }}><PuntoTienda color={colorTienda(actual.tienda)} size={8}/>{esHoy?"Meta de hoy":`Meta del ${fechaMeta}`} · {nombreTiendaCorto(actual.tienda)}</b>
+            <span style={{ fontFamily:font.mono, fontWeight:700, fontSize:17, color:C.goldDark }}>{pct(actual)}%</span>
+          </div>
+          {barra(actual, 8)}
+          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:6 }}>
+            {fmtCOP(actual.vendido)} de {fmtCOP(actual.meta)} · {actual.falta>0 ? `faltan ${fmtCOP(actual.falta)}` : "¡meta cumplida!"}
+          </div>
+        </div>
+      )}
+      {isMobile ? (
+        otras.length>0 && <div style={{ display:"grid", gridTemplateColumns:`repeat(${otras.length},1fr)` }}>
+          {otras.map((x,i)=>(
+            <div key={x.tienda.id} style={{ padding:"10px 12px", borderRight:i<otras.length-1?`1px solid ${C.border}`:"none" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:4, fontFamily:font.body, fontSize:11.5, color:C.textSub }}><span style={{ display:"flex", alignItems:"center", gap:6, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}><PuntoTienda color={colorTienda(x.tienda)} size={6}/>{nombreTiendaCorto(x.tienda)}</span><b style={{ fontFamily:font.mono, color:C.text }}>{pct(x)}%</b></div>
+              {barra(x, 5, true)}
+            </div>
+          ))}
+        </div>
+      ) : otras.map((x,i)=>(
+        <div key={x.tienda.id} title={`${fmtCOP(x.vendido)} de ${fmtCOP(x.meta)}`} style={{ padding:"14px 18px", borderRight:i<otras.length-1?`1px solid ${C.border}`:"none" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, fontFamily:font.body, fontSize:13.5, color:C.textSub }}>
+            <span style={{ display:"flex", alignItems:"center", gap:8 }}><PuntoTienda color={colorTienda(x.tienda)} size={8}/>{nombreTiendaCorto(x.tienda)}</span>
+            <b style={{ fontFamily:font.mono, fontSize:13.5, color:C.text }}>{pct(x)}%</b>
+          </div>
+          {barra(x, 7, true)}
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const LIMITE_PODIO = 3;
 const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile }) => {
   // Master/admin finanzas pueden cambiar la fecha en Registrar venta para trabajar sobre un día
@@ -6450,7 +6667,7 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
             {/* En celular la barra crece (110→150) para aprovechar el ancho completo de la burbuja
                 (100% de la pantalla) en vez de dejar un hueco vacío a la derecha — en escritorio
                 la burbuja es una tarjeta angosta de tamaño fijo, así que ahí se deja igual. */}
-            <BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={etapaColor} width={isMobile?150:130} height={13}/>
+            <BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={colorTienda(x.tienda)} solido width={isMobile?150:130} height={13}/>
             <span style={{ width:48, textAlign:"right", flexShrink:0, fontFamily:font.mono, fontSize:14, lineHeight:1, fontWeight:700, color:etapaColor }}>{pct}%</span>
           </div>
         }
@@ -6503,7 +6720,7 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
                     <span style={{ color:esActual?C.goldLight:C.text, fontWeight:esActual?700:400 }}>{idx===0?"🥇 ":idx===1?"🥈 ":idx===2?"🥉 ":`${idx+1}. `}{x.tienda.name.replace(/^OZEN\s*/i,"")}</span>
                     <span style={{ fontFamily:font.mono, fontWeight:700, color:etapaColor }}>{pct}%</span>
                   </div>
-                  <BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={etapaColor} width="100%" height={6}/>
+                  <BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={colorTienda(x.tienda)} solido width="100%" height={6}/>
                 </div>
               );
             })}
@@ -6514,7 +6731,7 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
   );
 };
 
-function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile, turnosAsignaciones, turnosGlobales }) {
+function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile, turnosAsignaciones, turnosGlobales }) {
   const hoy = toColombiaDate();
   const [anio, setAnio] = useState(hoy.getFullYear());
   const [mesIdx, setMesIdx] = useState(hoy.getMonth());
@@ -6903,7 +7120,6 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
   return (
     <div>
       <PageHeader title="Métricas" subtitle={tiendaSel ? `${stores[tiendaSel]?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`}
-        middle={<EnTurnoIndicator records={records} stores={stores} isMobile={isMobile}/>}
         action={<MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaSel} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>}
       />
 
@@ -6918,7 +7134,7 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
         </div>
         <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
           {tiendasOrdenadas.map(t=>(
-            <button key={t.id} onClick={()=>setTiendaSel(t.id)} style={{ padding:"6px 12px", borderRadius:20, border:`1px solid ${tiendaSel===t.id?C.gold:C.border}`, background:tiendaSel===t.id?`${C.gold}22`:"transparent", color:tiendaSel===t.id?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12, cursor:"pointer" }}>{t.name}</button>
+            <button key={t.id} onClick={()=>setTiendaSel(t.id)} style={{ display:"inline-flex", alignItems:"center", gap:7, padding:"6px 12px", borderRadius:20, border:`1px solid ${tiendaSel===t.id?colorTienda(t):C.border}`, background:tiendaSel===t.id?hexToRgba(colorTienda(t),0.1):"#fff", color:tiendaSel===t.id?C.goldDark:C.textMuted, fontWeight:tiendaSel===t.id?600:400, fontFamily:font.body, fontSize:12, cursor:"pointer" }}><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)}</button>
           ))}
           <button onClick={()=>setTiendaSel("")} style={{ padding:"6px 12px", borderRadius:20, border:`1px solid ${!tiendaSel?C.gold:C.border}`, background:!tiendaSel?`${C.gold}22`:"transparent", color:!tiendaSel?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12, cursor:"pointer" }}>Todas las tiendas</button>
         </div>
@@ -7182,25 +7398,20 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
 // (created_at), y todos los cálculos de dinero se sacan en vivo de ventas/abonos,
 // nunca se guardan como número fijo (así siempre reflejan la info real).
 //
-// C_DARK es una copia congelada de la paleta oscura que tenía `C` antes de pasar el resto de la
-// app a "Tinta Elevada" (propuesta 2, elegida por Santiago). Se usa en dos sitios que a propósito
-// se quedan oscuros sin importar el tema general:
-//   1) Caja: su tarjeta "vidrio" (CajaCard) depende de un fondo oscuro fijo para garantizar
-//      contraste sin importar qué color tenga cada tienda — cambiar esa base es el tipo de cosa
-//      que se ve bien en la mitad de los casos y rompe la legibilidad en la otra mitad.
-//   2) La barra de navegación (Sidebar, BottomNav, MobileHeader): se deja como "cromo" oscuro
-//      fijo, igual que antes, en vez de aclararla junto con el resto del contenido.
+// C_DARK era la paleta oscura fija de Caja (la "isla" oscura con tarjetas de vidrio del color de
+// cada tienda). Con la Propuesta A Caja entra al MISMO sistema visual del resto de la app: fondo
+// claro, tarjetas blancas, y el color de la tienda solo como sello (borde superior, punto, franja).
+// Se conserva el nombre para no tocar los ~150 usos dentro de Caja — ahora apunta a tonos claros.
 const C_DARK = {
-  gold: "#265D7F", goldLight: "#E5D5CC", goldDark: "#1A3B52",
-  dark: "#0D1117", surface: "#1A3B52",
-  surfaceAlt: "#153047", surfaceHover: "#1E4260", border: "#265D7F",
-  borderGold: "rgba(229,213,204,0.25)", text: "#E5D5CC",
-  textMuted: "#B8A49C", textSub: "#D4C4BB",
-  green: "#2ECC71", greenDim: "rgba(46,204,113,0.12)",
-  red: "#E74C3C",   redDim: "rgba(231,76,60,0.12)",
-  blue: "#58A6FF",  blueDim: "rgba(88,166,255,0.12)",
-  amber: "#F39C12", amberDim: "rgba(243,156,18,0.12)",
-  sidebar: "#112233",
+  gold: "#265D7F", goldLight: "#1A3B52", goldDark: "#1A3B52",
+  dark: "#F6F0EB", surface: "#FFFFFF",
+  surfaceAlt: "#FBF8F5", surfaceHover: "#F2E9E2", border: "rgba(26,59,82,0.14)",
+  borderGold: "rgba(38,93,127,0.22)", text: "#1A3B52",
+  textMuted: "#6B7D8A", textSub: "#3D5E76",
+  green: "#1B7A41", greenDim: "rgba(27,122,65,0.12)",
+  red: "#C0392B",   redDim: "rgba(192,57,43,0.1)",
+  blue: "#265D7F",  blueDim: "rgba(38,93,127,0.12)",
+  amber: "#A85D00", amberDim: "rgba(168,93,0,0.12)",
 };
 const CAJA_MEDIOS = ["efectivo","tarjeta","transferencia","addi"];
 const CAJA_MEDIO_LABEL = { efectivo:"Efectivo", tarjeta:"Tarjeta", transferencia:"Transferencia", addi:"ADDI" };
@@ -7215,7 +7426,7 @@ const BASE_CAJA_FIJA = 100000;
 // Cuando se le pasa "color" (el color asignado a la tienda), todo el cuadro se pinta con ese
 // color — pero el contenido de adentro (campos, historiales) queda sobre un panel oscuro
 // insertado, para que siga tan legible como siempre sin importar qué tan claro sea el color.
-const cajaHeaderSelectStyle = { background:"rgba(0,0,0,0.28)", border:"1px solid rgba(255,255,255,0.28)", borderRadius:5, color:"#fff", fontSize:13, fontFamily:font.body, padding:"3px 7px", fontWeight:600 };
+const cajaHeaderSelectStyle = { background:"#fff", border:`1px solid ${C_DARK.border}`, borderRadius:8, color:C_DARK.text, fontSize:13, fontFamily:font.body, padding:"3px 7px", fontWeight:600 };
 // `compact` = versión más apretada (menos padding/márgenes) para cuando varias tarjetas van
 // apiladas en columna y necesitan caber en un solo pantallazo (p.ej. la columna de Apertura en Caja).
 // Cuando hay `color` (tienda seleccionada en Caja) usamos un look "liquid glass": vidrio esmerilado
@@ -7223,50 +7434,38 @@ const cajaHeaderSelectStyle = { background:"rgba(0,0,0,0.28)", border:"1px solid
 // bloque de color sólido de antes. El contenido ya no necesita un panel oscuro interno para
 // legibilidad — el fondo sigue siendo oscuro (solo con el tinte), así que el texto normal de la
 // app (C_DARK.text/C_DARK.goldLight/C_DARK.textMuted) siempre contrasta bien, sea cual sea el color de la tienda.
-const CajaCard = ({ icon, titulo, children, color, headerExtra, compact }) => {
-  const glass = !!color;
-  return (
-    <div className="ozen-caja-card" style={{
-      background: glass
-        ? `radial-gradient(130% 65% at 0% 0%, rgba(255,255,255,0.16), transparent 60%), radial-gradient(130% 65% at 100% 0%, rgba(255,255,255,0.16), transparent 60%), linear-gradient(180deg, ${color}80 0%, ${color}45 32%, ${C_DARK.surface}f0 68%, ${C_DARK.dark}fa 100%)`
-        : C_DARK.surface,
-      // Antes tenía backdrop-filter (blur + saturate) para el efecto "vidrio esmerilado" — se quitó
-      // porque era la causa real de la franja/seam clara que aparecía y desaparecía al mover el
-      // mouse encima (bug conocido de Chrome/Safari con backdrop-filter recomponiendo mal la capa
-      // en cada repintado cercano). Forzar la tarjeta a su propia capa de composición (translateZ/
-      // isolation) no fue suficiente, así que se quitó el blur del todo — se conserva el degradado
-      // con el color de la tienda, solo sin el desenfoque.
-      border: glass ? `1px solid ${color}70` : `1px solid ${C_DARK.border}`,
-      borderRadius:12,
-      boxShadow: glass ? `inset 0 1px 0 rgba(255,255,255,0.22), 0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px ${color}40` : "none",
-      padding:compact?"7px 12px":"10px 14px",
-      marginBottom:compact?6:10,
-    }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:compact?4:8 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:15, fontWeight:700, color:C_DARK.goldLight, textTransform:"uppercase", letterSpacing:"0.04em" }}>
-          {glass && <span style={{ width:7, height:7, borderRadius:"50%", background:color, boxShadow:`0 0 6px ${color}` }}/>}
-          {icon} {titulo}
-        </div>
-        {headerExtra}
+// Emojis que llegan como `icon` → íconos de línea de la Propuesta A.
+const CAJA_ICONO = { "🔓":"unlock", "🔒":"lock", "🚚":"truck", "➕":"note", "🗑️":"x", "🗒️":"note" };
+// Tarjeta de Caja (Propuesta A): blanca, con el color de la tienda como "sello" en el borde
+// superior y un punto junto al título. En la FOTO que se comparte por WhatsApp (ver
+// capturarTarjetaCaja) el encabezado sí se pinta completo del color de la tienda, porque ahí es
+// donde más sirve reconocer la tienda de un vistazo.
+const CajaCard = ({ icon, titulo, children, color, headerExtra, compact, resaltada }) => (
+  <div className="ozen-caja-card" data-color={color||""} style={{
+    background:"#fff",
+    border:`1px solid ${C_DARK.border}`,
+    borderTop: color ? `3px solid ${color}` : `1px solid ${C_DARK.border}`,
+    borderRadius:14,
+    boxShadow: resaltada ? `0 0 0 2px ${hexToRgba("#265D7F",0.35)}` : "none",
+    padding:compact?"14px 18px":"16px 20px",
+    marginBottom:14,
+    transition:"box-shadow .3s ease, border-color .35s ease",
+  }}>
+    <div className="ozen-caja-card-head" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:10 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:10, fontFamily:font.body, fontSize:15.5, fontWeight:700, color:C_DARK.text }}>
+        <span className="ozen-caja-card-ic" style={{ width:30, height:30, borderRadius:9, background:C_DARK.surfaceHover, color:C_DARK.gold, display:"grid", placeItems:"center", flexShrink:0 }}>
+          {CAJA_ICONO[icon] ? <Icon n={CAJA_ICONO[icon]} s={16}/> : icon}
+        </span>
+        {titulo}
+        {color && <span style={{ width:8, height:8, borderRadius:"50%", background:color, boxShadow:`0 0 0 3px ${hexToRgba(color,0.18)}` }}/>}
       </div>
-      {children}
+      {headerExtra}
     </div>
-  );
-};
-const cajaInputStyle = { width:"100%", background:C_DARK.surfaceAlt, border:`1px solid ${C_DARK.border}`, borderRadius:5, padding:"5px 8px", color:C_DARK.text, fontSize:14.5, fontFamily:font.body, outline:"none", boxSizing:"border-box" };
-const cajaLabelStyle = { fontSize:12, color:C_DARK.textMuted, fontFamily:font.body, marginBottom:2, textTransform:"uppercase", letterSpacing:"0.05em" };
-const CajaField = ({ label, value, onChange, options, placeholder, type="text" }) => (
-  <div style={{ marginBottom:0 }}>
-    {label && <div style={cajaLabelStyle}>{label}</div>}
-    {options ? (
-      <select value={value} onChange={e=>onChange(e.target.value)} style={cajaInputStyle}>
-        {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-    ) : (
-      <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={cajaInputStyle}/>
-    )}
+    {children}
   </div>
 );
+const cajaInputStyle = { width:"100%", background:"#fff", border:`1px solid rgba(26,59,82,0.2)`, borderRadius:8, padding:"6px 9px", color:C_DARK.text, fontSize:14.5, fontFamily:font.body, outline:"none", boxSizing:"border-box" };
+const cajaLabelStyle = { fontSize:12, color:C_DARK.textMuted, fontFamily:font.body, marginBottom:2, textTransform:"uppercase", letterSpacing:"0.05em" };
 const CajaMoney = ({ label, value, onChange, placeholder }) => {
   const digits = String(value||"").replace(/[^\d]/g,"");
   const mostrado = digits ? `$${Number(digits).toLocaleString("es-CO")}` : "";
@@ -7278,13 +7477,13 @@ const CajaMoney = ({ label, value, onChange, placeholder }) => {
   );
 };
 const CajaBtn = ({ onClick, children, disabled }) => (
-  <button onClick={disabled?undefined:onClick} style={{ padding:"5px 12px", borderRadius:5, border:"none", background:C_DARK.gold, color:"#fff", fontSize:13.5, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.5:1, whiteSpace:"nowrap" }}>{children}</button>
+  <button onClick={disabled?undefined:onClick} style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"10px 18px", borderRadius:10, border:"none", background:C.goldDark, color:C.tinta, fontSize:14, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.4:1, letterSpacing:"0.01em" }}>{typeof children==="string" && children.startsWith("📸 ") ? <><Icon n="camera" s={16}/>{children.slice(3)}</> : children}</button>
 );
 // Botón 📸 — "fotografía" el cuadro completo (Apertura/Cierre/Recolección) y lo copia al
 // portapapeles como imagen, para pegarlo directo en WhatsApp sin tener que hacer captura de
 // pantalla manual y recortarla. Va al lado izquierdo del botón "Registrar..." de cada tarjeta.
 const CajaCapturaBtn = ({ onClick, title }) => (
-  <button type="button" onClick={onClick} title={title||"Copiar como imagen"} style={{ padding:"5px 9px", borderRadius:5, border:`1px solid ${C_DARK.border}`, background:"rgba(0,0,0,0.18)", color:C_DARK.text, fontSize:14, cursor:"pointer", lineHeight:1 }}>📸</button>
+  <button type="button" onClick={onClick} title={title||"Copiar como imagen"} style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"7px 12px", borderRadius:9, border:`1px solid rgba(38,93,127,0.4)`, background:"#fff", color:C_DARK.gold, fontSize:12.5, fontWeight:600, fontFamily:font.body, cursor:"pointer", lineHeight:1 }}><Icon n="camera" s={15}/>Copiar foto</button>
 );
 // Toma una "foto" de un cuadro de Caja (via su ref) y la copia al portapapeles como imagen —
 // ver CajaCapturaBtn. Depende de html2canvas, cargado desde CDN en index.html (no es un paquete
@@ -7295,7 +7494,7 @@ const capturarTarjetaCaja = async (ref, setToast) => {
   if(!ref?.current || !window.html2canvas){ setToast("⚠️ No se pudo generar la imagen — intenta de nuevo."); setTimeout(()=>setToast(null),2800); return; }
   try{
     const canvas = await window.html2canvas(ref.current, {
-      backgroundColor:C_DARK.dark, scale:2, useCORS:true,
+      backgroundColor:"#ffffff", scale:2, useCORS:true,
       // html2canvas no soporta backdrop-filter (el "vidrio esmerilado") ni renderiza bien los
       // degradados en capa que usa CajaCard cuando hay color de tienda — eso era el borde grueso y
       // las franjas de color raras que vio Santiago en las capturas. Justo antes de tomar la foto,
@@ -7311,6 +7510,17 @@ const capturarTarjetaCaja = async (ref, setToast) => {
           el.style.backdropFilter = "none";
           el.style.webkitBackdropFilter = "none";
           el.style.boxShadow = "none";
+          // Propuesta A: en pantalla el color de la tienda es solo un sello; en la FOTO el
+          // encabezado va pintado completo con ese color (con texto blanco), como un membrete, para
+          // que en el chat se reconozca la tienda al instante.
+          const col = el.getAttribute("data-color");
+          const head = el.querySelector(".ozen-caja-card-head");
+          if(col && head){
+            el.style.paddingTop = "0"; el.style.borderTop = "none"; el.style.overflow = "hidden";
+            head.style.background = col; const px = parseFloat(el.style.paddingLeft)||18; head.style.margin = `0 -${px}px 12px`; head.style.padding = `12px ${px}px`;
+            head.querySelectorAll("*").forEach(n=>{ n.style.color = "#fff"; });
+            const ic = head.querySelector(".ozen-caja-card-ic"); if(ic) ic.style.background = "rgba(255,255,255,0.2)";
+          }
         });
         // html2canvas no sabe dibujar controles nativos de formulario (<select>) — salían como un
         // cuadro negro cortado en la imagen, por eso no se veía si el cierre era Parcial o Final
@@ -7453,7 +7663,7 @@ const CajaReciboLinea = ({ label, value, bold, color, small, indent, totalLine, 
 // Barra divisoria de sub-sección dentro de una tarjeta (p.ej. "Dinero recibido por método de pago",
 // "Ventas", "Servicios" dentro de Cierre) — imita las barras de encabezado del diseño de Felipe.
 const CajaSubHeader = ({ label, compact }) => (
-  <div style={{ background:"rgba(255,255,255,0.06)", borderRadius:4, padding: compact?"2px 6px":"4px 8px", margin: compact?"6px 0 2px":"10px 0 4px", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C_DARK.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
+  <div style={{ padding:"0", margin: compact?"12px 0 4px":"14px 0 6px", fontFamily:font.body, fontSize:11, fontWeight:700, color:C_DARK.gold, textTransform:"uppercase", letterSpacing:"0.1em" }}>{label}</div>
 );
 // Fila de formulario "a modo factura": título/etiqueta a la izquierda, el campo editable compacto a
 // la derecha — mismo look que CajaReciboLinea pero con un input/select real en vez de texto. Usada
@@ -7535,16 +7745,17 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
       <span style={{ fontFamily:font.body, fontSize:13.5, color:C_DARK.text }}>{label}</span>
       <button type="button" onClick={()=>setEditando(true)} style={{ display:"flex", alignItems:"center", gap:5, background:"none", border:"none", cursor:"pointer", padding:0 }}>
         <span style={{ fontFamily:font.mono, fontSize:14.5, color:C_DARK.text }}>{texto}</span>
-        <span style={{ color:C_DARK.textMuted, fontSize:11 }}>✏️</span>
+        <span style={{ color:C_DARK.textMuted }}><Icon n="pen" s={12}/></span>
       </button>
     </div>
   );
 };
 
-function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, solicitudesBorrado, setSolicitudesBorrado, puedeRecoleccion, soloLectura, isMobile, turnosAsignaciones, turnosHorarios, lideres }) {
+function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, solicitudesBorrado, setSolicitudesBorrado, puedeRecoleccion, soloLectura, isMobile, turnosAsignaciones, turnosHorarios, lideres }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const tiendasList = tiendasVenta(stores);
-  const [tiendaId, setTiendaId] = useState(tiendaFija || tiendasList[0]?.id || "");
+  const [tiendaIdLocal] = useState(tiendaFija || tiendasList[0]?.id || "");
+  const tiendaId = tiendaFija || tiendaActiva || tiendaIdLocal;
   // Color asignado a la tienda que se está viendo — se usa para pintar los cuadros de Caja.
   const tiendaColor = stores[tiendaId]?.color;
   const [cajaVista, setCajaVista] = useState(soloLectura ? "historial" : "registrar"); // 'registrar' | 'historial'
@@ -7553,6 +7764,9 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const aperturaCardRef = useRef(null);
   const cierreCardRef = useRef(null);
   const recoleccionCardRef = useRef(null);
+  const novedadCardRef = useRef(null);
+  // Los pasos del día (arriba en Caja) llevan a su tarjeta al tocarlos.
+  const irAPasoCaja = (id) => { const r = { apertura:aperturaCardRef, novedades:novedadCardRef, cierre:cierreCardRef, recoleccion:recoleccionCardRef }[id]; r?.current?.scrollIntoView({ behavior:"smooth", block:"start" }); };
   const [toastCaptura, setToastCaptura] = useState(null);
   // Qué registro de Historial tiene abierta su vista "congelada" (ver FrozenCajaCard) — solo uno a
   // la vez, formato `${tipo}:${id}` (ej. "apertura:abc123").
@@ -8151,22 +8365,76 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     return rango ? `${asig.shift} (${rango})` : asig.shift;
   };
 
+  // Estado de los 4 pasos del día (Apertura → Novedades → Cierre → Recolección) para la línea de arriba.
+  const aperturaHoy = aperturasTienda.find(a=>a.fecha===todayStr);
+  const cierresHoy = cierresTienda.filter(c=>c.fecha===todayStr);
+  const cierreFinalHoy = cierresHoy.find(c=>c.tipo!=="parcial");
+  const parcialHoy = cierresHoy.find(c=>c.tipo==="parcial");
+  const novPend = gastosDesdeRecoleccion.filter(g=>g.estado!=="aprobado").length;
+  const recoHoy = ultimaRecoleccion && ultimaRecoleccion.fecha===todayStr;
+  const diasReco = ultimaRecoleccion ? diasEntre(ultimaRecoleccion.fecha, todayStr) : null;
+  const hora = (r) => r ? new Date(r.created_at).toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit",hour12:false}) : "";
+  const pasos = [
+    { id:"apertura", t:"Apertura", ic:"unlock", hecho:!!aperturaHoy, sub: aperturaHoy ? `${hora(aperturaHoy)} · ${aperturaHoy.asesor_nombre||""}` : "Pendiente" },
+    { id:"novedades", t:"Novedades", ic:"note", hecho:novPend===0, aviso:novPend>0, sub: gastosDesdeRecoleccion.length===0 ? "Ninguna en el período" : `${gastosDesdeRecoleccion.length} en el período${novPend?` · ${novPend} por aprobar`:""}` },
+    { id:"cierre", t:"Cierre de caja", ic:"lock", hecho:!!cierreFinalHoy, sub: cierreFinalHoy ? `Final ${hora(cierreFinalHoy)}` : parcialHoy ? `Parcial ${hora(parcialHoy)} · falta el final` : "Pendiente" },
+    { id:"recoleccion", t:"Recolección", ic:"truck", hecho:!!recoHoy, sub: recoHoy ? `Hoy ${hora(ultimaRecoleccion)}` : diasReco===null ? "Sin registro" : diasReco===1 ? "Ayer" : `Hace ${diasReco} días` },
+  ];
+  const actual = !aperturaHoy ? "apertura" : !cierreFinalHoy ? "cierre" : null;
+
   return (
-    <div style={{ background:C_DARK.dark, borderRadius:14, padding:14, margin:"-2px" }}>
+    <div>
       {toastCaptura && (
-        <div style={{ position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:9999, background:C_DARK.dark, border:`1px solid ${C_DARK.border}`, borderRadius:8, padding:"9px 16px", color:C_DARK.text, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", whiteSpace:"nowrap" }}>{toastCaptura}</div>
+        <div style={{ position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:9999, background:C.goldDark, border:"none", borderRadius:10, padding:"10px 18px", color:C.tinta, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", whiteSpace:"nowrap" }}>{toastCaptura}</div>
       )}
-      <div style={{ display:"flex", flexWrap:"wrap", gap:10, alignItems:"center", marginBottom:10 }}>
-        {!tiendaFija && (
-          <div style={{ width:200 }}>
-            <CajaField value={tiendaId} onChange={setTiendaId} options={tiendasList.map(t=>({value:t.id,label:t.name}))}/>
-          </div>
-        )}
-        <div style={{ display:"flex", gap:6, marginLeft:"auto" }}>
-          <Btn variant={cajaVista==="registrar"?"primary":"ghost"} sm onClick={()=>setCajaVista("registrar")} style={cajaVista==="registrar"?{}:{ color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>Registrar</Btn>
-          <Btn variant={cajaVista==="historial"?"primary":"ghost"} sm onClick={()=>setCajaVista("historial")} style={cajaVista==="historial"?{}:{ color:C_DARK.textSub, border:`1px solid ${C_DARK.border}` }}>Historial</Btn>
+      {/* Propuesta A — encabezado: tienda (sale de la barra superior), turno y Registrar/Historial. */}
+      <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12, flexWrap:"wrap", marginBottom:18 }}>
+        <div>
+          <h1 style={{ margin:0, fontFamily:font.body, fontSize:isMobile?22:26, fontWeight:700, color:C.text, display:"flex", alignItems:"center", gap:12 }}>
+            <PuntoTienda color={colorTienda(stores[tiendaId])} size={11}/>Caja · {nombreTiendaCorto(stores[tiendaId])}
+          </h1>
+          <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:4 }}>{new Date(todayStr+"T12:00:00").toLocaleDateString("es-CO",{ weekday:"long", day:"numeric", month:"long" })}</div>
+        </div>
+        <div style={{ display:"inline-flex", background:C.surfaceHover, borderRadius:10, padding:3 }}>
+          {[{id:"registrar",label:"Registrar"},{id:"historial",label:"Historial"}].map(v=>{ const on=cajaVista===v.id; return (
+            <button key={v.id} onClick={()=>setCajaVista(v.id)} style={{ padding:"7px 16px", borderRadius:8, border:"none", background:on?"#fff":"transparent", boxShadow:on?"0 1px 2px rgba(26,59,82,0.15)":"none", color:on?C.goldDark:C.textSub, fontFamily:font.body, fontSize:13, fontWeight:on?600:500, cursor:"pointer", transition:"all .2s ease" }}>{v.label}</button>
+          ); })}
         </div>
       </div>
+
+      {/* Los 4 números que siempre se miran. El primero lleva el filo del color de la tienda. */}
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)", gap:isMobile?10:14, marginBottom:16 }}>
+        {[
+          { k:"Total en caja ahora", v:fmtCOP(totalEnCajaAhora), hl:true },
+          { k:"Efectivo pendiente", v:fmtCOP(Math.max(0, efectivoPendienteTotal)) },
+          { k:"Base", v:fmtCOP(baseVigente), rojo:baseDeficit>0 },
+          { k:"Última recolección", v: ultimaRecoleccion ? `${new Date(ultimaRecoleccion.created_at).toLocaleDateString("es-CO",{day:"numeric",month:"short"})} · ${(ultimaRecoleccion.recibe_nombre||"—").split(" ")[0]}` : "Sin registro", texto:true },
+        ].map(x=>(
+          <div key={x.k} style={{ position:"relative", overflow:"hidden", background:x.hl?C.goldDark:"#fff", border:`1px solid ${x.hl?C.goldDark:C.border}`, borderRadius:14, padding:isMobile?"12px 14px 12px 16px":"16px 18px 16px 22px" }}>
+            {x.hl && <span style={{ position:"absolute", left:0, top:0, bottom:0, width:5, background:colorTienda(stores[tiendaId]), transition:"background .35s ease" }}/>}
+            <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", fontWeight:600, color:x.hl?"rgba(229,213,204,0.75)":C.textMuted }}>{x.k}</div>
+            <div style={{ fontFamily:x.texto?font.body:font.mono, fontSize:x.texto?(isMobile?14:16):(isMobile?17:22), fontWeight:700, marginTop:x.texto?10:6, color:x.hl?C.tinta:(x.rojo?C.red:C.goldDark) }}>{x.v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* El día como una línea de 4 pasos. Tocar un paso lleva a su tarjeta. */}
+      {cajaVista==="registrar" && (
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)", background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden", marginBottom:18 }}>
+            {pasos.map((p,idx)=>{ const cur=p.id===actual; return (
+              <button key={p.id} onClick={()=>irAPasoCaja(p.id)} style={{ display:"flex", gap:12, alignItems:"flex-start", textAlign:"left", padding:isMobile?"12px":"16px 18px", border:"none", borderRight:(!isMobile&&idx<3)||(isMobile&&idx%2===0)?`1px solid ${C.border}`:"none", borderBottom:isMobile&&idx<2?`1px solid ${C.border}`:"none", background:cur?"rgba(38,93,127,0.06)":"#fff", boxShadow:cur?`inset 0 3px 0 ${C.gold}`:"none", cursor:"pointer", fontFamily:font.body }}>
+                <span key={`${p.id}-${p.hecho}`} className={p.hecho?"ozen-paso-hecho":undefined} style={{ width:30, height:30, borderRadius:"50%", display:"grid", placeItems:"center", flexShrink:0, background:p.hecho?C.green:"transparent", border:`${cur?2:1.5}px solid ${p.hecho?C.green:p.aviso?C.amber:cur?C.gold:"rgba(26,59,82,0.2)"}`, color:p.hecho?"#fff":p.aviso?C.amber:cur?C.gold:C.textMuted }}>
+                  <Icon n={p.hecho?"check":p.ic} s={15}/>
+                </span>
+                <span style={{ minWidth:0 }}>
+                  <b style={{ display:"block", fontSize:14, color:C.text }}>{p.t}</b>
+                  <small style={{ fontSize:12, color:p.aviso?C.amber:C.textMuted }}>{p.sub}</small>
+                </span>
+              </button>
+            ); })}
+          </div>
+      )}
+
       {msg && <div style={{ background:C_DARK.redDim, border:`1px solid ${C_DARK.red}44`, borderRadius:7, padding:"7px 10px", color:C_DARK.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{msg}</div>}
 
       <div key={cajaVista} className="ozen-pane-anim-tab">
@@ -8185,7 +8453,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
               únicas adiciones: `tiendaNombreActual` (nombre de la tienda ya elegida arriba, para la
               fila "Turno") y `resumenHoy.totalDescuentosDia` (suma informativa de descuentos que ya
               traía cada renglón, no afecta ningún total). */}
-          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, alignItems:"start" }}>
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:18, alignItems:"start" }}>
             <div>
               {/* Apertura, Última Recolección y Novedades del período unificados en una sola
                   burbuja (pedido de Santiago) — mismo contenido de siempre, ahora con
@@ -8203,7 +8471,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                   <div style={{ marginTop:2 }}>
                     <button onClick={()=>setVerDetalleCalculo(v=>!v)} style={{ background:"none", border:"none", color:C_DARK.textMuted, cursor:"pointer", fontSize:10, textDecoration:"underline", padding:0 }}>{verDetalleCalculo?"Ocultar detalle del cálculo":"Ver detalle del cálculo"}</button>
                     {verDetalleCalculo && (
-                      <div style={{ marginTop:4, padding:"8px 10px", background:"rgba(0,0,0,0.2)", borderRadius:6, fontFamily:font.mono, fontSize:10.5, color:C_DARK.textSub, display:"flex", flexDirection:"column", gap:2 }}>
+                      <div style={{ marginTop:4, padding:"8px 10px", background:C_DARK.surfaceHover, borderRadius:8, fontFamily:font.mono, fontSize:10.5, color:C_DARK.textSub, display:"flex", flexDirection:"column", gap:2 }}>
                         {ultimaRecoleccion ? (
                           <>
                             <div>Corte (última recolección, {fmtFechaHora(ultimaRecoleccion.created_at)}): se llevó {fmtCOP(ultimaRecoleccion.valor)}{Number(ultimaRecoleccion.valor_hoy||0)>0 ? ` (incluye ${fmtCOP(ultimaRecoleccion.valor_hoy)} de ese mismo día)` : ""}</div>
@@ -8346,6 +8614,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             </div>
 
             <div>
+              <div ref={novedadCardRef}>
               <CajaCard compact icon="➕" titulo="Agregar novedad" color={tiendaColor}>
                 <CajaFieldRow compact label="Quién registra *" value={gaAsesorId} onChange={setGaAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
                 <CajaFieldRow compact label="Quién autorizó *" value={gaAutorizoLiderId} onChange={setGaAutorizoLiderId} options={[{value:"",label:"Selecciona un líder..."}, ...lideresActivos.map(l=>({value:l.id,label:l.nombre}))]}/>
@@ -8356,6 +8625,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                   <CajaBtn onClick={guardarGasto} disabled={guardandoGa || !gaAsesorId || !gaAutorizoLiderId}>{guardandoGa?"...":"Agregar +"}</CajaBtn>
                 </div>
               </CajaCard>
+              </div>
 
               {/* Recolección de efectivo: movida a esta columna y hecha compacta — se veía
                   desproporcionadamente grande al lado de Apertura. */}
@@ -8562,6 +8832,10 @@ export default function App() {
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
   const [mostrarAccesoTiendas,setMostrarAccesoTiendas]=useState(false);
   const isMobile=useIsMobile();
+  // Tienda activa de TODA el área de Ventas (Propuesta A): se elige una sola vez en la barra
+  // superior y la usan Registrar venta y Caja — antes cada pantalla tenía su propio selector. La
+  // cuenta de tienda siempre queda fija en su propia tienda.
+  const [tiendaElegida,setTiendaActiva]=useState("");
 
   // `todayStr` se calcula UNA sola vez cuando carga la página (no es reactivo). Si alguien deja
   // una pestaña abierta de un día para otro sin recargar, todo lo que depende de "hoy" (fecha por
@@ -8682,7 +8956,6 @@ export default function App() {
   const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":puedeUsarAreas(u)?null:"checkin");sonidoBienvenida();refreshAll();};
   const logout=()=>{setUser(null);setArea(null);setTab(null);};
   const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?(ventasSoloLectura(user)?"metricas":"registrar"):a==="firmas"?"firmar":"dashboard");};
-  const backToAreas=()=>{setArea(null);setTab(null);};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
@@ -8788,6 +9061,8 @@ export default function App() {
 
   if(puedeUsarAreas(user) && !area) return <AreaSelector user={user} onChoose={chooseArea} onLogout={logout}/>;
 
+  // Si todavía no se ha elegido tienda (o la elegida ya no vende), se toma la primera que vende.
+  const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : (tiendasVenta(stores)[0]?.id || ""));
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
       if(area==="junta"){
@@ -8797,10 +9072,10 @@ export default function App() {
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
-        if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
+        if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
-        if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
+        if(tab==="caja")      return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
       } else if(area==="firmas"){
         if(tab==="firmar")   return <FirmarDocumentoScreen/>;
       } else {
@@ -8811,10 +9086,10 @@ export default function App() {
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
     } else if(esCuentaTienda(user)){
-      if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
+      if(tab==="registrar") return <VentasRegistrarScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
-      if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
+      if(tab==="caja")      return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
       // Solo la parte visual de la rejilla de Turnos (sin Borrador ni Administrar) — para que la
       // cuenta de tienda pueda ver quién tiene turno sin poder editar nada.
       if(tab==="turnos")    return <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={turnosAsignaciones}/>;
@@ -8859,8 +9134,27 @@ export default function App() {
          blanco), no con el fondo oscuro que se le puso al <select> — así el texto claro pensado
          para fondo oscuro quedaba casi ilegible al abrir cualquier lista (ej. elegir asesor). Se
          fija acá, una sola vez, para que todos los <select> de la app queden legibles. */
-      select { color-scheme: dark; }
+      select { color-scheme: light; }
       option { background-color: ${C.surface}; color: ${C.text}; }
+      /* Propuesta A: la línea de la pestaña activa se desliza; los menús flotantes aparecen con un
+         pequeño rebote; los renglones nuevos entran al recibo deslizándose; los pasos de Caja se
+         llenan de verde al quedar hechos. */
+      .ozen-tab-linea { transition: left .34s cubic-bezier(.34,1.3,.5,1), width .34s cubic-bezier(.34,1.3,.5,1); }
+      .ozen-tab-btn:hover, .ozen-area-btn:hover { color: ${C.goldDark} !important; }
+      .ozen-menu-item:hover { background: ${C.surfaceHover} !important; }
+      @keyframes ozenMenuPop { from { opacity:0; transform:translateY(-6px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
+      .ozen-menu-pop { animation: ozenMenuPop .2s cubic-bezier(.34,1.4,.6,1) both; transform-origin: top right; }
+      @keyframes ozenReciboLinea { from { opacity:0; transform:translateX(18px); } to { opacity:1; transform:translateX(0); } }
+      .ozen-recibo-linea { animation: ozenReciboLinea .38s cubic-bezier(.34,1.3,.5,1) both; }
+      @keyframes ozenPasoHecho { 0% { transform:scale(.6); box-shadow:0 0 0 0 rgba(27,122,65,.45); } 60% { transform:scale(1.12); } 100% { transform:scale(1); box-shadow:0 0 0 10px rgba(27,122,65,0); } }
+      .ozen-paso-hecho { animation: ozenPasoHecho .55s cubic-bezier(.34,1.4,.6,1) both; }
+      /* Borde inferior "de recibo" (zigzag) bajo el recibo en curso. */
+      .ozen-recibo-zigzag { height:12px; background: linear-gradient(-45deg, transparent 8px, #fff 0) 0 0/16px 12px repeat-x, linear-gradient(45deg, transparent 8px, #fff 0) 0 0/16px 12px repeat-x; filter: drop-shadow(0 1px 0 ${C.border}); }
+      /* Si la persona pidió en su sistema "reducir movimiento", la app lo respeta y apaga las
+         animaciones (quedan los cambios, sin el movimiento). */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+      }
       @keyframes ozenMetaCumplida { 0%,100% { box-shadow: 0 3px 14px rgba(46,204,113,0.35); } 50% { box-shadow: 0 3px 24px rgba(46,204,113,0.65); } }
       .ozen-meta-cumplida { animation: ozenMetaCumplida 1.8s ease-in-out infinite; }
     `}</style>
@@ -8897,12 +9191,20 @@ export default function App() {
     </div>
   );
 
+  const tabsVisibles = tabsPara(user, area);
+  const esAreaVentas = area==="ventas" || esCuentaTienda(user);
+  const mostrarTienda = esAreaVentas && (tab==="registrar" || tab==="caja");
+  const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
+  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:logout, onRefresh:refreshAll, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones };
+  const panel = <div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div>;
+
   if(isMobile) return (
     <ReadOnlyContext.Provider value={soloLectura}>
-      <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden"}}>
+      <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden",fontFamily:font.body}}>
         {globalAnimStyles}
-        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)} onActivarNotificaciones={activarNotificaciones}/>
-        <main style={{flex:1,overflowY:"auto",padding:16}}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></main>
+        <BarraSuperiorMovil {...propsBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
+        {mostrarTienda && <FranjaTienda color={colorTiendaActiva}/>}
+        <main style={{flex:1,overflowY:"auto",padding:16}}>{panel}</main>
         <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
         {modalCambiarPassword}
         {modalUsuarios}
@@ -8914,10 +9216,12 @@ export default function App() {
 
   return (
     <ReadOnlyContext.Provider value={soloLectura}>
-      <div style={{display:"flex",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
+      <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
         {globalAnimStyles}
-        <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)} onActivarNotificaciones={activarNotificaciones}/>
-        <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></main>
+        <BarraSuperior {...propsBarra}/>
+        <BarraPestanas tabs={tabsVisibles} tab={tab} setTab={setTab} derecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
+        {mostrarTienda && <FranjaTienda color={colorTiendaActiva}/>}
+        <main style={{flex:1,overflowY:"auto",padding:"26px 28px 40px"}}>{panel}</main>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
