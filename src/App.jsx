@@ -7312,6 +7312,16 @@ const capturarTarjetaCaja = async (ref, setToast) => {
           el.style.webkitBackdropFilter = "none";
           el.style.boxShadow = "none";
         });
+        // html2canvas no sabe dibujar controles nativos de formulario (<select>) — salían como un
+        // cuadro negro cortado en la imagen, por eso no se veía si el cierre era Parcial o Final
+        // (ver el <select> de ciTipo en headerExtra de CajaCard). Se reemplaza cada <select> por un
+        // texto plano con la opción elegida, solo en el DOM clonado usado para la foto.
+        clonedDoc.querySelectorAll("select").forEach(sel=>{
+          const span = clonedDoc.createElement("span");
+          span.textContent = sel.options[sel.selectedIndex]?.text || "";
+          span.setAttribute("style", sel.getAttribute("style") || "");
+          sel.replaceWith(span);
+        });
       },
     });
     canvas.toBlob(async (blob) => {
