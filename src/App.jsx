@@ -7551,6 +7551,9 @@ const cajaHeaderSelectStyle = { background:"#fff", border:`1px solid ${C_DARK.bo
 // legibilidad — el fondo sigue siendo oscuro (solo con el tinte), así que el texto normal de la
 // app (C_DARK.text/C_DARK.goldLight/C_DARK.textMuted) siempre contrasta bien, sea cual sea el color de la tienda.
 // Emojis que llegan como `icon` → íconos de línea de la Propuesta A.
+// Solo los montos y números van en fuente monoespaciada; nombres, turnos y fechas escritas van en
+// la fuente de la marca (en mono los nombres largos se veían desproporcionados, sobre todo en la foto).
+const esValorNumerico = (v) => typeof v==="number" || /^[-−+]?\s*\$|^[\d\s.,:\-−+$]+$/.test(String(v??"").trim());
 const CAJA_ICONO = { "🔓":"unlock", "🔒":"lock", "🚚":"truck", "➕":"note", "🗑️":"x", "🗒️":"note" };
 // Tarjeta de Caja (Propuesta A): blanca, con el color de la tienda como "sello" en el borde
 // superior y un punto junto al título. En la FOTO que se comparte por WhatsApp (ver
@@ -7593,13 +7596,13 @@ const CajaMoney = ({ label, value, onChange, placeholder }) => {
   );
 };
 const CajaBtn = ({ onClick, children, disabled }) => (
-  <button onClick={disabled?undefined:onClick} style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"10px 18px", borderRadius:10, border:"none", background:C.goldDark, color:C.tinta, fontSize:14, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.4:1, letterSpacing:"0.01em" }}>{typeof children==="string" && children.startsWith("📸 ") ? <><Icon n="camera" s={16}/>{children.slice(3)}</> : children}</button>
+  <button className="ozen-no-foto" onClick={disabled?undefined:onClick} style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"10px 18px", borderRadius:10, border:"none", background:C.goldDark, color:C.tinta, fontSize:14, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.4:1, letterSpacing:"0.01em" }}>{typeof children==="string" && children.startsWith("📸 ") ? <><Icon n="camera" s={16}/>{children.slice(3)}</> : children}</button>
 );
 // Botón 📸 — "fotografía" el cuadro completo (Apertura/Cierre/Recolección) y lo copia al
 // portapapeles como imagen, para pegarlo directo en WhatsApp sin tener que hacer captura de
 // pantalla manual y recortarla. Va al lado izquierdo del botón "Registrar..." de cada tarjeta.
 const CajaCapturaBtn = ({ onClick, title }) => (
-  <button type="button" onClick={onClick} title={title||"Copiar como imagen"} style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"7px 12px", borderRadius:9, border:`1px solid rgba(38,93,127,0.4)`, background:"#fff", color:C_DARK.gold, fontSize:12.5, fontWeight:600, fontFamily:font.body, cursor:"pointer", lineHeight:1 }}><Icon n="camera" s={15}/>Copiar foto</button>
+  <button type="button" className="ozen-no-foto" onClick={onClick} title={title||"Copiar como imagen"} style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"7px 12px", borderRadius:9, border:`1px solid rgba(38,93,127,0.4)`, background:"#fff", color:C_DARK.gold, fontSize:12.5, fontWeight:600, fontFamily:font.body, cursor:"pointer", lineHeight:1 }}><Icon n="camera" s={15}/>Copiar foto</button>
 );
 // Toma una "foto" de un cuadro de Caja (via su ref) y la copia al portapapeles como imagen —
 // ver CajaCapturaBtn. Depende de html2canvas, cargado desde CDN en index.html (no es un paquete
@@ -7635,9 +7638,14 @@ const capturarTarjetaCaja = async (ref, setToast) => {
             el.style.paddingTop = "0"; el.style.borderTop = "none"; el.style.overflow = "hidden";
             head.style.background = col; const px = parseFloat(el.style.paddingLeft)||18; head.style.margin = `0 -${px}px 12px`; head.style.padding = `12px ${px}px`;
             head.querySelectorAll("*").forEach(n=>{ n.style.color = "#fff"; });
-            const ic = head.querySelector(".ozen-caja-card-ic"); if(ic) ic.style.background = "rgba(255,255,255,0.2)";
+            // El ícono del encabezado se quita en la foto: html2canvas no respeta el color de los
+            // SVG (salía oscuro sobre el color de la tienda) y el título ya dice qué cuadro es.
+            const ic = head.querySelector(".ozen-caja-card-ic"); if(ic) ic.remove();
           }
         });
+        // La foto es el cuadro "de recibo": sin botones (Registrar, copiar foto, ver cálculo) ni los
+        // lapicitos de editar — esos solo sirven en pantalla. Si un contenedor queda vacío, se quita.
+        clonedDoc.querySelectorAll(".ozen-no-foto").forEach(n=>{ const padre = n.parentElement; n.remove(); if(padre && !padre.textContent.trim() && !padre.querySelector("img,svg,canvas")) padre.remove(); });
         // html2canvas no sabe dibujar controles nativos de formulario (<select>) — salían como un
         // cuadro negro cortado en la imagen, por eso no se veía si el cierre era Parcial o Final
         // (ver el <select> de ciTipo en headerExtra de CajaCard). Se reemplaza cada <select> por un
@@ -7773,7 +7781,7 @@ const CajaReciboLinea = ({ label, value, bold, color, small, indent, totalLine, 
     borderTop: totalLine ? `1px solid ${C_DARK.border}` : "none",
   }}>
     <span style={{ fontFamily:font.body, fontSize: bold?14:13.5, color: color || (small?C_DARK.textMuted:C_DARK.text), fontWeight: bold?700:400 }}>{label}</span>
-    <span style={{ fontFamily:font.mono, fontSize: bold?16.5:14.5, fontWeight: bold?700:400, color: color || (bold?C_DARK.goldLight:C_DARK.text), whiteSpace:"nowrap" }}>{value}</span>
+    <span style={{ fontFamily:esValorNumerico(value)?font.mono:font.body, fontSize: bold?16.5:14.5, fontWeight: bold?700:(esValorNumerico(value)?400:500), color: color || (bold?C_DARK.goldLight:C_DARK.text), whiteSpace:"nowrap" }}>{value}</span>
   </div>
 );
 // Barra divisoria de sub-sección dentro de una tarjeta (p.ej. "Dinero recibido por método de pago",
@@ -7860,8 +7868,8 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding: compact?"1px 0":"2.5px 0" }}>
       <span style={{ fontFamily:font.body, fontSize:13.5, color:C_DARK.text }}>{label}</span>
       <button type="button" onClick={()=>setEditando(true)} style={{ display:"flex", alignItems:"center", gap:5, background:"none", border:"none", cursor:"pointer", padding:0 }}>
-        <span style={{ fontFamily:font.mono, fontSize:14.5, color:C_DARK.text }}>{texto}</span>
-        <span style={{ color:C_DARK.textMuted }}><Icon n="pen" s={12}/></span>
+        <span style={{ fontFamily:esValorNumerico(texto)?font.mono:font.body, fontSize:14.5, fontWeight:esValorNumerico(texto)?400:500, color:C_DARK.text }}>{texto}</span>
+        <span className="ozen-no-foto" style={{ color:C_DARK.textMuted }}><Icon n="pen" s={12}/></span>
       </button>
     </div>
   );
@@ -8592,7 +8600,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
                   <CajaReciboLinea compact label="Efectivo" value={fmtCOP(Math.max(0, efectivoPendienteTotal))}/>
                   {esAdminDeVentas(user) && (
                     <div style={{ marginTop:2 }}>
-                      <button onClick={()=>setVerDetalleCalculo(v=>!v)} style={{ background:"none", border:"none", color:C_DARK.textMuted, cursor:"pointer", fontSize:10, textDecoration:"underline", padding:0 }}>{verDetalleCalculo?"Ocultar detalle del cálculo":"Ver detalle del cálculo"}</button>
+                      <button className="ozen-no-foto" onClick={()=>setVerDetalleCalculo(v=>!v)} style={{ background:"none", border:"none", color:C_DARK.textMuted, cursor:"pointer", fontSize:10, textDecoration:"underline", padding:0 }}>{verDetalleCalculo?"Ocultar detalle del cálculo":"Ver detalle del cálculo"}</button>
                       {verDetalleCalculo && (
                         <div style={{ marginTop:4, padding:"8px 10px", background:C_DARK.surfaceHover, borderRadius:8, fontFamily:font.mono, fontSize:10.5, color:C_DARK.textSub, display:"flex", flexDirection:"column", gap:2 }}>
                           {ultimaRecoleccion ? (
@@ -8632,7 +8640,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
                           <span>{idx+1}. {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C_DARK.amber }}> · pendiente</span>}</span>
                           <span style={{ display:"flex", alignItems:"center", gap:6 }}>
                             <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C_DARK.green:C_DARK.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
-                            {puedeAprobarNovedad && g.estado!=="aprobado" && <button onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.green, cursor:"pointer", fontSize:11, padding:"2px 6px" }}>Aprobar</button>}
+                            {puedeAprobarNovedad && g.estado!=="aprobado" && <button className="ozen-no-foto" onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.green, cursor:"pointer", fontSize:11, padding:"2px 6px" }}>Aprobar</button>}
                           </span>
                         </div>
                       ))}
