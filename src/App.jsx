@@ -4354,7 +4354,7 @@ const flexipagosPorVencer = (tiendaId, ventas, ventasItems, ventasAbonos, todayS
 // misma estructura y paddings de una tarjeta de venta normal, para que todos los registros de la
 // lista tengan el mismo grosor. En Ventas de hoy no se despliega: se ve todo de una, igual que
 // las demás tarjetas de esa pantalla (que tampoco se despliegan).
-function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
+function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true, soloDetalle }) {
   const [abierto, setAbierto] = useState(false);
   const valorOriginalFactura = Number(venta.valor_original ?? venta.total);
   // El o los renglones que componen ESTA Notacrédito específica: los que quedaron marcados como
@@ -4373,6 +4373,7 @@ function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
     </div>
   );
 
+  if(soloDetalle) return <div style={{ padding:"12px 14px", background:"#fff", border:`1px solid ${C.border}`, borderRadius:12 }}>{infoFacturaOriginal}</div>;
   if(!desplegable){
     return (
       <Card p="10px 14px" style={{ borderLeft:`3px solid ${tipoColor}` }}>
@@ -4427,11 +4428,22 @@ function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
 // siempre mostraba solo el abono del día — así que la misma novedad se veía con números distintos
 // según dónde se mirara, lo cual confundía al verificar cuentas). El headline muestra el valor
 // completo del Flexipago SOLO si este abono lo completa; si no, muestra lo que entró ese día.
-function AbonoFlexipagoCard({ venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy }) {
+function AbonoFlexipagoCard({ venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy, soloDetalle }) {
   const abonosOrdenados = [...abonos].sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
   // Se usa la fecha REAL del abono (no "hoy" a secas) porque este mismo componente se ve tanto en
   // "Ventas de hoy" (siempre hoy) como en "Lista de ventas" filtrada por cualquier fecha pasada.
   const fechaAbono = abonosOrdenados[0]?.fecha || venta.fecha;
+  const textoAbono = abonosOrdenados.length>1
+    ? `${fechaAbono}: ${abonosOrdenados.map(a=>`$${Number(a.valor).toLocaleString("es-CO")} (${textoMediosAbono(a)})`).join(" + ")} — antes había abonado $${antes.toLocaleString("es-CO")}`
+    : completa
+      ? `Completó el Flexipago el ${fechaAbono} con un abono de $${totalHoy.toLocaleString("es-CO")} — antes había abonado $${antes.toLocaleString("es-CO")}`
+      : `Abono parcial de $${totalHoy.toLocaleString("es-CO")} el ${fechaAbono} — lleva $${(antes+totalHoy).toLocaleString("es-CO")} de $${valorFlex.toLocaleString("es-CO")}`;
+  if(soloDetalle) return (
+    <div style={{ padding:"12px 14px", background:"#fff", border:`1px solid ${C.border}`, borderRadius:12, fontFamily:font.body, fontSize:12, color:C.textMuted, lineHeight:1.5 }}>
+      {venta.cliente_nombre && <div><b style={{ color:C.text, fontWeight:600 }}>Cliente:</b> {venta.cliente_nombre}{venta.cliente_telefono?` · Tel: ${venta.cliente_telefono}`:""}</div>}
+      <div>{textoAbono}</div>
+    </div>
+  );
   return (
     <Card p="10px 14px" style={{ borderLeft:`3px solid ${completa?C.green:C.blue}` }}>
       <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
@@ -4460,11 +4472,99 @@ function AbonoFlexipagoCard({ venta, abonos, valorFlex, antes, totalHoy, complet
   );
 }
 
+// ── Tabla de ventas (Propuesta A) ────────────────────────────────────────────
+// Misma tabla en "Ventas de hoy" (Registrar venta) y en Lista de ventas: una fila por venta,
+// abono de Flexipago o nota crédito. Al tocar una fila se despliega debajo SOLO el detalle (sin
+// repetir lo que la fila ya dice), con todas las acciones de siempre.
+const horaCol = (iso) => iso ? new Date(iso).toLocaleTimeString("es-CO",{ hour:"2-digit", minute:"2-digit", hour12:false, timeZone:"America/Bogota" }) : "—";
+const fechaCorta = (f) => { if(!f) return "—"; const d = new Date(f+"T12:00:00"); return `${d.getDate()} ${d.toLocaleDateString("es-CO",{ month:"short" }).replace(".","")}`; };
+const medioCortoLabel = (m) => m==="tarjeta" ? "Tarjeta" : (VENTAS_MEDIOS_PAGO.find(x=>x.value===m)?.label || m);
+const colorDeTipoVenta = (tipo) => tipo==="producto" ? C.gold : tipo==="flexipago" ? C.goldDark : tipo==="nota" ? C.red : C.amber;
+// props: todo lo que necesita VentaCard para desplegar el detalle.
+const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItems, ventasAbonos, props }) => [
+  ...ventasLista.map(v=>{
+    const its = ventasItems.filter(i=>i.venta_id===v.id);
+    const tipos = [...new Set(its.map(i=>i.tipo))];
+    const medios = [...new Set(its.flatMap(i=>(i.pagos||[]).map(p=>p.medio_pago)))].map(medioCortoLabel);
+    const abonado = (ventasAbonos||[]).filter(a=>a.venta_id===v.id).reduce((t,a)=>t+Number(a.valor||0),0);
+    const original = Number(v.valor_original ?? v.total ?? 0);
+    const tipoPrincipal = v.es_flexipago ? "flexipago" : (tipos.includes("producto") ? "producto" : tipos[0]);
+    return { key:`v-${v.id}`, fecha:v.fecha, orden:`${v.fecha||""} ${v.created_at||""}`, hora:horaCol(v.created_at), tiendaId:v.tienda_id, asesor:v.vendedor_nombre||"—", cliente:v.cliente_nombre||"",
+      tipo: v.es_flexipago ? "Flexipago" : tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta", colorTipo:colorDeTipoVenta(tipoPrincipal),
+      medios: v.es_flexipago ? (abonado>0?"Abonos":"Pago diferido") : (medios.join(" + ")||"—"), factura:v.numero_factura||"—",
+      total: v.es_flexipago && abonado<original ? abonado : original,
+      detalle: ()=> <VentaCard sinEncabezado venta={v} {...props}/> };
+  }),
+  ...abonosLista.map(({venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy})=>({
+    key:`a-${venta.id}-${abonos[0]?.fecha}`, fecha:abonos[0]?.fecha||venta.fecha, orden:`${abonos[0]?.fecha||""} ${abonos[0]?.created_at||""}`, hora:horaCol(abonos[0]?.created_at), tiendaId:venta.tienda_id, asesor:venta.vendedor_nombre||"—", cliente:venta.cliente_nombre||"",
+    tipo: completa ? "Flexipago · completado" : "Flexipago · abono", colorTipo:colorDeTipoVenta("flexipago"), medios:mediosHoy.map(medioCortoLabel).join(" + ")||"—",
+    factura:venta.numero_factura||"—", total: completa ? valorFlex : totalHoy,
+    detalle: ()=> <AbonoFlexipagoCard soloDetalle venta={venta} abonos={abonos} valorFlex={valorFlex} antes={antes} totalHoy={totalHoy} completa={completa} mediosHoy={mediosHoy}/> })),
+  ...notasLista.map(({venta, ajuste})=>{
+    const its = ventasItems.filter(i=>i.venta_id===ajuste.venta_id && i.es_original===false && i.fecha_item===ajuste.fecha);
+    const medios = [...new Set(its.flatMap(i=>(i.pagos||[]).map(p=>p.medio_pago)))].map(medioCortoLabel);
+    return { key:`n-${ajuste.id}`, fecha:ajuste.fecha, orden:`${ajuste.fecha||""} ${ajuste.created_at||""}`, hora:horaCol(ajuste.created_at), tiendaId:venta.tienda_id, asesor:venta.vendedor_nombre||"—", cliente:venta.cliente_nombre||"",
+      tipo:"Nota crédito", colorTipo:colorDeTipoVenta("nota"), medios:medios.join(" + ")||"—", factura:ajuste.numero_factura||venta.numero_factura||"—", total:Number(ajuste.diferencia||0), negativo:Number(ajuste.diferencia||0)<0,
+      detalle: ()=> <NotaCreditoCard soloDetalle ajuste={ajuste} venta={venta} ventasItems={ventasItems}/> };
+  }),
+].sort((a,b)=> String(b.orden).localeCompare(String(a.orden)));
+
+function TablaVentas({ filas, stores, isMobile, conFecha, conTienda, vacio, limiteInicial=60 }) {
+  const [abierta, setAbierta] = useState(null);
+  const [limite, setLimite] = useState(limiteInicial);
+  const cols = [ conFecha ? "82px" : "64px", ...(conTienda?["minmax(110px,.9fr)"]:[]), "minmax(120px,1.3fr)", "minmax(110px,1.1fr)", "minmax(100px,1.1fr)", "minmax(80px,.8fr)", "118px", "22px" ];
+  const grid = { display:"grid", gridTemplateColumns:cols.join(" "), gap:14, alignItems:"center" };
+  const th = { fontFamily:font.body, fontSize:11, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:600 };
+  const visibles = filas.slice(0, limite);
+  return (
+    <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
+      {!isMobile && (
+        <div style={{ ...grid, padding:"11px 16px", borderBottom:`1px solid ${C.border}` }}>
+          <span style={th}>{conFecha?"Fecha":"Hora"}</span>{conTienda && <span style={th}>Tienda</span>}
+          {["Asesor","Tipo","Medios","Factura"].map(h=><span key={h} style={th}>{h}</span>)}
+          <span style={{ ...th, textAlign:"right" }}>Total</span><span/>
+        </div>
+      )}
+      {visibles.map((f,idx)=>{ const abiertaEsta = abierta===f.key; const tienda = stores[f.tiendaId]; return (
+        <div key={f.key} style={{ borderBottom: idx<visibles.length-1 ? `1px solid ${C.border}` : "none" }}>
+          <button onClick={()=>setAbierta(abiertaEsta?null:f.key)} className="ozen-fila-venta" style={{ ...(isMobile?{ display:"grid", gridTemplateColumns:"54px 1fr auto", gap:10, alignItems:"center" }:grid), width:"100%", padding:isMobile?"12px 14px":"13px 16px", border:"none", background:abiertaEsta?C.surfaceHover:"transparent", cursor:"pointer", textAlign:"left", fontFamily:font.body, fontSize:13.5, color:C.text }}>
+            <span style={{ fontFamily:font.mono, fontSize:12.5, lineHeight:1.3 }}>{conFecha ? <>{fechaCorta(f.fecha)}<span style={{ display:"block", fontSize:11, color:C.textMuted }}>{f.hora}</span></> : f.hora}</span>
+            {isMobile ? (
+              <span style={{ minWidth:0 }}>
+                <span style={{ display:"flex", alignItems:"center", gap:6, fontWeight:600, overflow:"hidden", whiteSpace:"nowrap" }}>{conTienda && tienda && <PuntoTienda color={colorTienda(tienda)} size={7}/>}<span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{f.asesor}</span></span>
+                <span style={{ display:"flex", alignItems:"center", gap:6, marginTop:3, fontSize:12, color:C.textMuted, flexWrap:"wrap" }}><PildoraTipo t={f.tipo} c={f.colorTipo}/>{f.medios}</span>
+              </span>
+            ) : (
+              <>
+                {conTienda && <span>{tienda ? <EtiquetaTienda store={tienda} sm/> : "—"}</span>}
+                <span style={{ minWidth:0, overflow:"hidden" }}>
+                  <span style={{ display:"block", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.asesor}</span>
+                  {f.cliente && <span style={{ display:"block", fontSize:11.5, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.cliente}</span>}
+                </span>
+                <span><PildoraTipo t={f.tipo} c={f.colorTipo}/></span>
+                <span style={{ color:C.textSub }}>{f.medios}</span>
+                <span style={{ fontFamily:font.mono, fontSize:12.5, color:f.factura==="—"?C.textMuted:C.text }}>{f.factura}</span>
+              </>
+            )}
+            <span style={{ fontFamily:font.mono, fontWeight:700, textAlign:"right", color:f.negativo?C.amber:C.text }}>{fmtCOP(f.total)}</span>
+            {!isMobile && <span style={{ color:C.textMuted, display:"grid", justifyContent:"end", transition:"transform .25s ease", transform:abiertaEsta?"rotate(90deg)":"none" }}><Icon n="right" s={15}/></span>}
+          </button>
+          {abiertaEsta && <div className="ozen-recibo-linea" style={{ padding:"4px 12px 12px", background:C.surfaceHover }}>{f.detalle()}</div>}
+        </div>
+      ); })}
+      {filas.length===0 && <div style={{ textAlign:"center", padding:30, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>{vacio}</div>}
+      {filas.length>limite && (
+        <button onClick={()=>setLimite(l=>l+100)} style={{ width:"100%", padding:"12px", border:"none", borderTop:`1px solid ${C.border}`, background:"#fff", color:C.gold, fontFamily:font.body, fontSize:13, fontWeight:600, cursor:"pointer" }}>Ver más ({filas.length-limite} restantes)</button>
+      )}
+    </div>
+  );
+}
+
 // Tarjeta completa de una venta: header desplegable + detalle con toda la edición (Notacrédito
 // Siigo, Corregir factura, abonos, corrección de medio de pago, solicitudes, borrar, reabrir
 // Flexipago vencido). Es el MISMO componente en Lista de ventas y en "Ventas de hoy" — así ambos
 // lados se ven y funcionan exactamente igual, con detalle desplegable al hacer click en los dos.
-function VentaCard({ inicialExpandido, venta, stores, user, esAdmin, soloLectura, isMobile, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes }) {
+function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdmin, soloLectura, isMobile, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes }) {
   const v = venta; // alias — el resto de esta lógica viene tal cual de Lista de ventas
 
   const [expandido, setExpandido] = useState(!!inicialExpandido);
@@ -4685,7 +4785,7 @@ function VentaCard({ inicialExpandido, venta, stores, user, esAdmin, soloLectura
     setDetalle({ items:items||[], abonos:abonos||[], solicitudes:solicitudes||[], cargando:false });
   };
   // Abierta desde la tabla de "Ventas de hoy": se trae el detalle apenas aparece.
-  useEffect(()=>{ if(inicialExpandido && !detalle) fetchDetalle(); }, []); // eslint-disable-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
+  useEffect(()=>{ if((inicialExpandido||sinEncabezado) && !detalle) fetchDetalle(); }, []); // eslint-disable-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   const toggleExpand = () => {
     if(expandido){ setExpandido(false); return; }
     setExpandido(true);
@@ -5257,8 +5357,17 @@ function VentaCard({ inicialExpandido, venta, stores, user, esAdmin, soloLectura
   // completa, ahí sí se muestra el valor total de la venta.
   const valorHeaderMostrar = (v.es_flexipago && !flexipagoCompletado) ? totalAbonado : valorOriginalMostrar;
   return (
-    <Card p="0" style={{ overflow:"hidden", borderLeft:`3px solid ${colorTienda(stores[v.tienda_id])}` }}>
-      <button onClick={toggleExpand} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"9px 14px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
+    <Card p="0" style={{ overflow:"hidden", ...(sinEncabezado ? {} : { borderLeft:`3px solid ${colorTienda(stores[v.tienda_id])}` }) }}>
+      {/* Abierta desde una tabla (Ventas de hoy / Lista de ventas): la fila ya muestra factura,
+          asesor, tienda y total, así que aquí solo va lo que la fila NO dice — cliente y estado del
+          Flexipago — y el detalle. */}
+      {sinEncabezado && ((v.cliente_nombre || v.cliente_documento || v.cliente_telefono) || estadoFlexipago) && (
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", padding:"10px 14px 0", fontFamily:font.body, fontSize:12, color:C.textMuted }}>
+          {(v.cliente_nombre || v.cliente_documento || v.cliente_telefono) && <span><b style={{ color:C.text, fontWeight:600 }}>Cliente:</b> {[v.cliente_nombre, [v.cliente_tipo_doc, v.cliente_documento].filter(Boolean).join(" "), v.cliente_telefono?`Tel: ${v.cliente_telefono}`:null].filter(Boolean).join(" · ")}</span>}
+          {estadoFlexipago && <Badge color={estadoFlexipago.color} sm>{estadoFlexipago.texto}</Badge>}
+        </div>
+      )}
+      {!sinEncabezado && <button onClick={toggleExpand} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"9px 14px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
         <Badge color={C.blue} sm>#{v.numero_factura||"—"}</Badge>
         <div style={{ flex:1, minWidth:140, minHeight:30 }}>
           <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha}</span> {stores[v.tienda_id] ? <EtiquetaTienda store={stores[v.tienda_id]} sm/> : <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.tienda_id}</span>}</div>
@@ -5284,10 +5393,10 @@ function VentaCard({ inicialExpandido, venta, stores, user, esAdmin, soloLectura
           <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight }}>${valorHeaderMostrar.toLocaleString("es-CO")}</div>
         </div>
         <span style={{ color:C.textMuted, fontSize:11 }}>{expandido?"▲":"▼"}</span>
-      </button>
+      </button>}
 
-      <Collapse open={expandido}>
-        <div style={{ padding:"0 12px 12px", borderTop:`1px solid ${C.border}` }}>
+      <Collapse open={expandido||!!sinEncabezado}>
+        <div style={{ padding:sinEncabezado?"4px 14px 14px":"0 12px 12px", borderTop:sinEncabezado?"none":`1px solid ${C.border}` }}>
           {d?.cargando ? (
             <div style={{ padding:14, color:C.textMuted, fontFamily:font.body, fontSize:12 }}>Cargando...</div>
           ) : (
@@ -6077,37 +6186,9 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
   const notaPaso = (t) => <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:12.5, color:C.textMuted, textAlign:"right" }}>{t}</span>;
   const lineaRecibo = { display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, fontFamily:font.body, fontSize:13, color:C.textSub, padding:"5px 0" };
   const guiones = <div style={{ borderTop:`1.5px dashed ${C.border}`, margin:"12px 0" }}/>;
-  // Filas de la tabla "Ventas de hoy": ventas, abonos de Flexipago y notas crédito, las más recientes primero.
-  const [filaAbierta, setFilaAbierta] = useState(null);
-  const horaDe = (iso) => iso ? new Date(iso).toLocaleTimeString("es-CO",{ hour:"2-digit", minute:"2-digit", hour12:false, timeZone:"America/Bogota" }) : "—";
-  const medioCorto = (m) => m==="tarjeta" ? "Tarjeta" : (VENTAS_MEDIOS_PAGO.find(x=>x.value===m)?.label || m);
-  const colorDeTipo = (tipo) => tipo==="producto" ? C.gold : tipo==="flexipago" ? C.goldDark : tipo==="nota" ? C.red : C.amber;
-  const filasHoy = [
-    ...ventasHoy.map(v=>{
-      const its = ventasItems.filter(i=>i.venta_id===v.id);
-      const tipos = [...new Set(its.map(i=>i.tipo))];
-      const medios = [...new Set(its.flatMap(i=>(i.pagos||[]).map(p=>p.medio_pago)))].map(medioCorto);
-      const abonado = (ventasAbonos||[]).filter(a=>a.venta_id===v.id).reduce((t,a)=>t+Number(a.valor||0),0);
-      const original = Number(v.valor_original ?? v.total ?? 0);
-      const tipoPrincipal = v.es_flexipago ? "flexipago" : (tipos.includes("producto") ? "producto" : tipos[0]);
-      return { key:`v-${v.id}`, orden:v.created_at||"", hora:horaDe(v.created_at), asesor:v.vendedor_nombre||"—",
-        tipo: v.es_flexipago ? "Flexipago" : tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta", colorTipo:colorDeTipo(tipoPrincipal),
-        medios: v.es_flexipago ? (abonado>0?"Abonos":"Pago diferido") : (medios.join(" + ")||"—"), factura:v.numero_factura||"—",
-        total: v.es_flexipago && abonado<original ? abonado : original,
-        detalle: ()=> <VentaCard inicialExpandido venta={v} stores={stores} user={user} esAdmin={esAdmin} soloLectura={soloLectura} isMobile={isMobile} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes}/> };
-    }),
-    ...abonosHoyTienda.map(({venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy})=>({
-      key:`a-${venta.id}`, orden:abonos[0]?.created_at||"", hora:horaDe(abonos[0]?.created_at), asesor:venta.vendedor_nombre||"—",
-      tipo: completa ? "Flexipago · completado" : "Flexipago · abono", colorTipo:colorDeTipo("flexipago"), medios:mediosHoy.map(medioCorto).join(" + ")||"—",
-      factura:venta.numero_factura||"—", total:totalHoy,
-      detalle: ()=> <AbonoFlexipagoCard venta={venta} abonos={abonos} valorFlex={valorFlex} antes={antes} totalHoy={totalHoy} completa={completa} mediosHoy={mediosHoy}/> })),
-    ...notaCreditoHoyTienda.map(({venta, ajuste})=>({
-      key:`n-${ajuste.id}`, orden:ajuste.created_at||"", hora:horaDe(ajuste.created_at), asesor:venta.vendedor_nombre||"—",
-      tipo:"Nota crédito", colorTipo:colorDeTipo("nota"), medios:"—", factura:ajuste.numero_factura||venta.numero_factura||"—", total:Number(ajuste.diferencia||0), negativo:Number(ajuste.diferencia||0)<0,
-      detalle: ()=> <NotaCreditoCard ajuste={ajuste} venta={venta} ventasItems={ventasItems} desplegable={false}/> })),
-  ].sort((a,b)=> String(b.orden).localeCompare(String(a.orden)));
-  const filaGrid = { display:"grid", gridTemplateColumns:"70px minmax(120px,1.4fr) minmax(110px,1.1fr) minmax(110px,1.2fr) minmax(80px,.8fr) 120px 22px", gap:14, alignItems:"center" };
-  const thEstilo = { fontFamily:font.body, fontSize:11, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:600 };
+  // Filas de la tabla "Ventas de hoy" (ver TablaVentas): ventas, abonos de Flexipago y notas crédito.
+  const filasHoy = construirFilasVentas({ ventasLista:ventasHoy, abonosLista:abonosHoyTienda, notasLista:notaCreditoHoyTienda, ventasItems, ventasAbonos,
+    props:{ stores, user, esAdmin, soloLectura, isMobile, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes:ventasAjustes, setAjustes:setVentasAjustes } });
 
   const resumenMedios = Object.entries(items.flatMap(it=>it.pagos).reduce((acc,p)=>{ acc[p.medio_pago]=(acc[p.medio_pago]||0)+Number(p.valor); return acc; },{}));
 
@@ -6340,38 +6421,7 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
         <b style={{ fontFamily:font.body, fontSize:16, color:C.text }}>Ventas de hoy en {nombreTiendaCorto(tiendaActual)} <span style={{ color:C.textMuted, fontWeight:500 }}>· {filasHoy.length}</span></b>
         {onVerLista && <button onClick={onVerLista} style={{ background:"none", border:"none", color:C.gold, fontFamily:font.body, fontSize:13.5, fontWeight:600, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6, padding:0 }}>Ver todas en Lista de ventas<Icon n="right" s={15}/></button>}
       </div>
-      <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
-        {!isMobile && (
-          <div style={{ ...filaGrid, padding:"11px 16px", borderBottom:`1px solid ${C.border}` }}>
-            {["Hora","Asesor","Tipo","Medios","Factura"].map(h=><span key={h} style={thEstilo}>{h}</span>)}
-            <span style={{ ...thEstilo, textAlign:"right" }}>Total</span><span/>
-          </div>
-        )}
-        {filasHoy.map((f,idx)=>{ const abierta = filaAbierta===f.key; return (
-          <div key={f.key} style={{ borderBottom: idx<filasHoy.length-1 ? `1px solid ${C.border}` : "none" }}>
-            <button onClick={()=>setFilaAbierta(abierta?null:f.key)} className="ozen-fila-venta" style={{ ...(isMobile?{ display:"grid", gridTemplateColumns:"48px 1fr auto", gap:10, alignItems:"center" }:filaGrid), width:"100%", padding:isMobile?"12px 14px":"13px 16px", border:"none", background:abierta?C.surfaceHover:"transparent", cursor:"pointer", textAlign:"left", fontFamily:font.body, fontSize:13.5, color:C.text }}>
-              <span style={{ fontFamily:font.mono, fontSize:13 }}>{f.hora}</span>
-              {isMobile ? (
-                <span style={{ minWidth:0 }}>
-                  <span style={{ display:"block", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.asesor}</span>
-                  <span style={{ display:"flex", alignItems:"center", gap:6, marginTop:3, fontSize:12, color:C.textMuted }}><PildoraTipo t={f.tipo} c={f.colorTipo}/>{f.medios}</span>
-                </span>
-              ) : (
-                <>
-                  <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.asesor}</span>
-                  <span><PildoraTipo t={f.tipo} c={f.colorTipo}/></span>
-                  <span style={{ color:C.textSub }}>{f.medios}</span>
-                  <span style={{ fontFamily:font.mono, fontSize:12.5, color:f.factura==="—"?C.textMuted:C.text }}>{f.factura}</span>
-                </>
-              )}
-              <span style={{ fontFamily:font.mono, fontWeight:700, textAlign:"right", color:f.negativo?C.amber:C.text }}>{fmtCOP(f.total)}</span>
-              {!isMobile && <span style={{ color:C.textMuted, display:"grid", justifyContent:"end", transition:"transform .25s ease", transform:abierta?"rotate(90deg)":"none" }}><Icon n="right" s={15}/></span>}
-            </button>
-            {abierta && <div className="ozen-recibo-linea" style={{ padding:"4px 12px 12px", background:C.surfaceHover }}>{f.detalle()}</div>}
-          </div>
-        ); })}
-        {filasHoy.length===0 && <div style={{ textAlign:"center", padding:30, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin ventas registradas hoy en esta tienda.</div>}
-      </div>
+      <TablaVentas filas={filasHoy} stores={stores} isMobile={isMobile} vacio="Sin ventas registradas hoy en esta tienda."/>
     </div>
     </>
   );
@@ -6480,28 +6530,12 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
         </div>
       </Card>
 
-      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-        {(() => {
-        const elementosVentas = ventasFiltradas.map(v=>({ fecha: v.fecha, el: (
-          <VentaCard key={v.id} venta={v} stores={stores} user={user} esAdmin={esAdmin} soloLectura={soloLectura} isMobile={isMobile}
-            ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems}
-            ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ajustes} setAjustes={setAjustes}/>
-        )}));
-        // Las Notas crédito se mezclan en la MISMA lista, ordenadas por su fecha real junto con
-        // las demás ventas — no van en una sección aparte, para que se vean como un registro más.
-        const elementosNC = notaCreditosFiltradas.map(({ajuste, venta})=>({
-          fecha: ajuste.fecha,
-          el: <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta} ventasItems={ventasItems}/>,
-        }));
-        const elementosAbonos = abonosFiltrados.map(({venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy})=>({
-          fecha: filtroFecha,
-          el: <AbonoFlexipagoCard key={`ab-${venta.id}`} venta={venta} abonos={abonos} valorFlex={valorFlex} antes={antes} totalHoy={totalHoy} completa={completa} mediosHoy={mediosHoy}/>,
-        }));
-        const combinados = [...elementosVentas, ...elementosNC, ...elementosAbonos].sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||""));
-        return combinados.map(e=>e.el);
-        })()}
-        {ventasFiltradas.length===0 && notaCreditosFiltradas.length===0 && abonosFiltrados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>No hay ventas que coincidan con los filtros.</div>}
-      </div>
+      {/* Propuesta A: misma tabla que "Ventas de hoy" — fecha, tienda, asesor, tipo, medios,
+          factura y total; al tocar una fila se despliega el detalle con sus acciones. */}
+      <TablaVentas key={`${filtroTienda}|${filtroFecha}|${filtroVendedor}|${filtroFlexipago}|${busqueda}`} stores={stores} isMobile={isMobile} conFecha conTienda={!tiendaFija && !filtroTienda}
+        vacio="No hay ventas con estos filtros."
+        filas={construirFilasVentas({ ventasLista:ventasFiltradas, abonosLista:abonosFiltrados, notasLista:notaCreditosFiltradas, ventasItems, ventasAbonos,
+          props:{ stores, user, esAdmin, soloLectura, isMobile, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes } })}/>
     </div>
   );
 }
