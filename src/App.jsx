@@ -7933,9 +7933,15 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       tienda_id:tiendaId, fecha:apFecha, asesor_id:apAsesorId, asesor_nombre:asesor?.name||"",
       base_caja:Number(baseVigente||0), novedades:null, registrado_por:user.name, detalle:detalleApertura,
     }).select().single();
-    setGuardandoAp(false);
-    if(data){ setAperturas(prev=>[data,...prev]); }
+    if(data){
+      setAperturas(prev=>[data,...prev]);
+      // Un solo botón registra Y copia la imagen para WhatsApp — ver el mismo patrón en
+      // guardarRecoleccion (antes eran dos botones separados y era fácil enviar la foto y olvidar
+      // registrar). Se mantiene guardandoAp=true (botón deshabilitado) durante la captura también.
+      await capturarTarjetaCaja(aperturaCardRef, setToastCaptura);
+    }
     else if(error){ setMsg(`No se pudo guardar la apertura: ${error.message||"error desconocido"}`); }
+    setGuardandoAp(false);
   };
 
   const guardarGasto = async () => {
@@ -8004,9 +8010,16 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       tienda_id:tiendaId, fecha:ciFecha, tipo:ciTipo, asesor_id:ciAsesorId, asesor_nombre:asesor?.name||"",
       base_caja:Number(baseVigente||0), novedades:ciNovedades.trim()||null, registrado_por:user.name, detalle:detalleCierre,
     }).select().single();
-    setGuardandoCi(false);
-    if(data){ setCierres(prev=>[data,...prev]); setCiNovedades(""); sonidoCierreCaja(); }
+    if(data){
+      setCierres(prev=>[data,...prev]);
+      // Un solo botón registra Y copia la imagen para WhatsApp — mismo patrón que en
+      // guardarRecoleccion/guardarApertura. Se captura antes de limpiar "novedades", con los datos
+      // todavía en pantalla.
+      await capturarTarjetaCaja(cierreCardRef, setToastCaptura);
+      setCiNovedades(""); sonidoCierreCaja();
+    }
     else if(error){ setMsg(`No se pudo guardar el cierre: ${error.message||"error desconocido"}`); sonidoError(); }
+    setGuardandoCi(false);
   };
 
   const guardarRecoleccion = async () => {
@@ -8202,8 +8215,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 )}
                 <CajaReciboLinea compact label="Total" value={fmtCOP(totalEnCajaAhora)} bold totalLine/>
                 <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end", gap:6 }}>
-                  <CajaCapturaBtn onClick={()=>capturarTarjetaCaja(aperturaCardRef, setToastCaptura)} title="Copiar apertura como imagen"/>
-                  <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"Registrar apertura"}</CajaBtn>
+                  <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"📸 Registrar apertura"}</CajaBtn>
                 </div>
 
                 <CajaSubHeader compact label="Última Recolección"/>
@@ -8317,8 +8329,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 )}
 
                 <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end", gap:6 }}>
-                  <CajaCapturaBtn onClick={()=>capturarTarjetaCaja(cierreCardRef, setToastCaptura)} title="Copiar cierre como imagen"/>
-                  <CajaBtn onClick={guardarCierre} disabled={guardandoCi || !tiendaId || !ciAsesorId}>{guardandoCi?"...":"Registrar cierre"}</CajaBtn>
+                  <CajaBtn onClick={guardarCierre} disabled={guardandoCi || !tiendaId || !ciAsesorId}>{guardandoCi?"...":"📸 Registrar cierre"}</CajaBtn>
                 </div>
               </CajaCard>
               </div>
