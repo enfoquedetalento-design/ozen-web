@@ -7629,19 +7629,10 @@ const capturarTarjetaCaja = async (ref, setToast) => {
           el.style.backdropFilter = "none";
           el.style.webkitBackdropFilter = "none";
           el.style.boxShadow = "none";
-          // Propuesta A: en pantalla el color de la tienda es solo un sello; en la FOTO el
-          // encabezado va pintado completo con ese color (con texto blanco), como un membrete, para
-          // que en el chat se reconozca la tienda al instante.
-          const col = el.getAttribute("data-color");
-          const head = el.querySelector(".ozen-caja-card-head");
-          if(col && head){
-            el.style.paddingTop = "0"; el.style.borderTop = "none"; el.style.overflow = "hidden";
-            head.style.background = col; const px = parseFloat(el.style.paddingLeft)||18; head.style.margin = `0 -${px}px 12px`; head.style.padding = `12px ${px}px`;
-            head.querySelectorAll("*").forEach(n=>{ n.style.color = "#fff"; });
-            // El ícono del encabezado se quita en la foto: html2canvas no respeta el color de los
-            // SVG (salía oscuro sobre el color de la tienda) y el título ya dice qué cuadro es.
-            const ic = head.querySelector(".ozen-caja-card-ic"); if(ic) ic.remove();
-          }
+          // La foto sale IGUAL que la tarjeta en pantalla: fondo blanco, sello de 3 px del color de la
+          // tienda arriba y el punto junto al título. Solo se fija el color de los íconos, porque
+          // html2canvas no resuelve `currentColor` en los SVG (salían negros).
+          el.querySelectorAll(".ozen-caja-card-ic svg").forEach(sv=>{ sv.setAttribute("stroke", C_DARK.gold); sv.querySelectorAll("*").forEach(n=>n.setAttribute("stroke", C_DARK.gold)); });
         });
         // La foto es el cuadro "de recibo": sin botones (Registrar, copiar foto, ver cálculo) ni los
         // lapicitos de editar — esos solo sirven en pantalla. Si un contenedor queda vacío, se quita.
