@@ -8043,9 +8043,19 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
       valor_hoy:valorHoyNum, incluye_hoy:reIncluyeHoy,
       base_caja:baseCajaFinal, comentarios:reComentarios.trim()||null, registrado_por:user.name, detalle:detalleRecoleccion,
     }).select().single();
-    setGuardandoRe(false);
-    if(data){ setRecolecciones(prev=>[data,...prev]); setReValor(""); setReComentarios(""); setReIncluyeHoy(false); setReValorHoy(""); setReBaseCajaTocado(false); }
+    if(data){
+      setRecolecciones(prev=>[data,...prev]);
+      // Se copia la imagen justo después de guardar (con los datos todavía en pantalla, antes de
+      // limpiar el formulario) — así un solo botón registra Y deja la captura lista para pegar en
+      // WhatsApp, en vez de dos botones separados donde era fácil enviar la foto y olvidar
+      // registrar (el problema real que reportó Santiago). Se mantiene el botón deshabilitado
+      // (guardandoRe) durante la captura también, para que no se pueda hacer doble clic mientras
+      // se genera la imagen.
+      await capturarTarjetaCaja(recoleccionCardRef, setToastCaptura);
+      setReValor(""); setReComentarios(""); setReIncluyeHoy(false); setReValorHoy(""); setReBaseCajaTocado(false);
+    }
     else if(error){ setMsg(`No se pudo guardar la recolección: ${error.message||"error desconocido"}`); }
+    setGuardandoRe(false);
   };
 
   // Borrar registros de caja — solo master/admin_finanzas, y con confirmación (son registros
@@ -8367,8 +8377,10 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                     )}
                     <CajaFieldRow compact label="Comentarios" wide value={reComentarios} onChange={setReComentarios} placeholder="Opcional"/>
                     <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end", gap:6 }}>
-                      <CajaCapturaBtn onClick={()=>capturarTarjetaCaja(recoleccionCardRef, setToastCaptura)} title="Copiar recolección como imagen"/>
-                      <CajaBtn onClick={guardarRecoleccion} disabled={guardandoRe || !tiendaId || !reEntregaId || !reRecibeId || !reValor}>{guardandoRe?"...":"Registrar"}</CajaBtn>
+                      {/* Un solo botón que registra Y copia la imagen para WhatsApp — antes eran dos
+                          botones separados (📸 y Registrar), y era común tomar la captura, enviarla
+                          al grupo, y olvidar darle a Registrar. Ver guardarRecoleccion. */}
+                      <CajaBtn onClick={guardarRecoleccion} disabled={guardandoRe || !tiendaId || !reEntregaId || !reRecibeId || !reValor}>{guardandoRe?"...":"📸 Registrar"}</CajaBtn>
                     </div>
                   </>
                 )}
