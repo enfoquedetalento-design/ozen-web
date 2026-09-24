@@ -3678,7 +3678,8 @@ function JuntaGuionTab({ monitor, isMobile }) {
 }
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
-function LoginScreen({ onLogin }) {
+function LoginScreen({ onLogin, stores }) {
+  const isMobile = useIsMobile();
   const [documento,setDocumento]=useState(""),[pass,setPass]=useState(""),[err,setErr]=useState(""),[loading,setLoading]=useState(false);
   const docRef=useRef(null), passRef=useRef(null);
 
@@ -3736,30 +3737,66 @@ function LoginScreen({ onLogin }) {
     onLogin(data);
     setLoading(false);
   };
+  // Propuesta A: pantalla partida — a la izquierda la marca sobre Sombra (logo en Tinta, las
+  // tiendas con su color), a la derecha el formulario sobre el fondo claro de la app. En celular
+  // la marca queda como una franja arriba y el formulario debajo.
+  const tiendasLogin = tiendasVenta(stores||{});
+  const etiqueta = { fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:7, textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:600 };
+  const iconoCampo = { position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:C.textMuted, pointerEvents:"none" };
+  const panelMarca = (
+    <div style={{ position:"relative", overflow:"hidden", background:C.goldDark, color:C.tinta, display:"flex", flexDirection:"column", justifyContent:"space-between", padding:isMobile?"44px 24px 64px":"48px 56px", minHeight:isMobile?220:"100vh", boxSizing:"border-box", ...(isMobile?{ borderRadius:"0 0 28px 28px" }:{}) }}>
+      {/* Anillos decorativos — eco del círculo del logo. */}
+      <span style={{ position:"absolute", right:isMobile?-90:-160, top:isMobile?-90:-140, width:isMobile?260:520, height:isMobile?260:520, borderRadius:"50%", border:"1px solid rgba(229,213,204,0.12)" }}/>
+      <span style={{ position:"absolute", right:isMobile?-40:-60, top:isMobile?-40:-40, width:isMobile?160:320, height:isMobile?160:320, borderRadius:"50%", border:"1px solid rgba(229,213,204,0.08)" }}/>
+      {!isMobile && <span style={{ position:"absolute", left:-120, bottom:-160, width:380, height:380, borderRadius:"50%", background:"rgba(38,93,127,0.35)", filter:"blur(2px)" }}/>}
+      <div style={{ position:"relative", animation:"ozenPopIn .6s cubic-bezier(.34,1.3,.64,1) both" }}>
+        <img src="/logo-horizontal.png" alt="OZEN" style={{ width:isMobile?190:300, height:"auto", display:"block" }}/>
+      </div>
+      {!isMobile && (
+        <div style={{ position:"relative", maxWidth:420 }}>
+          <div style={{ fontFamily:font.body, fontSize:30, fontWeight:600, lineHeight:1.25, letterSpacing:"-0.005em" }}>Ventas, caja, asistencia y La Junta, en un solo lugar.</div>
+          {tiendasLogin.length>0 && (
+            <div style={{ display:"flex", gap:18, flexWrap:"wrap", marginTop:26 }}>
+              {tiendasLogin.map(t=>(
+                <span key={t.id} style={{ display:"inline-flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:13.5, color:"rgba(229,213,204,0.85)" }}>
+                  <span style={{ width:9, height:9, borderRadius:"50%", background:colorTienda(t), boxShadow:`0 0 0 3px ${hexToRgba(colorTienda(t),0.25)}` }}/>{nombreTiendaCorto(t)}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {!isMobile && <div style={{ position:"relative", fontFamily:font.body, fontSize:12, color:"rgba(229,213,204,0.55)" }}>Creado por Santiago Rodríguez</div>}
+    </div>
+  );
   return (
-    <div style={{minHeight:"100vh",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{ minHeight:"100vh", background:C.dark, display:isMobile?"block":"grid", gridTemplateColumns:"minmax(380px, 46%) 1fr" }}>
       <style>{`
         @keyframes ozenNoAutofill { from {} to {} }
         input.ozen-anti-autofill:-webkit-autofill { animation-name: ozenNoAutofill; }
+        @keyframes ozenPopIn { from { opacity:0; transform:translateY(16px) scale(0.96); } to { opacity:1; transform:translateY(0) scale(1); } }
+        .ozen-login-input:focus { border-color: ${C.gold} !important; box-shadow: 0 0 0 4px rgba(38,93,127,0.12); }
       `}</style>
-      <div style={{width:"100%",maxWidth:380}}>
-        <div style={{textAlign:"center",marginBottom:28}}>
-          <img src="/logo-horizontal-dark.png" alt="OZEN" style={{width:300,height:"auto"}}/>
-        </div>
-        <Card glow>
+      {panelMarca}
+      <div style={{ display:"flex", alignItems:isMobile?"flex-start":"center", justifyContent:"center", padding:isMobile?"0 16px 32px":"40px 24px" }}>
+        <div style={{ width:"100%", maxWidth:400, marginTop:isMobile?-40:0, position:"relative", animation:"ozenPopIn .55s .08s cubic-bezier(.34,1.3,.64,1) both" }}>
+          <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:20, padding:isMobile?"26px 22px":"36px 34px", boxShadow:"0 30px 60px -36px rgba(26,59,82,0.45)" }}>
           <form onSubmit={handle} autoComplete="off">
-            <div style={{fontFamily:font.body,fontSize:17,fontWeight:600,color:C.text,marginBottom:18,textAlign:"center"}}>Iniciar sesión</div>
+            <div style={{ fontFamily:font.body, fontSize:12, letterSpacing:"0.2em", textTransform:"uppercase", color:C.gold, fontWeight:700 }}>Bienvenido</div>
+            <h1 style={{ margin:"6px 0 4px", fontFamily:font.body, fontSize:isMobile?24:28, fontWeight:700, color:C.text }}>Iniciar sesión</h1>
+            <div style={{ fontFamily:font.body, fontSize:13.5, color:C.textMuted, marginBottom:26 }}>Entra con tu número de documento y tu contraseña.</div>
 
             {/* Campos señuelo ocultos: distraen al navegador para que no ofrezca
                 guardar la contraseña de los campos reales de abajo */}
             <input type="text" name="username" autoComplete="username" style={{position:"absolute",width:1,height:1,opacity:0,pointerEvents:"none"}} tabIndex={-1} aria-hidden="true" />
             <input type="password" name="password" autoComplete="new-password" style={{position:"absolute",width:1,height:1,opacity:0,pointerEvents:"none"}} tabIndex={-1} aria-hidden="true" />
 
-            <div style={{ marginBottom:14 }}>
-              <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em", textAlign:"center" }}>N.º de documento</div>
+            <div style={{ marginBottom:16 }}>
+              <div style={etiqueta}>N.º de documento</div>
+              <div style={{ position:"relative" }}>
+                <span style={iconoCampo}><Icon n="user" s={18}/></span>
               <input
                 ref={docRef}
-                className="ozen-anti-autofill"
                 type="text"
                 name="ozen_doc_x1"
                 value={documento}
@@ -3769,15 +3806,17 @@ function LoginScreen({ onLogin }) {
                 onPaste={bloquear}
                 onDrop={bloquear}
                 onAnimationStart={siAutocompletaLimpiar(setDocumento)}
-                style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}
+                className="ozen-anti-autofill ozen-login-input" style={{ width:"100%", height:50, background:"#fff", border:`1px solid rgba(26,59,82,0.2)`, borderRadius:12, padding:"0 14px 0 44px", color:C.text, fontSize:15, fontFamily:font.body, outline:"none", boxSizing:"border-box", transition:"border-color .2s ease, box-shadow .2s ease" }}
               />
+              </div>
             </div>
 
-            <div style={{ marginBottom:14 }}>
-              <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em", textAlign:"center" }}>Contraseña</div>
+            <div style={{ marginBottom:18 }}>
+              <div style={etiqueta}>Contraseña</div>
+              <div style={{ position:"relative" }}>
+                <span style={iconoCampo}><Icon n="key" s={18}/></span>
               <input
                 ref={passRef}
-                className="ozen-anti-autofill"
                 type="password"
                 name="ozen_pwd_x1"
                 value={pass}
@@ -3787,15 +3826,17 @@ function LoginScreen({ onLogin }) {
                 onPaste={bloquear}
                 onDrop={bloquear}
                 onAnimationStart={siAutocompletaLimpiar(setPass)}
-                style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}
+                className="ozen-anti-autofill ozen-login-input" style={{ width:"100%", height:50, background:"#fff", border:`1px solid rgba(26,59,82,0.2)`, borderRadius:12, padding:"0 14px 0 44px", color:C.text, fontSize:15, fontFamily:font.body, outline:"none", boxSizing:"border-box", transition:"border-color .2s ease, box-shadow .2s ease" }}
               />
+              </div>
             </div>
 
-            {err&&<div style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,padding:"9px 12px",color:C.red,fontSize:12,marginBottom:12,fontFamily:font.body}}>{err}</div>}
-            <Btn disabled={loading} full style={{marginTop:4}}>{loading?"Verificando...":"Ingresar"}</Btn>
+            {err&&<div style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:10,padding:"10px 12px",color:C.red,fontSize:12.5,marginBottom:14,fontFamily:font.body}}>{err}</div>}
+            <Btn disabled={loading} full style={{ height:52, fontSize:15.5, borderRadius:12 }}>{loading ? "Verificando..." : <>Ingresar<Icon n="right" s={17}/></>}</Btn>
           </form>
-        </Card>
-        <div style={{textAlign:"center",marginTop:18,fontFamily:font.body,fontSize:10.5,color:C.textMuted,opacity:0.6}}>Creado por Santiago Rodríguez</div>
+          </div>
+          {isMobile && <div style={{ textAlign:"center", marginTop:18, fontFamily:font.body, fontSize:11, color:C.textMuted, opacity:0.7 }}>Creado por Santiago Rodríguez</div>}
+        </div>
       </div>
     </div>
   );
@@ -3811,48 +3852,58 @@ function AreaSelector({ user, onChoose, onLogout }) {
     { id:"junta", icon:<Icon n="users" s={24}/>, titulo:"La Junta Administrativa", desc:"Equipo, seguimiento semanal y guion de la reunión", accent:C.gold, mostrar:true },
     { id:"firmas", icon:<Icon n="pen" s={24}/>, titulo:"Firmar Documentos", desc:"Sube un PDF, ubica tu firma y descárgalo — nada queda guardado", accent:C.gold, mostrar:true },
   ].filter(m=>m.mostrar);
+  const isMobile = useIsMobile();
+  const horaCol = toColombiaDate().getHours();
+  const saludo = horaCol<12 ? "Buenos días" : horaCol<19 ? "Buenas tardes" : "Buenas noches";
+  const fechaLarga = toColombiaDate().toLocaleDateString("es-CO",{ weekday:"long", day:"numeric", month:"long" });
+  // Propuesta A: misma barra superior de la app (marca + salir) y los módulos como tarjetas grandes
+  // en cuadrícula, con el saludo arriba. Es la pantalla de entrada; después, dentro de la app, se
+  // cambia de módulo desde el selector de áreas de la barra superior.
   return (
-    <div style={{ minHeight:"100vh", background:`radial-gradient(1100px 520px at 50% -10%, ${C.goldLight}14, transparent 60%), ${C.dark}`, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+    <div style={{ minHeight:"100vh", background:C.dark, fontFamily:font.body, display:"flex", flexDirection:"column" }}>
       <style>{`
-        @keyframes ozenPopIn { from { opacity:0; transform:translateY(16px) scale(0.94); } to { opacity:1; transform:translateY(0) scale(1); } }
-        .ozen-modulo-card { animation:ozenPopIn .48s cubic-bezier(.34,1.56,.64,1) both; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
-        .ozen-modulo-card:hover { transform:translateY(-3px) scale(1.01); }
+        @keyframes ozenPopIn { from { opacity:0; transform:translateY(16px) scale(0.96); } to { opacity:1; transform:translateY(0) scale(1); } }
+        .ozen-modulo-card { animation:ozenPopIn .5s cubic-bezier(.34,1.4,.64,1) both; transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
+        .ozen-modulo-card:hover { transform:translateY(-4px); border-color:${C.gold} !important; box-shadow:0 24px 40px -26px rgba(26,59,82,0.55) !important; }
         .ozen-modulo-card:active { transform:translateY(-1px) scale(0.995); }
-        .ozen-modulo-arrow { transition:transform .18s ease, opacity .18s ease; opacity:0.4; }
-        .ozen-modulo-card:hover .ozen-modulo-arrow { transform:translateX(4px); opacity:1; }
-        .ozen-modulo-icon { transition:transform .18s ease; }
-        .ozen-modulo-card:hover .ozen-modulo-icon { transform:scale(1.08) rotate(-2deg); }
+        .ozen-modulo-arrow { transition:transform .2s ease; }
+        .ozen-modulo-card:hover .ozen-modulo-arrow { transform:translateX(5px); }
+        .ozen-modulo-icon { transition:transform .2s ease, background .2s ease, color .2s ease; }
+        .ozen-modulo-card:hover .ozen-modulo-icon { transform:scale(1.06) rotate(-3deg); background:${C.goldDark} !important; color:${C.tinta} !important; }
       `}</style>
-      <div style={{ width:"100%", maxWidth:540 }}>
-        <div style={{ textAlign:"center", marginBottom:32, animation:"ozenPopIn .5s cubic-bezier(.34,1.56,.64,1) both" }}>
-          <img src="/logo-horizontal-dark.png" alt="OZEN" style={{ width:260, height:"auto", marginBottom:14 }} />
-          <div style={{ fontFamily:font.body, fontSize:13.5, color:C.textMuted }}>Hola, {user.name.split(" ")[0]} — ¿qué quieres abrir?</div>
-        </div>
-        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-          {modulos.map((m,i)=>(
-            <button key={m.id} onClick={()=>onChoose(m.id)} className="ozen-modulo-card" style={{
-              animationDelay:`${i*70}ms`, width:"100%", textAlign:"left", cursor:"pointer",
-              background:`linear-gradient(135deg, ${C.surface}, ${C.surfaceAlt})`,
-              border:`1px solid ${C.border}`, borderRadius:16, padding:"20px 22px",
-              display:"flex", alignItems:"center", gap:18,
-              boxShadow:`0 1px 2px rgba(0,0,0,0.2)`,
-            }}>
-              <div className="ozen-modulo-icon" style={{
-                fontSize:26, flexShrink:0, width:52, height:52, borderRadius:14,
-                display:"flex", alignItems:"center", justifyContent:"center",
-                background:`linear-gradient(135deg, ${hexToRgba(m.accent,0.22)}, ${hexToRgba(m.accent,0.06)})`,
-                border:`1px solid ${hexToRgba(m.accent,0.35)}`, color:m.accent,
-              }}>{m.icon}</div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontFamily:font.body, fontSize:15.5, fontWeight:700, color:C.goldDark }}>{m.titulo}</div>
-                <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{m.desc}</div>
-              </div>
-              <div className="ozen-modulo-arrow" style={{ fontSize:18, color:m.accent, flexShrink:0 }}>→</div>
-            </button>
-          ))}
-        </div>
-        <div style={{ textAlign:"center", marginTop:24 }}>
-          <Btn onClick={onLogout} variant="ghost" sm>Cerrar sesión</Btn>
+      <div style={{ height:isMobile?56:62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", padding:isMobile?"0 14px":"0 24px", gap:12, flexShrink:0 }}>
+        <MarcaOzen user={{ role:"" }} onAbrirUsuarios={()=>{}} compact={isMobile}/>
+        <div style={{ flex:1 }}/>
+        <span style={{ fontSize:13, color:C.textSub, display:isMobile?"none":"inline" }}>{user.name}</span>
+        <span style={{ width:34, height:34, borderRadius:"50%", background:C.tinta, color:C.goldDark, display:"grid", placeItems:"center", fontWeight:700, fontSize:14 }}>{user.name[0]}</span>
+        <Btn onClick={onLogout} variant="ghost" sm><Icon n="logout" s={14}/>Salir</Btn>
+      </div>
+      <div style={{ flex:1, display:"flex", alignItems:isMobile?"flex-start":"center", justifyContent:"center", padding:isMobile?"26px 16px 40px":"40px 24px 60px" }}>
+        <div style={{ width:"100%", maxWidth:920 }}>
+          <div style={{ marginBottom:isMobile?20:30, animation:"ozenPopIn .5s cubic-bezier(.34,1.3,.64,1) both" }}>
+            <div style={{ fontSize:12, letterSpacing:"0.18em", textTransform:"uppercase", color:C.gold, fontWeight:700 }}>{fechaLarga}</div>
+            <h1 style={{ margin:"8px 0 6px", fontFamily:font.body, fontSize:isMobile?26:34, fontWeight:700, color:C.text, letterSpacing:"-0.01em" }}>{saludo}, {user.name.split(" ")[0]}</h1>
+            <div style={{ fontSize:15, color:C.textMuted }}>¿Qué quieres abrir hoy?</div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:isMobile?12:18 }}>
+            {modulos.map((m,i)=>(
+              <button key={m.id} onClick={()=>onChoose(m.id)} className="ozen-modulo-card" style={{
+                animationDelay:`${80+i*70}ms`, width:"100%", textAlign:"left", cursor:"pointer",
+                background:"#fff", border:`1px solid ${C.border}`, borderRadius:18, padding:isMobile?"18px":"26px 26px 22px",
+                display:"flex", flexDirection:isMobile?"row":"column", alignItems:isMobile?"center":"flex-start", gap:isMobile?14:16,
+                boxShadow:"0 1px 0 rgba(26,59,82,0.04)", fontFamily:font.body, minHeight:isMobile?0:196,
+              }}>
+                <div className="ozen-modulo-icon" style={{ width:isMobile?48:56, height:isMobile?48:56, borderRadius:16, background:C.surfaceHover, color:C.goldDark, display:"grid", placeItems:"center", flexShrink:0 }}>{m.icon}</div>
+                <div style={{ flex:isMobile?1:"0 0 auto", minWidth:0 }}>
+                  <div style={{ fontSize:isMobile?16:19, fontWeight:700, color:C.goldDark }}>{m.titulo}</div>
+                  <div style={{ fontSize:13, color:C.textMuted, marginTop:5, lineHeight:1.45 }}>{m.desc}</div>
+                </div>
+                {isMobile
+                  ? <span className="ozen-modulo-arrow" style={{ color:C.gold, flexShrink:0 }}><Icon n="right" s={20}/></span>
+                  : <span className="ozen-modulo-arrow" style={{ display:"inline-flex", alignItems:"center", gap:6, color:C.gold, fontSize:13.5, fontWeight:600, marginTop:"auto" }}>Abrir<Icon n="right" s={16}/></span>}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -9049,7 +9100,7 @@ export default function App() {
       <div>Cargando...</div>
     </div>
   );
-  if(!user) return <LoginScreen onLogin={login}/>;
+  if(!user) return <LoginScreen onLogin={login} stores={stores}/>;
 
   if(passwordVencida(user)) return (
     <div style={{minHeight:"100vh",background:C.dark,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:16,gap:20}}>
