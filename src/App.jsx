@@ -9008,6 +9008,7 @@ export default function App() {
   // abrir) — y si la hay, se avisa con un banner para actualizar cuando puedan, en vez de recargar
   // de golpe y arriesgar perder algo que estén registrando a la mitad.
   const [actualizacionDisponible, setActualizacionDisponible] = useState(false);
+  const [avisoVersionCerrado, setAvisoVersionCerrado] = useState(false);
   useEffect(()=>{
     let htmlInicial = null;
     const revisarVersionNueva = async () => {
@@ -9290,6 +9291,8 @@ export default function App() {
       .ozen-tab-btn:hover, .ozen-area-btn:hover { color: ${C.goldDark} !important; }
       .ozen-menu-item:hover { background: ${C.surfaceHover} !important; }
       .ozen-fila-venta:hover { background: ${C.surfaceAlt} !important; }
+      @keyframes ozenAvisoSube { from { opacity:0; transform:translate(-50%, 24px); } to { opacity:1; transform:translate(-50%, 0); } }
+      .ozen-aviso-version { animation: ozenAvisoSube .45s cubic-bezier(.34,1.3,.5,1) backwards; }
       @keyframes ozenMenuPop { from { opacity:0; transform:translateY(-6px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
       .ozen-menu-pop { animation: ozenMenuPop .2s cubic-bezier(.34,1.4,.6,1) both; transform-origin: top right; }
       @keyframes ozenReciboLinea { from { opacity:0; transform:translateX(18px); } to { opacity:1; transform:translateX(0); } }
@@ -9314,10 +9317,20 @@ export default function App() {
     </div>
   );
 
-  const bannerActualizacion = actualizacionDisponible && (
-    <div style={{ position:"fixed", left:0, right:0, bottom:0, zIndex:500, background:"#F39C12", color:"#241a00", padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"center", gap:12, flexWrap:"wrap", fontFamily:font.body, fontSize:13, fontWeight:600, boxShadow:"0 -4px 16px rgba(0,0,0,0.35)" }}>
-      <span>🔄 Hay una versión nueva de la app — actualiza cuando puedas para no ver datos desactualizados.</span>
-      <button onClick={()=>window.location.reload()} style={{ background:"#241a00", color:"#fff", border:"none", borderRadius:6, padding:"6px 14px", fontFamily:font.body, fontSize:12.5, fontWeight:700, cursor:"pointer" }}>Actualizar ahora</button>
+  // Aviso de versión nueva (Propuesta A): tarjeta flotante abajo al centro, en Sombra con texto
+  // Tinta — mismo lenguaje de la app en vez de la franja naranja. "Más tarde" la esconde en esta
+  // pestaña (la próxima vez que se abra la app vuelve a avisar si sigue desactualizada).
+  const bannerActualizacion = actualizacionDisponible && !avisoVersionCerrado && (
+    <div className="ozen-aviso-version" style={{ position:"fixed", left:"50%", bottom:isMobile?84:24, transform:"translateX(-50%)", zIndex:500, width:isMobile?"calc(100% - 24px)":"auto", maxWidth:620, boxSizing:"border-box", background:C.goldDark, color:C.tinta, borderRadius:16, padding:isMobile?"12px 12px 12px 14px":"12px 12px 12px 18px", display:"flex", alignItems:"center", gap:14, flexWrap:isMobile?"wrap":"nowrap", fontFamily:font.body, boxShadow:"0 24px 48px -20px rgba(26,59,82,0.7)" }}>
+      <span style={{ width:36, height:36, borderRadius:10, background:"rgba(229,213,204,0.14)", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="refresh" s={18}/></span>
+      <span style={{ flex:1, minWidth:isMobile?180:330 }}>
+        <b style={{ display:"block", fontSize:14, fontWeight:700 }}>Hay una versión nueva de la app</b>
+        <span style={{ fontSize:12.5, opacity:0.75 }}>Actualiza cuando puedas para no ver datos desactualizados.</span>
+      </span>
+      <span style={{ display:"flex", gap:8, marginLeft:isMobile?"auto":0 }}>
+        <button onClick={()=>setAvisoVersionCerrado(true)} style={{ background:"transparent", color:C.tinta, border:"1px solid rgba(229,213,204,0.3)", borderRadius:10, padding:"9px 14px", fontFamily:font.body, fontSize:13, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>Más tarde</button>
+        <button onClick={()=>window.location.reload()} style={{ background:C.tinta, color:C.goldDark, border:"none", borderRadius:10, padding:"9px 16px", fontFamily:font.body, fontSize:13, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>Actualizar ahora</button>
+      </span>
     </div>
   );
 
