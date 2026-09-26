@@ -9320,15 +9320,15 @@ export default function App() {
   // Tinta — mismo lenguaje de la app en vez de la franja naranja. "Más tarde" la esconde en esta
   // pestaña (la próxima vez que se abra la app vuelve a avisar si sigue desactualizada).
   const bannerActualizacion = actualizacionDisponible && !avisoVersionCerrado && (
-    <div className="ozen-aviso-version" style={{ position:"fixed", left:"50%", bottom:isMobile?84:24, transform:"translateX(-50%)", zIndex:500, width:isMobile?"calc(100% - 24px)":"auto", maxWidth:620, boxSizing:"border-box", background:C.goldDark, color:C.tinta, borderRadius:16, padding:isMobile?"12px 12px 12px 14px":"12px 12px 12px 18px", display:"flex", alignItems:"center", gap:14, flexWrap:isMobile?"wrap":"nowrap", fontFamily:font.body, boxShadow:"0 24px 48px -20px rgba(26,59,82,0.7)" }}>
-      <span style={{ width:36, height:36, borderRadius:10, background:"rgba(229,213,204,0.14)", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="refresh" s={18}/></span>
-      <span style={{ flex:1, minWidth:isMobile?180:330 }}>
-        <b style={{ display:"block", fontSize:14, fontWeight:700 }}>Hay una versión nueva de la app</b>
-        <span style={{ fontSize:12.5, opacity:0.75 }}>Actualiza cuando puedas para no ver datos desactualizados.</span>
+    <div className="ozen-aviso-version" role="status" style={{ position:"fixed", left:"50%", bottom:isMobile?84:22, transform:"translateX(-50%)", zIndex:500, width:isMobile?"calc(100% - 24px)":"max-content", maxWidth:isMobile?undefined:"calc(100% - 48px)", boxSizing:"border-box", background:C.goldDark, color:C.tinta, borderRadius:14, padding:"10px 10px 10px 14px", display:"flex", alignItems:"center", gap:12, fontFamily:font.body, lineHeight:1.3, letterSpacing:"0.01em", boxShadow:"0 20px 40px -18px rgba(26,59,82,0.65)" }}>
+      <span style={{ width:32, height:32, borderRadius:9, background:"rgba(229,213,204,0.14)", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="refresh" s={16}/></span>
+      <span style={{ minWidth:0, flex:isMobile?1:"0 1 auto" }}>
+        <b style={{ display:"block", fontSize:13.5, fontWeight:700, whiteSpace:isMobile?"normal":"nowrap" }}>Hay una versión nueva</b>
+        {!isMobile && <span style={{ display:"block", fontSize:12, opacity:0.72, whiteSpace:"nowrap" }}>Actualiza para ver los datos al día.</span>}
       </span>
-      <span style={{ display:"flex", gap:8, marginLeft:isMobile?"auto":0 }}>
-        <button onClick={()=>setAvisoVersionCerrado(true)} style={{ background:"transparent", color:C.tinta, border:"1px solid rgba(229,213,204,0.3)", borderRadius:10, padding:"9px 14px", fontFamily:font.body, fontSize:13, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>Más tarde</button>
-        <button onClick={()=>window.location.reload()} style={{ background:C.tinta, color:C.goldDark, border:"none", borderRadius:10, padding:"9px 16px", fontFamily:font.body, fontSize:13, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>Actualizar ahora</button>
+      <span style={{ display:"flex", gap:6, flexShrink:0, marginLeft:isMobile?0:8 }}>
+        <button onClick={()=>setAvisoVersionCerrado(true)} style={{ background:"transparent", color:C.tinta, border:"1px solid rgba(229,213,204,0.28)", borderRadius:9, padding:"7px 12px", fontFamily:font.body, fontSize:12.5, fontWeight:600, lineHeight:1.2, cursor:"pointer", whiteSpace:"nowrap" }}>Más tarde</button>
+        <button onClick={()=>window.location.reload()} style={{ background:C.tinta, color:C.goldDark, border:"none", borderRadius:9, padding:"7px 14px", fontFamily:font.body, fontSize:12.5, fontWeight:700, lineHeight:1.2, cursor:"pointer", whiteSpace:"nowrap" }}>Actualizar</button>
       </span>
     </div>
   );
