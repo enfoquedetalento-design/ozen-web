@@ -3205,6 +3205,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
               <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
                 <div style={{ fontFamily:font.body, fontSize:11, color:C.textSub, fontWeight:600 }}>👤 {nombresLideres}</div>
                 {base.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:10.5, color:vencida?C.amber:C.textMuted }}>📅 {base.fecha_estimada}</div>}
+                {base.created_at && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }} title={`Creada el ${fmtFechaHora(base.created_at)}`}>· creada {new Date(base.created_at).toLocaleDateString("es-CO",{day:"numeric",month:"short"})}</div>}
                 {completadoGrupo && <Badge color={C.green} sm>Cumplida</Badge>}
                 {autorreportadoGrupo && <Badge color={C.blue} sm title="Marcada por su responsable, falta que el monitor la confirme">Autorreportada</Badge>}
                 {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
