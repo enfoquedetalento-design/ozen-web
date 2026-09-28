@@ -9007,7 +9007,6 @@ export default function App() {
   // abrir) — y si la hay, se avisa con un banner para actualizar cuando puedan, en vez de recargar
   // de golpe y arriesgar perder algo que estén registrando a la mitad.
   const [actualizacionDisponible, setActualizacionDisponible] = useState(false);
-  const [avisoVersionCerrado, setAvisoVersionCerrado] = useState(false);
   useEffect(()=>{
     let htmlInicial = null;
     const revisarVersionNueva = async () => {
@@ -9317,9 +9316,9 @@ export default function App() {
   );
 
   // Aviso de versión nueva (Propuesta A): tarjeta flotante abajo al centro, en Sombra con texto
-  // Tinta — mismo lenguaje de la app en vez de la franja naranja. "Más tarde" la esconde en esta
-  // pestaña (la próxima vez que se abra la app vuelve a avisar si sigue desactualizada).
-  const bannerActualizacion = actualizacionDisponible && !avisoVersionCerrado && (
+  // Tinta. A propósito NO se puede cerrar — se queda hasta que se actualice la página, porque
+  // trabajar con una versión vieja puede mostrar datos desactualizados.
+  const bannerActualizacion = actualizacionDisponible && (
     <div className="ozen-aviso-version" role="status" style={{ position:"fixed", left:"50%", bottom:isMobile?84:22, transform:"translateX(-50%)", zIndex:500, width:isMobile?"calc(100% - 24px)":"max-content", maxWidth:isMobile?undefined:"calc(100% - 48px)", boxSizing:"border-box", background:C.goldDark, color:C.tinta, borderRadius:14, padding:"10px 10px 10px 14px", display:"flex", alignItems:"center", gap:12, fontFamily:font.body, lineHeight:1.3, letterSpacing:"0.01em", boxShadow:"0 20px 40px -18px rgba(26,59,82,0.65)" }}>
       <span style={{ width:32, height:32, borderRadius:9, background:"rgba(229,213,204,0.14)", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="refresh" s={16}/></span>
       <span style={{ minWidth:0, flex:isMobile?1:"0 1 auto" }}>
@@ -9327,7 +9326,6 @@ export default function App() {
         {!isMobile && <span style={{ display:"block", fontSize:12, opacity:0.72, whiteSpace:"nowrap" }}>Actualiza para ver los datos al día.</span>}
       </span>
       <span style={{ display:"flex", gap:6, flexShrink:0, marginLeft:isMobile?0:8 }}>
-        <button onClick={()=>setAvisoVersionCerrado(true)} style={{ background:"transparent", color:C.tinta, border:"1px solid rgba(229,213,204,0.28)", borderRadius:9, padding:"7px 12px", fontFamily:font.body, fontSize:12.5, fontWeight:600, lineHeight:1.2, cursor:"pointer", whiteSpace:"nowrap" }}>Más tarde</button>
         <button onClick={()=>window.location.reload()} style={{ background:C.tinta, color:C.goldDark, border:"none", borderRadius:9, padding:"7px 14px", fontFamily:font.body, fontSize:12.5, fontWeight:700, lineHeight:1.2, cursor:"pointer", whiteSpace:"nowrap" }}>Actualizar</button>
       </span>
     </div>
