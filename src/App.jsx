@@ -3611,7 +3611,7 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
               </div>
               {hayDatoATiempo && (
                 <div>
-                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }} title="Ordenado de quien más se atrasa a quien menos — de lo cumplido, cuánto NO tuvo que reabrirse después de vencido">Cumplimiento a tiempo (quién se atrasa más)</div>
+                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }} title="Ordenado de quien más se atrasa a quien menos — de lo cumplido, cuánto NO tuvo que reabrirse después de vencido">Cumplimiento a tiempo</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                     {topATiempo.map((s,i)=>(
                       <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
