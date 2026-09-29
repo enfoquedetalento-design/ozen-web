@@ -44,6 +44,11 @@ const mesDeCierre = (t, todayStr) => {
   if (tareaVencidaNoRealizada(t, todayStr)) return (t.fecha_estimada || t.semana || "").slice(0,7) || null;
   return null;
 };
+// Reapertura "tardía" = la tarea ya estaba vencida (pasado el domingo de su plazo anterior) en el
+// momento exacto en que se reabrió — igual que en src/App.jsx (tuvoReaperturaTardia). Si pasó al
+// menos una vez, aunque termine cumplida, no cuenta como "a tiempo".
+const tuvoReaperturaTardia = (t) => (t.reaperturas||[]).some(r => r.fecha_anterior && r.en && fmt(new Date(r.en)) > domingoDeLaSemana(r.fecha_anterior));
+const cumplidaATiempo = (t) => !!t.completado && !tuvoReaperturaTardia(t);
 const statsDelMes = (compromisos, anio, mes, todayStr) => {
   const martes = martesDelMes(anio, mes);
   const mesStr = `${anio}-${String(mes+1).padStart(2,"0")}`;
@@ -51,8 +56,10 @@ const statsDelMes = (compromisos, anio, mes, todayStr) => {
   const sesiones = new Set(tareas.map(t => t.semana)).size;
   const cerradas = compromisos.filter(c => mesDeCierre(c, todayStr) === mesStr);
   const completadas = cerradas.filter(t => t.completado).length;
+  const completadasATiempo = cerradas.filter(cumplidaATiempo).length;
   const pct = cerradas.length ? Math.round((completadas / cerradas.length) * 100) : null;
-  return { totalMartes: martes.length, sesiones, totalTareas: tareas.length, completadas, totalCerradas: cerradas.length, pct };
+  const pctATiempo = cerradas.length ? Math.round((completadasATiempo / cerradas.length) * 100) : null;
+  return { totalMartes: martes.length, sesiones, totalTareas: tareas.length, completadas, completadasATiempo, totalCerradas: cerradas.length, pct, pctATiempo };
 };
 const statsPorLiderDelMes = (compromisos, lideres, anio, mes, todayStr) => {
   const martes = martesDelMes(anio, mes);
@@ -64,8 +71,10 @@ const statsPorLiderDelMes = (compromisos, lideres, anio, mes, todayStr) => {
       const deLider = tareas.filter(t => t.lider_id === l.id);
       const cerradasLider = cerradasMes.filter(t => t.lider_id === l.id);
       const completadas = cerradasLider.filter(t => t.completado).length;
+      const completadasATiempo = cerradasLider.filter(cumplidaATiempo).length;
       const pct = cerradasLider.length ? Math.round((completadas / cerradasLider.length) * 100) : null;
-      return { lider_id: l.id, nombre: l.nombre, total: deLider.length, completadas, totalCerradas: cerradasLider.length, pct };
+      const pctATiempo = cerradasLider.length ? Math.round((completadasATiempo / cerradasLider.length) * 100) : null;
+      return { lider_id: l.id, nombre: l.nombre, total: deLider.length, completadas, completadasATiempo, totalCerradas: cerradasLider.length, pct, pctATiempo };
     })
     .filter(x => x.total > 0 || x.totalCerradas > 0);
 };
@@ -112,7 +121,7 @@ async function main() {
     headers: { ...headers, "Content-Type": "application/json", Prefer: "return=representation" },
     body: JSON.stringify({
       anio, mes: mes+1, sesiones: s.sesiones, total_martes: s.totalMartes, total_tareas: s.totalTareas,
-      completadas: s.completadas, total_cerradas: s.totalCerradas, pct: s.pct, congelado_por: "tarea automática",
+      completadas: s.completadas, completadas_a_tiempo: s.completadasATiempo, total_cerradas: s.totalCerradas, pct: s.pct, pct_a_tiempo: s.pctATiempo, congelado_por: "tarea automática",
       por_lider: porLider,
     }),
   });
