@@ -3305,6 +3305,14 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
   // El desglose por líder también queda dentro de la foto fija (congeladoSel.por_lider) cuando el
   // mes ya está congelado — así nunca se desajusta del total, igual que statsSel.
   const statsLideresSel = seleccionado ? (congeladoSel ? statsLideresDesdeCongelado(congeladoSel) : statsPorLiderDelMes(compromisos, lideres, seleccionado.anio, seleccionado.mes)) : [];
+  // El mes seleccionado solo "termina de verdad" cuando pasa el domingo de su ÚLTIMA semana (igual
+  // que decide el corte automático, ver scripts/congelar-mes-junta.js) — no apenas deja de ser el
+  // mes en curso. Sin esto, entre el 1 y el 4 de octubre septiembre ya se vería como "mes anterior"
+  // y el botón de abajo dejaría congelarlo por error, aunque su última semana (mar 29, vence
+  // domingo 4 oct) todavía tuviera tareas activas sin resolver.
+  const martesDelMesSel = seleccionado ? martesDelMes(seleccionado.anio, seleccionado.mes) : [];
+  const finRealMesSel = martesDelMesSel.length ? domingoDeLaSemana(martesDelMesSel[martesDelMesSel.length-1]) : null;
+  const mesSelTerminoDeVerdad = finRealMesSel ? todayStr > finRealMesSel : false;
   // Cumplimiento (%) y cantidad de tareas son cosas distintas — alguien puede tener pocas
   // tareas con 100% de cumplimiento, y otra persona muchas tareas con menor %. Se muestran
   // como dos rankings separados en vez de una sola lista. pct puede ser null (sin tareas
@@ -3327,7 +3335,11 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
               </select>
               {selMesIdx===0 && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>· mes en curso</div>}
               {congeladoSel && <Badge color={C.textMuted} sm title={`Foto fija guardada el ${fmtFechaHora(congeladoSel.congelado_en)}${congeladoSel.congelado_por?" · "+congeladoSel.congelado_por:""} — no se vuelve a calcular.`}>🔒 Congelado</Badge>}
-              {!congeladoSel && selMesIdx>0 && user.role==="master" && <button onClick={()=>congelarMesAhora(seleccionado.anio, seleccionado.mes)} disabled={congelando} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"3px 8px", fontFamily:font.body }}>{congelando?"...":"Congelar este mes ahora"}</button>}
+              {!congeladoSel && selMesIdx>0 && user.role==="master" && (mesSelTerminoDeVerdad ? (
+                <button onClick={()=>congelarMesAhora(seleccionado.anio, seleccionado.mes)} disabled={congelando} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"3px 8px", fontFamily:font.body }}>{congelando?"...":"Congelar este mes ahora"}</button>
+              ) : (
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }} title="Su última semana todavía tiene plazo hasta esa fecha — no se puede congelar antes, para no dejar tareas activas sin oportunidad de cerrar.">Se podrá congelar desde el {finRealMesSel}</div>
+              ))}
             </div>
             <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub }}>Monitor: <span style={{ color:C.goldLight, fontWeight:700 }}>{monitorSel ? (monitorSel.nombre || "— sin nombre") : "—"}</span></div>
           </div>
