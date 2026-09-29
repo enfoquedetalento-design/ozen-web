@@ -257,6 +257,15 @@ const mesDeCierre = (t) => {
   if (tareaVencidaNoRealizada(t)) return (t.fecha_estimada || t.semana || "").slice(0,7) || null;
   return null; // sigue activa — todavía no se cierra, no cuenta para ningún mes.
 };
+// Una tarea reabierta indefinidamente antes de vencerse nunca llegaba a contar como incumplida en
+// ningún mes — el reloj se reiniciaba cada vez, así que terminaba viéndose igual de "cumplida" que
+// una que se hizo bien a la primera. Esto usa el historial que YA se guarda en cada reapertura
+// (reaperturas: fecha_anterior/fecha_nueva/en) para saber si, en el momento exacto de reabrirla, la
+// tarea YA estaba vencida (pasado el domingo de su plazo anterior). Si pasó al menos una vez, la
+// tarea "tuvo una reapertura tardía" — aunque termine cumplida, no fue a tiempo.
+const tuvoReaperturaTardia = (t) => (t.reaperturas||[]).some(r => r.fecha_anterior && r.en && fmt(new Date(r.en)) > domingoDeLaSemana(r.fecha_anterior));
+// Cumplida "a tiempo" = cumplida Y nunca tuvo que reabrirse después de estar vencida.
+const cumplidaATiempo = (t) => !!t.completado && !tuvoReaperturaTardia(t);
 // Indicadores de un mes: sesiones registradas (martes con al menos una tarea) y % de tareas completadas.
 // "Sesiones" y "tareas asignadas" se cuentan por `semana` (cuántas reuniones hubo y cuántas tareas
 // salieron de ellas ese mes) — eso no cambió. El % de cumplimiento, en cambio, se calcula sobre las
@@ -275,11 +284,16 @@ const statsDelMes = (compromisos, anio, mes) => {
   const sesiones = new Set(tareas.map(t => t.semana)).size;
   const cerradas = compromisos.filter(c => mesDeCierre(c) === mesStr);
   const completadas = cerradas.filter(t => t.completado).length;
+  // completadasATiempo es un subconjunto de completadas: de lo cumplido, cuánto se cumplió SIN
+  // haber tenido que reabrirse después de vencido — ver cumplidaATiempo/tuvoReaperturaTardia arriba.
+  // pct (cumplimiento total) no cambia; pctATiempo es el nuevo dato, más exigente.
+  const completadasATiempo = cerradas.filter(cumplidaATiempo).length;
   const hoy = toColombiaDate();
   const esMesEnCurso = anio===hoy.getFullYear() && mes===hoy.getMonth();
   const activas = esMesEnCurso ? tareas.filter(t => !t.completado && !tareaVencidaNoRealizada(t)).length : 0;
   const pct = cerradas.length ? Math.round((completadas / cerradas.length) * 100) : null;
-  return { totalMartes: martes.length, sesiones, totalTareas: tareas.length, completadas, totalCerradas: cerradas.length, activas, pct };
+  const pctATiempo = cerradas.length ? Math.round((completadasATiempo / cerradas.length) * 100) : null;
+  return { totalMartes: martes.length, sesiones, totalTareas: tareas.length, completadas, completadasATiempo, totalCerradas: cerradas.length, activas, pct, pctATiempo };
 };
 // Cumplimiento de tareas, pero desglosado por cada líder — no todos cargan el mismo peso ni la
 // misma cantidad de tareas, así que el % se calcula individualmente (completadas ÷ cerradas). Igual
@@ -295,8 +309,10 @@ const statsPorLiderDelMes = (compromisos, lideres, anio, mes) => {
       const deLider = tareas.filter(t => t.lider_id === l.id);
       const cerradasLider = cerradasMes.filter(t => t.lider_id === l.id);
       const completadas = cerradasLider.filter(t => t.completado).length;
+      const completadasATiempo = cerradasLider.filter(cumplidaATiempo).length;
       const pct = cerradasLider.length ? Math.round((completadas / cerradasLider.length) * 100) : null;
-      return { lider: l, total: deLider.length, completadas, totalCerradas: cerradasLider.length, pct };
+      const pctATiempo = cerradasLider.length ? Math.round((completadasATiempo / cerradasLider.length) * 100) : null;
+      return { lider: l, total: deLider.length, completadas, completadasATiempo, totalCerradas: cerradasLider.length, pct, pctATiempo };
     })
     .filter(x => x.total > 0 || x.totalCerradas > 0)
     .sort((a,b) => (a.lider.nombre||"").localeCompare(b.lider.nombre||""));
@@ -3196,9 +3212,12 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
 
   const crear = async () => {
     if (!nueva.descripcion.trim() || nueva.lider_ids.length===0) return;
-    // Si se está viendo una semana específica, la tarea nueva queda ahí; si se está viendo
-    // "todo el mes", queda en la semana real de hoy.
-    const semanaTarea = semanaFiltro || martesDeSemana(todayStr);
+    // 'semana' (la reunión/sesión a la que pertenece la tarea, para agruparla en pantalla y
+    // contarla en los indicadores) es SIEMPRE la semana real de HOY — el martes de la semana en
+    // que de verdad se está creando la tarea. Antes, si se estaba filtrando/viendo otra semana en
+    // pantalla al momento de crearla, la tarea quedaba archivada ahí por error. No depende de qué
+    // se esté viendo en pantalla — eso es solo un filtro de visualización.
+    const semanaTarea = martesDeSemana(todayStr);
     const grupoId = nueva.lider_ids.length>1 ? crypto.randomUUID() : null;
     const filas = nueva.lider_ids.map(lid=>({
       semana:semanaTarea, descripcion:nueva.descripcion.trim(), lider_id:lid,
@@ -3439,10 +3458,13 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
 const congeladoDeMes = (congelados, anio, mes) => (congelados||[]).find(c=>c.anio===anio && c.mes===mes+1) || null;
 // Convierte una fila de junta_indicadores_congelados al mismo formato que devuelve statsDelMes,
 // para que el resto de la pantalla no tenga que distinguir entre foto fija y cálculo en vivo.
-const statsDesdeCongelado = (c) => ({ totalMartes:c.total_martes, sesiones:c.sesiones, totalTareas:c.total_tareas, completadas:c.completadas, totalCerradas:c.total_cerradas, activas:0, pct:c.pct });
+// completadas_a_tiempo/pct_a_tiempo pueden no existir en fotos viejas (ej. Agosto, congelado antes
+// de este desglose) — quedan undefined y la pantalla ya sabe mostrar "—" en ese caso, sin romper
+// nada ni tener que volver a tocar esa foto.
+const statsDesdeCongelado = (c) => ({ totalMartes:c.total_martes, sesiones:c.sesiones, totalTareas:c.total_tareas, completadas:c.completadas, completadasATiempo:c.completadas_a_tiempo, totalCerradas:c.total_cerradas, activas:0, pct:c.pct, pctATiempo:c.pct_a_tiempo });
 // Convierte el desglose por líder guardado en la foto fija (c.por_lider, jsonb) al mismo formato
 // que devuelve statsPorLiderDelMes, para que el resto de la pantalla no tenga que distinguir.
-const statsLideresDesdeCongelado = (c) => (c.por_lider || []).map(p => ({ lider:{ id:p.lider_id, nombre:p.nombre }, total:p.total, completadas:p.completadas, totalCerradas:p.totalCerradas, pct:p.pct }));
+const statsLideresDesdeCongelado = (c) => (c.por_lider || []).map(p => ({ lider:{ id:p.lider_id, nombre:p.nombre }, total:p.total, completadas:p.completadas, completadasATiempo:p.completadasATiempo, totalCerradas:p.totalCerradas, pct:p.pct, pctATiempo:p.pctATiempo }));
 
 // ── SCREEN: Junta Admin — Indicadores (cumplimiento del Monitor) ────────────
 function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongelados, isMobile }) {
@@ -3456,10 +3478,10 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
     setCongelando(true);
     const s = statsDelMes(compromisos, anio, mes);
     const porLider = statsPorLiderDelMes(compromisos, lideres, anio, mes)
-      .map(x => ({ lider_id:x.lider.id, nombre:x.lider.nombre, total:x.total, completadas:x.completadas, totalCerradas:x.totalCerradas, pct:x.pct }));
+      .map(x => ({ lider_id:x.lider.id, nombre:x.lider.nombre, total:x.total, completadas:x.completadas, completadasATiempo:x.completadasATiempo, totalCerradas:x.totalCerradas, pct:x.pct, pctATiempo:x.pctATiempo }));
     const { data, error } = await supabase.from("junta_indicadores_congelados").insert({
       anio, mes:mes+1, sesiones:s.sesiones, total_martes:s.totalMartes, total_tareas:s.totalTareas,
-      completadas:s.completadas, total_cerradas:s.totalCerradas, pct:s.pct, congelado_por:user.name,
+      completadas:s.completadas, completadas_a_tiempo:s.completadasATiempo, total_cerradas:s.totalCerradas, pct:s.pct, pct_a_tiempo:s.pctATiempo, congelado_por:user.name,
       por_lider:porLider,
     }).select().single();
     setCongelando(false);
@@ -3493,6 +3515,14 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
   // El desglose por líder también queda dentro de la foto fija (congeladoSel.por_lider) cuando el
   // mes ya está congelado — así nunca se desajusta del total, igual que statsSel.
   const statsLideresSel = seleccionado ? (congeladoSel ? statsLideresDesdeCongelado(congeladoSel) : statsPorLiderDelMes(compromisos, lideres, seleccionado.anio, seleccionado.mes)) : [];
+  // El mes seleccionado solo "termina de verdad" cuando pasa el domingo de su ÚLTIMA semana (igual
+  // que decide el corte automático, ver scripts/congelar-mes-junta.js) — no apenas deja de ser el
+  // mes en curso. Sin esto, entre el 1 y el 4 de octubre septiembre ya se vería como "mes anterior"
+  // y el botón de abajo dejaría congelarlo por error, aunque su última semana (mar 29, vence
+  // domingo 4 oct) todavía tuviera tareas activas sin resolver.
+  const martesDelMesSel = seleccionado ? martesDelMes(seleccionado.anio, seleccionado.mes) : [];
+  const finRealMesSel = martesDelMesSel.length ? domingoDeLaSemana(martesDelMesSel[martesDelMesSel.length-1]) : null;
+  const mesSelTerminoDeVerdad = finRealMesSel ? todayStr > finRealMesSel : false;
   // Cumplimiento (%) y cantidad de tareas son cosas distintas — alguien puede tener pocas
   // tareas con 100% de cumplimiento, y otra persona muchas tareas con menor %. Se muestran
   // como dos rankings separados en vez de una sola lista. pct puede ser null (sin tareas
@@ -3515,21 +3545,30 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
               </select>
               {selMesIdx===0 && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>· mes en curso</div>}
               {congeladoSel && <Badge color={C.textMuted} sm title={`Foto fija guardada el ${fmtFechaHora(congeladoSel.congelado_en)}${congeladoSel.congelado_por?" · "+congeladoSel.congelado_por:""} — no se vuelve a calcular.`}>🔒 Congelado</Badge>}
-              {!congeladoSel && selMesIdx>0 && user.role==="master" && <button onClick={()=>congelarMesAhora(seleccionado.anio, seleccionado.mes)} disabled={congelando} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"3px 8px", fontFamily:font.body }}>{congelando?"...":"Congelar este mes ahora"}</button>}
+              {!congeladoSel && selMesIdx>0 && user.role==="master" && (mesSelTerminoDeVerdad ? (
+                <button onClick={()=>congelarMesAhora(seleccionado.anio, seleccionado.mes)} disabled={congelando} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"3px 8px", fontFamily:font.body }}>{congelando?"...":"Congelar este mes ahora"}</button>
+              ) : (
+                <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }} title="Su última semana todavía tiene plazo hasta esa fecha — no se puede congelar antes, para no dejar tareas activas sin oportunidad de cerrar.">Se podrá congelar desde el {finRealMesSel}</div>
+              ))}
             </div>
             <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub }}>Monitor: <span style={{ color:C.goldLight, fontWeight:700 }}>{monitorSel ? (monitorSel.nombre || "— sin nombre") : "—"}</span></div>
           </div>
-          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:12 }}>
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr", gap:12 }}>
             <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
               <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Sesiones hechas</div>
               <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:statsSel.sesiones>=statsSel.totalMartes?C.green:C.amber }}>{statsSel.sesiones} / {statsSel.totalMartes}</div>
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>martes con checklist registrado</div>
             </div>
             <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
-              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Cumplimiento de tareas (todos)</div>
+              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Cumplimiento total</div>
               <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:colorCumplimientoTexto(statsSel.pct) }}>{statsSel.pct===null?"—":`${statsSel.pct}%`}</div>
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>{statsSel.completadas} de {statsSel.totalCerradas} tareas cerradas completadas</div>
               {statsSel.activas>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:2 }}>{statsSel.activas} todavía activa{statsSel.activas===1?"":"s"} — no cuenta{statsSel.activas===1?"":"n"} aún</div>}
+            </div>
+            <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }} title="De lo cumplido, cuánto se cumplió sin haber tenido que reabrirse después de estar vencido. Incluye lo que se hizo tarde (después de reabrirse) como cumplido, pero no como 'a tiempo'.">
+              <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Cumplimiento a tiempo</div>
+              <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:colorCumplimientoTexto(statsSel.pctATiempo) }}>{statsSel.pctATiempo===null||statsSel.pctATiempo===undefined?"—":`${statsSel.pctATiempo}%`}</div>
+              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>{statsSel.completadasATiempo===undefined?"sin dato en esta foto":`${statsSel.completadasATiempo} de ${statsSel.totalCerradas} sin reabrirse vencidas`}</div>
             </div>
           </div>
           {statsLideresSel.length>0 && (
@@ -3542,6 +3581,7 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
                       <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
                       <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
                       <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadas} de {s.totalCerradas}</div>
+                      {s.pctATiempo!==undefined && s.pctATiempo!==s.pct && <span style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }} title="De lo cumplido, cuánto fue sin reabrirse después de vencido">({s.pctATiempo===null?"—":`${s.pctATiempo}%`} a tiempo)</span>}
                       <Badge color={C.blue} intensity={intensidadPct(s.pct)} sm>{s.pct===null?"Sin cierres aún":`${s.pct}% cumplido`}</Badge>
                     </div>
                   ))}
@@ -3583,6 +3623,7 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
               <div style={{ flex:1, minWidth:160, display:"flex", gap:8, flexWrap:"wrap" }}>
                 <Badge color={s.sesiones>=s.totalMartes?C.green:C.amber} sm>{s.sesiones}/{s.totalMartes} sesiones</Badge>
                 <Badge color={C.blue} intensity={intensidadPct(s.pct)} sm>{s.pct===null?"Sin tareas registradas":`${s.pct}% cumplido`}</Badge>
+                {s.pctATiempo!==undefined && s.pctATiempo!==s.pct && <Badge color={C.textMuted} sm title="De lo cumplido, sin haberse reabierto después de vencido">{s.pctATiempo===null?"—":`${s.pctATiempo}%`} a tiempo</Badge>}
               </div>
             </div>
           );
