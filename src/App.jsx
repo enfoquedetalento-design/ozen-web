@@ -3388,45 +3388,45 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
           </div>
           {statsLideresSel.length>0 && (
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":(hayDatoATiempo?"1fr 1fr 1fr":"1fr 1fr"), gap:12 }}>
-              <div>
+              <div style={{ minWidth:0 }}>
                 <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Total tareas del mes</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                   {topCantidad.map((s,i)=>{
                     const shareTareas = statsSel.totalTareas>0 ? Math.round((s.total/statsSel.totalTareas)*100) : 0;
                     return (
-                      <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
+                      <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, minWidth:0 }}>
                         <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
-                        <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
-                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.total} tareas</div>
+                        <div style={{ flex:1, minWidth:0, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.lider.nombre || "— sin nombre"}</div>
+                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:0 }}>{s.total} tareas</div>
                         <Badge color={C.blue} sm>{shareTareas}% del total</Badge>
                       </div>
                     );
                   })}
                 </div>
               </div>
-              <div>
+              <div style={{ minWidth:0 }}>
                 <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Porcentaje cumplimiento</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                   {topCumplimiento.map((s,i)=>(
-                    <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
+                    <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, minWidth:0 }}>
                       <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
-                      <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
-                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadas} de {s.totalCerradas}</div>
-                      {s.pctATiempo!==undefined && s.pctATiempo!==s.pct && <span style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }} title="De lo cumplido, cuánto fue sin reabrirse después de vencido">({s.pctATiempo===null?"—":`${s.pctATiempo}%`} a tiempo)</span>}
+                      <div style={{ flex:1, minWidth:0, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.lider.nombre || "— sin nombre"}</div>
+                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:0 }}>{s.completadas} de {s.totalCerradas}</div>
+                      {s.pctATiempo!==undefined && s.pctATiempo!==s.pct && <span style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, flexShrink:0 }} title="De lo cumplido, cuánto fue sin reabrirse después de vencido">({s.pctATiempo===null?"—":`${s.pctATiempo}%`} a tiempo)</span>}
                       <Badge color={C.blue} intensity={intensidadPct(s.pct)} sm>{s.pct===null?"Sin cierres aún":`${s.pct}% cumplido`}</Badge>
                     </div>
                   ))}
                 </div>
               </div>
               {hayDatoATiempo && (
-                <div>
+                <div style={{ minWidth:0 }}>
                   <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }} title="Ordenado de quien más se atrasa a quien menos — de lo cumplido, cuánto NO tuvo que reabrirse después de vencido">Cumplimiento a tiempo</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                     {topATiempo.map((s,i)=>(
-                      <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
+                      <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, minWidth:0 }}>
                         <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
-                        <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
-                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadasATiempo??0} de {s.totalCerradas}</div>
+                        <div style={{ flex:1, minWidth:0, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.lider.nombre || "— sin nombre"}</div>
+                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:0 }}>{s.completadasATiempo??0} de {s.totalCerradas}</div>
                         <Badge color={C.blue} intensity={intensidadPct(s.pctATiempo)} sm>{s.pctATiempo===null||s.pctATiempo===undefined?"Sin cierres aún":`${s.pctATiempo}% a tiempo`}</Badge>
                       </div>
                     ))}
