@@ -3387,7 +3387,7 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
             </div>
           </div>
           {statsLideresSel.length>0 && (
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":(hayDatoATiempo?"1fr 1fr 1fr":"1fr 1fr"), gap:16 }}>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":(hayDatoATiempo?"1fr 1fr 1fr":"1fr 1fr"), gap:12 }}>
               <div>
                 <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Total tareas del mes</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
