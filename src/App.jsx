@@ -3338,6 +3338,12 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
   // cerradas todavía) — se manda al final del ranking, no se trata como 0.
   const topCumplimiento = [...statsLideresSel].sort((a,b)=> (b.pct??-1) - (a.pct??-1) || b.total - a.total);
   const topCantidad = [...statsLideresSel].sort((a,b)=> b.total - a.total || (b.pct??-1) - (a.pct??-1));
+  // Ranking de "a tiempo" por líder — ordenado de PEOR a mejor (el que más se atrasa primero, es
+  // decir el que más veces tuvo que reabrir una tarea vencida antes de cumplirla), para que salte
+  // a la vista quién necesita más seguimiento. "Sin cierres aún" (pctATiempo null) va al final, no
+  // se trata como el peor caso.
+  const topATiempo = [...statsLideresSel].sort((a,b)=> (a.pctATiempo??101) - (b.pctATiempo??101) || b.total - a.total);
+  const hayDatoATiempo = statsLideresSel.some(s => s.pctATiempo!==undefined);
 
   return (
     <div>
@@ -3381,7 +3387,7 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
             </div>
           </div>
           {statsLideresSel.length>0 && (
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16 }}>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":(hayDatoATiempo?"1fr 1fr 1fr":"1fr 1fr"), gap:16 }}>
               <div>
                 <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Porcentaje cumplimiento</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
@@ -3412,6 +3418,21 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
                   })}
                 </div>
               </div>
+              {hayDatoATiempo && (
+                <div>
+                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }} title="Ordenado de quien más se atrasa a quien menos — de lo cumplido, cuánto NO tuvo que reabrirse después de vencido">Cumplimiento a tiempo</div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                    {topATiempo.map((s,i)=>(
+                      <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
+                        <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
+                        <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
+                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadasATiempo??0} de {s.totalCerradas}</div>
+                        <Badge color={C.blue} intensity={intensidadPct(s.pctATiempo)} sm>{s.pctATiempo===null||s.pctATiempo===undefined?"Sin cierres aún":`${s.pctATiempo}% a tiempo`}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </Card>
