@@ -547,6 +547,32 @@ update usuarios set password_updated_at = now() where password_updated_at is nul
   sincronizados. Cualquier cambio nuevo debe seguir el mismo proceso: primero
   `staging`, probar, y solo después fusionar a `main`.
 
+## Módulo "Inducciones y capacitaciones" (29 sep 2026) — en `staging`, sin probar
+
+**Estado**: código listo en `staging` (`src/App.jsx`) + SQL en `sql/capacitaciones.sql`.
+Pendiente: correr el SQL en Supabase de PRÁCTICA, probar, y después (SQL en la real +
+fusionar a `main`).
+
+- **Área nueva "Capacitación"** (en celular dice "Cursos") para admins, y pestaña
+  "Capacitación" para asesores.
+- **Cursos → lecciones en orden** (video por link de YouTube/Drive, PDF subido al
+  Storage `capacitacion-pdfs`, o texto) → **quiz final** de opción múltiple.
+- El quiz se habilita cuando la persona marcó todas las lecciones como vistas. Se
+  aprueba con el % mínimo del curso (por defecto 80). Reintentos ilimitados; preguntas y
+  opciones salen en orden aleatorio en cada intento; al terminar ve puntaje + correcciones.
+- **Fecha de finalización** = primer intento aprobado. Curso sin preguntas = completado al
+  ver todas las lecciones.
+- **Permisos**: toman cursos asesores y admins (no visualizador ni cuentas de tienda);
+  crean/editan cursos master y admin_turnos; ven "Progreso" todos los admins y visualizador.
+- Lecciones vistas e intentos solo se agregan (la base no deja editarlos ni borrarlos).
+  Un curso con avance no se puede eliminar, solo archivar. `usuario_id` se guarda como
+  texto sin relación a `usuarios`, para que borrar un usuario nunca toque este historial.
+- En las pestañas "Mis cursos" y "Administrar cursos" el cierre por inactividad es de 2
+  horas (antes, a los 5 min se cerraba la sesión en medio de un video).
+- Limitación conocida: como el login no usa Supabase Auth, alguien con conocimientos
+  técnicos podría ver las respuestas correctas desde el navegador (igual que hoy puede
+  leer cualquier tabla). Solución de fondo: migrar el login a Supabase Auth (proyecto aparte).
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
