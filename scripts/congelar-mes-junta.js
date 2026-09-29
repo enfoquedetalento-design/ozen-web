@@ -1,7 +1,16 @@
-// Corre automáticamente (vía tarea programada) la madrugada del día 1 de cada mes: calcula los
-// indicadores de La Junta del mes que acaba de terminar y los guarda como una foto fija en
-// junta_indicadores_congelados. Una vez guardada, ese mes nunca se vuelve a recalcular en la app,
-// sin importar qué pase después con tareas reabiertas — ver JuntaIndicadoresTab en src/App.jsx.
+// Corre automáticamente (vía tarea programada) TODAS LAS MADRUGADAS: calcula los indicadores de
+// La Junta del mes que ya terminó y los guarda como una foto fija en junta_indicadores_congelados
+// — pero solo el día en que ese mes realmente termina de verdad. Como se trabaja por semanas
+// (lunes a domingo, martes-anchored) aunque el indicador se fije por mes, el mes "termina" cuando
+// pasa el domingo de su ÚLTIMA semana — que casi siempre cae unos días DESPUÉS del último día del
+// mes calendario (ej.: si el último martes de septiembre es el 29, esa semana no cierra hasta el
+// domingo 4 de octubre). Por eso corre todos los días y se pregunta "¿ya pasó ese domingo?" en vez
+// de asumir una fecha fija — así nunca se congela un mes antes de que su última semana haya
+// tenido oportunidad de cerrarse (completada o vencida). Una vez guardada la foto, ese mes nunca
+// se vuelve a recalcular en la app, sin importar qué pase después con tareas reabiertas — ver
+// JuntaIndicadoresTab en src/App.jsx. Si el monitor de la última semana ya hizo el corte a mano
+// con el botón "Congelar este mes ahora", este script simplemente no hace nada ese mes (ya existe
+// la foto).
 //
 // Usa la llave pública (anon) de Supabase — la misma que ya usa la app en el navegador de
 // cualquiera que la visite, protegida por las políticas de la base de datos (RLS), no un secreto.
@@ -64,16 +73,26 @@ const statsPorLiderDelMes = (compromisos, lideres, anio, mes, todayStr) => {
 async function main() {
   const headers = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
   const ahoraCol = toColombiaDate();
-  // El mes que acaba de terminar: el mes anterior al actual (este script corre el día 1 de cada
-  // mes, así que "el mes anterior a hoy" es siempre el que se acaba de cerrar).
+  // Mes candidato a congelar: el mes anterior al actual (nunca se congela el mes en curso).
   let anio = ahoraCol.getFullYear(), mes = ahoraCol.getMonth() - 1;
   if (mes < 0) { mes = 11; anio -= 1; }
   const todayStr = fmt(new Date());
 
+  // ¿Ya pasó el domingo de la ÚLTIMA semana de ese mes? Si no, todavía no ha "terminado" de
+  // verdad (puede que su última semana siga en curso, con tareas activas que aún tienen plazo
+  // hasta ese domingo) — se sale sin hacer nada y se vuelve a intentar la próxima madrugada.
+  const martesDelMesCandidato = martesDelMes(anio, mes);
+  const ultimoMartes = martesDelMesCandidato[martesDelMesCandidato.length - 1];
+  const limiteReal = ultimoMartes ? domingoDeLaSemana(ultimoMartes) : `${anio}-${String(mes+1).padStart(2,"0")}-28`;
+  if (todayStr <= limiteReal) {
+    console.log(`${anio}-${String(mes+1).padStart(2,"0")} todavía no termina de verdad (su última semana vence el ${limiteReal}) — no se hace nada hoy.`);
+    return;
+  }
+
   const checkRes = await fetch(`${SUPABASE_URL}/rest/v1/junta_indicadores_congelados?anio=eq.${anio}&mes=eq.${mes+1}&select=id`, { headers });
   const existentes = await checkRes.json();
   if (Array.isArray(existentes) && existentes.length > 0) {
-    console.log(`Ya existe una foto para ${anio}-${String(mes+1).padStart(2,"0")} — no se hace nada (nunca se recalcula).`);
+    console.log(`Ya existe una foto para ${anio}-${String(mes+1).padStart(2,"0")} — no se hace nada (nunca se recalcula, puede que el monitor ya la haya congelado a mano).`);
     return;
   }
 
