@@ -3016,9 +3016,13 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
 
   const crear = async () => {
     if (!nueva.descripcion.trim() || nueva.lider_ids.length===0) return;
-    // Si se está viendo una semana específica, la tarea nueva queda ahí; si se está viendo
-    // "todo el mes", queda en la semana real de hoy.
-    const semanaTarea = semanaFiltro || martesDeSemana(todayStr);
+    // 'semana' (la reunión/sesión a la que pertenece la tarea, para agruparla en pantalla y
+    // contarla en los indicadores) es SIEMPRE la semana real de HOY — el martes de la semana en
+    // que de verdad se está creando la tarea. Antes, si se estaba filtrando/viendo otra semana en
+    // pantalla al momento de crearla, la tarea quedaba archivada ahí por error (le pasó a tareas
+    // de la reunión del 17 de sep, que aparecieron bajo semana 2 en vez de semana 3). No depende
+    // de qué se esté viendo en pantalla — eso es solo un filtro de visualización.
+    const semanaTarea = martesDeSemana(todayStr);
     const grupoId = nueva.lider_ids.length>1 ? crypto.randomUUID() : null;
     const filas = nueva.lider_ids.map(lid=>({
       semana:semanaTarea, descripcion:nueva.descripcion.trim(), lider_id:lid,
