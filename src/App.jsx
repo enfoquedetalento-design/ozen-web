@@ -6301,17 +6301,23 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
           <div style={{ height:1, background:C.border, margin:"8px 0 22px" }}/>
 
           {/* Paso 2 — qué se vendió: el tipo como fichas grandes en vez de una lista desplegable. */}
-          <div style={etiquetaPaso}>{numPaso(2)}{tituloPaso("Ventas y servicios")}{notaPaso(items.length ? `${items.length} ${items.length===1?"renglón agregado":"renglones agregados"}` : "Elige el tipo")}</div>
+          <div style={etiquetaPaso}>{numPaso(2)}{tituloPaso("Ventas y servicios")}{notaPaso(items.length ? `${items.length} ${items.length===1?"renglón en el recibo":"renglones en el recibo"}` : "Se pueden combinar")}</div>
+          {/* Un mismo recibo puede llevar Venta + Arreglo + Marcación + Grabado: se agrega uno, se
+              elige el siguiente tipo y se agrega también. Flexipago va siempre solo. Antes del
+              rediseño esto era un desplegable + "Agregar"; con las fichas, los asesores creían que
+              solo se podía uno — por eso el aviso explícito y el contador en cada ficha. */}
+          {items.length===0 && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textSub, marginTop:-6, marginBottom:12, lineHeight:1.45 }}>Elige un tipo, pon el valor y cómo pagó, y dale <b>Agregar</b>. Luego puedes elegir otro tipo y sumarlo al mismo recibo (ej: Venta + Grabado). Flexipago va solo.</div>}
           <div style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(3,1fr)":"repeat(5,1fr)", gap:10, marginBottom:14 }}>
-            {VENTAS_TIPOS.map(t=>{ const on=itemTipo===t.value; const permitido=itemTipoOptions.some(o=>o.value===t.value); return (
-              <button key={t.value} disabled={!permitido} onClick={()=>permitido&&setItemTipo(t.value)} title={permitido?"":(esFlexipago?"Esta factura ya tiene un Flexipago":"Para un Flexipago, hazlo en una factura aparte")} style={{ height:isMobile?64:78, border:`1.5px solid ${on?C.gold:C.border}`, background:on?"rgba(38,93,127,0.07)":"#fff", borderRadius:12, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:7, fontFamily:font.body, fontSize:13, fontWeight:on?600:400, color:on?C.goldDark:C.textSub, cursor:permitido?"pointer":"not-allowed", opacity:permitido?1:0.35, transition:"all .18s ease" }}>
+            {VENTAS_TIPOS.map(t=>{ const on=itemTipo===t.value; const permitido=itemTipoOptions.some(o=>o.value===t.value); const enRecibo=items.filter(i=>i.tipo===t.value).length; return (
+              <button key={t.value} disabled={!permitido} onClick={()=>permitido&&setItemTipo(t.value)} title={permitido?"":(esFlexipago?"Esta factura ya tiene un Flexipago":"Para un Flexipago, hazlo en una factura aparte")} style={{ height:isMobile?64:78, border:`1.5px solid ${on?C.gold:C.border}`, background:on?"rgba(38,93,127,0.07)":"#fff", borderRadius:12, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:7, fontFamily:font.body, fontSize:13, fontWeight:on?600:400, color:on?C.goldDark:C.textSub, cursor:permitido?"pointer":"not-allowed", opacity:permitido?1:0.35, transition:"all .18s ease", position:"relative" }}>
+                {enRecibo>0 && <span title={`${enRecibo} en el recibo`} style={{ position:"absolute", top:6, right:6, minWidth:20, height:20, padding:"0 5px", boxSizing:"border-box", borderRadius:99, background:C.green, color:"#fff", fontSize:11, fontWeight:700, display:"inline-flex", alignItems:"center", justifyContent:"center", gap:2 }}><Icon n="check" s={11} sw={2.5}/>{enRecibo>1?enRecibo:""}</span>}
                 <Icon n={TIPO_VENTA_ICON[t.value]||"bag"} s={22}/>{t.label}
               </button>
             ); })}
           </div>
           {items.length>0 && (esFlexipago
             ? <div style={{ fontFamily:font.body, fontSize:11.5, color:C.blue, marginTop:-4, marginBottom:12 }}>Esta factura ya tiene un Flexipago — no se puede mezclar con otros tipos.</div>
-            : <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:-4, marginBottom:12 }}>Ya hay ítems normales en esta factura — para un Flexipago, hazlo en una factura aparte.</div>
+            : <div style={{ fontFamily:font.body, fontSize:12.5, color:C.green, fontWeight:600, marginTop:-4, marginBottom:12 }}>✓ Agregado al recibo. ¿Hubo algo más? Elige otro tipo y agrégalo a este mismo recibo. (Flexipago va en un registro aparte.)</div>
           )}
           {itemEsFlexipago ? (
             <>
@@ -6430,7 +6436,7 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
                 {Math.abs(itemFalta)<1 ? <><Icon n="check" s={14}/>Cuadra: pagado = valor</> : itemFalta>0 ? `Faltan ${fmtCOP(itemFalta)} por asignar` : `Te pasaste por ${fmtCOP(Math.abs(itemFalta))}`}
               </span>
             ) : <span/>}
-            <Btn onClick={agregarItem} disabled={agregarDeshabilitado} variant="ghost" style={{ minWidth:isMobile?"100%":240, borderWidth:1.5 }}><Icon n="plus" s={15}/>Agregar a la venta</Btn>
+            <Btn onClick={agregarItem} disabled={agregarDeshabilitado} variant="ghost" style={{ minWidth:isMobile?"100%":240, borderWidth:1.5 }}><Icon n="plus" s={15}/>Agregar {(VENTAS_TIPOS.find(t=>t.value===itemTipo)?.label||"").toLowerCase()} al recibo</Btn>
           </div>
         </Card>
 
