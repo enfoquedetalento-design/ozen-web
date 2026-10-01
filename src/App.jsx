@@ -7687,14 +7687,16 @@ const capturarTarjetaCaja = async (ref, setToast) => {
       onclone: (clonedDoc, clonedRef) => {
         // Foto angosta, tipo recibo: en computador la tarjeta ocupa todo el ancho de la pantalla y
         // la imagen quedaba muy ancha y con letra diminuta al abrirla en WhatsApp. Solo en el DOM
-        // clonado se fija un ancho de celular (440 px) para que la foto salga compacta y legible,
+        // clonado se fija un ancho angosto (340 px) para que la foto salga compacta y legible,
         // igual que si se tomara desde el teléfono. En pantalla no cambia nada.
         const objetivo = clonedRef || clonedDoc.querySelector("[data-ozen-foto]");
         if(objetivo){
-          objetivo.style.width = "440px";
-          objetivo.style.maxWidth = "440px";
+          objetivo.style.width = "340px";
+          objetivo.style.maxWidth = "340px";
           objetivo.style.boxSizing = "border-box";
-          objetivo.querySelectorAll(".ozen-caja-card").forEach(el=>{ el.style.marginBottom = "0"; });
+          // Márgenes internos más cortos: la foto queda ceñida al texto, sin aire de sobra.
+          objetivo.querySelectorAll(".ozen-caja-card").forEach(el=>{ el.style.marginBottom = "0"; el.style.padding = "12px 14px"; });
+          objetivo.querySelectorAll(".ozen-caja-card-head").forEach(el=>{ el.style.marginBottom = "6px"; });
         }
         clonedDoc.querySelectorAll(".ozen-caja-card").forEach(el=>{
           // Se deja el `background` (el degradado con el color de la tienda) tal cual — eso es lo
@@ -8699,7 +8701,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
                   <CajaReciboLinea compact label="Por" value={ultimaRecoleccion ? (ultimaRecoleccion.recibe_nombre||"—") : "Sin registro previo"}/>
   
                   <CajaSubHeader compact label="Novedades del período"/>
-                  <div style={{ fontFamily:font.body, fontSize:11, color:C_DARK.textMuted, marginBottom:4 }}>Costos en rojo, ingresos en verde — desde la última recolección.</div>
+                  <div className="ozen-no-foto" style={{ fontFamily:font.body, fontSize:11, color:C_DARK.textMuted, marginBottom:4 }}>Costos en rojo, ingresos en verde — desde la última recolección.</div>
                   {gastosDesdeRecoleccion.length>0 ? (
                     <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
                       {gastosDesdeRecoleccion.slice(0,5).map((g,idx)=>(
