@@ -3757,7 +3757,7 @@ function LoginScreen({ onLogin }) {
   // autocompletó el campo solo, se ignora y se revierte al valor anterior.
   const soloTeclado = (valorActual, setValor) => (e) => {
     const tipo = e.nativeEvent && e.nativeEvent.inputType;
-    const esEscrituraReal = tipo==="insertText" || tipo==="deleteContentBackward" || tipo==="deleteContentForward" || tipo==="deleteByCut" || tipo==="deleteWordBackward" || tipo==="deleteWordForward" || tipo==="historyUndo" || tipo==="historyRedo";
+    const esEscrituraReal = tipo==="insertText" || tipo==="insertCompositionText" || tipo==="deleteContentBackward" || tipo==="deleteContentForward" || tipo==="deleteByCut" || tipo==="deleteWordBackward" || tipo==="deleteWordForward" || tipo==="historyUndo" || tipo==="historyRedo";
     if (esEscrituraReal) setValor(e.target.value);
     else e.target.value = valorActual;
   };
@@ -3765,13 +3765,21 @@ function LoginScreen({ onLogin }) {
   // Detecta cuando Chrome/Safari rellenan el campo solos (el resaltado amarillo de
   // "autocompletar") y lo vacía de inmediato.
   const siAutocompletaLimpiar = (setValor) => () => setValor("");
+  // Para que el navegador NO ofrezca "¿Guardar contraseña?": los navegadores reconocen un login
+  // por tener un campo type="password" dentro de un <form> que se envía. Aquí no hay ninguno de
+  // los dos — la contraseña es un campo de texto normal que se ve con puntos (por CSS,
+  // -webkit-text-security) y el ingreso se dispara con Enter o con el botón, sin <form>.
+  // Navegadores que no soporten ese CSS (Firefox viejo) usan type="password" para no mostrar la
+  // clave en claro; en esos sí podría aparecer el aviso.
+  const ocultaConCss = typeof CSS!=="undefined" && CSS.supports && CSS.supports("-webkit-text-security","disc");
+  const alEnter = (e) => { if(e.key==="Enter"){ e.preventDefault(); handle(); } };
 
   const handle=async(e)=>{
     if(e)e.preventDefault();
     if(!documento.trim()||!pass){setErr("Completa todos los campos.");return;}
     setLoading(true);setErr("");
     const{data}=await supabase.from("usuarios").select("*").eq("documento",documento.trim()).eq("password",pass).eq("active",true).single();
-    if(!data){ setErr("Documento o contraseña incorrecta, o cuenta inactiva."); setLoading(false); return; }
+    if(!data){ setErr("Usuario o contraseña incorrecta, o cuenta inactiva."); setLoading(false); return; }
     // Cuentas de tienda (login compartido): quedan autorizadas solo en el primer
     // dispositivo/navegador donde se usen. Si alguien intenta entrar desde otro
     // dispositivo, se bloquea hasta que un master la libere desde Usuarios.
@@ -3835,18 +3843,13 @@ function LoginScreen({ onLogin }) {
       <div style={{ display:"flex", alignItems:isMobile?"flex-start":"center", justifyContent:"center", padding:isMobile?"0 16px 32px":"40px 24px" }}>
         <div style={{ width:"100%", maxWidth:400, marginTop:isMobile?-40:0, position:"relative", animation:"ozenPopIn .55s .08s cubic-bezier(.34,1.3,.64,1) both" }}>
           <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:20, padding:isMobile?"26px 22px":"36px 34px", boxShadow:"0 30px 60px -36px rgba(26,59,82,0.45)" }}>
-          <form onSubmit={handle} autoComplete="off">
+          <div role="form" aria-label="Iniciar sesión">
             <div style={{ fontFamily:font.body, fontSize:12, letterSpacing:"0.2em", textTransform:"uppercase", color:C.gold, fontWeight:700 }}>Bienvenido</div>
             <h1 style={{ margin:"6px 0 4px", fontFamily:font.body, fontSize:isMobile?24:28, fontWeight:700, color:C.text }}>Iniciar sesión</h1>
-            <div style={{ fontFamily:font.body, fontSize:13.5, color:C.textMuted, marginBottom:26 }}>Entra con tu número de documento y tu contraseña.</div>
-
-            {/* Campos señuelo ocultos: distraen al navegador para que no ofrezca
-                guardar la contraseña de los campos reales de abajo */}
-            <input type="text" name="username" autoComplete="username" style={{position:"absolute",width:1,height:1,opacity:0,pointerEvents:"none"}} tabIndex={-1} aria-hidden="true" />
-            <input type="password" name="password" autoComplete="new-password" style={{position:"absolute",width:1,height:1,opacity:0,pointerEvents:"none"}} tabIndex={-1} aria-hidden="true" />
+            <div style={{ fontFamily:font.body, fontSize:13.5, color:C.textMuted, marginBottom:26 }}>Entra con tu usuario y tu contraseña.</div>
 
             <div style={{ marginBottom:16 }}>
-              <div style={etiqueta}>N.º de documento</div>
+              <div style={etiqueta}>Usuario</div>
               <div style={{ position:"relative" }}>
                 <span style={iconoCampo}><Icon n="user" s={18}/></span>
               <input
@@ -3854,8 +3857,9 @@ function LoginScreen({ onLogin }) {
                 type="text"
                 name="ozen_doc_x1"
                 value={documento}
-                placeholder="Número de documento"
-                autoComplete="off"
+                placeholder="Usuario"
+                autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false}
+                onKeyDown={alEnter}
                 onChange={soloTeclado(documento, setDocumento)}
                 onPaste={bloquear}
                 onDrop={bloquear}
@@ -3871,23 +3875,24 @@ function LoginScreen({ onLogin }) {
                 <span style={iconoCampo}><Icon n="key" s={18}/></span>
               <input
                 ref={passRef}
-                type="password"
-                name="ozen_pwd_x1"
+                type={ocultaConCss ? "text" : "password"}
+                name="ozen_clave_x1"
                 value={pass}
                 placeholder="••••••••"
-                autoComplete="new-password"
+                autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false}
+                onKeyDown={alEnter}
                 onChange={soloTeclado(pass, setPass)}
                 onPaste={bloquear}
                 onDrop={bloquear}
                 onAnimationStart={siAutocompletaLimpiar(setPass)}
-                className="ozen-anti-autofill ozen-login-input" style={{ width:"100%", height:50, background:"#fff", border:`1px solid rgba(26,59,82,0.2)`, borderRadius:12, padding:"0 14px 0 44px", color:C.text, fontSize:15, fontFamily:font.body, outline:"none", boxSizing:"border-box", transition:"border-color .2s ease, box-shadow .2s ease" }}
+                className="ozen-anti-autofill ozen-login-input" style={{ WebkitTextSecurity:"disc", width:"100%", height:50, background:"#fff", border:`1px solid rgba(26,59,82,0.2)`, borderRadius:12, padding:"0 14px 0 44px", color:C.text, fontSize:15, fontFamily:font.body, outline:"none", boxSizing:"border-box", transition:"border-color .2s ease, box-shadow .2s ease" }}
               />
               </div>
             </div>
 
             {err&&<div style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:10,padding:"10px 12px",color:C.red,fontSize:12.5,marginBottom:14,fontFamily:font.body}}>{err}</div>}
-            <Btn disabled={loading} full style={{ height:52, fontSize:15.5, borderRadius:12 }}>{loading ? "Verificando..." : <>Ingresar<Icon n="right" s={17}/></>}</Btn>
-          </form>
+            <Btn onClick={loading?undefined:()=>handle()} disabled={loading} full style={{ height:52, fontSize:15.5, borderRadius:12 }}>{loading ? "Verificando..." : <>Ingresar<Icon n="right" s={17}/></>}</Btn>
+          </div>
           </div>
           {isMobile && <div style={{ textAlign:"center", marginTop:18, fontFamily:font.body, fontSize:11, color:C.textMuted, opacity:0.7 }}>Creado por Santiago Rodríguez</div>}
         </div>
