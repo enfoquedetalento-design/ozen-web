@@ -7687,6 +7687,7 @@ const CajaCapturaBtn = ({ onClick, title }) => (
 const capturarTarjetaCaja = async (ref, setToast) => {
   if(!ref?.current || !window.html2canvas){ setToast("⚠️ No se pudo generar la imagen — intenta de nuevo."); setTimeout(()=>setToast(null),2800); return; }
   try{
+    ref.current.setAttribute("data-ozen-foto","1");
     const canvas = await window.html2canvas(ref.current, {
       backgroundColor:"#ffffff", scale:2, useCORS:true,
       // html2canvas no soporta backdrop-filter (el "vidrio esmerilado") ni renderiza bien los
@@ -7695,7 +7696,18 @@ const capturarTarjetaCaja = async (ref, setToast) => {
       // en el DOM CLONADO (esto no toca lo que se ve en pantalla) se reemplaza ese fondo "glass"
       // por uno plano y sin sombra, así la imagen sale limpia siempre, sin importar el color de la
       // tienda.
-      onclone: (clonedDoc) => {
+      onclone: (clonedDoc, clonedRef) => {
+        // Foto angosta, tipo recibo: en computador la tarjeta ocupa todo el ancho de la pantalla y
+        // la imagen quedaba muy ancha y con letra diminuta al abrirla en WhatsApp. Solo en el DOM
+        // clonado se fija un ancho de celular (440 px) para que la foto salga compacta y legible,
+        // igual que si se tomara desde el teléfono. En pantalla no cambia nada.
+        const objetivo = clonedRef || clonedDoc.querySelector("[data-ozen-foto]");
+        if(objetivo){
+          objetivo.style.width = "440px";
+          objetivo.style.maxWidth = "440px";
+          objetivo.style.boxSizing = "border-box";
+          objetivo.querySelectorAll(".ozen-caja-card").forEach(el=>{ el.style.marginBottom = "0"; });
+        }
         clonedDoc.querySelectorAll(".ozen-caja-card").forEach(el=>{
           // Se deja el `background` (el degradado con el color de la tienda) tal cual — eso es lo
           // que Santiago quiere conservar. Solo se quita el blur (backdrop-filter, que html2canvas
@@ -7724,6 +7736,7 @@ const capturarTarjetaCaja = async (ref, setToast) => {
         });
       },
     });
+    ref.current?.removeAttribute("data-ozen-foto");
     canvas.toBlob(async (blob) => {
       if(!blob){ setToast("⚠️ No se pudo generar la imagen — intenta de nuevo."); setTimeout(()=>setToast(null),2800); return; }
       try{
@@ -8814,7 +8827,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
                     <CajaFieldRow compact wide label="Nota" value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta (opcional)"/>
                   ) : (
                     <div style={{ marginTop:6 }}>
-                      <button type="button" onClick={()=>setCiNotaAbierta(true)} style={{ background:"none", border:`1px dashed ${C_DARK.border}`, borderRadius:6, color:C_DARK.textMuted, cursor:"pointer", fontSize:11.5, fontFamily:font.body, padding:"4px 10px" }}>+ Agregar nota</button>
+                      <button type="button" className="ozen-no-foto" onClick={()=>setCiNotaAbierta(true)} style={{ background:"none", border:`1px dashed ${C_DARK.border}`, borderRadius:6, color:C_DARK.textMuted, cursor:"pointer", fontSize:11.5, fontFamily:font.body, padding:"4px 10px" }}>+ Agregar nota</button>
                     </div>
                   )}
   
