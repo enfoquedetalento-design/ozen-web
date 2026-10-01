@@ -1064,7 +1064,7 @@ const FranjaTienda = ({ color }) => <div style={{ height:3, background:color, tr
 
 function BarraSuperiorMovil({ extra, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
   return (
-    <div style={{ background:"#fff", borderBottom:`1px solid ${C.border}`, padding:"10px 14px", flexShrink:0, position:"relative", zIndex:20 }}>
+    <div style={{ background:"#fff", borderBottom:`1px solid ${C.border}`, padding:"10px 14px", paddingTop:"calc(10px + env(safe-area-inset-top, 0px))", flexShrink:0, position:"relative", zIndex:20 }}>
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         <MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios} compact/>
         <div style={{ flex:1 }}/>
@@ -1081,12 +1081,12 @@ function BarraSuperiorMovil({ extra, user, area, onChooseArea, stores, tiendaId,
 function BottomNav({ tab, setTab, user, area }) {
   const tabs = tabsPara(user, area);
   return (
-    <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:"#fff", paddingBottom:"env(safe-area-inset-bottom, 8px)", flexShrink:0 }}>
+    <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:"#fff", padding:"0 10px", paddingBottom:"max(12px, calc(env(safe-area-inset-bottom, 0px) + 4px))", flexShrink:0 }}>
       {tabs.map(t => { const active=tab===t.id; return (
-        <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:1, padding:"9px 2px 7px", background:"none", border:"none", display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer", color:active?C.goldDark:C.textMuted, position:"relative" }}>
+        <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:1, padding:"10px 2px 6px", background:"none", border:"none", display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer", color:active?C.goldDark:C.textMuted, position:"relative" }}>
           <span style={{ position:"absolute", top:0, left:"28%", right:"28%", height:2.5, borderRadius:2, background:active?C.gold:"transparent", transition:"background .25s ease" }}/>
-          <Icon n={TAB_ICON[t.id]||"right"} s={20} sw={active?2:1.7}/>
-          <div style={{ fontSize:10, fontFamily:font.body, fontWeight:active?700:500, lineHeight:1.1, textAlign:"center" }}>{t.label}</div>
+          <Icon n={TAB_ICON[t.id]||"right"} s={23} sw={active?2:1.7}/>
+          <div style={{ fontSize:11.5, fontFamily:font.body, fontWeight:active?700:500, lineHeight:1.1, textAlign:"center" }}>{t.label}</div>
         </button>
       ); })}
     </div>
@@ -1336,12 +1336,12 @@ function UsersScreen({ users, setUsers }) {
   return (
     <div>
       <PageHeader title="Asesores" subtitle={`${advisors.length} asesores`} action={soloLectura?null:<Btn onClick={()=>{setShowForm(!showForm);setEditing(null);}} sm>{showForm?"Cancelar":"+ Nuevo"}</Btn>} />
-      {!soloLectura && showForm&&(<Card glow style={{marginBottom:16}}><div style={{fontFamily:font.body,fontSize:13,fontWeight:600,color:C.goldLight,marginBottom:14}}>Nuevo asesor</div><Field label="Nombre completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nombre Apellido" /><Field label="N.º de documento" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Número de documento" /><div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 La contraseña inicial será el número de documento.</div><Btn onClick={add} disabled={loading} full>{loading?"Guardando...":"Crear asesor"}</Btn></Card>)}
+      {!soloLectura && showForm&&(<Card glow style={{marginBottom:16}}><div style={{fontFamily:font.body,fontSize:13,fontWeight:600,color:C.goldLight,marginBottom:14}}>Nuevo asesor</div><Field label="Nombre completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nombre Apellido" /><Field label="Usuario" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Usuario para ingresar" /><div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 La contraseña inicial será el mismo usuario.</div><Btn onClick={add} disabled={loading} full>{loading?"Guardando...":"Crear asesor"}</Btn></Card>)}
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {advisors.map(u=>(
           <Card key={u.id} p="14px" style={{opacity:u.active?1:0.6}}>
             {!soloLectura && editing===u.id?(
-              <div><Field label="Nombre" value={editVal.name} onChange={v=>setEditVal(p=>({...p,name:v}))} /><Field label="Documento" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} /><div style={{display:"flex",gap:8}}><Btn onClick={()=>saveEdit(u.id)} variant="success" sm full>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm full>Cancelar</Btn></div></div>
+              <div><Field label="Nombre" value={editVal.name} onChange={v=>setEditVal(p=>({...p,name:v}))} /><Field label="Usuario" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} /><div style={{display:"flex",gap:8}}><Btn onClick={()=>saveEdit(u.id)} variant="success" sm full>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm full>Cancelar</Btn></div></div>
             ):(
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <div style={{width:36,height:36,borderRadius:8,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,fontWeight:700,color:"#fff",flexShrink:0}}>{u.name[0]}</div>
@@ -1419,11 +1419,11 @@ function UsuariosScreen({ users, setUsers, stores }) {
         <Card glow style={{marginBottom:16}}>
           <div style={{fontFamily:font.body,fontSize:13,fontWeight:600,color:C.goldLight,marginBottom:14}}>Nuevo usuario</div>
           <Field label="Nombre completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nombre Apellido" />
-          <Field label="N.º de documento" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Número de documento" />
+          <Field label="Usuario" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Usuario para ingresar" />
           <Field label="Tipo de usuario" value={form.role} onChange={v=>setForm(f=>({...f,role:v}))} options={roleOptions} />
           <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginTop:-10,marginBottom:12}}>🔎 {ROLE_PERMISOS[form.role]}</div>
           {form.role==="tienda" && <Field label="Tienda de esta cuenta" value={form.tienda_id} onChange={v=>setForm(f=>({...f,tienda_id:v}))} options={tiendaOptions} />}
-          <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 La contraseña inicial será el número de documento.</div>
+          <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 La contraseña inicial será el mismo usuario.</div>
           <Btn onClick={add} disabled={loading || (form.role==="tienda" && !form.tienda_id)} full>{loading?"Guardando...":"Crear usuario"}</Btn>
         </Card>
       )}
@@ -1433,7 +1433,7 @@ function UsuariosScreen({ users, setUsers, stores }) {
             {editing===u.id?(
               <div>
                 <Field label="Nombre" value={editVal.name} onChange={v=>setEditVal(p=>({...p,name:v}))} />
-                <Field label="Documento" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} />
+                <Field label="Usuario" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} />
                 <Field label="Tipo de usuario" value={editVal.role} onChange={v=>setEditVal(p=>({...p,role:v}))} options={roleOptions} />
                 <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginTop:-10,marginBottom:12}}>🔎 {ROLE_PERMISOS[editVal.role]}</div>
                 {editVal.role==="tienda" && <Field label="Tienda de esta cuenta" value={editVal.tienda_id||""} onChange={v=>setEditVal(p=>({...p,tienda_id:v}))} options={tiendaOptions} />}
@@ -1500,7 +1500,7 @@ function TiendasAccesoScreen({ users, setUsers, stores }) {
             {editing===u.id?(
               <div>
                 <Field label="Nombre" value={editVal.name} onChange={v=>setEditVal(p=>({...p,name:v}))} />
-                <Field label="N.º de documento (usuario)" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} />
+                <Field label="Usuario" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} />
                 <div style={{display:"flex",gap:8}}><Btn onClick={()=>saveEdit(u.id)} variant="success" sm full>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm full>Cancelar</Btn></div>
               </div>
             ):cambiandoPass===u.id?(
@@ -3809,7 +3809,7 @@ function LoginScreen({ onLogin }) {
   const etiqueta = { fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:7, textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:600 };
   const iconoCampo = { position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:C.textMuted, pointerEvents:"none" };
   const panelMarca = (
-    <div style={{ position:"relative", overflow:"hidden", background:C.goldDark, color:C.tinta, display:"flex", flexDirection:"column", alignItems:"center", padding:isMobile?"40px 24px 64px":"48px 56px", minHeight:isMobile?220:"100vh", boxSizing:"border-box", ...(isMobile?{ borderRadius:"0 0 28px 28px" }:{}) }}>
+    <div style={{ position:"relative", overflow:"hidden", background:C.goldDark, color:C.tinta, display:"flex", flexDirection:"column", alignItems:"center", padding:isMobile?"calc(40px + env(safe-area-inset-top, 0px)) 24px 64px":"48px 56px", minHeight:isMobile?220:"100vh", boxSizing:"border-box", ...(isMobile?{ borderRadius:"0 0 28px 28px" }:{}) }}>
       {/* Anillos decorativos — eco del círculo del logo. */}
       <span style={{ position:"absolute", right:isMobile?-90:-160, top:isMobile?-90:-140, width:isMobile?260:520, height:isMobile?260:520, borderRadius:"50%", border:"1px solid rgba(229,213,204,0.12)" }}/>
       <span style={{ position:"absolute", right:isMobile?-40:-60, top:isMobile?-40:-40, width:isMobile?160:320, height:isMobile?160:320, borderRadius:"50%", border:"1px solid rgba(229,213,204,0.08)" }}/>
@@ -3919,7 +3919,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
         .ozen-modulo-icon { transition:transform .2s ease, background .2s ease, color .2s ease; }
         .ozen-modulo-card:hover .ozen-modulo-icon { transform:scale(1.06) rotate(-3deg); background:${C.goldDark} !important; color:${C.tinta} !important; }
       `}</style>
-      <div style={{ height:isMobile?56:62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", padding:isMobile?"0 14px":"0 24px", gap:12, flexShrink:0 }}>
+      <div style={{ height:isMobile?"calc(56px + env(safe-area-inset-top, 0px))":62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", padding:isMobile?"0 14px":"0 24px", paddingTop:isMobile?"env(safe-area-inset-top, 0px)":0, boxSizing:"border-box", gap:12, flexShrink:0 }}>
         <MarcaOzen user={{ role:"" }} onAbrirUsuarios={()=>{}} compact={isMobile}/>
         <div style={{ flex:1 }}/>
         <span style={{ fontSize:13, color:C.textSub, display:isMobile?"none":"inline" }}>{user.name}</span>
