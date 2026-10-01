@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, createContext, useContext, Fragment } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, createContext, useContext, Fragment } from "react";
 import { supabase } from "./supabase";
 import { activarNotificacionesPush, notificacionesSoportadas, pushActivo, requiereInstalarEnIOS } from "./push";
 import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError, sonidoBienvenida } from "./sounds";
@@ -11,27 +11,92 @@ const ReadOnlyContext = createContext(false);
 const useReadOnly = () => useContext(ReadOnlyContext);
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
+// Paleta "Tinta Elevada" (propuesta 2 del explorador de diseño, elegida por Santiago para
+// responder al comentario de Junta de que el azul se veía demasiado oscuro). Fondo principal
+// crema/Tinta (color oficial del manual de marca) en vez del azul casi-negro de antes; Sombra
+// (azul oscuro oficial) para texto; Base (azul medio oficial) para botones y acentos — la misma
+// combinación de "alto contraste" que define el manual. Caja y la barra de navegación (Sidebar/
+// BottomNav/MobileHeader) quedan fuera de este cambio a propósito: usan su propia paleta fija
+// C_DARK, definida más abajo, para no arriesgar esas dos zonas (ver el comentario junto a C_DARK).
 const C = {
-  gold: "#265D7F", goldLight: "#E5D5CC", goldDark: "#1A3B52",
-  dark: "#0D1117", surface: "#1A3B52",
-  surfaceAlt: "#153047", surfaceHover: "#1E4260", border: "#265D7F",
-  borderGold: "rgba(229,213,204,0.25)", text: "#E5D5CC",
-  textMuted: "#B8A49C", textSub: "#D4C4BB",
-  green: "#2ECC71", greenDim: "rgba(46,204,113,0.12)",
-  red: "#E74C3C",   redDim: "rgba(231,76,60,0.12)",
-  // Antes "#3498DB" — un azul que casi no se distinguía del fondo navy de la app (C.surface/
-  // C.surfaceAlt son también azules oscuros), por eso textos/badges en este color (ej. "Vence en
-  // Nd" de Flexipago, "Fin Almuerzo" en Asistencia) se veían apagados. Este es más claro/saturado,
-  // se sigue leyendo como "azul" pero contrasta bien contra los fondos oscuros de toda la app.
-  blue: "#58A6FF",  blueDim: "rgba(88,166,255,0.12)",
-  amber: "#F39C12", amberDim: "rgba(243,156,18,0.12)",
-  sidebar: "#112233",
+  // `goldLight` se usa en ~50 lugares como color de TEXTO destacado (títulos de sección, pestaña
+  // activa, tienda actual) — con el crema de antes esos textos quedaban casi invisibles sobre el
+  // fondo claro. Ahora es Sombra; el crema oficial vive aparte en `tinta` (texto sobre Sombra,
+  // fichas, avatar).
+  gold: "#265D7F", goldLight: "#1A3B52", goldDark: "#1A3B52", tinta: "#E5D5CC",
+  // Propuesta A ("Mostrador"): fondo Tinta muy suave y superficies blancas, como en el mockup
+  // elegido — el crema oficial (Tinta) se reserva para acentos (fichas, avatar, selector de área).
+  dark: "#F6F0EB", surface: "#FFFFFF",
+  surfaceAlt: "#FBF8F5", surfaceHover: "#F2E9E2", border: "rgba(26,59,82,0.14)",
+  borderGold: "rgba(38,93,127,0.22)", text: "#1A3B52",
+  textMuted: "#75604F", textSub: "#3D5E76",
+  // Los 4 colores de estado (verde/rojo/ámbar/azul) se usan sobre todo como COLOR DE TEXTO (en
+  // chips e íconos, casi siempre con un fondo tenue del mismo color — ver Badge). Las versiones de
+  // antes eran claras a propósito, para leerse bien sobre el azul oscuro de la app; sobre el fondo
+  // claro de ahora esas mismas versiones casi no se verían (muy poco contraste), así que se oscurecen.
+  green: "#1B7A41", greenDim: "rgba(27,122,65,0.14)",
+  red: "#C0392B",   redDim: "rgba(192,57,43,0.13)",
+  // Antes "#58A6FF" (clara, pensada para contrastar contra fondo oscuro). Ahora se reusa el Base
+  // oficial de la marca (#265D7F, igual que C.gold) — ya es la combinación de "alto contraste" del
+  // manual sobre Tinta, así que no hace falta inventar un azul nuevo fuera de la paleta oficial.
+  blue: "#265D7F",  blueDim: "rgba(38,93,127,0.14)",
+  amber: "#A85D00", amberDim: "rgba(168,93,0,0.14)",
 };
 // `mono` se usa para todos los montos en dinero de la app — antes era el monospace genérico del
 // sistema operativo (Courier/Consolas según el navegador), que es literalmente la fuente de una
 // terminal de comandos y se veía como tal. JetBrains Mono es una fuente monoespaciada real (los
 // números siguen alineados en columna) pero diseñada para pantalla, no para consola.
 const font = { body: "'Josefin Sans', 'Segoe UI', system-ui, sans-serif", mono: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace" };
+
+// ── Íconos de línea (Propuesta A) ─────────────────────────────────────────────
+// Reemplazan a los emojis en la navegación: los emojis cambian de dibujo según el celular o el
+// computador y le restaban seriedad a la marca. Todos comparten el mismo trazo (1.7) y se pintan
+// con `currentColor`, así toman el color del texto donde estén.
+const IC = {
+  receipt:<><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></>,
+  list:<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>,
+  chart:<path d="M5 20v-8M12 20V5M19 20v-5M3 20h18"/>,
+  wallet:<><rect x="3" y="6" width="18" height="14" rx="2.5"/><path d="M3 10h18M16 15h2M7 3.5h10"/></>,
+  clock:<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
+  users:<><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M16 4.6a3.5 3.5 0 010 6.8M18 14.3c2 .7 3.5 2.6 3.5 5.7"/></>,
+  pen:<><path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 7l3 3"/></>,
+  cal:<><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/></>,
+  plus:<path d="M12 5v14M5 12h14"/>,
+  search:<><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></>,
+  bell:<><path d="M6 16v-5a6 6 0 0112 0v5l2 2H4z"/><path d="M10 21a2 2 0 004 0"/></>,
+  check:<path d="M5 12.5l4.5 4.5L19 7"/>,
+  unlock:<><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 017.6-1.7"/></>,
+  lock:<><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 018 0V11"/></>,
+  truck:<><path d="M3 6h11v10H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/></>,
+  store:<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M10 20v-5h4v5"/>,
+  down:<path d="M6 9l6 6 6-6"/>,
+  right:<path d="M9 6l6 6-6 6"/>,
+  note:<><path d="M5 3h10l4 4v14H5z"/><path d="M14 3v5h5M8 13h8M8 17h5"/></>,
+  history:<><path d="M3.5 12a8.5 8.5 0 102.6-6.1"/><path d="M3 4v4.5h4.5M12 7.5V12l3 2"/></>,
+  x:<path d="M6 6l12 12M18 6L6 18"/>,
+  user:<><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></>,
+  camera:<><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></>,
+  bag:<><path d="M5 8h14l-1 12H6z"/><path d="M9 8V6.5a3 3 0 016 0V8"/></>,
+  wrench:<path d="M14.5 5.5a4 4 0 00-5 5L4 16l4 4 5.5-5.5a4 4 0 005-5l-2.2 2.2-3-3z"/>,
+  tag:<><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.3"/></>,
+  nib:<><path d="M12 3l6 7-6 11-6-11z"/><path d="M12 10v5"/></>,
+  box:<><path d="M3 7.5l9-4 9 4v9l-9 4-9-4z"/><path d="M3 7.5l9 4 9-4M12 11.5v9"/></>,
+  cash:<><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></>,
+  card:<><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6 15h4"/></>,
+  bank:<path d="M4 9h14l-3.5-3.5M20 15H6l3.5 3.5"/>,
+  phone:<><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18h2"/></>,
+  lunch:<path d="M7 3v8M5 3v5a2 2 0 004 0V3M7 11v10M17 3c-2 1-3 3.5-3 7h3v11"/>,
+  flag:<path d="M5 21V4h11l-2 4 2 4H5"/>,
+  grid:<><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></>,
+  pin:<><path d="M12 21s-7-6.2-7-11.5a7 7 0 0114 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></>,
+  refresh:<><path d="M20 11a8 8 0 00-14.3-4.9L4 8"/><path d="M4 3.5V8h4.5M4 13a8 8 0 0014.3 4.9L20 16"/><path d="M20 20.5V16h-4.5"/></>,
+  key:<><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3"/></>,
+  logout:<><path d="M14 4h5v16h-5"/><path d="M10 8l-4 4 4 4M6 12h10"/></>,
+  swap:<path d="M4 8h13l-3-3M20 16H7l3 3"/>,
+};
+const Icon = ({ n, s=18, sw=1.7, style }) => (
+  <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0, display:"block", ...style }} aria-hidden="true">{IC[n]}</svg>
+);
 
 const ORDEN = ["entrada", "inicio_almuerzo", "fin_almuerzo", "salida"];
 const EVENT_LABELS = { entrada:"Entrada", inicio_almuerzo:"Inicio Almuerzo", fin_almuerzo:"Fin Almuerzo", salida:"Salida", omitido:"No registrado" };
@@ -269,14 +334,14 @@ const medalla = (idx) => idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`${idx+1}.
 // a la meta, la barra de nadie se ve "llena" todavía; y si alguien se pasa (105%, 123%...), TODAS
 // las barras del grupo se reacomodan a esa nueva escala para que se sigan pudiendo comparar entre
 // sí de un vistazo — quien manda la escala es quien va ganando.
-const BarraCumplimiento = ({ pctRaw, escalaMax, color, width=110, height=9 }) => {
+const BarraCumplimiento = ({ pctRaw, escalaMax, color, width=110, height=9, solido }) => {
   const escala = Math.max(100, escalaMax||100);
   const anchoBarra = Math.max(0, Math.min(100, ((pctRaw||0)/escala)*100));
   const marca100Pct = (100/escala)*100;
   return (
-    <span style={{ width, flexShrink:0, height, borderRadius:height/2, background:C.dark, overflow:"hidden", position:"relative", display:"inline-block" }}>
-      <span style={{ position:"absolute", inset:0, width:`${anchoBarra}%`, borderRadius:height/2, background:`linear-gradient(90deg, ${C.blue}, ${color})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
-      {marca100Pct<100 && <span style={{ position:"absolute", top:0, bottom:0, left:`${marca100Pct}%`, width:1, background:"rgba(255,255,255,0.4)" }}/>}
+    <span style={{ width, flexShrink:0, height, borderRadius:height/2, background:C.surfaceHover, overflow:"hidden", position:"relative", display:"inline-block" }}>
+      <span style={{ position:"absolute", inset:0, width:`${anchoBarra}%`, borderRadius:height/2, background:solido ? color : `linear-gradient(90deg, ${C.blue}, ${color})`, transition:"width 0.5s cubic-bezier(.34,1.2,.5,1)" }}/>
+      {marca100Pct<100 && <span style={{ position:"absolute", top:0, bottom:0, left:`${marca100Pct}%`, width:1, background:"rgba(26,59,82,0.35)" }}/>}
     </span>
   );
 };
@@ -371,10 +436,12 @@ const Badge = ({ color, children, sm, title, intensity }) => {
 
 const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={} }) => {
   const [hov, setHov] = useState(false);
-  const base = { display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, padding:sm?"6px 14px":"9px 18px", borderRadius:8, border:"none", cursor:disabled?"not-allowed":"pointer", fontSize:sm?12:13, fontWeight:600, fontFamily:font.body, transition:"all 0.15s", opacity:disabled?0.4:1, width:full?"100%":undefined };
+  const base = { display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, padding:sm?"7px 14px":"11px 20px", borderRadius:10, border:"none", cursor:disabled?"not-allowed":"pointer", fontSize:sm?12:13.5, fontWeight:600, fontFamily:font.body, letterSpacing:"0.01em", transition:"all 0.15s", opacity:disabled?0.4:1, width:full?"100%":undefined };
   const styles = {
-    primary: { background:hov?"#1e4d6b":C.gold, color:"#fff" },
-    ghost:   { background:hov?C.surfaceHover:"transparent", color:C.textSub, border:`1px solid ${C.border}` },
+    // Propuesta A: tres niveles de botón — principal en Sombra con texto Tinta (uno por pantalla,
+    // lo más importante), secundario con borde Base (acciones de apoyo) y enlaces de texto.
+    primary: { background:hov?C.gold:C.goldDark, color:C.tinta },
+    ghost:   { background:hov?"rgba(38,93,127,0.07)":"transparent", color:C.gold, border:`1px solid rgba(38,93,127,0.4)` },
     danger:  { background:hov?"rgba(231,76,60,0.22)":C.redDim, color:C.red, border:`1px solid ${C.red}44` },
     success: { background:hov?"rgba(46,204,113,0.22)":C.greenDim, color:C.green, border:`1px solid ${C.green}44` },
   };
@@ -391,8 +458,8 @@ const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={
 const Card = ({ children, style={}, glow, p="20px" }) => (
   <div style={{
     background: C.surface,
-    borderRadius: 12,
-    border: `1px solid ${glow ? C.borderGold : `${C.border}60`}`,
+    borderRadius: 14,
+    border: `1px solid ${glow ? C.borderGold : C.border}`,
     boxShadow: "none",
     padding: p,
     ...style,
@@ -505,8 +572,8 @@ const Divider = () => <div style={{ height:1, background:C.border, margin:"12px 
 const PageHeader = ({ title, subtitle, action, middle }) => (
   <div style={{ display:"flex", flexWrap:"wrap", alignItems:"flex-start", justifyContent:"space-between", marginBottom:20, gap:10 }}>
     <div>
-      <h1 style={{ margin:0, fontFamily:font.body, fontSize:20, fontWeight:700, color:C.text }}>{title}</h1>
-      {subtitle && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{subtitle}</div>}
+      <h1 style={{ margin:0, fontFamily:font.body, fontSize:24, fontWeight:700, color:C.text }}>{title}</h1>
+      {subtitle && <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:4 }}>{subtitle}</div>}
     </div>
     {middle}
     {action}
@@ -548,34 +615,24 @@ const EnTurnoIndicator = ({ records, stores, isMobile }) => {
   return (
     <HoverTooltip
       clickOnly
-      align={isMobile ? "right" : "left"}
+      align="right"
       width={250}
+      labelStyle={{ textDecoration:"none" }}
       label={
-        <div style={{
-          display: "flex", alignItems: "center", gap: 6, height: isMobile ? 38 : "auto", boxSizing: "border-box",
-          padding: isMobile ? "0 10px" : "8px 13px", borderRadius: 99, background: C.surfaceAlt,
-          border: `1.5px solid ${activos.length > 0 ? C.blue : C.border}`,
-          fontFamily: font.body, fontSize: isMobile ? 12 : 12.5, color: C.text, whiteSpace: "nowrap",
-        }}>
-          <span>👤</span>
+        // Propuesta A: dos píldoras (en turno / en almuerzo) en la barra de pestañas de Ventas.
+        <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:isMobile?11.5:12, fontWeight:600, whiteSpace:"nowrap", cursor:"pointer" }}>
           {activos.length === 0 ? (
-            <span style={{ color: C.textMuted }}>Nadie en turno</span>
+            <span style={{ display:"inline-flex", alignItems:"center", gap:6, borderRadius:99, padding:"5px 11px", background:C.surfaceHover, color:C.textMuted }}><Icon n="user" s={14}/>Nadie en turno</span>
           ) : (
             <>
-              <span style={{ fontWeight: 700, color: C.green }}>{presentes}</span>
-              <span style={{ color: C.textMuted, fontSize: 11 }}>en turno</span>
-              {enAlmuerzo > 0 && (
-                <>
-                  <span style={{ color: C.textMuted }}>·</span>
-                  <span style={{ fontWeight: 700, color: C.amber }}>🍽️ {enAlmuerzo}</span>
-                </>
-              )}
+              <span style={{ display:"inline-flex", alignItems:"center", gap:6, borderRadius:99, padding:"5px 11px", background:C.greenDim, color:C.green }}><Icon n="user" s={14}/>{presentes} en turno</span>
+              {enAlmuerzo > 0 && <span style={{ display:"inline-flex", alignItems:"center", gap:6, borderRadius:99, padding:"5px 11px", background:C.amberDim, color:C.amber }}><Icon n="lunch" s={14}/>{enAlmuerzo} en almuerzo</span>}
             </>
           )}
         </div>
       }
     >
-      <div style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 700, color: C.goldLight, marginBottom: 6 }}>👤 Quién está en turno hoy · todas las tiendas</div>
+      <div style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 700, color: C.goldLight, marginBottom: 6 }}>Quién está en turno hoy · todas las tiendas</div>
       {activos.length === 0 ? (
         <div style={{ fontFamily: font.body, fontSize: 12, color: C.textMuted }}>Nadie ha marcado entrada hoy.</div>
       ) : (
@@ -583,7 +640,7 @@ const EnTurnoIndicator = ({ records, stores, isMobile }) => {
           {Object.entries(porTienda).map(([storeId, arr]) => (
             <div key={storeId}>
               <div style={{ fontFamily: font.body, fontSize: 10.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
-                {stores[storeId]?.name || "Sin tienda"}
+                {stores[storeId] ? <EtiquetaTienda store={stores[storeId]} sm/> : "Sin tienda"}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                 {arr.map(a => (
@@ -847,38 +904,176 @@ const passwordVencida = (u) => {
   return dias >= DIAS_EXPIRACION_PASSWORD;
 };
 
-function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
-  const tabs = tabsPara(user, area);
-  const presionarLogo = useLongPress(onAbrirUsuarios);
+// ── Navegación (Propuesta A · "Mostrador") ───────────────────────────────────
+// Sin barra lateral: arriba una barra con la marca, las ÁREAS como selector (se cambia de área con
+// un clic, sin volver a la pantalla de módulos), la TIENDA activa y el menú de la cuenta. Debajo,
+// las pestañas del área con una línea que se desliza a la pestaña elegida, y bajo ellas una franja
+// fina del color de la tienda (cuando la pantalla trabaja sobre una tienda). En celular las
+// pestañas bajan a una barra inferior, como antes.
+const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet" };
+const AREAS_NAV = [
+  { id:"ventas", label:"Ventas", ic:"receipt" },
+  { id:"asistencia", label:"Asistencia", ic:"clock" },
+  { id:"junta", label:"La Junta", ic:"users" },
+  { id:"firmas", label:"Firmas", ic:"pen" },
+];
+const areasPara = (user) => AREAS_NAV.filter(a => a.id!=="ventas" || puedeUsarVentasArea(user));
+// "OZEN Unicentro" → "Unicentro": en la barra y en las etiquetas el prefijo de marca sobra.
+const nombreTiendaCorto = (s) => (s?.name || "").replace(/^OZEN\s+/i, "") || "—";
+const colorTienda = (s) => s?.color || "#6b7280";
+
+// Punto de color de una tienda (con un halo suave del mismo color).
+const PuntoTienda = ({ color, size=9 }) => (
+  <span style={{ width:size, height:size, borderRadius:"50%", background:color, boxShadow:`0 0 0 3px ${hexToRgba(color,0.18)}`, display:"inline-block", flexShrink:0 }}/>
+);
+// Etiqueta de tienda para listas e historiales donde se mezclan tiendas: punto + nombre sobre un
+// fondo muy suave del color de la tienda (10 %) — identifica sin gritar.
+const EtiquetaTienda = ({ store, sm }) => {
+  const col = colorTienda(store);
   return (
-    <div style={{ width:220, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", height:"100%" }}>
-      <div style={{ padding:"18px 16px", borderBottom:`1px solid ${C.border}`, textAlign:"center" }}>
-        {/* El logo, para master, también es la entrada a Usuarios — a propósito no lleva ningún
-            aviso visual, y hay que mantenerlo presionado (no un clic normal) para entrar. */}
-        <img src="/logo-icon.png" alt="OZEN" draggable={false} onContextMenu={e=>user.role==="master"&&e.preventDefault()} {...(user.role==="master"?presionarLogo:{})} style={{ width:44, height:44, borderRadius:"50%", cursor:user.role==="master"?"pointer":"default", userSelect:"none", WebkitTouchCallout:"none" }} />
-      </div>
-      <nav style={{ flex:1, padding:"12px 10px", display:"flex", flexDirection:"column", gap:2 }}>
-        {tabs.map(t => { const active=tab===t.id; return (
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, border:"none", background:active?`${C.gold}18`:"transparent", borderLeft:active?`3px solid ${C.goldLight}`:"3px solid transparent", color:active?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:13, fontWeight:active?600:400, cursor:"pointer", textAlign:"left", transition:"all 0.15s" }}>
-            <span style={{ fontSize:16 }}>{t.icon}</span>{t.label}
-          </button>
-        ); })}
-      </nav>
-      <div style={{ padding:"14px 16px", borderTop:`1px solid ${C.border}` }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-          <div style={{ width:32, height:32, borderRadius:8, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:13, fontWeight:700, color:"#fff", flexShrink:0 }}>{user.name[0]}</div>
-          <div>
-            <div style={{ fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
-            {!esCuentaTienda(user) && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>{ROLE_LABEL[user.role] || "Asesor"}</div>}
-          </div>
-          <button onClick={onRefresh} disabled={refreshing} title="Actualizar" style={{ marginLeft:"auto", background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:16, opacity:refreshing?0.4:1, transition:"transform 0.4s", transform:refreshing?"rotate(180deg)":"rotate(0deg)" }}>🔄</button>
+    <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:sm?11:12, fontWeight:600, color:C.text, borderRadius:99, padding:sm?"2px 9px 2px 7px":"3px 11px 3px 9px", background:hexToRgba(col,0.1), whiteSpace:"nowrap" }}>
+      <span style={{ width:sm?6:7, height:sm?6:7, borderRadius:"50%", background:col, flexShrink:0 }}/>{nombreTiendaCorto(store)}
+    </span>
+  );
+};
+
+// Menú flotante (tienda, cuenta). Un clic fuera lo cierra.
+function MenuFlotante({ abierto, onCerrar, children, align="right", width=250, top=46 }) {
+  if(!abierto) return null;
+  return (
+    <>
+      <div onClick={onCerrar} style={{ position:"fixed", inset:0, zIndex:90 }}/>
+      <div className="ozen-menu-pop" style={{ position:"absolute", top, [align]:0, width, background:"#fff", border:`1px solid ${C.border}`, borderRadius:12, boxShadow:"0 20px 40px -18px rgba(26,59,82,0.45)", padding:6, zIndex:91 }}>{children}</div>
+    </>
+  );
+}
+const MenuItem = ({ ic, children, onClick, color, activo, extra }) => (
+  <button onClick={onClick} className="ozen-menu-item" style={{ display:"flex", alignItems:"center", gap:10, width:"100%", padding:"10px 12px", border:"none", background:activo?C.surfaceHover:"none", borderRadius:8, cursor:"pointer", fontFamily:font.body, fontSize:13.5, fontWeight:activo?600:400, color:color||C.text, textAlign:"left" }}>
+    {ic}{children}{extra && <span style={{ marginLeft:"auto" }}>{extra}</span>}
+  </button>
+);
+
+function SelectorTienda({ stores, tiendaId, setTiendaId, fija, compact }) {
+  const [abierto, setAbierto] = useState(false);
+  const actual = stores[tiendaId];
+  const chip = { display:"flex", alignItems:"center", gap:8, border:`1px solid ${C.border}`, borderRadius:10, padding:compact?"6px 10px":"7px 12px", background:"#fff", fontFamily:font.body, fontSize:compact?12.5:13, fontWeight:600, color:C.text, whiteSpace:"nowrap" };
+  if(fija || !setTiendaId) return <div style={chip}><PuntoTienda color={colorTienda(actual)} size={compact?8:9}/>{nombreTiendaCorto(actual)}</div>;
+  return (
+    <div style={{ position:"relative" }}>
+      <button onClick={()=>setAbierto(a=>!a)} style={{ ...chip, cursor:"pointer" }} title="Tienda con la que estás trabajando">
+        <PuntoTienda color={colorTienda(actual)} size={compact?8:9}/>{nombreTiendaCorto(actual)}<Icon n="down" s={14} style={{ color:C.textMuted }}/>
+      </button>
+      <MenuFlotante abierto={abierto} onCerrar={()=>setAbierto(false)} width={230}>
+        <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.1em", textTransform:"uppercase", color:C.textMuted, padding:"6px 12px 4px", fontWeight:600 }}>Tienda</div>
+        {tiendasVenta(stores).map(t=>(
+          <MenuItem key={t.id} activo={t.id===tiendaId} onClick={()=>{ setTiendaId(t.id); setAbierto(false); }} ic={<PuntoTienda color={colorTienda(t)}/>} extra={t.id===tiendaId ? <Icon n="check" s={15} style={{ color:C.gold }}/> : null}>{nombreTiendaCorto(t)}</MenuItem>
+        ))}
+      </MenuFlotante>
+    </div>
+  );
+}
+
+function SelectorArea({ user, area, onChooseArea, compact }) {
+  return (
+    <div style={{ display:"flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, ...(compact?{ width:"100%" }:{}) }}>
+      {areasPara(user).map(a=>{ const on=a.id===area; return (
+        <button key={a.id} onClick={()=>!on && onChooseArea(a.id)} className="ozen-area-btn" style={{ flex:compact?1:undefined, display:"flex", alignItems:"center", justifyContent:"center", gap:7, padding:compact?"7px 4px":"8px 16px", borderRadius:99, border:"none", cursor:on?"default":"pointer", background:on?C.goldDark:"transparent", color:on?"#fff":C.textSub, fontFamily:font.body, fontSize:compact?11.5:13, fontWeight:on?600:500, transition:"background .25s ease, color .25s ease", whiteSpace:"nowrap" }}>
+          {!compact && <Icon n={a.ic} s={15}/>}{a.label}
+        </button>
+      ); })}
+    </div>
+  );
+}
+
+function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, onActivarNotificaciones }) {
+  const [abierto, setAbierto] = useState(false);
+  const cerrarY = (fn) => () => { setAbierto(false); fn(); };
+  const nombre = esCuentaTienda(user) ? user.name : user.name.split(" ")[0];
+  return (
+    <div style={{ position:"relative" }}>
+      <button onClick={()=>setAbierto(a=>!a)} title="Tu cuenta" style={{ width:36, height:36, borderRadius:"50%", background:C.tinta, border:"none", display:"grid", placeItems:"center", fontFamily:font.body, fontSize:14, fontWeight:700, color:C.goldDark, cursor:"pointer" }}>{user.name[0]}</button>
+      <MenuFlotante abierto={abierto} onCerrar={()=>setAbierto(false)} width={250}>
+        <div style={{ padding:"10px 12px 12px", borderBottom:`1px solid ${C.border}`, marginBottom:4 }}>
+          <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{nombre}</div>
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginTop:2 }}>{ROLE_LABEL[user.role] || "Asesor"}</div>
         </div>
-        {puedeUsarAreas(user) && <Btn onClick={onChangeArea} variant="ghost" full sm style={{ marginBottom:8 }}>🔀 Cambiar de área</Btn>}
-        {esAdminFinanzas(user) && <Btn onClick={onAbrirAccesoTiendas} variant="ghost" full sm style={{ marginBottom:8 }}>🏬 Acceso tiendas</Btn>}
-        {puedeGestionarTurnos(user) && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <Btn onClick={onActivarNotificaciones} variant="ghost" full sm style={{ marginBottom:8 }}>🔔 Activar notificaciones</Btn>}
-        {user.role!=="master" && !esCuentaTienda(user) && <Btn onClick={onCambiarPassword} variant="ghost" full sm style={{ marginBottom:8 }}>🔑 Mi contraseña</Btn>}
-        <Btn onClick={onLogout} variant="ghost" full sm>Cerrar sesión</Btn>
+        {esAdminFinanzas(user) && <MenuItem ic={<Icon n="store" s={16}/>} onClick={cerrarY(onAbrirAccesoTiendas)}>Acceso tiendas</MenuItem>}
+        {puedeGestionarTurnos(user) && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <MenuItem ic={<Icon n="bell" s={16}/>} onClick={cerrarY(onActivarNotificaciones)}>Activar notificaciones</MenuItem>}
+        {user.role!=="master" && !esCuentaTienda(user) && <MenuItem ic={<Icon n="key" s={16}/>} onClick={cerrarY(onCambiarPassword)}>Mi contraseña</MenuItem>}
+        <MenuItem ic={<Icon n="logout" s={16}/>} color={C.red} onClick={cerrarY(onLogout)}>Cerrar sesión</MenuItem>
+      </MenuFlotante>
+    </div>
+  );
+}
+
+// Marca: el logo, para master, también es la entrada a Usuarios — a propósito sin ningún aviso
+// visual, y hay que mantenerlo presionado (no un clic normal) para entrar.
+function MarcaOzen({ user, onAbrirUsuarios, compact }) {
+  const presionarLogo = useLongPress(onAbrirUsuarios);
+  // Logo real de la marca (solo "OZEN", sin "momento presente") — recortado del logo oficial.
+  return (
+    <img src="/logo-wordmark.png" alt="OZEN" draggable={false} onContextMenu={e=>user.role==="master"&&e.preventDefault()} {...(user.role==="master"?presionarLogo:{})} style={{ height:compact?22:26, width:"auto", display:"block", flexShrink:0, cursor:user.role==="master"?"pointer":"default", userSelect:"none", WebkitTouchCallout:"none" }} />
+  );
+}
+
+const BotonRefrescar = ({ onRefresh, refreshing }) => (
+  <button onClick={onRefresh} disabled={refreshing} title="Actualizar datos" style={{ width:36, height:36, borderRadius:10, border:"none", background:"transparent", display:"grid", placeItems:"center", color:C.textSub, cursor:refreshing?"not-allowed":"pointer", opacity:refreshing?0.5:1 }}>
+    <Icon n="refresh" s={18} style={{ transition:"transform .6s ease", transform:refreshing?"rotate(360deg)":"none" }}/>
+  </button>
+);
+
+function BarraSuperior({ user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
+  return (
+    <div style={{ height:62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", padding:"0 24px", gap:26, flexShrink:0, position:"relative", zIndex:20 }}>
+      <MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios}/>
+      {puedeUsarAreas(user) && <SelectorArea user={user} area={area} onChooseArea={onChooseArea}/>}
+      <div style={{ flex:1 }}/>
+      {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija}/>}
+      <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
+      <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones}/>
+    </div>
+  );
+}
+
+// Pestañas del área, con la línea inferior que se DESLIZA hasta la pestaña elegida (en vez de
+// saltar). Se mide la posición real de la pestaña activa y la línea se anima a ese sitio.
+function BarraPestanas({ tabs, tab, setTab, derecha }) {
+  const refs = useRef({});
+  const [linea, setLinea] = useState(null);
+  useLayoutEffect(()=>{
+    const medir = () => { const el = refs.current[tab]; if(el) setLinea({ left:el.offsetLeft, width:el.offsetWidth }); };
+    medir();
+    window.addEventListener("resize", medir);
+    return () => window.removeEventListener("resize", medir);
+  }, [tab, tabs.length]);
+  return (
+    <div style={{ height:50, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"stretch", padding:"0 24px", gap:30, flexShrink:0, position:"relative" }}>
+      {tabs.map(t=>{ const on=t.id===tab; return (
+        <button key={t.id} ref={el=>{ refs.current[t.id]=el; }} onClick={()=>setTab(t.id)} className="ozen-tab-btn" style={{ display:"flex", alignItems:"center", gap:8, border:"none", background:"none", padding:0, cursor:"pointer", fontFamily:font.body, fontSize:14, fontWeight:on?600:400, color:on?C.goldDark:C.textMuted, transition:"color .2s ease", whiteSpace:"nowrap" }}>
+          <Icon n={TAB_ICON[t.id]||"right"} s={16}/>{t.label}
+        </button>
+      ); })}
+      {linea && <span className="ozen-tab-linea" style={{ position:"absolute", bottom:0, height:2.5, borderRadius:2, background:C.gold, left:linea.left, width:linea.width }}/>}
+      {derecha && <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:10 }}>{derecha}</div>}
+    </div>
+  );
+}
+
+// Franja de 3 px con el color de la tienda activa — dice "dónde estás" en toda el área de Ventas.
+const FranjaTienda = ({ color }) => <div style={{ height:3, background:color, transition:"background-color .35s ease", flexShrink:0 }}/>;
+
+function BarraSuperiorMovil({ extra, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
+  return (
+    <div style={{ background:"#fff", borderBottom:`1px solid ${C.border}`, padding:"10px 14px", flexShrink:0, position:"relative", zIndex:20 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+        <MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios} compact/>
+        <div style={{ flex:1 }}/>
+        {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija} compact/>}
+        <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
+        <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones}/>
       </div>
+      {puedeUsarAreas(user) && <div style={{ marginTop:10 }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/></div>}
+      {extra && <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>{extra}</div>}
     </div>
   );
 }
@@ -886,34 +1081,14 @@ function Sidebar({ tab, setTab, user, area, onChangeArea, onLogout, onRefresh, r
 function BottomNav({ tab, setTab, user, area }) {
   const tabs = tabsPara(user, area);
   return (
-    <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:C.sidebar, paddingBottom:"env(safe-area-inset-bottom, 8px)", flexShrink:0 }}>
+    <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:"#fff", paddingBottom:"env(safe-area-inset-bottom, 8px)", flexShrink:0 }}>
       {tabs.map(t => { const active=tab===t.id; return (
-        <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:1, padding:"10px 4px 8px", background:"none", border:"none", display:"flex", flexDirection:"column", alignItems:"center", gap:3, cursor:"pointer" }}>
-          <div style={{ fontSize:18 }}>{t.icon}</div>
-          <div style={{ fontSize:9, fontFamily:font.body, fontWeight:600, color:active?C.goldLight:C.textMuted }}>{t.label}</div>
-          {active && <div style={{ width:4, height:4, borderRadius:99, background:C.goldLight }} />}
+        <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:1, padding:"9px 2px 7px", background:"none", border:"none", display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer", color:active?C.goldDark:C.textMuted, position:"relative" }}>
+          <span style={{ position:"absolute", top:0, left:"28%", right:"28%", height:2.5, borderRadius:2, background:active?C.gold:"transparent", transition:"background .25s ease" }}/>
+          <Icon n={TAB_ICON[t.id]||"right"} s={20} sw={active?2:1.7}/>
+          <div style={{ fontSize:10, fontFamily:font.body, fontWeight:active?700:500, lineHeight:1.1, textAlign:"center" }}>{t.label}</div>
         </button>
       ); })}
-    </div>
-  );
-}
-
-function MobileHeader({ user, onLogout, onRefresh, refreshing, onChangeArea, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
-  const presionarLogo = useLongPress(onAbrirUsuarios);
-  return (
-    <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`, background:C.sidebar, flexShrink:0 }}>
-      {/* El logo, para master, también es la entrada a Usuarios — sin ningún aviso visual, y hay
-          que mantenerlo presionado (no un toque normal) para entrar. */}
-      <img src="/logo-icon.png" alt="OZEN" draggable={false} onContextMenu={e=>user.role==="master"&&e.preventDefault()} {...(user.role==="master"?presionarLogo:{})} style={{ width:34, height:34, borderRadius:"50%", userSelect:"none", WebkitTouchCallout:"none" }} />
-      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-        {puedeUsarAreas(user) && <button onClick={onChangeArea} title="Cambiar de área" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔀</button>}
-        {esAdminFinanzas(user) && <button onClick={onAbrirAccesoTiendas} title="Acceso tiendas" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🏬</button>}
-        {puedeGestionarTurnos(user) && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <button onClick={onActivarNotificaciones} title="Activar notificaciones" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔔</button>}
-        {user.role!=="master" && !esCuentaTienda(user) && <button onClick={onCambiarPassword} title="Mi contraseña" style={{ background:"none", border:"none", cursor:"pointer", fontSize:16 }}>🔑</button>}
-        <button onClick={onRefresh} disabled={refreshing} style={{ background:"none", border:"none", cursor:refreshing?"not-allowed":"pointer", fontSize:18, opacity:refreshing?0.4:1 }}>🔄</button>
-        <div style={{ fontFamily:font.body, fontSize:12, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{esCuentaTienda(user) ? user.name : user.name.split(" ")[0]}</div>
-        <button onClick={onLogout} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 10px", color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:font.body }}>Salir</button>
-      </div>
     </div>
   );
 }
@@ -2951,8 +3126,13 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const [anioSel, mesNumSel] = mesSel.split("-").map(Number);
   const martesDelMesSel = martesDelMes(anioSel, mesNumSel-1);
   const cambiarMes = (valorMes) => { setMesSel(valorMes); setSemanaFiltro(""); };
-  const irAEstaSemana = () => { const t = martesDeSemana(todayStr); setMesSel(t.slice(0,7)); setSemanaFiltro(t); };
-  const etiquetaSemana = (mt) => new Date(mt+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"});
+  // Propuesta A: las semanas se muestran como rango lunes–domingo ("22–28 sep") en fichas.
+  const rangoSemana = (mt) => {
+    const lun = new Date(sumarDias(mt,-1)+"T12:00:00"), dom = new Date(sumarDias(mt,5)+"T12:00:00");
+    const mesCorto = (d) => d.toLocaleDateString("es-CO",{month:"short"}).replace(".","");
+    return lun.getMonth()===dom.getMonth() ? `${lun.getDate()}–${dom.getDate()} ${mesCorto(dom)}` : `${lun.getDate()} ${mesCorto(lun)} – ${dom.getDate()} ${mesCorto(dom)}`;
+  };
+  const semanaDeHoy = martesDeSemana(todayStr);
 
   // Una tarea ya CERRADA (cumplida o vencida) se ubica por el mes en que de verdad se cerró
   // (mesDeCierre — mismo criterio que ya usan los indicadores), no por el mes en que se asignó
@@ -3035,9 +3215,8 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
     // 'semana' (la reunión/sesión a la que pertenece la tarea, para agruparla en pantalla y
     // contarla en los indicadores) es SIEMPRE la semana real de HOY — el martes de la semana en
     // que de verdad se está creando la tarea. Antes, si se estaba filtrando/viendo otra semana en
-    // pantalla al momento de crearla, la tarea quedaba archivada ahí por error (le pasó a tareas
-    // de la reunión del 17 de sep, que aparecieron bajo semana 2 en vez de semana 3). No depende
-    // de qué se esté viendo en pantalla — eso es solo un filtro de visualización.
+    // pantalla al momento de crearla, la tarea quedaba archivada ahí por error. No depende de qué
+    // se esté viendo en pantalla — eso es solo un filtro de visualización.
     const semanaTarea = martesDeSemana(todayStr);
     const grupoId = nueva.lider_ids.length>1 ? crypto.randomUUID() : null;
     const filas = nueva.lider_ids.map(lid=>({
@@ -3118,27 +3297,28 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
 
   return (
     <div>
-      <PageHeader title="Seguimiento semanal" subtitle="Checklist de tareas de la Junta" />
-
-      <Card glow style={{ marginBottom:16 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-          <div style={{ width:44, height:44, borderRadius:10, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontSize:19, flexShrink:0 }}>🎯</div>
-          <div>
-            <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:2 }}>Monitor de turno · rota cada mes{esMonitor && " · eres tú"}</div>
-            <div style={{ fontFamily:font.body, fontSize:17, fontWeight:700, color:C.goldLight }}>{monitor ? (monitor.nombre || "— sin nombre") : "— sin líderes configurados"}</div>
+      {/* Propuesta A — encabezado con el avance y la acción principal (Nueva tarea) a la derecha. */}
+      <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12, flexWrap:"wrap", marginBottom:18 }}>
+        <div>
+          <h1 style={{ margin:0, fontFamily:font.body, fontSize:isMobile?22:26, fontWeight:700, color:C.text }}>Seguimiento semanal</h1>
+          <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:4, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+            <span>Checklist de tareas de la Junta</span>
+            <span style={{ display:"inline-flex", alignItems:"center", gap:6, borderRadius:99, padding:"3px 10px", background:C.surfaceHover, color:C.goldDark, fontWeight:600, fontSize:12 }}>
+              <Icon n="flag" s={13}/>Monitor: {monitor ? (monitor.nombre || "— sin nombre") : "— sin líderes configurados"}{esMonitor && " · eres tú"}
+            </span>
           </div>
         </div>
-      </Card>
+        {puedeGestionar && <Btn onClick={abrirNueva}><Icon n="plus" s={15}/>Nueva tarea</Btn>}
+      </div>
 
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
           <input type="month" value={mesSel} onChange={e=>cambiarMes(e.target.value)} style={selectStyle}/>
-          <select value={semanaFiltro} onChange={e=>setSemanaFiltro(e.target.value)} style={selectStyle}>
+          {/* Una sola lista desplegable para acotar a una semana (lunes a domingo). */}
+          <select value={semanaFiltro} onChange={e=>setSemanaFiltro(e.target.value)} style={{ ...selectStyle, minWidth:200 }}>
             <option value="">Todo el mes</option>
-            {martesDelMesSel.map((mt,i)=><option key={mt} value={mt}>Semana {i+1} · {etiquetaSemana(mt)}</option>)}
+            {martesDelMesSel.map((mt,i)=><option key={mt} value={mt}>Semana {i+1} · {rangoSemana(mt)}{mt===semanaDeHoy?" (esta semana)":""}</option>)}
           </select>
-          <Btn onClick={irAEstaSemana} variant="ghost" sm>Esta semana</Btn>
-          {puedeGestionar && <Btn onClick={abrirNueva} sm style={{ marginLeft:"auto" }}>+ Nueva tarea</Btn>}
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginTop:8, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
           <select value={filtroLider} onChange={e=>setFiltroLider(e.target.value)} style={selectStyle}>
@@ -3149,11 +3329,11 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             <option value="cronologico">Ordenar: más vieja primero</option>
             <option value="lider">Ordenar: por líder</option>
           </select>
-          <div style={{ display:"flex", marginLeft:"auto" }}>
-            <button onClick={()=>setVistaEstado("activas")} style={{ ...selectStyle, borderRadius:"7px 0 0 7px", background:vistaEstado==="activas"?C.gold:C.surfaceAlt, color:vistaEstado==="activas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Activas ({gruposActivos.length})</button>
-            <button onClick={()=>setVistaEstado("todas")} style={{ ...selectStyle, borderRadius:0, borderLeft:"none", background:vistaEstado==="todas"?C.gold:C.surfaceAlt, color:vistaEstado==="todas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Todas ({gruposFiltrados.length})</button>
-            <button onClick={()=>setVistaEstado("cumplidas")} style={{ ...selectStyle, borderRadius:0, borderLeft:"none", background:vistaEstado==="cumplidas"?C.gold:C.surfaceAlt, color:vistaEstado==="cumplidas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Cumplidas ({gruposCumplidos.length})</button>
-            <button onClick={()=>setVistaEstado("vencidas")} style={{ ...selectStyle, borderRadius:"0 7px 7px 0", borderLeft:"none", background:vistaEstado==="vencidas"?C.gold:C.surfaceAlt, color:vistaEstado==="vencidas"?"#fff":C.text, cursor:"pointer", fontWeight:600 }}>Vencidas ({gruposVencidos.length})</button>
+          <div style={{ display:"flex", marginLeft:"auto", background:C.surfaceHover, borderRadius:10, padding:3, gap:2 }}>
+            <button onClick={()=>setVistaEstado("activas")} style={{ ...selectStyle, borderRadius:8, background:vistaEstado==="activas"?"#fff":C.surfaceHover, color:vistaEstado==="activas"?C.goldDark:C.textSub, border:"none", boxShadow:vistaEstado==="activas"?"0 1px 2px rgba(26,59,82,0.15)":"none", cursor:"pointer", fontWeight:600 }}>Activas ({gruposActivos.length})</button>
+            <button onClick={()=>setVistaEstado("todas")} style={{ ...selectStyle, borderRadius:8, background:vistaEstado==="todas"?"#fff":C.surfaceHover, color:vistaEstado==="todas"?C.goldDark:C.textSub, border:"none", boxShadow:vistaEstado==="todas"?"0 1px 2px rgba(26,59,82,0.15)":"none", cursor:"pointer", fontWeight:600 }}>Todas ({gruposFiltrados.length})</button>
+            <button onClick={()=>setVistaEstado("cumplidas")} style={{ ...selectStyle, borderRadius:8, background:vistaEstado==="cumplidas"?"#fff":C.surfaceHover, color:vistaEstado==="cumplidas"?C.goldDark:C.textSub, border:"none", boxShadow:vistaEstado==="cumplidas"?"0 1px 2px rgba(26,59,82,0.15)":"none", cursor:"pointer", fontWeight:600 }}>Cumplidas ({gruposCumplidos.length})</button>
+            <button onClick={()=>setVistaEstado("vencidas")} style={{ ...selectStyle, borderRadius:8, background:vistaEstado==="vencidas"?"#fff":C.surfaceHover, color:vistaEstado==="vencidas"?C.goldDark:C.textSub, border:"none", boxShadow:vistaEstado==="vencidas"?"0 1px 2px rgba(26,59,82,0.15)":"none", cursor:"pointer", fontWeight:600 }}>Vencidas ({gruposVencidos.length})</button>
           </div>
         </div>
         {!puedeGestionar && !soloLectura && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:8 }}>Solo el monitor de turno puede crear tareas nuevas.</div>}
@@ -3179,9 +3359,12 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
         </Card>
       )}
 
-      <div key={vistaEstado} className="ozen-pane-anim-tab" style={{ display:"flex", flexDirection:"column", gap:6 }}>
-        {gruposOrdenados.map(g=>{
+      <div key={vistaEstado} className="ozen-pane-anim-tab" style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {gruposOrdenados.map((g,gi)=>{
           const base = g[0];
+          // Propuesta A: en orden cronológico, las tareas se agrupan por semana con un encabezado.
+          const nuevaSemana = orden==="cronologico" && (gi===0 || gruposOrdenados[gi-1][0].semana!==base.semana);
+          const tareasSemana = nuevaSemana ? gruposOrdenados.filter(x=>x[0].semana===base.semana) : null;
           const vencida = esGrupoVencido(g);
           const compartida = g.length>1;
           const puedeBorrar = puedeBorrarGrupo(g);
@@ -3220,11 +3403,19 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             ? `Autorreportada por ${base.autorreportado_por} — falta que el monitor la confirme`
             : "Solo el monitor de turno (o el responsable de la tarea) puede marcarla";
           return (
-            <div key={toggleId} style={{ padding:"7px 10px", background:C.surface, borderRadius:9, borderTop:`1px solid ${C.border}`, borderRight:`1px solid ${C.border}`, borderBottom:`1px solid ${C.border}`, borderLeft:`3px solid ${compartida?C.blue:C.border}`, display:"flex", flexDirection:"column", gap:4 }}>
+            <Fragment key={toggleId}>
+            {nuevaSemana && (
+              <div style={{ display:"flex", alignItems:"center", gap:10, margin:gi===0?"0 0 4px":"14px 0 4px", padding:"0 4px", fontFamily:font.body, fontSize:13 }}>
+                <b style={{ fontSize:14, color:C.text }}>Semana del {rangoSemana(base.semana)}</b>
+                <span style={{ color:C.textMuted, fontSize:12.5 }}>{base.semana===semanaDeHoy ? "esta semana · vence el domingo" : base.semana<semanaDeHoy ? "cerrada" : "próxima"}</span>
+                <span style={{ marginLeft:"auto", borderRadius:99, padding:"3px 10px", background:C.surfaceHover, fontSize:12, fontWeight:600, color:C.goldDark }}>{tareasSemana.length} {tareasSemana.length===1?"tarea":"tareas"} · {tareasSemana.filter(esGrupoCompletado).length} cumplidas</span>
+              </div>
+            )}
+            <div style={{ padding:"12px 16px", background:"#fff", borderRadius:12, border:`1px solid ${C.border}`, borderLeft:`3px solid ${compartida?C.blue:C.border}`, display:"flex", flexDirection:"column", gap:6 }}>
               {/* Línea 1: líder(es), fecha, estado (vencida/cumplida), reabrir */}
               <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textSub, fontWeight:600 }}>👤 {nombresLideres}</div>
-                {base.fecha_estimada && <div style={{ fontFamily:font.mono, fontSize:10.5, color:vencida?C.amber:C.textMuted }}>📅 {base.fecha_estimada}</div>}
+                <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:11.5, color:C.goldDark, fontWeight:600, background:C.surfaceHover, borderRadius:99, padding:"2px 9px" }}><Icon n="user" s={12}/>{nombresLideres}</div>
+                {base.fecha_estimada && <div style={{ display:"inline-flex", alignItems:"center", gap:4, fontFamily:font.mono, fontSize:10.5, color:vencida?C.amber:C.textMuted }}><Icon n="cal" s={12}/>{base.fecha_estimada}</div>}
                 {base.created_at && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }} title={`Creada el ${fmtFechaHora(base.created_at)}`}>· creada {new Date(base.created_at).toLocaleDateString("es-CO",{day:"numeric",month:"short"})}</div>}
                 {completadoGrupo && <Badge color={C.green} sm>Cumplida</Badge>}
                 {autorreportadoGrupo && <Badge color={C.blue} sm title="Marcada por su responsable, falta que el monitor la confirme">Autorreportada</Badge>}
@@ -3252,9 +3443,10 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
               {/* Línea 3: comentario (ancho libre) + eliminar */}
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <input placeholder="Comentario..." defaultValue={base.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==base.comentarios) (compartida?actualizarComentarioGrupo(g,e.target.value):actualizar(base.id,{comentarios:e.target.value})); }} style={{ flex:1, minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
-                {puedeBorrar && <button onClick={()=>eliminarGrupo(g)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, fontSize:13 }}>🗑</button>}
+                {puedeBorrar && <button onClick={()=>eliminarGrupo(g)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, padding:2, display:"grid" }}><Icon n="x" s={15}/></button>}
               </div>
             </div>
+            </Fragment>
           );
         })}
         {gruposOrdenados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>{vistaEstado==="activas" ? "Sin tareas activas." : vistaEstado==="cumplidas" ? "Sin tareas cumplidas todavía." : vistaEstado==="vencidas" ? "Sin tareas vencidas." : "Sin tareas para este período."}</div>}
@@ -3388,44 +3580,45 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
           </div>
           {statsLideresSel.length>0 && (
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":(hayDatoATiempo?"1fr 1fr 1fr":"1fr 1fr"), gap:12 }}>
-              <div style={{ minWidth:0 }}>
+              <div>
                 <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Total tareas del mes</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                   {topCantidad.map((s,i)=>{
                     const shareTareas = statsSel.totalTareas>0 ? Math.round((s.total/statsSel.totalTareas)*100) : 0;
                     return (
-                      <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, minWidth:0 }}>
+                      <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
                         <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
-                        <div style={{ flex:1, minWidth:0, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.lider.nombre || "— sin nombre"}</div>
-                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:0 }}>{s.total} tareas</div>
+                        <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
+                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.total} tareas</div>
                         <Badge color={C.blue} sm>{shareTareas}% del total</Badge>
                       </div>
                     );
                   })}
                 </div>
               </div>
-              <div style={{ minWidth:0 }}>
+              <div>
                 <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>Porcentaje cumplimiento</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                   {topCumplimiento.map((s,i)=>(
-                    <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, minWidth:0 }}>
+                    <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
                       <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
-                      <div style={{ flex:1, minWidth:0, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.lider.nombre || "— sin nombre"}</div>
-                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:0 }}>{s.completadas} de {s.totalCerradas}</div>
+                      <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
+                      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadas} de {s.totalCerradas}</div>
+                      {s.pctATiempo!==undefined && s.pctATiempo!==s.pct && <span style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }} title="De lo cumplido, cuánto fue sin reabrirse después de vencido">({s.pctATiempo===null?"—":`${s.pctATiempo}%`} a tiempo)</span>}
                       <Badge color={C.blue} intensity={intensidadPct(s.pct)} sm>{s.pct===null?"Sin cierres aún":`${s.pct}% cumplido`}</Badge>
                     </div>
                   ))}
                 </div>
               </div>
               {hayDatoATiempo && (
-                <div style={{ minWidth:0 }}>
+                <div>
                   <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }} title="Ordenado de quien más se atrasa a quien menos — de lo cumplido, cuánto NO tuvo que reabrirse después de vencido">Cumplimiento a tiempo</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                     {topATiempo.map((s,i)=>(
-                      <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, minWidth:0 }}>
+                      <div key={s.lider.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7 }}>
                         <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, width:14, flexShrink:0 }}>{i+1}</div>
-                        <div style={{ flex:1, minWidth:0, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.lider.nombre || "— sin nombre"}</div>
-                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, flexShrink:0 }}>{s.completadasATiempo??0} de {s.totalCerradas}</div>
+                        <div style={{ flex:1, fontFamily:font.body, fontSize:12, color:C.text, fontWeight:600 }}>{s.lider.nombre || "— sin nombre"}</div>
+                        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{s.completadasATiempo??0} de {s.totalCerradas}</div>
                         <Badge color={C.blue} intensity={intensidadPct(s.pctATiempo)} sm>{s.pctATiempo===null||s.pctATiempo===undefined?"Sin cierres aún":`${s.pctATiempo}% a tiempo`}</Badge>
                       </div>
                     ))}
@@ -3544,6 +3737,7 @@ function JuntaGuionTab({ monitor, isMobile }) {
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
+  const isMobile = useIsMobile();
   const [documento,setDocumento]=useState(""),[pass,setPass]=useState(""),[err,setErr]=useState(""),[loading,setLoading]=useState(false);
   const docRef=useRef(null), passRef=useRef(null);
 
@@ -3601,30 +3795,51 @@ function LoginScreen({ onLogin }) {
     onLogin(data);
     setLoading(false);
   };
+  // Propuesta A: pantalla partida — a la izquierda la marca sobre Sombra (logo en Tinta, las
+  // tiendas con su color), a la derecha el formulario sobre el fondo claro de la app. En celular
+  // la marca queda como una franja arriba y el formulario debajo.
+  const etiqueta = { fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:7, textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:600 };
+  const iconoCampo = { position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:C.textMuted, pointerEvents:"none" };
+  const panelMarca = (
+    <div style={{ position:"relative", overflow:"hidden", background:C.goldDark, color:C.tinta, display:"flex", flexDirection:"column", alignItems:"center", padding:isMobile?"40px 24px 64px":"48px 56px", minHeight:isMobile?220:"100vh", boxSizing:"border-box", ...(isMobile?{ borderRadius:"0 0 28px 28px" }:{}) }}>
+      {/* Anillos decorativos — eco del círculo del logo. */}
+      <span style={{ position:"absolute", right:isMobile?-90:-160, top:isMobile?-90:-140, width:isMobile?260:520, height:isMobile?260:520, borderRadius:"50%", border:"1px solid rgba(229,213,204,0.12)" }}/>
+      <span style={{ position:"absolute", right:isMobile?-40:-60, top:isMobile?-40:-40, width:isMobile?160:320, height:isMobile?160:320, borderRadius:"50%", border:"1px solid rgba(229,213,204,0.08)" }}/>
+      {!isMobile && <span style={{ position:"absolute", left:-120, bottom:-160, width:380, height:380, borderRadius:"50%", background:"rgba(38,93,127,0.35)", filter:"blur(2px)" }}/>}
+      <div style={{ position:"relative", flex:1, display:"flex", alignItems:"center", justifyContent:"center", animation:"ozenPopIn .6s cubic-bezier(.34,1.3,.64,1) both" }}>
+        <img src="/logo-horizontal.png" alt="OZEN" style={{ width:isMobile?210:340, maxWidth:"80%", height:"auto", display:"block" }}/>
+      </div>
+      {!isMobile && <div style={{ position:"relative", fontFamily:font.body, fontSize:12, color:"rgba(229,213,204,0.55)" }}>Creado por Santiago Rodríguez</div>}
+    </div>
+  );
   return (
-    <div style={{minHeight:"100vh",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{ minHeight:"100vh", background:C.dark, display:isMobile?"block":"grid", gridTemplateColumns:"minmax(380px, 46%) 1fr" }}>
       <style>{`
         @keyframes ozenNoAutofill { from {} to {} }
         input.ozen-anti-autofill:-webkit-autofill { animation-name: ozenNoAutofill; }
+        @keyframes ozenPopIn { from { opacity:0; transform:translateY(16px) scale(0.96); } to { opacity:1; transform:translateY(0) scale(1); } }
+        .ozen-login-input:focus { border-color: ${C.gold} !important; box-shadow: 0 0 0 4px rgba(38,93,127,0.12); }
       `}</style>
-      <div style={{width:"100%",maxWidth:380}}>
-        <div style={{textAlign:"center",marginBottom:28}}>
-          <img src="/logo-horizontal.png" alt="OZEN" style={{width:300,height:"auto"}}/>
-        </div>
-        <Card glow>
+      {panelMarca}
+      <div style={{ display:"flex", alignItems:isMobile?"flex-start":"center", justifyContent:"center", padding:isMobile?"0 16px 32px":"40px 24px" }}>
+        <div style={{ width:"100%", maxWidth:400, marginTop:isMobile?-40:0, position:"relative", animation:"ozenPopIn .55s .08s cubic-bezier(.34,1.3,.64,1) both" }}>
+          <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:20, padding:isMobile?"26px 22px":"36px 34px", boxShadow:"0 30px 60px -36px rgba(26,59,82,0.45)" }}>
           <form onSubmit={handle} autoComplete="off">
-            <div style={{fontFamily:font.body,fontSize:17,fontWeight:600,color:C.text,marginBottom:18,textAlign:"center"}}>Iniciar sesión</div>
+            <div style={{ fontFamily:font.body, fontSize:12, letterSpacing:"0.2em", textTransform:"uppercase", color:C.gold, fontWeight:700 }}>Bienvenido</div>
+            <h1 style={{ margin:"6px 0 4px", fontFamily:font.body, fontSize:isMobile?24:28, fontWeight:700, color:C.text }}>Iniciar sesión</h1>
+            <div style={{ fontFamily:font.body, fontSize:13.5, color:C.textMuted, marginBottom:26 }}>Entra con tu número de documento y tu contraseña.</div>
 
             {/* Campos señuelo ocultos: distraen al navegador para que no ofrezca
                 guardar la contraseña de los campos reales de abajo */}
             <input type="text" name="username" autoComplete="username" style={{position:"absolute",width:1,height:1,opacity:0,pointerEvents:"none"}} tabIndex={-1} aria-hidden="true" />
             <input type="password" name="password" autoComplete="new-password" style={{position:"absolute",width:1,height:1,opacity:0,pointerEvents:"none"}} tabIndex={-1} aria-hidden="true" />
 
-            <div style={{ marginBottom:14 }}>
-              <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em", textAlign:"center" }}>N.º de documento</div>
+            <div style={{ marginBottom:16 }}>
+              <div style={etiqueta}>N.º de documento</div>
+              <div style={{ position:"relative" }}>
+                <span style={iconoCampo}><Icon n="user" s={18}/></span>
               <input
                 ref={docRef}
-                className="ozen-anti-autofill"
                 type="text"
                 name="ozen_doc_x1"
                 value={documento}
@@ -3634,15 +3849,17 @@ function LoginScreen({ onLogin }) {
                 onPaste={bloquear}
                 onDrop={bloquear}
                 onAnimationStart={siAutocompletaLimpiar(setDocumento)}
-                style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}
+                className="ozen-anti-autofill ozen-login-input" style={{ width:"100%", height:50, background:"#fff", border:`1px solid rgba(26,59,82,0.2)`, borderRadius:12, padding:"0 14px 0 44px", color:C.text, fontSize:15, fontFamily:font.body, outline:"none", boxSizing:"border-box", transition:"border-color .2s ease, box-shadow .2s ease" }}
               />
+              </div>
             </div>
 
-            <div style={{ marginBottom:14 }}>
-              <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em", textAlign:"center" }}>Contraseña</div>
+            <div style={{ marginBottom:18 }}>
+              <div style={etiqueta}>Contraseña</div>
+              <div style={{ position:"relative" }}>
+                <span style={iconoCampo}><Icon n="key" s={18}/></span>
               <input
                 ref={passRef}
-                className="ozen-anti-autofill"
                 type="password"
                 name="ozen_pwd_x1"
                 value={pass}
@@ -3652,15 +3869,17 @@ function LoginScreen({ onLogin }) {
                 onPaste={bloquear}
                 onDrop={bloquear}
                 onAnimationStart={siAutocompletaLimpiar(setPass)}
-                style={{ width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}
+                className="ozen-anti-autofill ozen-login-input" style={{ width:"100%", height:50, background:"#fff", border:`1px solid rgba(26,59,82,0.2)`, borderRadius:12, padding:"0 14px 0 44px", color:C.text, fontSize:15, fontFamily:font.body, outline:"none", boxSizing:"border-box", transition:"border-color .2s ease, box-shadow .2s ease" }}
               />
+              </div>
             </div>
 
-            {err&&<div style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,padding:"9px 12px",color:C.red,fontSize:12,marginBottom:12,fontFamily:font.body}}>{err}</div>}
-            <Btn disabled={loading} full style={{marginTop:4}}>{loading?"Verificando...":"Ingresar"}</Btn>
+            {err&&<div style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:10,padding:"10px 12px",color:C.red,fontSize:12.5,marginBottom:14,fontFamily:font.body}}>{err}</div>}
+            <Btn disabled={loading} full style={{ height:52, fontSize:15.5, borderRadius:12 }}>{loading ? "Verificando..." : <>Ingresar<Icon n="right" s={17}/></>}</Btn>
           </form>
-        </Card>
-        <div style={{textAlign:"center",marginTop:18,fontFamily:font.body,fontSize:10.5,color:C.textMuted,opacity:0.6}}>Creado por Santiago Rodríguez</div>
+          </div>
+          {isMobile && <div style={{ textAlign:"center", marginTop:18, fontFamily:font.body, fontSize:11, color:C.textMuted, opacity:0.7 }}>Creado por Santiago Rodríguez</div>}
+        </div>
       </div>
     </div>
   );
@@ -3668,54 +3887,66 @@ function LoginScreen({ onLogin }) {
 
 // ── SELECTOR DE ÁREA (solo admin) ───────────────────────────────────────────
 function AreaSelector({ user, onChoose, onLogout }) {
+  // Propuesta A: mismo orden e íconos de línea que el selector de áreas de la barra superior, y un
+  // solo color de acento (Base) — antes cada módulo tenía un color propio fuera de la paleta.
   const modulos = [
-    { id:"junta", icon:"🗓️", titulo:"La Junta Administrativa", desc:"Equipo, seguimiento semanal y guion de la reunión", accent:C.goldLight, mostrar:true },
-    { id:"asistencia", icon:"📋", titulo:"Registro de Asistencia", desc:"Panel, registros, turnos, asesores, tiendas e informes", accent:"#6ea8fe", mostrar:true },
-    { id:"ventas", icon:"💰", titulo:"Ventas", desc:ventasSoloLectura(user) ? "Solo para ver — no se puede registrar ni corregir nada" : "Registro de ventas, metas y métricas por tienda", accent:C.green, mostrar:puedeUsarVentasArea(user) },
-    { id:"firmas", icon:"✍️", titulo:"Firmar Documentos", desc:"Sube un PDF, ubica tu firma y descárgalo — nada queda guardado", accent:"#c084fc", mostrar:true },
+    { id:"ventas", icon:<Icon n="receipt" s={24}/>, titulo:"Ventas", desc:ventasSoloLectura(user) ? "Solo para ver — no se puede registrar ni corregir nada" : "Registro de ventas, caja, metas y métricas por tienda", accent:C.gold, mostrar:puedeUsarVentasArea(user) },
+    { id:"asistencia", icon:<Icon n="clock" s={24}/>, titulo:"Registro de Asistencia", desc:"Panel, registros, turnos, asesores, tiendas e informes", accent:C.gold, mostrar:true },
+    { id:"junta", icon:<Icon n="users" s={24}/>, titulo:"La Junta Administrativa", desc:"Equipo, seguimiento semanal y guion de la reunión", accent:C.gold, mostrar:true },
+    { id:"firmas", icon:<Icon n="pen" s={24}/>, titulo:"Firmar Documentos", desc:"Sube un PDF, ubica tu firma y descárgalo — nada queda guardado", accent:C.gold, mostrar:true },
   ].filter(m=>m.mostrar);
+  const isMobile = useIsMobile();
+  const horaCol = toColombiaDate().getHours();
+  const saludo = horaCol<12 ? "Buenos días" : horaCol<19 ? "Buenas tardes" : "Buenas noches";
+  const fechaLarga = toColombiaDate().toLocaleDateString("es-CO",{ weekday:"long", day:"numeric", month:"long" });
+  // Propuesta A: misma barra superior de la app (marca + salir) y los módulos como tarjetas grandes
+  // en cuadrícula, con el saludo arriba. Es la pantalla de entrada; después, dentro de la app, se
+  // cambia de módulo desde el selector de áreas de la barra superior.
   return (
-    <div style={{ minHeight:"100vh", background:`radial-gradient(1100px 520px at 50% -10%, ${C.goldLight}14, transparent 60%), ${C.dark}`, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+    <div style={{ minHeight:"100vh", background:C.dark, fontFamily:font.body, display:"flex", flexDirection:"column" }}>
       <style>{`
-        @keyframes ozenPopIn { from { opacity:0; transform:translateY(16px) scale(0.94); } to { opacity:1; transform:translateY(0) scale(1); } }
-        .ozen-modulo-card { animation:ozenPopIn .48s cubic-bezier(.34,1.56,.64,1) both; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
-        .ozen-modulo-card:hover { transform:translateY(-3px) scale(1.01); }
+        @keyframes ozenPopIn { from { opacity:0; transform:translateY(16px) scale(0.96); } to { opacity:1; transform:translateY(0) scale(1); } }
+        .ozen-modulo-card { animation:ozenPopIn .5s cubic-bezier(.34,1.4,.64,1) both; transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
+        .ozen-modulo-card:hover { transform:translateY(-4px); border-color:${C.gold} !important; box-shadow:0 24px 40px -26px rgba(26,59,82,0.55) !important; }
         .ozen-modulo-card:active { transform:translateY(-1px) scale(0.995); }
-        .ozen-modulo-arrow { transition:transform .18s ease, opacity .18s ease; opacity:0.4; }
-        .ozen-modulo-card:hover .ozen-modulo-arrow { transform:translateX(4px); opacity:1; }
-        .ozen-modulo-icon { transition:transform .18s ease; }
-        .ozen-modulo-card:hover .ozen-modulo-icon { transform:scale(1.08) rotate(-2deg); }
+        .ozen-modulo-arrow { transition:transform .2s ease; }
+        .ozen-modulo-card:hover .ozen-modulo-arrow { transform:translateX(5px); }
+        .ozen-modulo-icon { transition:transform .2s ease, background .2s ease, color .2s ease; }
+        .ozen-modulo-card:hover .ozen-modulo-icon { transform:scale(1.06) rotate(-3deg); background:${C.goldDark} !important; color:${C.tinta} !important; }
       `}</style>
-      <div style={{ width:"100%", maxWidth:540 }}>
-        <div style={{ textAlign:"center", marginBottom:32, animation:"ozenPopIn .5s cubic-bezier(.34,1.56,.64,1) both" }}>
-          <img src="/logo-horizontal.png" alt="OZEN" style={{ width:260, height:"auto", marginBottom:14 }} />
-          <div style={{ fontFamily:font.body, fontSize:13.5, color:C.textMuted }}>Hola, {user.name.split(" ")[0]} — ¿qué quieres abrir?</div>
-        </div>
-        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-          {modulos.map((m,i)=>(
-            <button key={m.id} onClick={()=>onChoose(m.id)} className="ozen-modulo-card" style={{
-              animationDelay:`${i*70}ms`, width:"100%", textAlign:"left", cursor:"pointer",
-              background:`linear-gradient(135deg, ${C.surface}, ${C.surfaceAlt})`,
-              border:`1px solid ${C.border}`, borderRadius:16, padding:"20px 22px",
-              display:"flex", alignItems:"center", gap:18,
-              boxShadow:`0 1px 2px rgba(0,0,0,0.2)`,
-            }}>
-              <div className="ozen-modulo-icon" style={{
-                fontSize:26, flexShrink:0, width:52, height:52, borderRadius:14,
-                display:"flex", alignItems:"center", justifyContent:"center",
-                background:`linear-gradient(135deg, ${hexToRgba(m.accent,0.22)}, ${hexToRgba(m.accent,0.06)})`,
-                border:`1px solid ${hexToRgba(m.accent,0.35)}`,
-              }}>{m.icon}</div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontFamily:font.body, fontSize:15.5, fontWeight:700, color:m.accent }}>{m.titulo}</div>
-                <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{m.desc}</div>
-              </div>
-              <div className="ozen-modulo-arrow" style={{ fontSize:18, color:m.accent, flexShrink:0 }}>→</div>
-            </button>
-          ))}
-        </div>
-        <div style={{ textAlign:"center", marginTop:24 }}>
-          <Btn onClick={onLogout} variant="ghost" sm>Cerrar sesión</Btn>
+      <div style={{ height:isMobile?56:62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", padding:isMobile?"0 14px":"0 24px", gap:12, flexShrink:0 }}>
+        <MarcaOzen user={{ role:"" }} onAbrirUsuarios={()=>{}} compact={isMobile}/>
+        <div style={{ flex:1 }}/>
+        <span style={{ fontSize:13, color:C.textSub, display:isMobile?"none":"inline" }}>{user.name}</span>
+        <span style={{ width:34, height:34, borderRadius:"50%", background:C.tinta, color:C.goldDark, display:"grid", placeItems:"center", fontWeight:700, fontSize:14 }}>{user.name[0]}</span>
+        <Btn onClick={onLogout} variant="ghost" sm><Icon n="logout" s={14}/>Salir</Btn>
+      </div>
+      <div style={{ flex:1, display:"flex", alignItems:isMobile?"flex-start":"center", justifyContent:"center", padding:isMobile?"26px 16px 40px":"40px 24px 60px" }}>
+        <div style={{ width:"100%", maxWidth:920 }}>
+          <div style={{ marginBottom:isMobile?20:30, animation:"ozenPopIn .5s cubic-bezier(.34,1.3,.64,1) both" }}>
+            <div style={{ fontSize:12, letterSpacing:"0.18em", textTransform:"uppercase", color:C.gold, fontWeight:700 }}>{fechaLarga}</div>
+            <h1 style={{ margin:"8px 0 6px", fontFamily:font.body, fontSize:isMobile?26:34, fontWeight:700, color:C.text, letterSpacing:"-0.01em" }}>{saludo}, {user.name.split(" ")[0]}</h1>
+            <div style={{ fontSize:15, color:C.textMuted }}>¿Qué quieres abrir hoy?</div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:isMobile?12:18 }}>
+            {modulos.map((m,i)=>(
+              <button key={m.id} onClick={()=>onChoose(m.id)} className="ozen-modulo-card" style={{
+                animationDelay:`${80+i*70}ms`, width:"100%", textAlign:"left", cursor:"pointer",
+                background:"#fff", border:`1px solid ${C.border}`, borderRadius:18, padding:isMobile?"18px":"26px 26px 22px",
+                display:"flex", flexDirection:isMobile?"row":"column", alignItems:isMobile?"center":"flex-start", gap:isMobile?14:16,
+                boxShadow:"0 1px 0 rgba(26,59,82,0.04)", fontFamily:font.body, minHeight:isMobile?0:196,
+              }}>
+                <div className="ozen-modulo-icon" style={{ width:isMobile?48:56, height:isMobile?48:56, borderRadius:16, background:C.surfaceHover, color:C.goldDark, display:"grid", placeItems:"center", flexShrink:0 }}>{m.icon}</div>
+                <div style={{ flex:isMobile?1:"0 0 auto", minWidth:0 }}>
+                  <div style={{ fontSize:isMobile?16:19, fontWeight:700, color:C.goldDark }}>{m.titulo}</div>
+                  <div style={{ fontSize:13, color:C.textMuted, marginTop:5, lineHeight:1.45 }}>{m.desc}</div>
+                </div>
+                {isMobile
+                  ? <span className="ozen-modulo-arrow" style={{ color:C.gold, flexShrink:0 }}><Icon n="right" s={20}/></span>
+                  : <span className="ozen-modulo-arrow" style={{ display:"inline-flex", alignItems:"center", gap:6, color:C.gold, fontSize:13.5, fontWeight:600, marginTop:"auto" }}>Abrir<Icon n="right" s={16}/></span>}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -4109,6 +4340,13 @@ const VENTAS_TIPOS = [
   { value:"grabado", label:"Grabado" },
   { value:"flexipago", label:"Flexipago" },
 ];
+// Píldora de tipo (Venta, Arreglo, Flexipago...) para la tabla de "Ventas de hoy".
+const PildoraTipo = ({ t, c }) => (
+  <span style={{ display:"inline-block", borderRadius:99, padding:"3px 11px", fontFamily:font.body, fontSize:12, fontWeight:600, background:hexToRgba(c,0.12), color:c, whiteSpace:"nowrap" }}>{t}</span>
+);
+// Íconos de línea (Propuesta A) para las fichas de tipo y de medio de pago en Registrar venta.
+const TIPO_VENTA_ICON = { producto:"bag", arreglo:"wrench", marcacion:"tag", grabado:"nib", flexipago:"box" };
+const MEDIO_PAGO_ICON = { efectivo:"cash", tarjeta:"card", transferencia:"bank", addi:"phone" };
 const VENTAS_TIPO_ICONOS = { producto:"🛍️", arreglo:"🔧", marcacion:"🖊️", grabado:"✒️", flexipago:"📦" };
 const VENTAS_TIPO_COLORES = { producto:C.blue, arreglo:C.amber, marcacion:C.blue, grabado:C.blue, flexipago:C.gold };
 const VENTAS_MEDIO_ICONOS = { efectivo:"💵", tarjeta:"💳", transferencia:"🏦", addi:"📱" };
@@ -4179,7 +4417,7 @@ const flexipagosPorVencer = (tiendaId, ventas, ventasItems, ventasAbonos, todayS
 // misma estructura y paddings de una tarjeta de venta normal, para que todos los registros de la
 // lista tengan el mismo grosor. En Ventas de hoy no se despliega: se ve todo de una, igual que
 // las demás tarjetas de esa pantalla (que tampoco se despliegan).
-function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
+function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true, soloDetalle }) {
   const [abierto, setAbierto] = useState(false);
   const valorOriginalFactura = Number(venta.valor_original ?? venta.total);
   // El o los renglones que componen ESTA Notacrédito específica: los que quedaron marcados como
@@ -4198,6 +4436,7 @@ function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
     </div>
   );
 
+  if(soloDetalle) return <div style={{ padding:"12px 14px", background:"#fff", border:`1px solid ${C.border}`, borderRadius:12 }}>{infoFacturaOriginal}</div>;
   if(!desplegable){
     return (
       <Card p="10px 14px" style={{ borderLeft:`3px solid ${tipoColor}` }}>
@@ -4252,11 +4491,22 @@ function NotaCreditoCard({ ajuste, venta, ventasItems, desplegable = true }) {
 // siempre mostraba solo el abono del día — así que la misma novedad se veía con números distintos
 // según dónde se mirara, lo cual confundía al verificar cuentas). El headline muestra el valor
 // completo del Flexipago SOLO si este abono lo completa; si no, muestra lo que entró ese día.
-function AbonoFlexipagoCard({ venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy }) {
+function AbonoFlexipagoCard({ venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy, soloDetalle }) {
   const abonosOrdenados = [...abonos].sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
   // Se usa la fecha REAL del abono (no "hoy" a secas) porque este mismo componente se ve tanto en
   // "Ventas de hoy" (siempre hoy) como en "Lista de ventas" filtrada por cualquier fecha pasada.
   const fechaAbono = abonosOrdenados[0]?.fecha || venta.fecha;
+  const textoAbono = abonosOrdenados.length>1
+    ? `${fechaAbono}: ${abonosOrdenados.map(a=>`$${Number(a.valor).toLocaleString("es-CO")} (${textoMediosAbono(a)})`).join(" + ")} — antes había abonado $${antes.toLocaleString("es-CO")}`
+    : completa
+      ? `Completó el Flexipago el ${fechaAbono} con un abono de $${totalHoy.toLocaleString("es-CO")} — antes había abonado $${antes.toLocaleString("es-CO")}`
+      : `Abono parcial de $${totalHoy.toLocaleString("es-CO")} el ${fechaAbono} — lleva $${(antes+totalHoy).toLocaleString("es-CO")} de $${valorFlex.toLocaleString("es-CO")}`;
+  if(soloDetalle) return (
+    <div style={{ padding:"12px 14px", background:"#fff", border:`1px solid ${C.border}`, borderRadius:12, fontFamily:font.body, fontSize:12, color:C.textMuted, lineHeight:1.5 }}>
+      {venta.cliente_nombre && <div><b style={{ color:C.text, fontWeight:600 }}>Cliente:</b> {venta.cliente_nombre}{venta.cliente_telefono?` · Tel: ${venta.cliente_telefono}`:""}</div>}
+      <div>{textoAbono}</div>
+    </div>
+  );
   return (
     <Card p="10px 14px" style={{ borderLeft:`3px solid ${completa?C.green:C.blue}` }}>
       <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
@@ -4285,14 +4535,102 @@ function AbonoFlexipagoCard({ venta, abonos, valorFlex, antes, totalHoy, complet
   );
 }
 
+// ── Tabla de ventas (Propuesta A) ────────────────────────────────────────────
+// Misma tabla en "Ventas de hoy" (Registrar venta) y en Lista de ventas: una fila por venta,
+// abono de Flexipago o nota crédito. Al tocar una fila se despliega debajo SOLO el detalle (sin
+// repetir lo que la fila ya dice), con todas las acciones de siempre.
+const horaCol = (iso) => iso ? new Date(iso).toLocaleTimeString("es-CO",{ hour:"2-digit", minute:"2-digit", hour12:false, timeZone:"America/Bogota" }) : "—";
+const fechaCorta = (f) => { if(!f) return "—"; const d = new Date(f+"T12:00:00"); return `${d.getDate()} ${d.toLocaleDateString("es-CO",{ month:"short" }).replace(".","")}`; };
+const medioCortoLabel = (m) => m==="tarjeta" ? "Tarjeta" : (VENTAS_MEDIOS_PAGO.find(x=>x.value===m)?.label || m);
+const colorDeTipoVenta = (tipo) => tipo==="producto" ? C.gold : tipo==="flexipago" ? C.goldDark : tipo==="nota" ? C.red : C.amber;
+// props: todo lo que necesita VentaCard para desplegar el detalle.
+const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItems, ventasAbonos, props }) => [
+  ...ventasLista.map(v=>{
+    const its = ventasItems.filter(i=>i.venta_id===v.id);
+    const tipos = [...new Set(its.map(i=>i.tipo))];
+    const medios = [...new Set(its.flatMap(i=>(i.pagos||[]).map(p=>p.medio_pago)))].map(medioCortoLabel);
+    const abonado = (ventasAbonos||[]).filter(a=>a.venta_id===v.id).reduce((t,a)=>t+Number(a.valor||0),0);
+    const original = Number(v.valor_original ?? v.total ?? 0);
+    const tipoPrincipal = v.es_flexipago ? "flexipago" : (tipos.includes("producto") ? "producto" : tipos[0]);
+    return { key:`v-${v.id}`, fecha:v.fecha, orden:`${v.fecha||""} ${v.created_at||""}`, hora:horaCol(v.created_at), tiendaId:v.tienda_id, asesor:v.vendedor_nombre||"—", cliente:v.cliente_nombre||"",
+      tipo: v.es_flexipago ? "Flexipago" : tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta", colorTipo:colorDeTipoVenta(tipoPrincipal),
+      medios: v.es_flexipago ? (abonado>0?"Abonos":"Pago diferido") : (medios.join(" + ")||"—"), factura:v.numero_factura||"—",
+      total: v.es_flexipago && abonado<original ? abonado : original,
+      detalle: ()=> <VentaCard sinEncabezado venta={v} {...props}/> };
+  }),
+  ...abonosLista.map(({venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy})=>({
+    key:`a-${venta.id}-${abonos[0]?.fecha}`, fecha:abonos[0]?.fecha||venta.fecha, orden:`${abonos[0]?.fecha||""} ${abonos[0]?.created_at||""}`, hora:horaCol(abonos[0]?.created_at), tiendaId:venta.tienda_id, asesor:venta.vendedor_nombre||"—", cliente:venta.cliente_nombre||"",
+    tipo: completa ? "Flexipago · completado" : "Flexipago · abono", colorTipo:colorDeTipoVenta("flexipago"), medios:mediosHoy.map(medioCortoLabel).join(" + ")||"—",
+    factura:venta.numero_factura||"—", total: completa ? valorFlex : totalHoy,
+    detalle: ()=> <AbonoFlexipagoCard soloDetalle venta={venta} abonos={abonos} valorFlex={valorFlex} antes={antes} totalHoy={totalHoy} completa={completa} mediosHoy={mediosHoy}/> })),
+  ...notasLista.map(({venta, ajuste})=>{
+    const its = ventasItems.filter(i=>i.venta_id===ajuste.venta_id && i.es_original===false && i.fecha_item===ajuste.fecha);
+    const medios = [...new Set(its.flatMap(i=>(i.pagos||[]).map(p=>p.medio_pago)))].map(medioCortoLabel);
+    return { key:`n-${ajuste.id}`, fecha:ajuste.fecha, orden:`${ajuste.fecha||""} ${ajuste.created_at||""}`, hora:horaCol(ajuste.created_at), tiendaId:venta.tienda_id, asesor:venta.vendedor_nombre||"—", cliente:venta.cliente_nombre||"",
+      tipo:"Nota crédito", colorTipo:colorDeTipoVenta("nota"), medios:medios.join(" + ")||"—", factura:ajuste.numero_factura||venta.numero_factura||"—", total:Number(ajuste.diferencia||0), negativo:Number(ajuste.diferencia||0)<0,
+      detalle: ()=> <NotaCreditoCard soloDetalle ajuste={ajuste} venta={venta} ventasItems={ventasItems}/> };
+  }),
+].sort((a,b)=> String(b.orden).localeCompare(String(a.orden)));
+
+function TablaVentas({ filas, stores, isMobile, conFecha, conTienda, vacio, limiteInicial=60 }) {
+  const [abierta, setAbierta] = useState(null);
+  const [limite, setLimite] = useState(limiteInicial);
+  const cols = [ conFecha ? "82px" : "64px", ...(conTienda?["minmax(110px,.9fr)"]:[]), "minmax(120px,1.3fr)", "minmax(110px,1.1fr)", "minmax(100px,1.1fr)", "minmax(80px,.8fr)", "118px", "22px" ];
+  const grid = { display:"grid", gridTemplateColumns:cols.join(" "), gap:14, alignItems:"center" };
+  const th = { fontFamily:font.body, fontSize:11, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:600 };
+  const visibles = filas.slice(0, limite);
+  return (
+    <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
+      {!isMobile && (
+        <div style={{ ...grid, padding:"11px 16px", borderBottom:`1px solid ${C.border}` }}>
+          <span style={th}>{conFecha?"Fecha":"Hora"}</span>{conTienda && <span style={th}>Tienda</span>}
+          {["Asesor","Tipo","Medios","Factura"].map(h=><span key={h} style={th}>{h}</span>)}
+          <span style={{ ...th, textAlign:"right" }}>Total</span><span/>
+        </div>
+      )}
+      {visibles.map((f,idx)=>{ const abiertaEsta = abierta===f.key; const tienda = stores[f.tiendaId]; return (
+        <div key={f.key} style={{ borderBottom: idx<visibles.length-1 ? `1px solid ${C.border}` : "none" }}>
+          <button onClick={()=>setAbierta(abiertaEsta?null:f.key)} className="ozen-fila-venta" style={{ ...(isMobile?{ display:"grid", gridTemplateColumns:"54px 1fr auto", gap:10, alignItems:"center" }:grid), width:"100%", padding:isMobile?"12px 14px":"13px 16px", border:"none", background:abiertaEsta?C.surfaceHover:"transparent", cursor:"pointer", textAlign:"left", fontFamily:font.body, fontSize:13.5, color:C.text }}>
+            <span style={{ fontFamily:font.mono, fontSize:12.5, lineHeight:1.3 }}>{conFecha ? <>{fechaCorta(f.fecha)}<span style={{ display:"block", fontSize:11, color:C.textMuted }}>{f.hora}</span></> : f.hora}</span>
+            {isMobile ? (
+              <span style={{ minWidth:0 }}>
+                <span style={{ display:"flex", alignItems:"center", gap:6, fontWeight:600, overflow:"hidden", whiteSpace:"nowrap" }}>{conTienda && tienda && <PuntoTienda color={colorTienda(tienda)} size={7}/>}<span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{f.asesor}</span></span>
+                <span style={{ display:"flex", alignItems:"center", gap:6, marginTop:3, fontSize:12, color:C.textMuted, flexWrap:"wrap" }}><PildoraTipo t={f.tipo} c={f.colorTipo}/>{f.medios}</span>
+              </span>
+            ) : (
+              <>
+                {conTienda && <span>{tienda ? <EtiquetaTienda store={tienda} sm/> : "—"}</span>}
+                <span style={{ minWidth:0, overflow:"hidden" }}>
+                  <span style={{ display:"block", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.asesor}</span>
+                  {f.cliente && <span style={{ display:"block", fontSize:11.5, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.cliente}</span>}
+                </span>
+                <span><PildoraTipo t={f.tipo} c={f.colorTipo}/></span>
+                <span style={{ color:C.textSub }}>{f.medios}</span>
+                <span style={{ fontFamily:font.mono, fontSize:12.5, color:f.factura==="—"?C.textMuted:C.text }}>{f.factura}</span>
+              </>
+            )}
+            <span style={{ fontFamily:font.mono, fontWeight:700, textAlign:"right", color:f.negativo?C.amber:C.text }}>{fmtCOP(f.total)}</span>
+            {!isMobile && <span style={{ color:C.textMuted, display:"grid", justifyContent:"end", transition:"transform .25s ease", transform:abiertaEsta?"rotate(90deg)":"none" }}><Icon n="right" s={15}/></span>}
+          </button>
+          {abiertaEsta && <div className="ozen-recibo-linea" style={{ padding:"4px 12px 12px", background:C.surfaceHover }}>{f.detalle()}</div>}
+        </div>
+      ); })}
+      {filas.length===0 && <div style={{ textAlign:"center", padding:30, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>{vacio}</div>}
+      {filas.length>limite && (
+        <button onClick={()=>setLimite(l=>l+100)} style={{ width:"100%", padding:"12px", border:"none", borderTop:`1px solid ${C.border}`, background:"#fff", color:C.gold, fontFamily:font.body, fontSize:13, fontWeight:600, cursor:"pointer" }}>Ver más ({filas.length-limite} restantes)</button>
+      )}
+    </div>
+  );
+}
+
 // Tarjeta completa de una venta: header desplegable + detalle con toda la edición (Notacrédito
 // Siigo, Corregir factura, abonos, corrección de medio de pago, solicitudes, borrar, reabrir
 // Flexipago vencido). Es el MISMO componente en Lista de ventas y en "Ventas de hoy" — así ambos
 // lados se ven y funcionan exactamente igual, con detalle desplegable al hacer click en los dos.
-function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes }) {
+function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdmin, soloLectura, isMobile, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes }) {
   const v = venta; // alias — el resto de esta lógica viene tal cual de Lista de ventas
 
-  const [expandido, setExpandido] = useState(false);
+  const [expandido, setExpandido] = useState(!!inicialExpandido);
   const [detalle, setDetalle] = useState(null);
   const d = detalle;
 
@@ -4509,6 +4847,8 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
     ]);
     setDetalle({ items:items||[], abonos:abonos||[], solicitudes:solicitudes||[], cargando:false });
   };
+  // Abierta desde la tabla de "Ventas de hoy": se trae el detalle apenas aparece.
+  useEffect(()=>{ if((inicialExpandido||sinEncabezado) && !detalle) fetchDetalle(); }, []); // eslint-disable-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   const toggleExpand = () => {
     if(expandido){ setExpandido(false); return; }
     setExpandido(true);
@@ -5080,11 +5420,20 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
   // completa, ahí sí se muestra el valor total de la venta.
   const valorHeaderMostrar = (v.es_flexipago && !flexipagoCompletado) ? totalAbonado : valorOriginalMostrar;
   return (
-    <Card p="0" style={{ overflow:"hidden" }}>
-      <button onClick={toggleExpand} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"7px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
+    <Card p="0" style={{ overflow:"hidden", ...(sinEncabezado ? {} : { borderLeft:`3px solid ${colorTienda(stores[v.tienda_id])}` }) }}>
+      {/* Abierta desde una tabla (Ventas de hoy / Lista de ventas): la fila ya muestra factura,
+          asesor, tienda y total, así que aquí solo va lo que la fila NO dice — cliente y estado del
+          Flexipago — y el detalle. */}
+      {sinEncabezado && ((v.cliente_nombre || v.cliente_documento || v.cliente_telefono) || estadoFlexipago) && (
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", padding:"10px 14px 0", fontFamily:font.body, fontSize:12, color:C.textMuted }}>
+          {(v.cliente_nombre || v.cliente_documento || v.cliente_telefono) && <span><b style={{ color:C.text, fontWeight:600 }}>Cliente:</b> {[v.cliente_nombre, [v.cliente_tipo_doc, v.cliente_documento].filter(Boolean).join(" "), v.cliente_telefono?`Tel: ${v.cliente_telefono}`:null].filter(Boolean).join(" · ")}</span>}
+          {estadoFlexipago && <Badge color={estadoFlexipago.color} sm>{estadoFlexipago.texto}</Badge>}
+        </div>
+      )}
+      {!sinEncabezado && <button onClick={toggleExpand} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", padding:"9px 14px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", textAlign:"left" }}>
         <Badge color={C.blue} sm>#{v.numero_factura||"—"}</Badge>
         <div style={{ flex:1, minWidth:140, minHeight:30 }}>
-          <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha} · {stores[v.tienda_id]?.name||v.tienda_id}</span></div>
+          <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.3 }}>{v.vendedor_nombre} <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.fecha}</span> {stores[v.tienda_id] ? <EtiquetaTienda store={stores[v.tienda_id]} sm/> : <span style={{ color:C.textMuted, fontWeight:400 }}>· {v.tienda_id}</span>}</div>
           {(v.cliente_nombre || v.cliente_documento || v.cliente_telefono) && (
             <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, lineHeight:1.3 }}>
               {v.cliente_nombre||""}{v.cliente_nombre && (v.cliente_documento||v.cliente_telefono) ? " · " : ""}{v.cliente_tipo_doc||""} {v.cliente_documento||""}{v.cliente_documento && v.cliente_telefono ? " · " : ""}{v.cliente_telefono ? `Tel: ${v.cliente_telefono}` : ""}
@@ -5107,10 +5456,10 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
           <div style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.goldLight }}>${valorHeaderMostrar.toLocaleString("es-CO")}</div>
         </div>
         <span style={{ color:C.textMuted, fontSize:11 }}>{expandido?"▲":"▼"}</span>
-      </button>
+      </button>}
 
-      <Collapse open={expandido}>
-        <div style={{ padding:"0 12px 12px", borderTop:`1px solid ${C.border}` }}>
+      <Collapse open={expandido||!!sinEncabezado}>
+        <div style={{ padding:sinEncabezado?"4px 14px 14px":"0 12px 12px", borderTop:sinEncabezado?"none":`1px solid ${C.border}` }}>
           {d?.cargando ? (
             <div style={{ padding:14, color:C.textMuted, fontFamily:font.body, fontSize:12 }}>Cargando...</div>
           ) : (
@@ -5624,12 +5973,15 @@ function VentaCard({ venta, stores, user, esAdmin, soloLectura, isMobile, setVen
   );
 }
 
-function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
+function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   // OJO: el valor por defecto debe salir de tiendasVenta() (las que sí venden), no de todas las
   // tiendas — si no, el dropdown solo MUESTRA tiendas válidas pero el valor de por debajo puede
   // quedar en una tienda excluida (ej. Ozen Oficina) sin que se note, y la venta se guarda mal.
-  const [tiendaId, setTiendaId] = useState(tiendaFija || tiendasVenta(stores)[0]?.id || "");
+  const [tiendaIdLocal] = useState(tiendaFija || tiendasVenta(stores)[0]?.id || "");
+  // Propuesta A: la tienda sale de la barra superior (compartida con Caja). Se deja el estado local
+  // solo como respaldo si la pantalla se usa sin esa barra.
+  const tiendaId = tiendaFija || tiendaActiva || tiendaIdLocal;
   const [fecha, setFecha] = useState(todayStr);
   const [numeroFactura, setNumeroFactura] = useState("");
   const [vendedorId, setVendedorId] = useState("");
@@ -5884,97 +6236,68 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
     </div>
   );
 
-  const metaBubble = <MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>;
-  const subtitleTienda = stores[tiendaId]?.name ? `Tienda: ${stores[tiendaId].name}` : "Elige la tienda";
+  const esHoyVenta = fecha===todayStr;
+  const tiendaActual = stores[tiendaId];
+  const vendedorSel = asesores.find(a=>a.id===vendedorId);
+  const puedeCambiarFecha = user.role==="master" || user.role==="admin_finanzas";
+  const agregarDeshabilitado = itemEsFlexipago ? !itemFlexipagoValido : (itemValorNum<=0 || itemPagos.length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT);
+  const pagadoPorMedio = (m) => itemPagos.filter(p=>p.medio_pago===m).reduce((a,p)=>a+Number(p.valor||0),0);
+  const reciboRef = useRef(null);
+  const etiquetaPaso = { display:"flex", alignItems:"center", gap:12, marginBottom:14 };
+  const numPaso = (n) => <span style={{ width:26, height:26, borderRadius:"50%", background:C.tinta, color:C.goldDark, fontFamily:font.body, fontWeight:700, fontSize:13, display:"grid", placeItems:"center", flexShrink:0 }}>{n}</span>;
+  const tituloPaso = (t) => <b style={{ fontFamily:font.body, fontSize:15, color:C.text }}>{t}</b>;
+  const notaPaso = (t) => <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:12.5, color:C.textMuted, textAlign:"right" }}>{t}</span>;
+  const lineaRecibo = { display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, fontFamily:font.body, fontSize:13, color:C.textSub, padding:"5px 0" };
+  const guiones = <div style={{ borderTop:`1.5px dashed ${C.border}`, margin:"12px 0" }}/>;
+  // Filas de la tabla "Ventas de hoy" (ver TablaVentas): ventas, abonos de Flexipago y notas crédito.
+  const filasHoy = construirFilasVentas({ ventasLista:ventasHoy, abonosLista:abonosHoyTienda, notasLista:notaCreditoHoyTienda, ventasItems, ventasAbonos,
+    props:{ stores, user, esAdmin, soloLectura, isMobile, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes:ventasAjustes, setAjustes:setVentasAjustes } });
+
+  const resumenMedios = Object.entries(items.flatMap(it=>it.pagos).reduce((acc,p)=>{ acc[p.medio_pago]=(acc[p.medio_pago]||0)+Number(p.valor); return acc; },{}));
 
   return (
     <>
     <div>
-      {isMobile ? (
-        // En celular no alcanza con envolver (flex-wrap) el mismo bloque de escritorio: el título
-        // queda solo en su línea (con todo el lado derecho vacío), la campana sola en la siguiente
-        // (con todo el lado izquierdo vacío) y la burbuja al final. Por eso aquí se arma un layout
-        // propio: título + estado de turno + campana comparten la primera fila, y la burbuja de
-        // meta ocupa su propia fila completa debajo.
-        <div style={{ marginBottom:20 }}>
-          <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10, marginBottom:10 }}>
-            <div>
-              <h1 style={{ margin:0, fontFamily:font.body, fontSize:20, fontWeight:700, color:C.text }}>Registrar venta</h1>
-              <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{subtitleTienda}</div>
-            </div>
-            <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
-              <EnTurnoIndicator records={records} stores={stores} isMobile/>
-              {bellButton}
-            </div>
-          </div>
-          {metaBubble}
-        </div>
-      ) : (
-        <PageHeader
-          title="Registrar venta"
-          subtitle={subtitleTienda}
-          middle={<EnTurnoIndicator records={records} stores={stores}/>}
-          action={
-            <div style={{ display:"flex", alignItems:"flex-start", gap:10, flexWrap:"wrap", justifyContent:"flex-end" }}>
-              {metaBubble}
-              {bellButton}
-            </div>
-          }
-        />
-      )}
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16, alignItems:"start" }}>
+      {/* Encabezado: título + tienda/fecha, y la campana de Flexipagos por recordar. */}
+      <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12, marginBottom:18 }}>
         <div>
-          <SeccionVenta icon="🏬" titulo="Información general">
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:12 }}>
-              {!tiendaFija ? (
-                <Field label="Tienda" value={tiendaId} onChange={setTiendaId} options={tiendasVenta(stores).map(s=>({value:s.id,label:s.name}))}/>
-              ) : (
-                <div>
-                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Tienda</div>
-                  <div style={{ fontFamily:font.body, fontSize:13, color:C.text, padding:"9px 0" }}>{stores[tiendaId]?.name || "—"}</div>
-                </div>
-              )}
-              {(user.role==="master" || user.role==="admin_finanzas") ? (
-                <Field label="Fecha" type="date" value={fecha} onChange={setFecha}/>
-              ) : (
-                <div>
-                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Fecha</div>
-                  <div style={{ fontFamily:font.body, fontSize:13, color:C.text, padding:"9px 0" }}>{fecha} (hoy)</div>
-                </div>
-              )}
-            </div>
-            <Field label="¿Quién hizo la venta?" value={vendedorId} onChange={setVendedorId} options={[{value:"",label:"Selecciona un asesor"},...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-          </SeccionVenta>
+          <h1 style={{ margin:0, fontFamily:font.body, fontSize:isMobile?22:26, fontWeight:700, color:C.text }}>Registrar venta</h1>
+          <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:4, display:"flex", alignItems:"center", gap:8 }}>
+            <PuntoTienda color={colorTienda(tiendaActual)} size={8}/>{nombreTiendaCorto(tiendaActual)} · {esHoyVenta ? "hoy" : fecha}
+          </div>
+        </div>
+        {bellButton}
+      </div>
 
-          <SeccionVenta icon="🛍️" titulo="Ventas y servicios">
-            <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:14 }}>
-              {items.map((it,idx)=>(
-                <div key={idx} style={{ display:"flex", flexDirection:"column", gap:4, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                    <Badge color={it.tipo==="producto"?C.green:it.tipo==="flexipago"?C.blue:C.amber} sm>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label}</Badge>
-                    <div style={{ flex:1, fontFamily:font.mono, fontSize:12, color:C.text, textAlign:"right" }}>${it.valorTotal.toLocaleString("es-CO")}{it.descuento>0 && ` (desc $${it.descuento.toLocaleString("es-CO")})`}</div>
-                    <button onClick={()=>quitarItem(idx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
-                  </div>
-                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                    {it.tipo==="flexipago" ? (
-                      <Badge color={C.blue} sm>📦 Flexipago — se cobra con abonos</Badge>
-                    ) : it.pagos.map((p,pidx)=>(
-                      <Badge key={pidx} color={C.blue} sm>{VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label} · ${Number(p.valor).toLocaleString("es-CO")}{p.numero_autorizacion?` · AUT ${p.numero_autorizacion}`:""}</Badge>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {items.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Todavía no has agregado nada.</div>}
-            </div>
+      <MetaHoyFranja stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>
 
-            <div style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"12px" }}>
-              <Field label="Tipo" value={itemTipo} onChange={setItemTipo} options={itemTipoOptions}/>
-              {items.length>0 && (esFlexipago
-                ? <div style={{ fontFamily:font.body, fontSize:11, color:C.blue, marginTop:-8, marginBottom:10 }}>📦 Esta factura ya tiene un Flexipago — no se puede mezclar con otros tipos.</div>
-                : <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:-8, marginBottom:10 }}>Ya hay ítems normales en esta factura — para un Flexipago, hazlo en una factura aparte.</div>
-              )}
-              {itemEsFlexipago ? (
-                <>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(0,1fr) 390px", gap:22, alignItems:"start" }}>
+        <Card p={isMobile?"18px":"22px"}>
+          {/* Paso 1 — quién vendió (y la fecha, solo para quien puede cambiarla). */}
+          <div style={etiquetaPaso}>{numPaso(1)}{tituloPaso("¿Quién hizo la venta?")}{notaPaso(`${nombreTiendaCorto(tiendaActual)} · ${esHoyVenta?"hoy":fecha}`)}</div>
+          {/* Lista desplegable (antes eran fichas): funciona igual con 5 o con 100 asesores. */}
+          <div style={{ display:"grid", gridTemplateColumns:(puedeCambiarFecha && !isMobile)?"1fr 190px":"1fr", gap:12 }}>
+            <Field label="Asesor" value={vendedorId} onChange={setVendedorId} options={[{value:"",label:"Selecciona un asesor"},...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+            {puedeCambiarFecha && <Field label="Fecha" type="date" value={fecha} onChange={setFecha}/>}
+          </div>
+
+          <div style={{ height:1, background:C.border, margin:"8px 0 22px" }}/>
+
+          {/* Paso 2 — qué se vendió: el tipo como fichas grandes en vez de una lista desplegable. */}
+          <div style={etiquetaPaso}>{numPaso(2)}{tituloPaso("Ventas y servicios")}{notaPaso(items.length ? `${items.length} ${items.length===1?"renglón agregado":"renglones agregados"}` : "Elige el tipo")}</div>
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(3,1fr)":"repeat(5,1fr)", gap:10, marginBottom:14 }}>
+            {VENTAS_TIPOS.map(t=>{ const on=itemTipo===t.value; const permitido=itemTipoOptions.some(o=>o.value===t.value); return (
+              <button key={t.value} disabled={!permitido} onClick={()=>permitido&&setItemTipo(t.value)} title={permitido?"":(esFlexipago?"Esta factura ya tiene un Flexipago":"Para un Flexipago, hazlo en una factura aparte")} style={{ height:isMobile?64:78, border:`1.5px solid ${on?C.gold:C.border}`, background:on?"rgba(38,93,127,0.07)":"#fff", borderRadius:12, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:7, fontFamily:font.body, fontSize:13, fontWeight:on?600:400, color:on?C.goldDark:C.textSub, cursor:permitido?"pointer":"not-allowed", opacity:permitido?1:0.35, transition:"all .18s ease" }}>
+                <Icon n={TIPO_VENTA_ICON[t.value]||"bag"} s={22}/>{t.label}
+              </button>
+            ); })}
+          </div>
+          {items.length>0 && (esFlexipago
+            ? <div style={{ fontFamily:font.body, fontSize:11.5, color:C.blue, marginTop:-4, marginBottom:12 }}>Esta factura ya tiene un Flexipago — no se puede mezclar con otros tipos.</div>
+            : <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:-4, marginBottom:12 }}>Ya hay ítems normales en esta factura — para un Flexipago, hazlo en una factura aparte.</div>
+          )}
+          {itemEsFlexipago ? (
+            <>
                   <div style={{ marginBottom:14 }}>
                     <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Valor total</div>
                     <div style={{ width:"100%", background:C.dark, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.mono, boxSizing:"border-box" }}>${itemValorCodigosFlexipago.toLocaleString("es-CO")}</div>
@@ -6021,9 +6344,9 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
                       ))}
                     </HoverTooltip>
                   </div>
-                </>
-              ) : (
-                <>
+            </>
+          ) : (
+            <>
                   {isMobile ? (
                     <div style={{ marginBottom:4 }}>
                       <CurrencyField label="Valor total" value={itemValor} onChange={setItemValor}/>
@@ -6053,7 +6376,16 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
                     </div>
                   )}
 
-                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Medios de pago</div>
+              {/* Paso 3 — cómo pagó: los medios como fichas; tocar una agrega ese medio con lo que falta. */}
+              <div style={{ ...etiquetaPaso, marginTop:20 }}>{numPaso(3)}{tituloPaso("¿Cómo pagó?")}{notaPaso("Puede combinar varios medios")}</div>
+              <div style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(4,1fr)", gap:8, marginBottom:10 }}>
+                {VENTAS_MEDIOS_PAGO.map(m=>{ const v=pagadoPorMedio(m.value); const on=v>0 || itemPagos.some(p=>p.medio_pago===m.value); return (
+                  <button key={m.value} onClick={()=>agregarMedioAItem(m.value)} title={`Agregar ${m.label}`} style={{ border:`1.5px solid ${on?C.gold:C.border}`, background:on?"rgba(38,93,127,0.06)":"#fff", borderRadius:12, padding:"10px 12px", display:"flex", flexDirection:"column", alignItems:"flex-start", gap:4, fontFamily:font.body, fontSize:12.5, color:on?C.goldDark:C.textSub, cursor:"pointer", textAlign:"left", transition:"all .18s ease" }}>
+                    <span style={{ display:"flex", alignItems:"center", gap:7 }}><Icon n={MEDIO_PAGO_ICON[m.value]||"cash"} s={15}/>{m.value==="tarjeta"?"Tarjeta":m.label}</span>
+                    <span style={{ fontFamily:font.mono, fontSize:13, fontWeight:on?700:500, color:on?C.goldDark:"#b3bfc8" }}>{on ? fmtCOP(v) : "—"}</span>
+                  </button>
+                ); })}
+              </div>
                   {itemPagos.length>0 && (
                     <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:8 }}>
                       {itemPagos.map((p,idx)=>{
@@ -6073,121 +6405,93 @@ function VentasRegistrarScreen({ user, stores, users, records, ventas, setVentas
                       })}
                     </div>
                   )}
-                  <Field value={itemMedioNuevo} onChange={v=>{ if(v) agregarMedioAItem(v); else setItemMedioNuevo(v); }} options={[{value:"",label:"+ Agregar medio de pago"}, ...VENTAS_MEDIOS_PAGO]}/>
-                  {itemPagos.length>0 && (
-                    <div style={{ fontFamily:font.body, fontSize:12, marginBottom:10, color:Math.abs(itemFalta)<1?C.green:C.red }}>
-                      {Math.abs(itemFalta)<1 ? "✓ Los medios cuadran con el valor de este renglón" : itemFalta>0 ? `Faltan $${itemFalta.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(itemFalta).toLocaleString("es-CO")}`}
-                    </div>
-                  )}
-                </>
-              )}
-              <Btn onClick={agregarItem} disabled={itemEsFlexipago ? !itemFlexipagoValido : (itemValorNum<=0 || itemPagos.length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT)} sm full>+ Agregar</Btn>
-            </div>
-          </SeccionVenta>
-        </div>
-
-        <div style={{ position:isMobile?"static":"sticky", top:16 }}>
-          <Card glow style={{ marginBottom:16, padding:0, overflow:"hidden" }}>
-            <div style={{ padding:"14px 16px", borderBottom:`1px solid ${C.border}` }}>
-              <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color:C.goldLight }}>🧾 Venta actual</div>
-              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>
-                {[
-                  esFlexipago && clienteNombre ? clienteNombre : null,
-                  stores[tiendaId]?.name || null,
-                  asesores.find(a=>a.id===vendedorId)?.name || null,
-                ].filter(Boolean).join(" · ") || "Completa los datos para empezar"}
-              </div>
-            </div>
-
-            <div style={{ padding:"14px 16px" }}>
-              {items.length>0 && (
-                <>
-                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Ventas y servicios</div>
-                  {items.map((it,idx)=>(
-                    <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:4 }}>
-                      <span>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label} · {it.tipo==="flexipago" ? "pago diferido" : it.pagos.map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label).join(" + ")}</span><span style={{fontFamily:font.mono}}>${it.valorTotal.toLocaleString("es-CO")}</span>
-                    </div>
-                  ))}
-                  <Divider/>
-                </>
-              )}
-              <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:6, marginTop:items.length>0?10:0 }}>
-                <span>Valor bruto</span><span style={{fontFamily:font.mono}}>${valorBruto.toLocaleString("es-CO")}</span>
-              </div>
-              <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.red, marginBottom:10 }}>
-                <span>Descuento</span><span style={{fontFamily:font.mono}}>- ${descuentoNum.toLocaleString("es-CO")}</span>
-              </div>
-              <Divider/>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", margin:"10px 0" }}>
-                <span style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.text }}>Total a pagar</span>
-                <span style={{ fontFamily:font.mono, fontSize:22, fontWeight:700, color:C.goldLight }}>${total.toLocaleString("es-CO")}</span>
-              </div>
-
-              {items.length>0 && (
-                <>
-                  <Divider/>
-                  <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", margin:"10px 0 6px" }}>Resumen por medio de pago</div>
-                  {Object.entries(items.flatMap(it=>it.pagos).reduce((acc,p)=>{ acc[p.medio_pago]=(acc[p.medio_pago]||0)+Number(p.valor); return acc; },{})).map(([medio,v])=>(
-                    <div key={medio} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:4 }}>
-                      <span>{VENTAS_MEDIOS_PAGO.find(m=>m.value===medio)?.label}</span><span style={{fontFamily:font.mono}}>${v.toLocaleString("es-CO")}</span>
-                    </div>
-                  ))}
-                  {valorFlexipago>0 && (
-                    <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.blue, marginBottom:4 }}>
-                      <span>Flexipago (pago diferido)</span><span style={{fontFamily:font.mono}}>${valorFlexipago.toLocaleString("es-CO")}</span>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {esFlexipago && (
-                <>
-                  <Divider/>
-                  <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.textSub, marginTop:10, marginBottom:4 }}>
-                    <span>Abono inicial</span><span style={{fontFamily:font.mono}}>${Number(abonoInicialValor||0).toLocaleString("es-CO")}</span>
-                  </div>
-                  <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.amber, fontWeight:700 }}>
-                    <span>Saldo pendiente</span><span style={{fontFamily:font.mono}}>${saldoPendiente.toLocaleString("es-CO")}</span>
-                  </div>
-                </>
-              )}
-            </div>
-          </Card>
-          {requiereSiigo && (
-            <div style={{ marginBottom:16 }}>
-              <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>
-            </div>
+            </>
           )}
-          <div style={{ marginBottom:16 }}>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.06em" }}>Notas (opcional)</div>
-            <Field value={observacion} onChange={setObservacion} multiline rows={2}/>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginTop:16, flexWrap:"wrap" }}>
+            {!itemEsFlexipago && itemPagos.length>0 ? (
+              <span style={{ display:"inline-flex", alignItems:"center", gap:6, borderRadius:99, padding:"5px 12px", fontFamily:font.body, fontSize:12, fontWeight:600, background:Math.abs(itemFalta)<1?C.greenDim:C.redDim, color:Math.abs(itemFalta)<1?C.green:C.red }}>
+                {Math.abs(itemFalta)<1 ? <><Icon n="check" s={14}/>Cuadra: pagado = valor</> : itemFalta>0 ? `Faltan ${fmtCOP(itemFalta)} por asignar` : `Te pasaste por ${fmtCOP(Math.abs(itemFalta))}`}
+              </span>
+            ) : <span/>}
+            <Btn onClick={agregarItem} disabled={agregarDeshabilitado} variant="ghost" style={{ minWidth:isMobile?"100%":240, borderWidth:1.5 }}><Icon n="plus" s={15}/>Agregar a la venta</Btn>
           </div>
-          {msg && <div style={{ background: msg.startsWith("✓")?`${C.green}18`:C.redDim, border:`1px solid ${msg.startsWith("✓")?C.green:C.red}44`, borderRadius:7, padding:"9px 12px", color: msg.startsWith("✓")?C.green:C.red, fontSize:12, marginBottom:12, fontFamily:font.body }}>{msg}</div>}
-          <Btn onClick={guardar} disabled={guardando} full>{guardando?"Guardando...":"Registrar venta"}</Btn>
+        </Card>
+
+        {/* Recibo en curso — se arma solo a medida que se agregan renglones. El borde superior lleva
+            el color de la tienda, como un sello. */}
+        <div ref={reciboRef} style={{ position:isMobile?"static":"sticky", top:0 }}>
+          <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderBottom:"none", borderTop:`4px solid ${colorTienda(tiendaActual)}`, borderRadius:"14px 14px 0 0", padding:"20px 22px 24px", transition:"border-color .35s ease" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+              <b style={{ fontFamily:font.body, fontSize:15, color:C.text }}>Recibo en curso</b>
+              {tiendaActual && <EtiquetaTienda store={tiendaActual}/>}
+            </div>
+            <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginTop:4, marginBottom:12 }}>
+              {[esHoyVenta?"Hoy":fecha, vendedorSel?.name, esFlexipago && clienteNombre ? clienteNombre : null].filter(Boolean).join(" · ")}
+            </div>
+            {items.length===0 && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, padding:"10px 0" }}>Todavía no has agregado nada.</div>}
+            {items.map((it,idx)=>(
+              <div key={`${idx}-${it.tipo}-${it.valorTotal}`} className="ozen-recibo-linea" style={lineaRecibo}>
+                <span style={{ minWidth:0 }}><b style={{ color:C.text }}>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label}</b> · {it.tipo==="flexipago" ? "pago diferido" : it.pagos.map(p=>`${VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.value==="tarjeta"?"Tarjeta":VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label}${p.numero_autorizacion?` (AUT ${p.numero_autorizacion})`:""}`).join(" + ")}{it.descuento>0 && <span style={{ color:C.red }}> · desc {fmtCOP(it.descuento)}</span>}</span>
+                <span style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                  <span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(it.valorTotal)}</span>
+                  <button onClick={()=>quitarItem(idx)} title="Quitar renglón" style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", padding:2, display:"grid" }}><Icon n="x" s={14}/></button>
+                </span>
+              </div>
+            ))}
+            {guiones}
+            <div style={lineaRecibo}><span>Valor bruto</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(valorBruto)}</span></div>
+            <div style={{ ...lineaRecibo, color:C.red }}><span>Descuento</span><span style={{ fontFamily:font.mono }}>− {fmtCOP(descuentoNum)}</span></div>
+            {guiones}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:10, padding:"4px 0" }}>
+              <b style={{ fontFamily:font.body, fontSize:15, color:C.text }}>Total a pagar</b>
+              <span style={{ fontFamily:font.mono, fontSize:isMobile?26:30, fontWeight:700, color:C.goldDark, letterSpacing:"-0.01em" }}>{fmtCOP(total)}</span>
+            </div>
+            {(resumenMedios.length>0 || valorFlexipago>0) && (
+              <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:4, lineHeight:1.6 }}>
+                {resumenMedios.map(([medio,v])=>`${medio==="tarjeta"?"Tarjeta":VENTAS_MEDIOS_PAGO.find(m=>m.value===medio)?.label} ${fmtCOP(v)}`).join(" · ")}
+                {valorFlexipago>0 && <span style={{ color:C.blue }}>{resumenMedios.length?" · ":""}Flexipago (pago diferido) {fmtCOP(valorFlexipago)}</span>}
+              </div>
+            )}
+            {esFlexipago && (
+              <>
+                {guiones}
+                <div style={lineaRecibo}><span>Abono inicial</span><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(Number(abonoInicialValor||0))}</span></div>
+                <div style={{ ...lineaRecibo, color:C.amber, fontWeight:700 }}><span>Saldo pendiente</span><span style={{ fontFamily:font.mono }}>{fmtCOP(saldoPendiente)}</span></div>
+              </>
+            )}
+            <div style={{ marginTop:16 }}>
+              {requiereSiigo && <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>}
+              <Field label="Notas (opcional)" value={observacion} onChange={setObservacion} multiline rows={2}/>
+            </div>
+            {msg && <div style={{ background: msg.startsWith("✓")?C.greenDim:C.redDim, border:`1px solid ${msg.startsWith("✓")?C.green:C.red}44`, borderRadius:9, padding:"10px 12px", color: msg.startsWith("✓")?C.green:C.red, fontSize:12.5, marginBottom:12, fontFamily:font.body }}>{msg}</div>}
+            <Btn onClick={guardar} disabled={guardando} full style={{ height:54, fontSize:16, borderRadius:12 }}>{guardando ? "Guardando..." : <><Icon n="check" s={18}/>Registrar venta</>}</Btn>
+          </div>
+          <div className="ozen-recibo-zigzag"/>
         </div>
       </div>
 
-      <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, margin:"24px 0 10px" }}>Ventas de hoy en esta tienda ({ventasHoy.length + abonosHoyTienda.length + notaCreditoHoyTienda.length})</div>
-      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        {ventasHoy.map(v=>(
-          <VentaCard key={v.id} venta={v} stores={stores} user={user} esAdmin={esAdmin} soloLectura={soloLectura} isMobile={isMobile}
-            ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems}
-            ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes}/>
-        ))}
-        {abonosHoyTienda.map(({venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy})=>(
-          <AbonoFlexipagoCard key={`abono-${venta.id}`} venta={venta} abonos={abonos} valorFlex={valorFlex} antes={antes} totalHoy={totalHoy} completa={completa} mediosHoy={mediosHoy}/>
-        ))}
-        {notaCreditoHoyTienda.map(({venta, ajuste})=>(
-          <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta} ventasItems={ventasItems} desplegable={false}/>
-        ))}
-        {ventasHoy.length===0 && abonosHoyTienda.length===0 && notaCreditoHoyTienda.length===0 && <div style={{ textAlign:"center", padding:30, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin ventas registradas hoy en esta tienda.</div>}
+      {/* En celular, el total y el acceso al botón quedan fijos abajo mientras se llena el formulario. */}
+      {isMobile && items.length>0 && (
+        <div style={{ position:"sticky", bottom:0, marginTop:14, background:C.goldDark, color:C.tinta, borderRadius:14, padding:"10px 12px 10px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, boxShadow:"0 12px 24px -12px rgba(26,59,82,0.6)", zIndex:5 }}>
+          <div><div style={{ fontFamily:font.body, fontSize:10, opacity:.75, textTransform:"uppercase", letterSpacing:"0.08em" }}>Total · {items.length} {items.length===1?"renglón":"renglones"}</div><b style={{ fontFamily:font.mono, fontSize:17 }}>{fmtCOP(total)}</b></div>
+          <button onClick={()=>reciboRef.current?.scrollIntoView({ behavior:"smooth", block:"start" })} style={{ background:C.tinta, color:C.goldDark, border:"none", borderRadius:10, padding:"10px 14px", fontFamily:font.body, fontWeight:700, fontSize:13.5, cursor:"pointer" }}>Ver recibo</button>
+        </div>
+      )}
+
+      {/* Ventas de hoy como TABLA (Propuesta A): hora, asesor, tipo, medios, factura y total. Al
+          tocar una fila se despliega debajo la tarjeta completa, con todas sus acciones. */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, margin:"28px 0 12px", flexWrap:"wrap" }}>
+        <b style={{ fontFamily:font.body, fontSize:16, color:C.text }}>Ventas de hoy en {nombreTiendaCorto(tiendaActual)} <span style={{ color:C.textMuted, fontWeight:500 }}>· {filasHoy.length}</span></b>
+        {onVerLista && <button onClick={onVerLista} style={{ background:"none", border:"none", color:C.gold, fontFamily:font.body, fontSize:13.5, fontWeight:600, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6, padding:0 }}>Ver todas en Lista de ventas<Icon n="right" s={15}/></button>}
       </div>
+      <TablaVentas filas={filasHoy} stores={stores} isMobile={isMobile} vacio="Sin ventas registradas hoy en esta tienda."/>
     </div>
     </>
   );
 }
 
-function VentasListaScreen({ user, stores, users, records, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, metas, esAdmin, soloLectura }) {
+
+function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, metas, esAdmin, soloLectura }) {
   const isMobile = useIsMobile();
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const [filtroTienda, setFiltroTienda] = useState("");
@@ -6268,7 +6572,6 @@ function VentasListaScreen({ user, stores, users, records, ventas, setVentas, ve
   return (
     <div>
       <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}${abonosFiltrados.length>0?` · ${abonosFiltrados.length} abonos Flexipago`:""}`}
-        middle={<EnTurnoIndicator records={records} stores={stores} isMobile={isMobile}/>}
         action={<MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaFija||filtroTienda} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ajustes} metas={metas} isMobile={isMobile}/>}
       />
       <Card style={{ marginBottom:16 }} p="12px">
@@ -6290,28 +6593,12 @@ function VentasListaScreen({ user, stores, users, records, ventas, setVentas, ve
         </div>
       </Card>
 
-      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-        {(() => {
-        const elementosVentas = ventasFiltradas.map(v=>({ fecha: v.fecha, el: (
-          <VentaCard key={v.id} venta={v} stores={stores} user={user} esAdmin={esAdmin} soloLectura={soloLectura} isMobile={isMobile}
-            ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems}
-            ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ajustes} setAjustes={setAjustes}/>
-        )}));
-        // Las Notas crédito se mezclan en la MISMA lista, ordenadas por su fecha real junto con
-        // las demás ventas — no van en una sección aparte, para que se vean como un registro más.
-        const elementosNC = notaCreditosFiltradas.map(({ajuste, venta})=>({
-          fecha: ajuste.fecha,
-          el: <NotaCreditoCard key={`nc-${ajuste.id}`} ajuste={ajuste} venta={venta} ventasItems={ventasItems}/>,
-        }));
-        const elementosAbonos = abonosFiltrados.map(({venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy})=>({
-          fecha: filtroFecha,
-          el: <AbonoFlexipagoCard key={`ab-${venta.id}`} venta={venta} abonos={abonos} valorFlex={valorFlex} antes={antes} totalHoy={totalHoy} completa={completa} mediosHoy={mediosHoy}/>,
-        }));
-        const combinados = [...elementosVentas, ...elementosNC, ...elementosAbonos].sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||""));
-        return combinados.map(e=>e.el);
-        })()}
-        {ventasFiltradas.length===0 && notaCreditosFiltradas.length===0 && abonosFiltrados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>No hay ventas que coincidan con los filtros.</div>}
-      </div>
+      {/* Propuesta A: misma tabla que "Ventas de hoy" — fecha, tienda, asesor, tipo, medios,
+          factura y total; al tocar una fila se despliega el detalle con sus acciones. */}
+      <TablaVentas key={`${filtroTienda}|${filtroFecha}|${filtroVendedor}|${filtroFlexipago}|${busqueda}`} stores={stores} isMobile={isMobile} conFecha conTienda={!tiendaFija && !filtroTienda}
+        vacio="No hay ventas con estos filtros."
+        filas={construirFilasVentas({ ventasLista:ventasFiltradas, abonosLista:abonosFiltrados, notasLista:notaCreditosFiltradas, ventasItems, ventasAbonos,
+          props:{ stores, user, esAdmin, soloLectura, isMobile, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes } })}/>
     </div>
   );
 }
@@ -6449,6 +6736,61 @@ const calcularMetaHoyTienda = (tiendaId, fecha, ventas, ventasItems, ventasAbono
 // contenido de abajo. Si hay más tiendas de las que se muestran, aparece un link chiquito "Ver
 // las N tiendas" que despliega la lista completa (con scroll) en una nube — el detalle completo
 // sigue estando a un clic, solo que no ocupa espacio fijo todo el tiempo.
+// Propuesta A: la meta del día como una FRANJA horizontal arriba de Registrar venta — la tienda
+// activa ocupa la celda más ancha (con cuánto se ha vendido de cuánto), y las demás compiten al lado
+// con su % y su barra. Cada barra va en el COLOR DE SU TIENDA (el mismo de Administrar ▸ Tiendas).
+const MetaHoyFranja = ({ stores, tiendaIdActual, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile }) => {
+  const fechaMeta = fecha || todayStr;
+  const pct = (x) => x.meta>0 ? Math.round(x.vendido/x.meta*100) : 0;
+  const lista = tiendasVenta(stores)
+    .map(t => ({ tienda:t, ...calcularMetaHoyTienda(t.id, fechaMeta, ventas, ventasItems, ventasAbonos, ventasAjustes, metas) }))
+    .filter(x => x.meta>0);
+  if(lista.length===0) return null;
+  const actual = lista.find(x=>x.tienda.id===tiendaIdActual);
+  const otras = lista.filter(x=>x!==actual).sort((a,b)=>pct(b)-pct(a));
+  const esHoy = fechaMeta===todayStr;
+  const barra = (x, grosor=7, atenuada) => (
+    <div style={{ height:grosor, borderRadius:9, background:C.surfaceHover, overflow:"hidden", marginTop:8 }}>
+      <div style={{ width:`${Math.min(100,pct(x))}%`, height:"100%", borderRadius:9, background:colorTienda(x.tienda), opacity:atenuada?0.85:1, transition:"width .6s cubic-bezier(.34,1.2,.5,1)" }}/>
+    </div>
+  );
+  const cols = isMobile ? "1fr" : `${actual?"1.45fr ":""}${otras.map(()=>"1fr").join(" ")}`;
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:cols, background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, marginBottom:20, overflow:"hidden" }}>
+      {actual && (
+        <div className={pct(actual)>=100?"ozen-meta-cumplida":undefined} style={{ padding:"14px 18px", background:hexToRgba(colorTienda(actual.tienda),0.05), boxShadow:`inset 0 3px 0 ${colorTienda(actual.tienda)}`, borderRight:isMobile?"none":`1px solid ${C.border}`, borderBottom:isMobile?`1px solid ${C.border}`:"none" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+            <b style={{ fontFamily:font.body, fontSize:14, color:C.text, display:"flex", alignItems:"center", gap:8 }}><PuntoTienda color={colorTienda(actual.tienda)} size={8}/>{esHoy?"Meta de hoy":`Meta del ${fechaMeta}`} · {nombreTiendaCorto(actual.tienda)}</b>
+            <span style={{ fontFamily:font.mono, fontWeight:700, fontSize:17, color:C.goldDark }}>{pct(actual)}%</span>
+          </div>
+          {barra(actual, 8)}
+          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:6 }}>
+            {fmtCOP(actual.vendido)} de {fmtCOP(actual.meta)} · {actual.falta>0 ? `faltan ${fmtCOP(actual.falta)}` : "¡meta cumplida!"}
+          </div>
+        </div>
+      )}
+      {isMobile ? (
+        otras.length>0 && <div style={{ display:"grid", gridTemplateColumns:`repeat(${otras.length},1fr)` }}>
+          {otras.map((x,i)=>(
+            <div key={x.tienda.id} style={{ padding:"10px 12px", borderRight:i<otras.length-1?`1px solid ${C.border}`:"none" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:4, fontFamily:font.body, fontSize:11.5, color:C.textSub }}><span style={{ display:"flex", alignItems:"center", gap:6, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}><PuntoTienda color={colorTienda(x.tienda)} size={6}/>{nombreTiendaCorto(x.tienda)}</span><b style={{ fontFamily:font.mono, color:C.text }}>{pct(x)}%</b></div>
+              {barra(x, 5, true)}
+            </div>
+          ))}
+        </div>
+      ) : otras.map((x,i)=>(
+        <div key={x.tienda.id} title={`${fmtCOP(x.vendido)} de ${fmtCOP(x.meta)}`} style={{ padding:"14px 18px", borderRight:i<otras.length-1?`1px solid ${C.border}`:"none" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, fontFamily:font.body, fontSize:13.5, color:C.textSub }}>
+            <span style={{ display:"flex", alignItems:"center", gap:8 }}><PuntoTienda color={colorTienda(x.tienda)} size={8}/>{nombreTiendaCorto(x.tienda)}</span>
+            <b style={{ fontFamily:font.mono, fontSize:13.5, color:C.text }}>{pct(x)}%</b>
+          </div>
+          {barra(x, 7, true)}
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const LIMITE_PODIO = 3;
 const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile }) => {
   // Master/admin finanzas pueden cambiar la fecha en Registrar venta para trabajar sobre un día
@@ -6504,7 +6846,7 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
             {/* En celular la barra crece (110→150) para aprovechar el ancho completo de la burbuja
                 (100% de la pantalla) en vez de dejar un hueco vacío a la derecha — en escritorio
                 la burbuja es una tarjeta angosta de tamaño fijo, así que ahí se deja igual. */}
-            <BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={etapaColor} width={isMobile?150:130} height={13}/>
+            <BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={colorTienda(x.tienda)} solido width={isMobile?150:130} height={13}/>
             <span style={{ width:48, textAlign:"right", flexShrink:0, fontFamily:font.mono, fontSize:14, lineHeight:1, fontWeight:700, color:etapaColor }}>{pct}%</span>
           </div>
         }
@@ -6557,7 +6899,7 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
                     <span style={{ color:esActual?C.goldLight:C.text, fontWeight:esActual?700:400 }}>{idx===0?"🥇 ":idx===1?"🥈 ":idx===2?"🥉 ":`${idx+1}. `}{x.tienda.name.replace(/^OZEN\s*/i,"")}</span>
                     <span style={{ fontFamily:font.mono, fontWeight:700, color:etapaColor }}>{pct}%</span>
                   </div>
-                  <BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={etapaColor} width="100%" height={6}/>
+                  <BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={colorTienda(x.tienda)} solido width="100%" height={6}/>
                 </div>
               );
             })}
@@ -6568,7 +6910,7 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
   );
 };
 
-function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile, turnosAsignaciones, turnosGlobales }) {
+function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile, turnosAsignaciones, turnosGlobales }) {
   const hoy = toColombiaDate();
   const [anio, setAnio] = useState(hoy.getFullYear());
   const [mesIdx, setMesIdx] = useState(hoy.getMonth());
@@ -6957,7 +7299,6 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
   return (
     <div>
       <PageHeader title="Métricas" subtitle={tiendaSel ? `${stores[tiendaSel]?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`}
-        middle={<EnTurnoIndicator records={records} stores={stores} isMobile={isMobile}/>}
         action={<MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaSel} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>}
       />
 
@@ -6972,7 +7313,7 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
         </div>
         <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
           {tiendasOrdenadas.map(t=>(
-            <button key={t.id} onClick={()=>setTiendaSel(t.id)} style={{ padding:"6px 12px", borderRadius:20, border:`1px solid ${tiendaSel===t.id?C.gold:C.border}`, background:tiendaSel===t.id?`${C.gold}22`:"transparent", color:tiendaSel===t.id?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12, cursor:"pointer" }}>{t.name}</button>
+            <button key={t.id} onClick={()=>setTiendaSel(t.id)} style={{ display:"inline-flex", alignItems:"center", gap:7, padding:"6px 12px", borderRadius:20, border:`1px solid ${tiendaSel===t.id?colorTienda(t):C.border}`, background:tiendaSel===t.id?hexToRgba(colorTienda(t),0.1):"#fff", color:tiendaSel===t.id?C.goldDark:C.textMuted, fontWeight:tiendaSel===t.id?600:400, fontFamily:font.body, fontSize:12, cursor:"pointer" }}><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)}</button>
           ))}
           <button onClick={()=>setTiendaSel("")} style={{ padding:"6px 12px", borderRadius:20, border:`1px solid ${!tiendaSel?C.gold:C.border}`, background:!tiendaSel?`${C.gold}22`:"transparent", color:!tiendaSel?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12, cursor:"pointer" }}>Todas las tiendas</button>
         </div>
@@ -7235,6 +7576,22 @@ function VentasMetricasScreen({ user, stores, users, records, ventas, ventasItem
 // No hay tabla de "turno" en Ventas — cada acción queda con fecha y hora exactas
 // (created_at), y todos los cálculos de dinero se sacan en vivo de ventas/abonos,
 // nunca se guardan como número fijo (así siempre reflejan la info real).
+//
+// C_DARK era la paleta oscura fija de Caja (la "isla" oscura con tarjetas de vidrio del color de
+// cada tienda). Con la Propuesta A Caja entra al MISMO sistema visual del resto de la app: fondo
+// claro, tarjetas blancas, y el color de la tienda solo como sello (borde superior, punto, franja).
+// Se conserva el nombre para no tocar los ~150 usos dentro de Caja — ahora apunta a tonos claros.
+const C_DARK = {
+  gold: "#265D7F", goldLight: "#1A3B52", goldDark: "#1A3B52",
+  dark: "#F6F0EB", surface: "#FFFFFF",
+  surfaceAlt: "#FBF8F5", surfaceHover: "#F2E9E2", border: "rgba(26,59,82,0.14)",
+  borderGold: "rgba(38,93,127,0.22)", text: "#1A3B52",
+  textMuted: "#6B7D8A", textSub: "#3D5E76",
+  green: "#1B7A41", greenDim: "rgba(27,122,65,0.12)",
+  red: "#C0392B",   redDim: "rgba(192,57,43,0.1)",
+  blue: "#265D7F",  blueDim: "rgba(38,93,127,0.12)",
+  amber: "#A85D00", amberDim: "rgba(168,93,0,0.12)",
+};
 const CAJA_MEDIOS = ["efectivo","tarjeta","transferencia","addi"];
 const CAJA_MEDIO_LABEL = { efectivo:"Efectivo", tarjeta:"Tarjeta", transferencia:"Transferencia", addi:"ADDI" };
 const cajaZeros = () => ({ efectivo:0, tarjeta:0, transferencia:0, addi:0 });
@@ -7248,58 +7605,49 @@ const BASE_CAJA_FIJA = 100000;
 // Cuando se le pasa "color" (el color asignado a la tienda), todo el cuadro se pinta con ese
 // color — pero el contenido de adentro (campos, historiales) queda sobre un panel oscuro
 // insertado, para que siga tan legible como siempre sin importar qué tan claro sea el color.
-const cajaHeaderSelectStyle = { background:"rgba(0,0,0,0.28)", border:"1px solid rgba(255,255,255,0.28)", borderRadius:5, color:"#fff", fontSize:13, fontFamily:font.body, padding:"3px 7px", fontWeight:600 };
+const cajaHeaderSelectStyle = { background:"#fff", border:`1px solid ${C_DARK.border}`, borderRadius:8, color:C_DARK.text, fontSize:13, fontFamily:font.body, padding:"3px 7px", fontWeight:600 };
 // `compact` = versión más apretada (menos padding/márgenes) para cuando varias tarjetas van
 // apiladas en columna y necesitan caber en un solo pantallazo (p.ej. la columna de Apertura en Caja).
 // Cuando hay `color` (tienda seleccionada en Caja) usamos un look "liquid glass": vidrio esmerilado
 // translúcido con un tinte del color de la tienda sobre el fondo oscuro de siempre, en vez del
 // bloque de color sólido de antes. El contenido ya no necesita un panel oscuro interno para
 // legibilidad — el fondo sigue siendo oscuro (solo con el tinte), así que el texto normal de la
-// app (C.text/C.goldLight/C.textMuted) siempre contrasta bien, sea cual sea el color de la tienda.
-const CajaCard = ({ icon, titulo, children, color, headerExtra, compact }) => {
-  const glass = !!color;
-  return (
-    <div className="ozen-caja-card" style={{
-      background: glass
-        ? `radial-gradient(130% 65% at 0% 0%, rgba(255,255,255,0.16), transparent 60%), radial-gradient(130% 65% at 100% 0%, rgba(255,255,255,0.16), transparent 60%), linear-gradient(180deg, ${color}80 0%, ${color}45 32%, ${C.surface}f0 68%, ${C.dark}fa 100%)`
-        : C.surface,
-      // Antes tenía backdrop-filter (blur + saturate) para el efecto "vidrio esmerilado" — se quitó
-      // porque era la causa real de la franja/seam clara que aparecía y desaparecía al mover el
-      // mouse encima (bug conocido de Chrome/Safari con backdrop-filter recomponiendo mal la capa
-      // en cada repintado cercano). Forzar la tarjeta a su propia capa de composición (translateZ/
-      // isolation) no fue suficiente, así que se quitó el blur del todo — se conserva el degradado
-      // con el color de la tienda, solo sin el desenfoque.
-      border: glass ? `1px solid ${color}70` : `1px solid ${C.border}`,
-      borderRadius:12,
-      boxShadow: glass ? `inset 0 1px 0 rgba(255,255,255,0.22), 0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px ${color}40` : "none",
-      padding:compact?"7px 12px":"10px 14px",
-      marginBottom:compact?6:10,
-    }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:compact?4:8 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:15, fontWeight:700, color:C.goldLight, textTransform:"uppercase", letterSpacing:"0.04em" }}>
-          {glass && <span style={{ width:7, height:7, borderRadius:"50%", background:color, boxShadow:`0 0 6px ${color}` }}/>}
-          {icon} {titulo}
-        </div>
-        {headerExtra}
+// app (C_DARK.text/C_DARK.goldLight/C_DARK.textMuted) siempre contrasta bien, sea cual sea el color de la tienda.
+// Emojis que llegan como `icon` → íconos de línea de la Propuesta A.
+// Solo los montos y números van en fuente monoespaciada; nombres, turnos y fechas escritas van en
+// la fuente de la marca (en mono los nombres largos se veían desproporcionados, sobre todo en la foto).
+const esValorNumerico = (v) => typeof v==="number" || /^[-−+]?\s*\$|^[\d\s.,:\-−+$]+$/.test(String(v??"").trim());
+const CAJA_ICONO = { "🔓":"unlock", "🔒":"lock", "🚚":"truck", "➕":"note", "🗑️":"x", "🗒️":"note" };
+// Tarjeta de Caja (Propuesta A): blanca, con el color de la tienda como "sello" en el borde
+// superior y un punto junto al título. En la FOTO que se comparte por WhatsApp (ver
+// capturarTarjetaCaja) el encabezado sí se pinta completo del color de la tienda, porque ahí es
+// donde más sirve reconocer la tienda de un vistazo.
+const CajaCard = ({ icon, titulo, children, color, headerExtra, compact, resaltada }) => (
+  <div className="ozen-caja-card" data-color={color||""} style={{
+    background:"#fff",
+    border:`1px solid ${C_DARK.border}`,
+    borderTop: color ? `3px solid ${color}` : `1px solid ${C_DARK.border}`,
+    borderRadius:14,
+    boxShadow: resaltada ? `0 0 0 2px ${hexToRgba("#265D7F",0.35)}` : "none",
+    padding:compact?"14px 18px":"16px 20px",
+    marginBottom:14,
+    transition:"box-shadow .3s ease, border-color .35s ease",
+  }}>
+    <div className="ozen-caja-card-head" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:10 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:10, fontFamily:font.body, fontSize:15.5, fontWeight:700, color:C_DARK.text }}>
+        <span className="ozen-caja-card-ic" style={{ width:30, height:30, borderRadius:9, background:C_DARK.surfaceHover, color:C_DARK.gold, display:"grid", placeItems:"center", flexShrink:0 }}>
+          {CAJA_ICONO[icon] ? <Icon n={CAJA_ICONO[icon]} s={16}/> : icon}
+        </span>
+        {titulo}
+        {color && <span style={{ width:8, height:8, borderRadius:"50%", background:color, boxShadow:`0 0 0 3px ${hexToRgba(color,0.18)}` }}/>}
       </div>
-      {children}
+      {headerExtra}
     </div>
-  );
-};
-const cajaInputStyle = { width:"100%", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:5, padding:"5px 8px", color:C.text, fontSize:14.5, fontFamily:font.body, outline:"none", boxSizing:"border-box" };
-const cajaLabelStyle = { fontSize:12, color:C.textMuted, fontFamily:font.body, marginBottom:2, textTransform:"uppercase", letterSpacing:"0.05em" };
-const CajaField = ({ label, value, onChange, options, placeholder, type="text" }) => (
-  <div style={{ marginBottom:0 }}>
-    {label && <div style={cajaLabelStyle}>{label}</div>}
-    {options ? (
-      <select value={value} onChange={e=>onChange(e.target.value)} style={cajaInputStyle}>
-        {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-    ) : (
-      <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={cajaInputStyle}/>
-    )}
+    {children}
   </div>
 );
+const cajaInputStyle = { width:"100%", background:"#fff", border:`1px solid rgba(26,59,82,0.2)`, borderRadius:8, padding:"6px 9px", color:C_DARK.text, fontSize:14.5, fontFamily:font.body, outline:"none", boxSizing:"border-box" };
+const cajaLabelStyle = { fontSize:12, color:C_DARK.textMuted, fontFamily:font.body, marginBottom:2, textTransform:"uppercase", letterSpacing:"0.05em" };
 const CajaMoney = ({ label, value, onChange, placeholder }) => {
   const digits = String(value||"").replace(/[^\d]/g,"");
   const mostrado = digits ? `$${Number(digits).toLocaleString("es-CO")}` : "";
@@ -7311,13 +7659,13 @@ const CajaMoney = ({ label, value, onChange, placeholder }) => {
   );
 };
 const CajaBtn = ({ onClick, children, disabled }) => (
-  <button onClick={disabled?undefined:onClick} style={{ padding:"5px 12px", borderRadius:5, border:"none", background:C.gold, color:"#fff", fontSize:13.5, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.5:1, whiteSpace:"nowrap" }}>{children}</button>
+  <button className="ozen-no-foto" onClick={disabled?undefined:onClick} style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"10px 18px", borderRadius:10, border:"none", background:C.goldDark, color:C.tinta, fontSize:14, fontWeight:600, fontFamily:font.body, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.4:1, letterSpacing:"0.01em" }}>{typeof children==="string" && children.startsWith("📸 ") ? <><Icon n="camera" s={16}/>{children.slice(3)}</> : children}</button>
 );
 // Botón 📸 — "fotografía" el cuadro completo (Apertura/Cierre/Recolección) y lo copia al
 // portapapeles como imagen, para pegarlo directo en WhatsApp sin tener que hacer captura de
 // pantalla manual y recortarla. Va al lado izquierdo del botón "Registrar..." de cada tarjeta.
 const CajaCapturaBtn = ({ onClick, title }) => (
-  <button type="button" onClick={onClick} title={title||"Copiar como imagen"} style={{ padding:"5px 9px", borderRadius:5, border:`1px solid ${C.border}`, background:"rgba(0,0,0,0.18)", color:C.text, fontSize:14, cursor:"pointer", lineHeight:1 }}>📸</button>
+  <button type="button" className="ozen-no-foto" onClick={onClick} title={title||"Copiar como imagen"} style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"7px 12px", borderRadius:9, border:`1px solid rgba(38,93,127,0.4)`, background:"#fff", color:C_DARK.gold, fontSize:12.5, fontWeight:600, fontFamily:font.body, cursor:"pointer", lineHeight:1 }}><Icon n="camera" s={15}/>Copiar foto</button>
 );
 // Toma una "foto" de un cuadro de Caja (via su ref) y la copia al portapapeles como imagen —
 // ver CajaCapturaBtn. Depende de html2canvas, cargado desde CDN en index.html (no es un paquete
@@ -7328,7 +7676,7 @@ const capturarTarjetaCaja = async (ref, setToast) => {
   if(!ref?.current || !window.html2canvas){ setToast("⚠️ No se pudo generar la imagen — intenta de nuevo."); setTimeout(()=>setToast(null),2800); return; }
   try{
     const canvas = await window.html2canvas(ref.current, {
-      backgroundColor:C.dark, scale:2, useCORS:true,
+      backgroundColor:"#ffffff", scale:2, useCORS:true,
       // html2canvas no soporta backdrop-filter (el "vidrio esmerilado") ni renderiza bien los
       // degradados en capa que usa CajaCard cuando hay color de tienda — eso era el borde grueso y
       // las franjas de color raras que vio Santiago en las capturas. Justo antes de tomar la foto,
@@ -7344,7 +7692,14 @@ const capturarTarjetaCaja = async (ref, setToast) => {
           el.style.backdropFilter = "none";
           el.style.webkitBackdropFilter = "none";
           el.style.boxShadow = "none";
+          // La foto sale IGUAL que la tarjeta en pantalla: fondo blanco, sello de 3 px del color de la
+          // tienda arriba y el punto junto al título. Solo se fija el color de los íconos, porque
+          // html2canvas no resuelve `currentColor` en los SVG (salían negros).
+          el.querySelectorAll(".ozen-caja-card-ic svg").forEach(sv=>{ sv.setAttribute("stroke", C_DARK.gold); sv.querySelectorAll("*").forEach(n=>n.setAttribute("stroke", C_DARK.gold)); });
         });
+        // La foto es el cuadro "de recibo": sin botones (Registrar, copiar foto, ver cálculo) ni los
+        // lapicitos de editar — esos solo sirven en pantalla. Si un contenedor queda vacío, se quita.
+        clonedDoc.querySelectorAll(".ozen-no-foto").forEach(n=>{ const padre = n.parentElement; n.remove(); if(padre && !padre.textContent.trim() && !padre.querySelector("img,svg,canvas")) padre.remove(); });
         // html2canvas no sabe dibujar controles nativos de formulario (<select>) — salían como un
         // cuadro negro cortado en la imagen, por eso no se veía si el cierre era Parcial o Final
         // (ver el <select> de ciTipo en headerExtra de CajaCard). Se reemplaza cada <select> por un
@@ -7390,7 +7745,7 @@ const FrozenCajaCard = ({ tipo, registro, tiendaColor, setToastCaptura }) => {
   const ref = useRef(null);
   const d = registro.detalle;
   if(!d){
-    return <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, padding:"6px 4px", fontStyle:"italic" }}>Este registro es de antes de esta función — no tiene vista congelada disponible.</div>;
+    return <div style={{ fontFamily:font.body, fontSize:11.5, color:C_DARK.textMuted, padding:"6px 4px", fontStyle:"italic" }}>Este registro es de antes de esta función — no tiene vista congelada disponible.</div>;
   }
   return (
     <div style={{ marginTop:4, marginBottom:8 }}>
@@ -7400,7 +7755,7 @@ const FrozenCajaCard = ({ tipo, registro, tiendaColor, setToastCaptura }) => {
           {tipo==="apertura" && (<>
             <CajaReciboLinea compact label="Asesor" value={registro.asesor_nombre} small/>
             <CajaReciboLinea compact label="Turno" value={d.turno||"—"} small/>
-            <CajaReciboLinea compact label="Base" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C.red:undefined} small/>
+            <CajaReciboLinea compact label="Base" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C_DARK.red:undefined} small/>
             <CajaReciboLinea compact label="Efectivo" value={fmtCOP(d.efectivoPendienteTotal)}/>
             <CajaReciboLinea compact label="Total" value={fmtCOP(d.totalEnCajaAhora)} bold totalLine/>
             <CajaSubHeader compact label="Última recolección"/>
@@ -7408,17 +7763,17 @@ const FrozenCajaCard = ({ tipo, registro, tiendaColor, setToastCaptura }) => {
             <CajaReciboLinea compact label="Por" value={d.ultimaRecoleccionPor||"Sin registro previo"}/>
             <CajaSubHeader compact label="Novedades del período"/>
             {(d.novedadesDesdeRecoleccion||[]).length>0 ? d.novedadesDesdeRecoleccion.map((g,idx)=>(
-              <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text }}>
-                <span>{idx+1}. {g.motivo}{g.estado && g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}</span>
-                <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+              <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C_DARK.text }}>
+                <span>{idx+1}. {g.motivo}{g.estado && g.estado!=="aprobado" && <span style={{ color:C_DARK.amber }}> · pendiente</span>}</span>
+                <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C_DARK.green:C_DARK.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
               </div>
-            )) : <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin novedades registradas.</div>}
+            )) : <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted }}>Sin novedades registradas.</div>}
           </>)}
           {tipo==="cierre" && (<>
             <CajaReciboLinea compact label="Asesor" value={registro.asesor_nombre} small/>
             <CajaReciboLinea compact label="Turno" value={d.turno||"—"} small/>
             <CajaReciboLinea compact label="Tipo" value={registro.tipo==="parcial"?"Parcial":"Definitivo"} small/>
-            <CajaReciboLinea compact label="Base al cierre" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C.red:undefined} small/>
+            <CajaReciboLinea compact label="Base al cierre" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C_DARK.red:undefined} small/>
             {(d.formasDePagoVentas||[]).length>0 && (<>
               <CajaSubHeader compact label="Formas de pago ventas"/>
               {d.formasDePagoVentas.map((f,idx)=><CajaReciboLinea compact key={idx} label={CAJA_MEDIO_LABEL[f.medio]} value={fmtCOP(f.valor)} small/>)}
@@ -7428,8 +7783,8 @@ const FrozenCajaCard = ({ tipo, registro, tiendaColor, setToastCaptura }) => {
             {(d.totalDescuentos>0 || d.totalNotaCredito>0 || d.totalCambioProducto>0) && (<>
               <CajaSubHeader compact label="Descuentos y notas crédito"/>
               {d.totalDescuentos>0 && <CajaReciboLinea compact label="Descuentos" value={fmtCOP(d.totalDescuentos)} small/>}
-              {d.totalNotaCredito>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(d.totalNotaCredito)} color={C.amber} small/>}
-              {d.totalCambioProducto>0 && <CajaReciboLinea compact label="🔄 Cambio de producto" value={fmtCOP(d.totalCambioProducto)} color={C.gold} small/>}
+              {d.totalNotaCredito>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(d.totalNotaCredito)} color={C_DARK.amber} small/>}
+              {d.totalCambioProducto>0 && <CajaReciboLinea compact label="🔄 Cambio de producto" value={fmtCOP(d.totalCambioProducto)} color={C_DARK.gold} small/>}
             </>)}
             {(d.ingresoDelDia||[]).length>0 && (<>
               <CajaSubHeader compact label="Ingreso del día"/>
@@ -7439,9 +7794,9 @@ const FrozenCajaCard = ({ tipo, registro, tiendaColor, setToastCaptura }) => {
             {(d.novedadesDelDia||[]).length>0 && (<>
               <CajaSubHeader compact label="Novedades del día"/>
               {d.novedadesDelDia.map((g,idx)=>(
-                <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C.text }}>
+                <div key={idx} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12, color:C_DARK.text }}>
                   <span>{idx+1}. {g.motivo}</span>
-                  <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+                  <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C_DARK.green:C_DARK.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
                 </div>
               ))}
             </>)}
@@ -7452,7 +7807,7 @@ const FrozenCajaCard = ({ tipo, registro, tiendaColor, setToastCaptura }) => {
             <CajaReciboLinea compact label="Recibe" value={registro.recibe_nombre} small/>
             <CajaReciboLinea compact label="Valor recogido" value={fmtCOP(registro.valor)} bold totalLine/>
             {registro.incluye_hoy && Number(registro.valor_hoy||0)>0 && <CajaReciboLinea compact label="De eso, de hoy" value={fmtCOP(registro.valor_hoy)} small/>}
-            <CajaReciboLinea compact label="Base que queda" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C.red:undefined} small/>
+            <CajaReciboLinea compact label="Base que queda" value={fmtCOP(registro.base_caja)} color={d.baseDeficit>0?C_DARK.red:undefined} small/>
             {registro.comentarios && <CajaReciboLinea compact label="Comentarios" value={registro.comentarios} small/>}
           </>)}
         </CajaCard>
@@ -7477,16 +7832,16 @@ const CajaReciboLinea = ({ label, value, bold, color, small, indent, totalLine, 
     padding: indent ? (compact?"0.5px 0 0.5px 12px":"1.5px 0 1.5px 14px") : (compact?"1px 0":"2.5px 0"),
     marginTop: totalLine ? (compact?3:5) : 0,
     paddingTop: totalLine ? (compact?4:6) : undefined,
-    borderTop: totalLine ? `1px solid ${C.border}` : "none",
+    borderTop: totalLine ? `1px solid ${C_DARK.border}` : "none",
   }}>
-    <span style={{ fontFamily:font.body, fontSize: bold?14:13.5, color: color || (small?C.textMuted:C.text), fontWeight: bold?700:400 }}>{label}</span>
-    <span style={{ fontFamily:font.mono, fontSize: bold?16.5:14.5, fontWeight: bold?700:400, color: color || (bold?C.goldLight:C.text), whiteSpace:"nowrap" }}>{value}</span>
+    <span style={{ fontFamily:font.body, fontSize: bold?14:13.5, color: color || (small?C_DARK.textMuted:C_DARK.text), fontWeight: bold?700:400 }}>{label}</span>
+    <span style={{ fontFamily:esValorNumerico(value)?font.mono:font.body, fontSize: bold?16.5:14.5, fontWeight: bold?700:(esValorNumerico(value)?400:500), color: color || (bold?C_DARK.goldLight:C_DARK.text), whiteSpace:"nowrap" }}>{value}</span>
   </div>
 );
 // Barra divisoria de sub-sección dentro de una tarjeta (p.ej. "Dinero recibido por método de pago",
 // "Ventas", "Servicios" dentro de Cierre) — imita las barras de encabezado del diseño de Felipe.
 const CajaSubHeader = ({ label, compact }) => (
-  <div style={{ background:"rgba(255,255,255,0.06)", borderRadius:4, padding: compact?"2px 6px":"4px 8px", margin: compact?"6px 0 2px":"10px 0 4px", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
+  <div style={{ padding:"0", margin: compact?"12px 0 4px":"14px 0 6px", fontFamily:font.body, fontSize:11, fontWeight:700, color:C_DARK.gold, textTransform:"uppercase", letterSpacing:"0.1em" }}>{label}</div>
 );
 // Fila de formulario "a modo factura": título/etiqueta a la izquierda, el campo editable compacto a
 // la derecha — mismo look que CajaReciboLinea pero con un input/select real en vez de texto. Usada
@@ -7500,7 +7855,7 @@ const CajaFieldRow = ({ label, value, onChange, options, placeholder, type="text
   const base = compact ? cajaInputStyleRowCompact : cajaInputStyleRow;
   return (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
-      {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, flexShrink:0 }}>{label}</div>}
+      {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C_DARK.text, flexShrink:0 }}>{label}</div>}
       {options ? (
         <select value={value} onChange={e=>onChange(e.target.value)} style={base}>
           {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
@@ -7519,7 +7874,7 @@ const CajaMoneyRow = ({ label, value, onChange, placeholder, compact, narrow }) 
   // largo, se ve mucho más proporcional al resto de la tarjeta.
   return (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
-      {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, flexShrink:0 }}>{label}</div>}
+      {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C_DARK.text, flexShrink:0 }}>{label}</div>}
       <input type="text" inputMode="numeric" value={mostrado} onChange={e=>onChange(e.target.value.replace(/[^\d]/g,""))} placeholder={placeholder||"$0"} style={narrow ? { ...(compact?cajaInputStyleRowCompact:cajaInputStyleRow), flex:"0 0 84px", width:84 } : (compact?cajaInputStyleRowCompact:cajaInputStyleRow)}/>
     </div>
   );
@@ -7538,7 +7893,7 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
   // abrir el desplegable de una vez al entrar en edición (soportado en navegadores recientes).
   const bareStyle = {
     background:"transparent", border:"none", borderRadius:0, padding:0, margin:0,
-    color:C.text, fontFamily:font.mono, fontSize:14.5, textAlign:"right",
+    color:C_DARK.text, fontFamily:font.mono, fontSize:14.5, textAlign:"right",
     outline:"none", boxShadow:"none", WebkitAppearance:"none", appearance:"none", cursor:"pointer",
   };
   useEffect(()=>{
@@ -7549,7 +7904,7 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
   if(editando){
     return (
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding: compact?"2px 0":"4px 0" }}>
-        {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, flexShrink:0 }}>{label}</div>}
+        {label && <div style={{ fontFamily:font.body, fontSize:13.5, color:C_DARK.text, flexShrink:0 }}>{label}</div>}
         {options ? (
           <select ref={selectRef} autoFocus value={value} onChange={e=>{ onChange(e.target.value); setEditando(false); }} onBlur={()=>setEditando(false)} style={bareStyle}>
             {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
@@ -7565,19 +7920,20 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
   const texto = options ? (options.find(o=>o.value===value)?.label || "Selecciona...") : money ? (digits?`$${Number(digits).toLocaleString("es-CO")}`:"$0") : (value||"—");
   return (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding: compact?"1px 0":"2.5px 0" }}>
-      <span style={{ fontFamily:font.body, fontSize:13.5, color:C.text }}>{label}</span>
+      <span style={{ fontFamily:font.body, fontSize:13.5, color:C_DARK.text }}>{label}</span>
       <button type="button" onClick={()=>setEditando(true)} style={{ display:"flex", alignItems:"center", gap:5, background:"none", border:"none", cursor:"pointer", padding:0 }}>
-        <span style={{ fontFamily:font.mono, fontSize:14.5, color:C.text }}>{texto}</span>
-        <span style={{ color:C.textMuted, fontSize:11 }}>✏️</span>
+        <span style={{ fontFamily:esValorNumerico(texto)?font.mono:font.body, fontSize:14.5, fontWeight:esValorNumerico(texto)?400:500, color:C_DARK.text }}>{texto}</span>
+        <span className="ozen-no-foto" style={{ color:C_DARK.textMuted }}><Icon n="pen" s={12}/></span>
       </button>
     </div>
   );
 };
 
-function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, solicitudesBorrado, setSolicitudesBorrado, puedeRecoleccion, soloLectura, isMobile, turnosAsignaciones, turnosHorarios, lideres }) {
+function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, solicitudesBorrado, setSolicitudesBorrado, puedeRecoleccion, soloLectura, isMobile, turnosAsignaciones, turnosHorarios, lideres }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const tiendasList = tiendasVenta(stores);
-  const [tiendaId, setTiendaId] = useState(tiendaFija || tiendasList[0]?.id || "");
+  const [tiendaIdLocal] = useState(tiendaFija || tiendasList[0]?.id || "");
+  const tiendaId = tiendaFija || tiendaActiva || tiendaIdLocal;
   // Color asignado a la tienda que se está viendo — se usa para pintar los cuadros de Caja.
   const tiendaColor = stores[tiendaId]?.color;
   const [cajaVista, setCajaVista] = useState(soloLectura ? "historial" : "registrar"); // 'registrar' | 'historial'
@@ -7586,6 +7942,7 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   const aperturaCardRef = useRef(null);
   const cierreCardRef = useRef(null);
   const recoleccionCardRef = useRef(null);
+  const [pasoCaja, setPasoCaja] = useState(null);
   const [toastCaptura, setToastCaptura] = useState(null);
   // Qué registro de Historial tiene abierta su vista "congelada" (ver FrozenCajaCard) — solo uno a
   // la vez, formato `${tipo}:${id}` (ej. "apertura:abc123").
@@ -7724,11 +8081,8 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   // Regla general: una recolección SIEMPRE se lleva el efectivo de días ya cerrados (anteriores a
   // hoy) — el de HOY no se recoge por defecto, sigue sumando hasta la siguiente recolección. Solo
   // si se marca "Recoges efectivo de hoy" se retira una parte de hoy, con tope de lo acumulado hoy.
-  // fechaCorte se sigue usando más abajo (base) como referencia de "desde la última recolección",
-  // pero YA NO se usa para calcular el efectivo pendiente: ese cálculo es ahora por
-  // fecha de corte — así una recolección PARCIAL (recoger menos de lo sugerido) deja correctamente
-  // el resto pendiente para la próxima vez, en lugar de darlo por recogido solo porque cambió la
-  // fecha de la última recolección.
+  // fechaCorte marca ese punto de corte: todo lo anterior a la última recolección se da por
+  // recogido al 100%, sin revisarlo de nuevo (ver el cálculo de efectivoAnteriores más abajo).
   const fechaCorte = ultimaRecoleccion ? ultimaRecoleccion.fecha : null;
 
   // Efectivo (ventas + abonos en efectivo) de TODOS los días anteriores a hoy, en toda la historia
@@ -7796,16 +8150,11 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
   let baseDeficit = 0;
   {
     const gastosOrdenados = [...gastosDesdeRecoleccion].sort((a,b)=> new Date(a.created_at)-new Date(b.created_at));
+    // Mismo corte que arriba: se confía en la última recolección (se llevó el 100% de lo anterior),
+    // y el único remanente posible es lo que siguió entrando el mismo día de esa recolección
+    // después de hacerla — se arranca el caminado con ese sobrante, no con un recálculo de toda
+    // la historia.
     let cursor = fechaCorte ? sumarDias(fechaCorte, 1) : (gastosOrdenados[0]?.fecha || null);
-    // El caminado de días arrancaba SIEMPRE en $0 justo después de la última recolección, como si
-    // esa recolección siempre dejara la caja en cero — pero una recolección puede ser PARCIAL (se
-    // puede recoger menos de lo sugerido a propósito), así que suele quedar efectivo real sin
-    // recoger desde ANTES de esa fecha. Ese sobrante sí cuenta en "Efectivo" (arriba), pero el
-    // caminado lo ignoraba por completo — por eso una novedad grande podía "pegarle" a la base
-    // aunque el Efectivo total mostrado alcanzara de sobra para cubrirla. Se arranca ahora con el
-    // sobrante real del día de la última recolección (lo que quedó suelto ese día, si siguió
-    // entrando efectivo después de recogerla) — mismo criterio que efectivoAnteriores arriba, sin
-    // revalidar nada de antes de esa fecha.
     let pool = fechaCorte ? Math.max(0, efectivoDelDia(fechaCorte) - Number(ultimaRecoleccion?.valor_hoy||0)) : 0;
     let guard = 0;
     while(cursor && cursor<=todayStr && guard<730){
@@ -8192,29 +8541,92 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
     return rango ? `${asig.shift} (${rango})` : asig.shift;
   };
 
+  // Estado de los 4 pasos del día (Apertura → Novedades → Cierre → Recolección) para la línea de arriba.
+  const aperturaHoy = aperturasTienda.find(a=>a.fecha===todayStr);
+  const cierresHoy = cierresTienda.filter(c=>c.fecha===todayStr);
+  const cierreFinalHoy = cierresHoy.find(c=>c.tipo!=="parcial");
+  const parcialHoy = cierresHoy.find(c=>c.tipo==="parcial");
+  const novPend = gastosDesdeRecoleccion.filter(g=>g.estado!=="aprobado").length;
+  const recoHoy = ultimaRecoleccion && ultimaRecoleccion.fecha===todayStr;
+  const diasReco = ultimaRecoleccion ? diasEntre(ultimaRecoleccion.fecha, todayStr) : null;
+  const hora = (r) => r ? new Date(r.created_at).toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit",hour12:false}) : "";
+  const pasos = [
+    { id:"apertura", t:"Apertura", ic:"unlock", hecho:!!aperturaHoy, sub: aperturaHoy ? `${hora(aperturaHoy)} · ${aperturaHoy.asesor_nombre||""}` : "Pendiente" },
+    { id:"novedades", t:"Novedades", ic:"note", hecho:novPend===0, aviso:novPend>0, sub: gastosDesdeRecoleccion.length===0 ? "Ninguna en el período" : `${gastosDesdeRecoleccion.length} en el período${novPend?` · ${novPend} por aprobar`:""}` },
+    { id:"cierre", t:"Cierre de caja", ic:"lock", hecho:!!cierreFinalHoy, sub: cierreFinalHoy ? `Final ${hora(cierreFinalHoy)}` : parcialHoy ? `Parcial ${hora(parcialHoy)} · falta el final` : "Pendiente" },
+    { id:"recoleccion", t:"Recolección", ic:"truck", hecho:!!recoHoy, sub: recoHoy ? `Hoy ${hora(ultimaRecoleccion)}` : diasReco===null ? "Sin registro" : diasReco===1 ? "Ayer" : `Hace ${diasReco} días` },
+  ];
+  const actual = !aperturaHoy ? "apertura" : !cierreFinalHoy ? "cierre" : null;
+  // Paso que se muestra abajo: el que se tocó, o si no, el que sigue en el día.
+  const pasoSel = pasoCaja || actual || "cierre";
+  const tsHora = (iso) => iso ? new Date(iso).toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit",hour12:false,timeZone:"America/Bogota"}) : "";
+  const movimientosHoy = [
+    ...aperturasTienda.filter(a=>a.fecha===todayStr).map(a=>({ key:`a${a.id}`, ts:a.created_at, titulo:"Apertura de turno", sub:`${tsHora(a.created_at)} · ${a.asesor_nombre||"—"} · base ${fmtCOP(a.base_caja||0)}`, color:C.green })),
+    ...gastosTienda.filter(g=>g.fecha===todayStr).map(g=>({ key:`g${g.id}`, ts:g.created_at, titulo:`Novedad · ${g.motivo||(g.tipo==="ingreso"?"ingreso":"costo")}`, sub:`${tsHora(g.created_at)}${g.autorizado_por?` · autorizó ${g.autorizado_por}`:""}${g.estado!=="aprobado"?" · por aprobar":""}`, valor:`${g.tipo==="ingreso"?"+":"−"} ${fmtCOP(g.valor)}`, valorColor:g.tipo==="ingreso"?C.green:C.red, color:g.estado!=="aprobado"?C.amber:C.gold })),
+    ...cierresTienda.filter(c=>c.fecha===todayStr).map(c=>({ key:`c${c.id}`, ts:c.created_at, titulo:c.tipo==="parcial"?"Cierre parcial":"Cierre final", sub:`${tsHora(c.created_at)} · ${c.asesor_nombre||"—"}`, color:C.gold })),
+    ...recoleccionesTienda.filter(r=>r.fecha===todayStr).map(r=>({ key:`r${r.id}`, ts:r.created_at, titulo:"Recolección", sub:`${tsHora(r.created_at)} · ${r.entrega_nombre||"—"} → ${r.recibe_nombre||"—"}`, valor:fmtCOP(r.valor), color:C.goldDark })),
+  ].sort((x,y)=> String(y.ts).localeCompare(String(x.ts)));
+
   return (
     <div>
       {toastCaptura && (
-        <div style={{ position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:9999, background:C.dark, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 16px", color:C.text, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", whiteSpace:"nowrap" }}>{toastCaptura}</div>
+        <div style={{ position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:9999, background:C.goldDark, border:"none", borderRadius:10, padding:"10px 18px", color:C.tinta, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", whiteSpace:"nowrap" }}>{toastCaptura}</div>
       )}
-      <div style={{ display:"flex", flexWrap:"wrap", gap:10, alignItems:"center", marginBottom:10 }}>
-        {!tiendaFija && (
-          <div style={{ width:200 }}>
-            <CajaField value={tiendaId} onChange={setTiendaId} options={tiendasList.map(t=>({value:t.id,label:t.name}))}/>
-          </div>
-        )}
-        <div style={{ display:"flex", gap:6, marginLeft:"auto" }}>
-          <Btn variant={cajaVista==="registrar"?"primary":"ghost"} sm onClick={()=>setCajaVista("registrar")}>Registrar</Btn>
-          <Btn variant={cajaVista==="historial"?"primary":"ghost"} sm onClick={()=>setCajaVista("historial")}>Historial</Btn>
+      {/* Propuesta A — encabezado: tienda (sale de la barra superior), turno y Registrar/Historial. */}
+      <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12, flexWrap:"wrap", marginBottom:18 }}>
+        <div>
+          <h1 style={{ margin:0, fontFamily:font.body, fontSize:isMobile?22:26, fontWeight:700, color:C.text, display:"flex", alignItems:"center", gap:12 }}>
+            <PuntoTienda color={colorTienda(stores[tiendaId])} size={11}/>Caja · {nombreTiendaCorto(stores[tiendaId])}
+          </h1>
+          <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:4 }}>{new Date(todayStr+"T12:00:00").toLocaleDateString("es-CO",{ weekday:"long", day:"numeric", month:"long" })}</div>
+        </div>
+        <div style={{ display:"inline-flex", background:C.surfaceHover, borderRadius:10, padding:3 }}>
+          {[{id:"registrar",label:"Registrar"},{id:"historial",label:"Historial"}].map(v=>{ const on=cajaVista===v.id; return (
+            <button key={v.id} onClick={()=>setCajaVista(v.id)} style={{ padding:"7px 16px", borderRadius:8, border:"none", background:on?"#fff":"transparent", boxShadow:on?"0 1px 2px rgba(26,59,82,0.15)":"none", color:on?C.goldDark:C.textSub, fontFamily:font.body, fontSize:13, fontWeight:on?600:500, cursor:"pointer", transition:"all .2s ease" }}>{v.label}</button>
+          ); })}
         </div>
       </div>
-      {msg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"7px 10px", color:C.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{msg}</div>}
+
+      {/* Los 4 números que siempre se miran. El primero lleva el filo del color de la tienda. */}
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)", gap:isMobile?10:14, marginBottom:16 }}>
+        {[
+          { k:"Total en caja ahora", v:fmtCOP(totalEnCajaAhora), hl:true },
+          { k:"Efectivo pendiente", v:fmtCOP(Math.max(0, efectivoPendienteTotal)) },
+          { k:"Base", v:fmtCOP(baseVigente), rojo:baseDeficit>0 },
+          { k:"Última recolección", v: ultimaRecoleccion ? `${new Date(ultimaRecoleccion.created_at).toLocaleDateString("es-CO",{day:"numeric",month:"short"})} · ${(ultimaRecoleccion.recibe_nombre||"—").split(" ")[0]}` : "Sin registro", texto:true },
+        ].map(x=>(
+          <div key={x.k} style={{ position:"relative", overflow:"hidden", background:x.hl?C.goldDark:"#fff", border:`1px solid ${x.hl?C.goldDark:C.border}`, borderRadius:14, padding:isMobile?"12px 14px 12px 16px":"16px 18px 16px 22px" }}>
+            {x.hl && <span style={{ position:"absolute", left:0, top:0, bottom:0, width:5, background:colorTienda(stores[tiendaId]), transition:"background .35s ease" }}/>}
+            <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", fontWeight:600, color:x.hl?"rgba(229,213,204,0.75)":C.textMuted }}>{x.k}</div>
+            <div style={{ fontFamily:x.texto?font.body:font.mono, fontSize:x.texto?(isMobile?14:16):(isMobile?17:22), fontWeight:700, marginTop:x.texto?10:6, color:x.hl?C.tinta:(x.rojo?C.red:C.goldDark) }}>{x.v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* El día como una línea de 4 pasos. Tocar un paso lleva a su tarjeta. */}
+      {cajaVista==="registrar" && (
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)", background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden", marginBottom:18 }}>
+            {pasos.map((p,idx)=>{ const cur=p.id===pasoSel; return (
+              <button key={p.id} onClick={()=>setPasoCaja(p.id)} style={{ display:"flex", gap:12, alignItems:"flex-start", textAlign:"left", padding:isMobile?"12px":"16px 18px", border:"none", borderRight:(!isMobile&&idx<3)||(isMobile&&idx%2===0)?`1px solid ${C.border}`:"none", borderBottom:isMobile&&idx<2?`1px solid ${C.border}`:"none", background:cur?"rgba(38,93,127,0.06)":"#fff", boxShadow:cur?`inset 0 3px 0 ${C.gold}`:"none", cursor:"pointer", fontFamily:font.body }}>
+                <span key={`${p.id}-${p.hecho}`} className={p.hecho?"ozen-paso-hecho":undefined} style={{ width:30, height:30, borderRadius:"50%", display:"grid", placeItems:"center", flexShrink:0, background:p.hecho?C.green:"transparent", border:`${cur?2:1.5}px solid ${p.hecho?C.green:p.aviso?C.amber:cur?C.gold:"rgba(26,59,82,0.2)"}`, color:p.hecho?"#fff":p.aviso?C.amber:cur?C.gold:C.textMuted }}>
+                  <Icon n={p.hecho?"check":p.ic} s={15}/>
+                </span>
+                <span style={{ minWidth:0 }}>
+                  <b style={{ display:"block", fontSize:14, color:C.text }}>{p.t}</b>
+                  <small style={{ fontSize:12, color:p.aviso?C.amber:C.textMuted }}>{p.sub}</small>
+                </span>
+              </button>
+            ); })}
+          </div>
+      )}
+
+      {msg && <div style={{ background:C_DARK.redDim, border:`1px solid ${C_DARK.red}44`, borderRadius:7, padding:"7px 10px", color:C_DARK.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{msg}</div>}
 
       <div key={cajaVista} className="ozen-pane-anim-tab">
       {cajaVista==="registrar" ? (
         <div style={soloLectura ? { pointerEvents:"none", opacity:0.55 } : undefined}>
           {soloLectura && (
-            <div style={{ background:`${C.amber}18`, border:`1px solid ${C.amber}55`, borderRadius:8, padding:"8px 12px", marginBottom:12, color:C.amber, fontSize:12, fontFamily:font.body }}>
+            <div style={{ background:`${C_DARK.amber}18`, border:`1px solid ${C_DARK.amber}55`, borderRadius:8, padding:"8px 12px", marginBottom:12, color:C_DARK.amber, fontSize:12, fontFamily:font.body }}>
               👁 Solo puedes ver esta pantalla — no tienes permiso para registrar movimientos de Caja.
             </div>
           )}
@@ -8226,227 +8638,249 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
               únicas adiciones: `tiendaNombreActual` (nombre de la tienda ya elegida arriba, para la
               fila "Turno") y `resumenHoy.totalDescuentosDia` (suma informativa de descuentos que ya
               traía cada renglón, no afecta ningún total). */}
-          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, alignItems:"start" }}>
-            <div>
-              {/* Apertura, Última Recolección y Novedades del período unificados en una sola
-                  burbuja (pedido de Santiago) — mismo contenido de siempre, ahora con
-                  CajaSubHeader como divisores en vez de ser 3 tarjetas separadas. */}
-              <div ref={aperturaCardRef}>
-              <CajaCard compact icon="🔓" titulo="Apertura de turno" color={tiendaColor}>
-                <CajaCampoPick compact label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
-                <CajaCampoPick compact label="Asesor *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-                <CajaReciboLinea compact label="Turno" value={turnoAsesorTexto(apAsesorId, apFecha)} small/>
-                <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={baseDeficit>0?C.red:undefined} small/>
-                {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10, color:C.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
-                {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
-                <CajaReciboLinea compact label="Efectivo" value={fmtCOP(Math.max(0, efectivoPendienteTotal))}/>
-                {esAdminDeVentas(user) && (
-                  <div style={{ marginTop:2 }}>
-                    <button onClick={()=>setVerDetalleCalculo(v=>!v)} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:10, textDecoration:"underline", padding:0 }}>{verDetalleCalculo?"Ocultar detalle del cálculo":"Ver detalle del cálculo"}</button>
-                    {verDetalleCalculo && (
-                      <div style={{ marginTop:4, padding:"8px 10px", background:"rgba(0,0,0,0.2)", borderRadius:6, fontFamily:font.mono, fontSize:10.5, color:C.textSub, display:"flex", flexDirection:"column", gap:2 }}>
-                        {ultimaRecoleccion ? (
-                          <>
-                            <div>Corte (última recolección, {fmtFechaHora(ultimaRecoleccion.created_at)}): se llevó {fmtCOP(ultimaRecoleccion.valor)}{Number(ultimaRecoleccion.valor_hoy||0)>0 ? ` (incluye ${fmtCOP(ultimaRecoleccion.valor_hoy)} de ese mismo día)` : ""}</div>
-                            <div>Todo lo anterior a esa fecha queda en $0 pendiente — no se revisa de nuevo.</div>
-                          </>
-                        ) : (
-                          <div>Efectivo histórico bruto (antes de hoy, nunca se ha recogido): {fmtCOP(efectivoAnterioresBruto)}</div>
-                        )}
-                        <div style={{ marginTop:4 }}>Novedades desde la última recolección ({ultimaRecoleccion?fmtFechaHora(ultimaRecoleccion.created_at):"—"}):</div>
-                        {gastosDesdeRecoleccion.length>0 ? gastosDesdeRecoleccion.map(g=>(
-                          <div key={g.id} style={{ paddingLeft:8 }}>{fmtFechaHora(g.created_at)} · {g.motivo} ({g.estado}): {g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</div>
-                        )) : <div style={{ paddingLeft:8 }}>Ninguna.</div>}
-                        <div style={{ fontWeight:700, marginTop:4 }}>= Efectivo días anteriores: {fmtCOP(efectivoAnteriores)}</div>
-                        <div>+ Efectivo de hoy pendiente: {fmtCOP(efectivoHoyPendiente)}</div>
-                        <div style={{ fontWeight:700 }}>= Efectivo total: {fmtCOP(Math.max(0, efectivoPendienteTotal))}</div>
-                      </div>
-                    )}
+          {/* Propuesta A: se ve solo el paso elegido arriba (Apertura, Novedades, Cierre o Recolección)
+              y al lado los movimientos de hoy. Mismas tarjetas y cálculos de siempre. */}
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(0,1fr) 340px", gap:18, alignItems:"start" }}>
+            <div key={pasoSel} className="ozen-pane-anim-tab">
+              {pasoSel==="apertura" && (
+                <div ref={aperturaCardRef}>
+                <CajaCard compact icon="🔓" titulo="Apertura de turno" color={tiendaColor}>
+                  <CajaCampoPick compact label="Fecha" type="date" value={apFecha} onChange={setApFecha}/>
+                  <CajaCampoPick compact label="Asesor *" value={apAsesorId} onChange={setApAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+                  <CajaReciboLinea compact label="Turno" value={turnoAsesorTexto(apAsesorId, apFecha)} small/>
+                  <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={baseDeficit>0?C_DARK.red:undefined} small/>
+                  {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10, color:C_DARK.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
+                  {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10, color:puedeFechaLibre?C_DARK.amber:C_DARK.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
+                  <CajaReciboLinea compact label="Efectivo" value={fmtCOP(Math.max(0, efectivoPendienteTotal))}/>
+                  {esAdminDeVentas(user) && (
+                    <div style={{ marginTop:2 }}>
+                      <button className="ozen-no-foto" onClick={()=>setVerDetalleCalculo(v=>!v)} style={{ background:"none", border:"none", color:C_DARK.textMuted, cursor:"pointer", fontSize:10, textDecoration:"underline", padding:0 }}>{verDetalleCalculo?"Ocultar detalle del cálculo":"Ver detalle del cálculo"}</button>
+                      {verDetalleCalculo && (
+                        <div style={{ marginTop:4, padding:"8px 10px", background:C_DARK.surfaceHover, borderRadius:8, fontFamily:font.mono, fontSize:10.5, color:C_DARK.textSub, display:"flex", flexDirection:"column", gap:2 }}>
+                          {ultimaRecoleccion ? (
+                            <>
+                              <div>Corte (última recolección, {fmtFechaHora(ultimaRecoleccion.created_at)}): se llevó {fmtCOP(ultimaRecoleccion.valor)}{Number(ultimaRecoleccion.valor_hoy||0)>0 ? ` (incluye ${fmtCOP(ultimaRecoleccion.valor_hoy)} de ese mismo día)` : ""}</div>
+                              <div>Todo lo anterior a esa fecha queda en $0 pendiente — no se revisa de nuevo.</div>
+                            </>
+                          ) : (
+                            <div>Efectivo histórico bruto (antes de hoy, nunca se ha recogido): {fmtCOP(efectivoAnterioresBruto)}</div>
+                          )}
+                          <div style={{ marginTop:4 }}>Novedades desde la última recolección ({ultimaRecoleccion?fmtFechaHora(ultimaRecoleccion.created_at):"—"}):</div>
+                          {gastosDesdeRecoleccion.length>0 ? gastosDesdeRecoleccion.map(g=>(
+                            <div key={g.id} style={{ paddingLeft:8 }}>{fmtFechaHora(g.created_at)} · {g.motivo} ({g.estado}): {g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</div>
+                          )) : <div style={{ paddingLeft:8 }}>Ninguna.</div>}
+                          <div style={{ fontWeight:700, marginTop:4 }}>= Efectivo días anteriores: {fmtCOP(efectivoAnteriores)}</div>
+                          <div>+ Efectivo de hoy pendiente: {fmtCOP(efectivoHoyPendiente)}</div>
+                          <div style={{ fontWeight:700 }}>= Efectivo total: {fmtCOP(Math.max(0, efectivoPendienteTotal))}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <CajaReciboLinea compact label="Total" value={fmtCOP(totalEnCajaAhora)} bold totalLine/>
+                  <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end", gap:6 }}>
+                    <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"📸 Registrar apertura"}</CajaBtn>
                   </div>
-                )}
-                <CajaReciboLinea compact label="Total" value={fmtCOP(totalEnCajaAhora)} bold totalLine/>
-                <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end", gap:6 }}>
-                  <CajaBtn onClick={guardarApertura} disabled={guardandoAp || !tiendaId || !apAsesorId}>{guardandoAp?"...":"📸 Registrar apertura"}</CajaBtn>
-                </div>
-
-                <CajaSubHeader compact label="Última Recolección"/>
-                <CajaReciboLinea compact label="Fecha" value={ultimaRecoleccion ? fmtFechaHora(ultimaRecoleccion.created_at) : "—"}/>
-                <CajaReciboLinea compact label="Por" value={ultimaRecoleccion ? (ultimaRecoleccion.recibe_nombre||"—") : "Sin registro previo"}/>
-
-                <CajaSubHeader compact label="Novedades del período"/>
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:4 }}>Costos en rojo, ingresos en verde — desde la última recolección.</div>
-                {gastosDesdeRecoleccion.length>0 ? (
-                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
-                    {gastosDesdeRecoleccion.slice(0,5).map((g,idx)=>(
-                      <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.text, gap:6 }}>
-                        <span>{idx+1}. {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}</span>
-                        <span style={{ display:"flex", alignItems:"center", gap:6 }}>
-                          <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
-                          {puedeAprobarNovedad && g.estado!=="aprobado" && <button onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:11, padding:"2px 6px" }}>Aprobar</button>}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin novedades registradas.</div>}
-              </CajaCard>
-              </div>
-
-              <div ref={cierreCardRef}>
-              <CajaCard
-                compact
-                icon="🔒"
-                titulo="Cierre de caja"
-                color={tiendaColor}
-                headerExtra={
-                  <select value={ciTipo} onChange={e=>setCiTipo(e.target.value)} style={cajaHeaderSelectStyle}>
-                    <option value="parcial">Parcial</option>
-                    <option value="definitivo">Final</option>
-                  </select>
-                }
-              >
-                <CajaCampoPick compact label="Fecha" type="date" value={ciFecha} onChange={setCiFecha}/>
-                <CajaCampoPick compact label="Asesor *" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-                <CajaReciboLinea compact label="Turno" value={turnoAsesorTexto(ciAsesorId, ciFecha)} small/>
-                <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={baseDeficit>0?C.red:undefined} small/>
-                {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
-                {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:11.5, color:puedeFechaLibre?C.amber:C.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
-
-                {/* Estructura pensada para contrastar contra el cierre de Siigo (ver captura que
-                    mandó Santiago): Sección 2 debe coincidir con "Totales por medio de pago" de
-                    Siigo, y Sección 4 es la plata real que entró a caja ese día — son dos lecturas
-                    distintas de la misma información, por eso van separadas. Cada sección se oculta
-                    por completo (encabezado incluido) si su total da $0 ese día; dentro de la que
-                    sí se muestra, una línea puntual también se oculta si su valor es $0. */}
-
-                {/* Sección 2 — "Formas de pago ventas": debe coincidir con Siigo. Por cada medio,
-                    ventas normales + el abono que CIERRA un Flexipago ese día (Siigo lo factura
-                    como una venta normal por ese medio, no como abono) — el valor total del
-                    flexipago NO se reparte por medio, sino que se muestra aparte como "Flexipago
-                    redimido" (así como Siigo lo separa en su columna "Ventas a crédito"). Por eso
-                    NO se incluyen aquí servicios ni abonos que no completan la venta — Siigo no los
-                    registra (ver nota de Santiago). */}
-                {resumenHoy.totalIngresoNeto>0 && (
-                  <>
-                    <CajaSubHeader compact label="Formas de pago ventas"/>
-                    {CAJA_MEDIOS.filter(m=>(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.abonoFlexipagoFinalMedios[m])>0).map(m=><CajaReciboLinea compact key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.abonoFlexipagoFinalMedios[m])} small/>)}
-                    {(resumenHoy.flexipagoCerradoHoy-resumenHoy.totalAbonoFlexipagoFinal)>0 && <CajaReciboLinea compact label="Flexipago redimido" value={fmtCOP(resumenHoy.flexipagoCerradoHoy-resumenHoy.totalAbonoFlexipagoFinal)} small/>}
-                    <CajaReciboLinea compact label="Total ventas" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold totalLine/>
-                  </>
-                )}
-
-                {/* Sección 3 — Descuentos y notas crédito, solo informativo. */}
-                {(resumenHoy.totalDescuentosDia+resumenHoy.totalNotaCreditoDia+resumenHoy.totalCambioProductoDia)>0 && (
-                  <>
-                    <CajaSubHeader compact label="Descuentos y notas crédito"/>
-                    {resumenHoy.totalDescuentosDia>0 && <CajaReciboLinea compact label="Descuentos" value={fmtCOP(resumenHoy.totalDescuentosDia)} small/>}
-                    {resumenHoy.totalNotaCreditoDia>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(resumenHoy.totalNotaCreditoDia)} color={C.amber} small/>}
-                    {resumenHoy.totalCambioProductoDia>0 && <CajaReciboLinea compact label="🔄 Cambio de producto (informativo)" value={fmtCOP(resumenHoy.totalCambioProductoDia)} color={C.gold} small/>}
-                  </>
-                )}
-
-                {/* Sección 4 — "Ingreso del día": la plata REAL que entró a la caja ese día, para
-                    contrastar contra el efectivo/transacciones/tarjeta físicos — incluye ventas,
-                    servicios y los DOS tipos de abono de Flexipago (el que no completa la venta y
-                    el que sí la completa), cada uno por SU valor real de hoy, no el valor total del
-                    flexipago (que en gran parte ya había entrado en días anteriores). */}
-                {(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia+resumenHoy.totalAbonoFlexipagoFinal)>0 && (
-                  <>
-                    <CajaSubHeader compact label="Ingreso del día"/>
-                    {CAJA_MEDIOS.filter(m=>(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m]+resumenHoy.abonoFlexipagoFinalMedios[m])>0).map(m=><CajaReciboLinea compact key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m]+resumenHoy.abonoFlexipagoFinalMedios[m])} small/>)}
-                    <CajaReciboLinea compact label="Total ingreso del día" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia+resumenHoy.totalAbonoFlexipagoFinal)} bold totalLine/>
-                  </>
-                )}
-
-                {novedadesDelDia.length>0 && (
-                  <>
-                    <CajaSubHeader compact label="Novedades del día"/>
-                    <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
-                      {novedadesDelDia.map((g,idx)=>(
-                        <div key={g.id} style={{ fontFamily:font.body, fontSize:12, color:C.text, display:"flex", justifyContent:"space-between", gap:6 }}>
-                          <span>{idx+1}. {g.motivo}</span>
-                          <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+  
+                  <CajaSubHeader compact label="Última Recolección"/>
+                  <CajaReciboLinea compact label="Fecha" value={ultimaRecoleccion ? fmtFechaHora(ultimaRecoleccion.created_at) : "—"}/>
+                  <CajaReciboLinea compact label="Por" value={ultimaRecoleccion ? (ultimaRecoleccion.recibe_nombre||"—") : "Sin registro previo"}/>
+  
+                  <CajaSubHeader compact label="Novedades del período"/>
+                  <div style={{ fontFamily:font.body, fontSize:11, color:C_DARK.textMuted, marginBottom:4 }}>Costos en rojo, ingresos en verde — desde la última recolección.</div>
+                  {gastosDesdeRecoleccion.length>0 ? (
+                    <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                      {gastosDesdeRecoleccion.slice(0,5).map((g,idx)=>(
+                        <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C_DARK.text, gap:6 }}>
+                          <span>{idx+1}. {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C_DARK.amber }}> · pendiente</span>}</span>
+                          <span style={{ display:"flex", alignItems:"center", gap:6 }}>
+                            <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C_DARK.green:C_DARK.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+                            {puedeAprobarNovedad && g.estado!=="aprobado" && <button className="ozen-no-foto" onClick={()=>aprobarGasto(g)} title="Aprobar esta novedad" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.green, cursor:"pointer", fontSize:11, padding:"2px 6px" }}>Aprobar</button>}
+                          </span>
                         </div>
                       ))}
                     </div>
-                  </>
-                )}
-
-                {(ciNotaAbierta || ciNovedades) ? (
-                  <CajaFieldRow compact wide label="Nota" value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta (opcional)"/>
-                ) : (
-                  <div style={{ marginTop:6 }}>
-                    <button type="button" onClick={()=>setCiNotaAbierta(true)} style={{ background:"none", border:`1px dashed ${C.border}`, borderRadius:6, color:C.textMuted, cursor:"pointer", fontSize:11.5, fontFamily:font.body, padding:"4px 10px" }}>+ Agregar nota</button>
+                  ) : <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted }}>Sin novedades registradas.</div>}
+                </CajaCard>
+                </div>
+              )}
+              {pasoSel==="novedades" && (
+                <div>
+                <CajaCard compact icon="➕" titulo="Agregar novedad" color={tiendaColor}>
+                  <CajaFieldRow compact label="Quién registra *" value={gaAsesorId} onChange={setGaAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+                  <CajaFieldRow compact label="Quién autorizó *" value={gaAutorizoLiderId} onChange={setGaAutorizoLiderId} options={[{value:"",label:"Selecciona un líder..."}, ...lideresActivos.map(l=>({value:l.id,label:l.nombre}))]}/>
+                  <CajaFieldRow compact label="Tipo" value={gaTipo} onChange={setGaTipo} options={[{value:"costo",label:"Costo"},{value:"ingreso",label:"Ingreso"}]}/>
+                  <CajaMoneyRow compact label="Valor" value={gaValor} onChange={setGaValor}/>
+                  <CajaFieldRow compact wide label="Motivo" placeholder="Ej: limpiavidrios / vueltas no reclamadas" value={gaMotivo} onChange={setGaMotivo}/>
+                  <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end" }}>
+                    <CajaBtn onClick={guardarGasto} disabled={guardandoGa || !gaAsesorId || !gaAutorizoLiderId}>{guardandoGa?"...":"Agregar +"}</CajaBtn>
                   </div>
-                )}
-
-                <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end", gap:6 }}>
-                  <CajaBtn onClick={guardarCierre} disabled={guardandoCi || !tiendaId || !ciAsesorId}>{guardandoCi?"...":"📸 Registrar cierre"}</CajaBtn>
+                </CajaCard>
                 </div>
-              </CajaCard>
-              </div>
-            </div>
-
-            <div>
-              <CajaCard compact icon="➕" titulo="Agregar novedad" color={tiendaColor}>
-                <CajaFieldRow compact label="Quién registra *" value={gaAsesorId} onChange={setGaAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-                <CajaFieldRow compact label="Quién autorizó *" value={gaAutorizoLiderId} onChange={setGaAutorizoLiderId} options={[{value:"",label:"Selecciona un líder..."}, ...lideresActivos.map(l=>({value:l.id,label:l.nombre}))]}/>
-                <CajaFieldRow compact label="Tipo" value={gaTipo} onChange={setGaTipo} options={[{value:"costo",label:"Costo"},{value:"ingreso",label:"Ingreso"}]}/>
-                <CajaMoneyRow compact label="Valor" value={gaValor} onChange={setGaValor}/>
-                <CajaFieldRow compact wide label="Motivo" placeholder="Ej: limpiavidrios / vueltas no reclamadas" value={gaMotivo} onChange={setGaMotivo}/>
-                <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end" }}>
-                  <CajaBtn onClick={guardarGasto} disabled={guardandoGa || !gaAsesorId || !gaAutorizoLiderId}>{guardandoGa?"...":"Agregar +"}</CajaBtn>
-                </div>
-              </CajaCard>
-
-              {/* Recolección de efectivo: movida a esta columna y hecha compacta — se veía
-                  desproporcionadamente grande al lado de Apertura. */}
-              <div ref={recoleccionCardRef}>
-              <CajaCard compact icon="🚚" titulo="Recolección de efectivo" color={tiendaColor}>
-                {!puedeRecoleccion ? (
-                  <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>No tienes permiso para registrar una recolección. Puedes verlas en Historial.</div>
-                ) : (
-                  <>
-                    <CajaCampoPick compact label="Fecha" type="date" value={reFecha} onChange={setReFecha}/>
-                    <CajaCampoPick compact label="Entrega *" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
-                    <CajaCampoPick compact label="Recibe *" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
-                    <CajaCampoPick compact money label="Valor a recoger (días anteriores)" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
-                    {/* Informativo: el efectivo de hoy no entra en "días anteriores" (regla: no se
-                        recoge el mismo día), pero sigue existiendo — se deja siempre visible aquí
-                        debajo, con el mismo estilo de línea que el resto de la tarjeta, para que no
-                        parezca que "desapareció" solo porque ese campo da $0. */}
-                    {reFecha===todayStr && efectivoHoyPendiente>0 && <CajaReciboLinea compact label="Efectivo de hoy" value={fmtCOP(efectivoHoyPendiente)} small/>}
-                    <CajaCampoPick compact money label="Base que queda" value={reBaseCaja} onChange={v=>{ setReBaseCaja(v); setReBaseCajaTocado(true); }}/>
-                    {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.red, marginTop:2 }}>Hay un hueco de {fmtCOP(baseDeficit)} en la base por gastos sin cubrir (sugerido: {fmtCOP(baseVigente)}). Ajusta el valor de arriba con lo que de verdad quieras dejar de base — no tiene que ser exacto.</div>}
-                    {reFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C.amber:C.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master o admin de finanzas puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
-                    {reFecha===todayStr && (
-                      <div style={{ marginTop:8, padding:"8px 10px", background:C.surfaceAlt, borderRadius:7, border:`1px solid ${C.border}` }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
-                          <label style={{ display:"flex", alignItems:"center", gap:7, fontFamily:font.body, fontSize:12, color:C.text, cursor:"pointer" }}>
-                            ¿Recoges efectivo de hoy?
-                            {efectivoHoyPendiente<=0 && <span style={{ color:C.textMuted }}> (aún no hay efectivo de hoy)</span>}
-                          </label>
-                          <input type="checkbox" checked={reIncluyeHoy} onChange={e=>{ setReIncluyeHoy(e.target.checked); if(!e.target.checked) setReValorHoy(""); }} disabled={efectivoHoyPendiente<=0}/>
-                        </div>
-                        {/* Sin "a retirar de hoy" en el label — es redundante con la pregunta de
-                            arriba, que ya deja claro que es de hoy; y sin la línea de "Acumulado
-                            hoy" aparte, que repetía el mismo dato que ya está en el "(máx. ...)". */}
-                        {reIncluyeHoy && (
-                          <div style={{ marginTop:6 }}>
-                            <CajaMoneyRow compact label={`Valor (máx. ${fmtCOP(efectivoHoyPendiente)})`} value={reValorHoy} onChange={setReValorHoy}/>
+              )}
+              {pasoSel==="cierre" && (
+                <div ref={cierreCardRef}>
+                <CajaCard
+                  compact
+                  icon="🔒"
+                  titulo="Cierre de caja"
+                  color={tiendaColor}
+                  headerExtra={
+                    <select value={ciTipo} onChange={e=>setCiTipo(e.target.value)} style={cajaHeaderSelectStyle}>
+                      <option value="parcial">Parcial</option>
+                      <option value="definitivo">Final</option>
+                    </select>
+                  }
+                >
+                  <CajaCampoPick compact label="Fecha" type="date" value={ciFecha} onChange={setCiFecha}/>
+                  <CajaCampoPick compact label="Asesor *" value={ciAsesorId} onChange={setCiAsesorId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+                  <CajaReciboLinea compact label="Turno" value={turnoAsesorTexto(ciAsesorId, ciFecha)} small/>
+                  <CajaReciboLinea compact label="Base" value={fmtCOP(baseVigente)} color={baseDeficit>0?C_DARK.red:undefined} small/>
+                  {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C_DARK.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
+                  {ciFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:11.5, color:puedeFechaLibre?C_DARK.amber:C_DARK.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
+  
+                  {/* Estructura pensada para contrastar contra el cierre de Siigo (ver captura que
+                      mandó Santiago): Sección 2 debe coincidir con "Totales por medio de pago" de
+                      Siigo, y Sección 4 es la plata real que entró a caja ese día — son dos lecturas
+                      distintas de la misma información, por eso van separadas. Cada sección se oculta
+                      por completo (encabezado incluido) si su total da $0 ese día; dentro de la que
+                      sí se muestra, una línea puntual también se oculta si su valor es $0. */}
+  
+                  {/* Sección 2 — "Formas de pago ventas": debe coincidir con Siigo. Por cada medio,
+                      ventas normales + el abono que CIERRA un Flexipago ese día (Siigo lo factura
+                      como una venta normal por ese medio, no como abono) — el valor total del
+                      flexipago NO se reparte por medio, sino que se muestra aparte como "Flexipago
+                      redimido" (así como Siigo lo separa en su columna "Ventas a crédito"). Por eso
+                      NO se incluyen aquí servicios ni abonos que no completan la venta — Siigo no los
+                      registra (ver nota de Santiago). */}
+                  {resumenHoy.totalIngresoNeto>0 && (
+                    <>
+                      <CajaSubHeader compact label="Formas de pago ventas"/>
+                      {CAJA_MEDIOS.filter(m=>(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.abonoFlexipagoFinalMedios[m])>0).map(m=><CajaReciboLinea compact key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.abonoFlexipagoFinalMedios[m])} small/>)}
+                      {(resumenHoy.flexipagoCerradoHoy-resumenHoy.totalAbonoFlexipagoFinal)>0 && <CajaReciboLinea compact label="Flexipago redimido" value={fmtCOP(resumenHoy.flexipagoCerradoHoy-resumenHoy.totalAbonoFlexipagoFinal)} small/>}
+                      <CajaReciboLinea compact label="Total ventas" value={fmtCOP(resumenHoy.totalIngresoNeto)} bold totalLine/>
+                    </>
+                  )}
+  
+                  {/* Sección 3 — Descuentos y notas crédito, solo informativo. */}
+                  {(resumenHoy.totalDescuentosDia+resumenHoy.totalNotaCreditoDia+resumenHoy.totalCambioProductoDia)>0 && (
+                    <>
+                      <CajaSubHeader compact label="Descuentos y notas crédito"/>
+                      {resumenHoy.totalDescuentosDia>0 && <CajaReciboLinea compact label="Descuentos" value={fmtCOP(resumenHoy.totalDescuentosDia)} small/>}
+                      {resumenHoy.totalNotaCreditoDia>0 && <CajaReciboLinea compact label="Nota crédito" value={fmtCOP(resumenHoy.totalNotaCreditoDia)} color={C_DARK.amber} small/>}
+                      {resumenHoy.totalCambioProductoDia>0 && <CajaReciboLinea compact label="🔄 Cambio de producto (informativo)" value={fmtCOP(resumenHoy.totalCambioProductoDia)} color={C_DARK.gold} small/>}
+                    </>
+                  )}
+  
+                  {/* Sección 4 — "Ingreso del día": la plata REAL que entró a la caja ese día, para
+                      contrastar contra el efectivo/transacciones/tarjeta físicos — incluye ventas,
+                      servicios y los DOS tipos de abono de Flexipago (el que no completa la venta y
+                      el que sí la completa), cada uno por SU valor real de hoy, no el valor total del
+                      flexipago (que en gran parte ya había entrado en días anteriores). */}
+                  {(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia+resumenHoy.totalAbonoFlexipagoFinal)>0 && (
+                    <>
+                      <CajaSubHeader compact label="Ingreso del día"/>
+                      {CAJA_MEDIOS.filter(m=>(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m]+resumenHoy.abonoFlexipagoFinalMedios[m])>0).map(m=><CajaReciboLinea compact key={`m-${m}`} label={CAJA_MEDIO_LABEL[m]} value={fmtCOP(resumenHoy.ingresoNeto[m]-resumenHoy.flexipagoCerradoHoyMedios[m]+resumenHoy.servicios[m]+resumenHoy.flexipagoDia[m]+resumenHoy.abonoFlexipagoFinalMedios[m])} small/>)}
+                      <CajaReciboLinea compact label="Total ingreso del día" value={fmtCOP(resumenHoy.totalIngresoNeto-resumenHoy.flexipagoCerradoHoy+resumenHoy.totalServicios+resumenHoy.totalFlexipagoDia+resumenHoy.totalAbonoFlexipagoFinal)} bold totalLine/>
+                    </>
+                  )}
+  
+                  {novedadesDelDia.length>0 && (
+                    <>
+                      <CajaSubHeader compact label="Novedades del día"/>
+                      <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
+                        {novedadesDelDia.map((g,idx)=>(
+                          <div key={g.id} style={{ fontFamily:font.body, fontSize:12, color:C_DARK.text, display:"flex", justifyContent:"space-between", gap:6 }}>
+                            <span>{idx+1}. {g.motivo}</span>
+                            <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C_DARK.green:C_DARK.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
                           </div>
-                        )}
+                        ))}
                       </div>
-                    )}
-                    <CajaFieldRow compact label="Comentarios" wide value={reComentarios} onChange={setReComentarios} placeholder="Opcional"/>
-                    <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end", gap:6 }}>
-                      {/* Un solo botón que registra Y copia la imagen para WhatsApp — antes eran dos
-                          botones separados (📸 y Registrar), y era común tomar la captura, enviarla
-                          al grupo, y olvidar darle a Registrar. Ver guardarRecoleccion. */}
-                      <CajaBtn onClick={guardarRecoleccion} disabled={guardandoRe || !tiendaId || !reEntregaId || !reRecibeId || !reValor}>{guardandoRe?"...":"📸 Registrar"}</CajaBtn>
+                    </>
+                  )}
+  
+                  {(ciNotaAbierta || ciNovedades) ? (
+                    <CajaFieldRow compact wide label="Nota" value={ciNovedades} onChange={setCiNovedades} placeholder="Nota corta (opcional)"/>
+                  ) : (
+                    <div style={{ marginTop:6 }}>
+                      <button type="button" onClick={()=>setCiNotaAbierta(true)} style={{ background:"none", border:`1px dashed ${C_DARK.border}`, borderRadius:6, color:C_DARK.textMuted, cursor:"pointer", fontSize:11.5, fontFamily:font.body, padding:"4px 10px" }}>+ Agregar nota</button>
                     </div>
-                  </>
-                )}
-              </CajaCard>
+                  )}
+  
+                  <div style={{ marginTop:6, display:"flex", justifyContent:"flex-end", gap:6 }}>
+                    <CajaBtn onClick={guardarCierre} disabled={guardandoCi || !tiendaId || !ciAsesorId}>{guardandoCi?"...":"📸 Registrar cierre"}</CajaBtn>
+                  </div>
+                </CajaCard>
+                </div>
+              )}
+              {pasoSel==="recoleccion" && (
+                <div ref={recoleccionCardRef}>
+                <CajaCard compact icon="🚚" titulo="Recolección de efectivo" color={tiendaColor}>
+                  {!puedeRecoleccion ? (
+                    <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted }}>No tienes permiso para registrar una recolección. Puedes verlas en Historial.</div>
+                  ) : (
+                    <>
+                      <CajaCampoPick compact label="Fecha" type="date" value={reFecha} onChange={setReFecha}/>
+                      <CajaCampoPick compact label="Entrega *" value={reEntregaId} onChange={setReEntregaId} options={[{value:"",label:"Selecciona..."}, ...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+                      <CajaCampoPick compact label="Recibe *" value={reRecibeId} onChange={setReRecibeId} options={[{value:"",label:"Selecciona..."}, ...posiblesRecibe.map(u=>({value:u.id,label:u.name}))]}/>
+                      <CajaCampoPick compact money label="Valor a recoger (días anteriores)" value={reValor} onChange={v=>{ setReValor(v); setReValorTocado(true); }}/>
+                      {/* Informativo: el efectivo de hoy no entra en "días anteriores" (regla: no se
+                          recoge el mismo día), pero sigue existiendo — se deja siempre visible aquí
+                          debajo, con el mismo estilo de línea que el resto de la tarjeta, para que no
+                          parezca que "desapareció" solo porque ese campo da $0. */}
+                      {reFecha===todayStr && efectivoHoyPendiente>0 && <CajaReciboLinea compact label="Efectivo de hoy" value={fmtCOP(efectivoHoyPendiente)} small/>}
+                      <CajaCampoPick compact money label="Base que queda" value={reBaseCaja} onChange={v=>{ setReBaseCaja(v); setReBaseCajaTocado(true); }}/>
+                      {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10.5, color:C_DARK.red, marginTop:2 }}>Hay un hueco de {fmtCOP(baseDeficit)} en la base por gastos sin cubrir (sugerido: {fmtCOP(baseVigente)}). Ajusta el valor de arriba con lo que de verdad quieras dejar de base — no tiene que ser exacto.</div>}
+                      {reFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C_DARK.amber:C_DARK.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master o admin de finanzas puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
+                      {reFecha===todayStr && (
+                        <div style={{ marginTop:8, padding:"8px 10px", background:C_DARK.surfaceAlt, borderRadius:7, border:`1px solid ${C_DARK.border}` }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+                            <label style={{ display:"flex", alignItems:"center", gap:7, fontFamily:font.body, fontSize:12, color:C_DARK.text, cursor:"pointer" }}>
+                              ¿Recoges efectivo de hoy?
+                              {efectivoHoyPendiente<=0 && <span style={{ color:C_DARK.textMuted }}> (aún no hay efectivo de hoy)</span>}
+                            </label>
+                            <input type="checkbox" checked={reIncluyeHoy} onChange={e=>{ setReIncluyeHoy(e.target.checked); if(!e.target.checked) setReValorHoy(""); }} disabled={efectivoHoyPendiente<=0}/>
+                          </div>
+                          {/* Sin "a retirar de hoy" en el label — es redundante con la pregunta de
+                              arriba, que ya deja claro que es de hoy; y sin la línea de "Acumulado
+                              hoy" aparte, que repetía el mismo dato que ya está en el "(máx. ...)". */}
+                          {reIncluyeHoy && (
+                            <div style={{ marginTop:6 }}>
+                              <CajaMoneyRow compact label={`Valor (máx. ${fmtCOP(efectivoHoyPendiente)})`} value={reValorHoy} onChange={setReValorHoy}/>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <CajaFieldRow compact label="Comentarios" wide value={reComentarios} onChange={setReComentarios} placeholder="Opcional"/>
+                      <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end", gap:6 }}>
+                        {/* Un solo botón que registra Y copia la imagen para WhatsApp — antes eran dos
+                            botones separados (📸 y Registrar), y era común tomar la captura, enviarla
+                            al grupo, y olvidar darle a Registrar. Ver guardarRecoleccion. */}
+                        <CajaBtn onClick={guardarRecoleccion} disabled={guardandoRe || !tiendaId || !reEntregaId || !reRecibeId || !reValor}>{guardandoRe?"...":"📸 Registrar"}</CajaBtn>
+                      </div>
+                    </>
+                  )}
+                </CajaCard>
+                </div>
+              )}
+            </div>
+            <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                <b style={{ fontFamily:font.body, fontSize:15, color:C.text }}>Movimientos de hoy</b>
+                <button onClick={()=>setCajaVista("historial")} style={{ background:"none", border:"none", color:C.gold, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer", padding:0 }}>Ver historial</button>
+              </div>
+              {movimientosHoy.length===0 && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, padding:"6px 0" }}>Todavía no hay movimientos hoy.</div>}
+              <div style={{ position:"relative", paddingLeft:20 }}>
+                {movimientosHoy.length>0 && <span style={{ position:"absolute", left:5, top:6, bottom:6, width:1.5, background:C.border }}/>}
+                {movimientosHoy.map(m=>(
+                  <div key={m.key} style={{ position:"relative", paddingBottom:14 }}>
+                    <span style={{ position:"absolute", left:-20, top:3, width:11, height:11, borderRadius:"50%", background:"#fff", border:`2px solid ${m.color}` }}/>
+                    <div style={{ display:"flex", justifyContent:"space-between", gap:8, fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text }}>
+                      <span>{m.titulo}</span>
+                      {m.valor!=null && <span style={{ fontFamily:font.mono, fontSize:12.5, color:m.valorColor||C.text, whiteSpace:"nowrap" }}>{m.valor}</span>}
+                    </div>
+                    <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:2 }}>{m.sub}</div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -8457,11 +8891,11 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             <CajaCard icon="🗑️" titulo="Solicitudes de borrado pendientes" color={tiendaColor}>
               <div style={{ display:"flex", flexDirection:"column" }}>
                 {solicitudesPendientes.map(s=>(
-                  <div key={s.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"4px 2px", borderBottom:`1px solid ${C.border}` }}>
-                    <span>{s.resumen} <span style={{ color:C.textMuted }}>· pidió {s.solicitado_por} · {fmtFechaHora(s.fecha_solicitud)}</span></span>
+                  <div key={s.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"4px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
+                    <span>{s.resumen} <span style={{ color:C_DARK.textMuted }}>· pidió {s.solicitado_por} · {fmtFechaHora(s.fecha_solicitud)}</span></span>
                     <span style={{ display:"flex", gap:6 }}>
-                      <button onClick={()=>resolverSolicitudBorrado(s,"aprobada")} style={{ background:"none", border:`1px solid ${C.green}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Aprobar y borrar</button>
-                      <button onClick={()=>resolverSolicitudBorrado(s,"rechazada")} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Rechazar</button>
+                      <button onClick={()=>resolverSolicitudBorrado(s,"aprobada")} style={{ background:"none", border:`1px solid ${C_DARK.green}`, borderRadius:5, color:C_DARK.green, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Aprobar y borrar</button>
+                      <button onClick={()=>resolverSolicitudBorrado(s,"rechazada")} style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.textMuted, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Rechazar</button>
                     </span>
                   </div>
                 ))}
@@ -8473,18 +8907,18 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             <div style={{ display:"flex", flexDirection:"column" }}>
               {aperturasTienda.slice(0,30).map(a=>(
                 <div key={a.id}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
-                    <button onClick={()=>setVerDetalleId(id=>id===`apertura:${a.id}`?null:`apertura:${a.id}`)} style={{ background:"none", border:"none", color:C.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(a.created_at)} · {a.asesor_nombre}</button>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"3px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
+                    <button onClick={()=>setVerDetalleId(id=>id===`apertura:${a.id}`?null:`apertura:${a.id}`)} style={{ background:"none", border:"none", color:C_DARK.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(a.created_at)} · {a.asesor_nombre}</button>
                     <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                      <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base: {fmtCOP(a.base_caja)}</span>
-                      {puedeBorrarCaja && <button onClick={()=>borrarApertura(a)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
-                      {puedeSolicitarBorradoCaja && (solicitudPendientePara("apertura",a.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("apertura",a,`Apertura ${fmtFechaHora(a.created_at)} · ${a.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
+                      <span style={{ fontFamily:font.mono, color:C_DARK.textMuted }}>Base: {fmtCOP(a.base_caja)}</span>
+                      {puedeBorrarCaja && <button onClick={()=>borrarApertura(a)} title="Borrar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                      {puedeSolicitarBorradoCaja && (solicitudPendientePara("apertura",a.id) ? <span style={{ color:C_DARK.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("apertura",a,`Apertura ${fmtFechaHora(a.created_at)} · ${a.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
                     </span>
                   </div>
                   {verDetalleId===`apertura:${a.id}` && <FrozenCajaCard tipo="apertura" registro={a} tiendaColor={tiendaColor} setToastCaptura={setToastCaptura}/>}
                 </div>
               ))}
-              {aperturasTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
+              {aperturasTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted, padding:4 }}>Sin registros todavía.</div>}
             </div>
           </CajaCard>
 
@@ -8495,25 +8929,25 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                 const totalDia = rd.totalIngresoNeto + rd.totalServicios;
                 return (
                   <div key={c.id}>
-                    <div style={{ display:"flex", flexDirection:"column", gap:1, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"4px 2px", borderBottom:`1px solid ${C.border}` }}>
+                    <div style={{ display:"flex", flexDirection:"column", gap:1, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"4px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
                       <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4 }}>
-                        <button onClick={()=>setVerDetalleId(id=>id===`cierre:${c.id}`?null:`cierre:${c.id}`)} style={{ background:"none", border:"none", color:C.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}{c.novedades?` · ${c.novedades}`:""}</button>
+                        <button onClick={()=>setVerDetalleId(id=>id===`cierre:${c.id}`?null:`cierre:${c.id}`)} style={{ background:"none", border:"none", color:C_DARK.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}{c.novedades?` · ${c.novedades}`:""}</button>
                         <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                          <span style={{ fontFamily:font.mono, color:C.textMuted }}>Base al cierre: {fmtCOP(c.base_caja)}</span>
-                          {puedeBorrarCaja && <button onClick={()=>borrarCierre(c)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
-                          {puedeSolicitarBorradoCaja && (solicitudPendientePara("cierre",c.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("cierre",c,`Cierre ${fmtFechaHora(c.created_at)} · ${c.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
+                          <span style={{ fontFamily:font.mono, color:C_DARK.textMuted }}>Base al cierre: {fmtCOP(c.base_caja)}</span>
+                          {puedeBorrarCaja && <button onClick={()=>borrarCierre(c)} title="Borrar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                          {puedeSolicitarBorradoCaja && (solicitudPendientePara("cierre",c.id) ? <span style={{ color:C_DARK.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("cierre",c,`Cierre ${fmtFechaHora(c.created_at)} · ${c.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
                         </span>
                       </div>
-                      <div style={{ fontFamily:font.mono, fontSize:10.5, color:C.textMuted }}>
-                        Ventas {fmtCOP(rd.totalIngresoNeto)} · Servicios {fmtCOP(rd.totalServicios)} · <span style={{ color:C.goldLight, fontWeight:700 }}>Total {fmtCOP(totalDia)}</span>
-                        {rd.totalNotaCreditoDia>0 && <span style={{ color:C.amber }}> · Notacrédito {fmtCOP(rd.totalNotaCreditoDia)}</span>}
+                      <div style={{ fontFamily:font.mono, fontSize:10.5, color:C_DARK.textMuted }}>
+                        Ventas {fmtCOP(rd.totalIngresoNeto)} · Servicios {fmtCOP(rd.totalServicios)} · <span style={{ color:C_DARK.goldLight, fontWeight:700 }}>Total {fmtCOP(totalDia)}</span>
+                        {rd.totalNotaCreditoDia>0 && <span style={{ color:C_DARK.amber }}> · Notacrédito {fmtCOP(rd.totalNotaCreditoDia)}</span>}
                       </div>
                     </div>
                     {verDetalleId===`cierre:${c.id}` && <FrozenCajaCard tipo="cierre" registro={c} tiendaColor={tiendaColor} setToastCaptura={setToastCaptura}/>}
                   </div>
                 );
               })}
-              {cierresTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
+              {cierresTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted, padding:4 }}>Sin registros todavía.</div>}
             </div>
           </CajaCard>
 
@@ -8521,26 +8955,26 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
             <div style={{ display:"flex", flexDirection:"column" }}>
               {recoleccionesTienda.slice(0,30).map(r=>(
                 <div key={r.id}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"3px 2px", borderBottom:`1px solid ${C.border}` }}>
-                    <button onClick={()=>setVerDetalleId(id=>id===`recoleccion:${r.id}`?null:`recoleccion:${r.id}`)} style={{ background:"none", border:"none", color:C.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}{r.comentarios?` · ${r.comentarios}`:""}{r.incluye_hoy && Number(r.valor_hoy||0)>0 ? ` · incluye ${fmtCOP(r.valor_hoy)} de ese mismo día` : ""}</button>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"3px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
+                    <button onClick={()=>setVerDetalleId(id=>id===`recoleccion:${r.id}`?null:`recoleccion:${r.id}`)} style={{ background:"none", border:"none", color:C_DARK.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}{r.comentarios?` · ${r.comentarios}`:""}{r.incluye_hoy && Number(r.valor_hoy||0)>0 ? ` · incluye ${fmtCOP(r.valor_hoy)} de ese mismo día` : ""}</button>
                     <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                      <span style={{ fontFamily:font.mono }}>{fmtCOP(r.valor)} <span style={{ color:C.textMuted }}>(queda base {fmtCOP(r.base_caja)})</span></span>
-                      {puedeBorrarCaja && <button onClick={()=>borrarRecoleccion(r)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
-                      {puedeSolicitarBorradoCaja && (solicitudPendientePara("recoleccion",r.id) ? <span style={{ color:C.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("recoleccion",r,`Recolección ${fmtFechaHora(r.created_at)} · ${r.entrega_nombre} → ${r.recibe_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
+                      <span style={{ fontFamily:font.mono }}>{fmtCOP(r.valor)} <span style={{ color:C_DARK.textMuted }}>(queda base {fmtCOP(r.base_caja)})</span></span>
+                      {puedeBorrarCaja && <button onClick={()=>borrarRecoleccion(r)} title="Borrar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                      {puedeSolicitarBorradoCaja && (solicitudPendientePara("recoleccion",r.id) ? <span style={{ color:C_DARK.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("recoleccion",r,`Recolección ${fmtFechaHora(r.created_at)} · ${r.entrega_nombre} → ${r.recibe_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
                     </span>
                   </div>
                   {verDetalleId===`recoleccion:${r.id}` && <FrozenCajaCard tipo="recoleccion" registro={r} tiendaColor={tiendaColor} setToastCaptura={setToastCaptura}/>}
                 </div>
               ))}
-              {recoleccionesTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin registros todavía.</div>}
+              {recoleccionesTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted, padding:4 }}>Sin registros todavía.</div>}
             </div>
           </CajaCard>
 
           <CajaCard icon="🗒️" titulo="Historial de novedades" color={tiendaColor}>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginBottom:4 }}>La tienda puede editar/borrar solo las de hoy — master y admin de finanzas, cualquier día.</div>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C_DARK.textMuted, marginBottom:4 }}>La tienda puede editar/borrar solo las de hoy — master y admin de finanzas, cualquier día.</div>
             <div style={{ display:"flex", flexDirection:"column" }}>
               {gastosTienda.slice(0,30).map(g=>(
-                <div key={g.id} style={{ display:"flex", flexDirection:"column", gap:3, fontFamily:font.body, fontSize:11.5, color:C.text, padding:"4px 2px", borderBottom:`1px solid ${C.border}` }}>
+                <div key={g.id} style={{ display:"flex", flexDirection:"column", gap:3, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"4px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
                   {gastoEditandoId===g.id ? (
                     <div style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"center" }}>
                       <CajaFieldRow compact label="Tipo" value={geTipo} onChange={setGeTipo} options={[{value:"costo",label:"Costo"},{value:"ingreso",label:"Ingreso"}]}/>
@@ -8548,28 +8982,28 @@ function VentasCajaScreen({ user, stores, users, ventas, ventasItems, ventasAbon
                       <CajaFieldRow compact wide label="Motivo" value={geMotivo} onChange={setGeMotivo}/>
                       <CajaFieldRow compact label="Quién autorizó" value={geAutorizoLiderId} onChange={setGeAutorizoLiderId} options={[{value:"",label:"Selecciona un líder..."}, ...lideresActivos.map(l=>({value:l.id,label:l.nombre}))]}/>
                       <span style={{ display:"flex", gap:6 }}>
-                        <button onClick={()=>guardarEdicionGasto(g)} style={{ background:"none", border:`1px solid ${C.green}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Guardar</button>
-                        <button onClick={cancelarEditarGasto} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Cancelar</button>
+                        <button onClick={()=>guardarEdicionGasto(g)} style={{ background:"none", border:`1px solid ${C_DARK.green}`, borderRadius:5, color:C_DARK.green, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Guardar</button>
+                        <button onClick={cancelarEditarGasto} style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.textMuted, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Cancelar</button>
                       </span>
                     </div>
                   ) : (
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6 }}>
                       <span>
-                        {g.fecha ? new Date(g.fecha+"T00:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"}) : "—"} · {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C.amber }}> · pendiente</span>}
-                        <span style={{ display:"block", fontSize:10, color:C.textMuted, marginTop:1 }}>
+                        {g.fecha ? new Date(g.fecha+"T00:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"}) : "—"} · {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C_DARK.amber }}> · pendiente</span>}
+                        <span style={{ display:"block", fontSize:10, color:C_DARK.textMuted, marginTop:1 }}>
                           {[g.registrado_por?`Registró: ${g.registrado_por}`:null, g.autorizado_por?`Autorizó: ${g.autorizado_por}`:null, g.aprobado_por?`Aprobó: ${g.aprobado_por}`:null].filter(Boolean).join(" · ")}
                         </span>
                       </span>
                       <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C.green:C.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
-                        {puedeTocarGasto(g) && <button onClick={()=>empezarEditarGasto(g)} title="Editar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.goldLight, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Editar</button>}
-                        {puedeTocarGasto(g) && <button onClick={()=>borrarGasto(g)} title="Borrar" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                        <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C_DARK.green:C_DARK.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
+                        {puedeTocarGasto(g) && <button onClick={()=>empezarEditarGasto(g)} title="Editar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.goldLight, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Editar</button>}
+                        {puedeTocarGasto(g) && <button onClick={()=>borrarGasto(g)} title="Borrar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
                       </span>
                     </div>
                   )}
                 </div>
               ))}
-              {gastosTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:4 }}>Sin novedades registradas.</div>}
+              {gastosTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted, padding:4 }}>Sin novedades registradas.</div>}
             </div>
           </CajaCard>
         </>
@@ -8603,6 +9037,10 @@ export default function App() {
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
   const [mostrarAccesoTiendas,setMostrarAccesoTiendas]=useState(false);
   const isMobile=useIsMobile();
+  // Tienda activa de TODA el área de Ventas (Propuesta A): se elige una sola vez en la barra
+  // superior y la usan Registrar venta y Caja — antes cada pantalla tenía su propio selector. La
+  // cuenta de tienda siempre queda fija en su propia tienda.
+  const [tiendaElegida,setTiendaActiva]=useState("");
 
   // `todayStr` se calcula UNA sola vez cuando carga la página (no es reactivo). Si alguien deja
   // una pestaña abierta de un día para otro sin recargar, todo lo que depende de "hoy" (fecha por
@@ -8723,7 +9161,6 @@ export default function App() {
   const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":puedeUsarAreas(u)?null:"checkin");sonidoBienvenida();refreshAll();};
   const logout=()=>{setUser(null);setArea(null);setTab(null);};
   const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?(ventasSoloLectura(user)?"metricas":"registrar"):a==="firmas"?"firmar":"dashboard");};
-  const backToAreas=()=>{setArea(null);setTab(null);};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
@@ -8813,7 +9250,7 @@ export default function App() {
   if(booting) return (
     <div style={{minHeight:"100vh",background:C.dark,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,fontFamily:font.body,color:C.textMuted,fontSize:14}}>
       <style>{`@keyframes ozenBootPulse { 0%,100% { opacity:.5; transform:scale(.97); } 50% { opacity:1; transform:scale(1); } }`}</style>
-      <img src="/logo-horizontal.png" alt="OZEN" style={{ width:150, height:"auto", animation:"ozenBootPulse 1.3s cubic-bezier(.34,1.2,.5,1) infinite" }} />
+      <img src="/logo-horizontal-dark.png" alt="OZEN" style={{ width:150, height:"auto", animation:"ozenBootPulse 1.3s cubic-bezier(.34,1.2,.5,1) infinite" }} />
       <div>Cargando...</div>
     </div>
   );
@@ -8821,7 +9258,7 @@ export default function App() {
 
   if(passwordVencida(user)) return (
     <div style={{minHeight:"100vh",background:C.dark,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:16,gap:20}}>
-      <img src="/logo-horizontal.png" alt="OZEN" style={{width:280,height:"auto"}}/>
+      <img src="/logo-horizontal-dark.png" alt="OZEN" style={{width:280,height:"auto"}}/>
       <CambiarPasswordForm user={user} obligatorio onUpdated={setUser}/>
       <Btn onClick={logout} variant="ghost" sm>Cerrar sesión</Btn>
     </div>
@@ -8829,6 +9266,8 @@ export default function App() {
 
   if(puedeUsarAreas(user) && !area) return <AreaSelector user={user} onChoose={chooseArea} onLogout={logout}/>;
 
+  // Si todavía no se ha elegido tienda (o la elegida ya no vende), se toma la primera que vende.
+  const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : (tiendasVenta(stores)[0]?.id || ""));
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
       if(area==="junta"){
@@ -8838,10 +9277,10 @@ export default function App() {
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
-        if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
+        if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
-        if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
+        if(tab==="caja")      return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
       } else if(area==="firmas"){
         if(tab==="firmar")   return <FirmarDocumentoScreen/>;
       } else {
@@ -8852,10 +9291,10 @@ export default function App() {
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
     } else if(esCuentaTienda(user)){
-      if(tab==="registrar") return <VentasRegistrarScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
+      if(tab==="registrar") return <VentasRegistrarScreen tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
-      if(tab==="caja")      return <VentasCajaScreen user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
+      if(tab==="caja")      return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
       // Solo la parte visual de la rejilla de Turnos (sin Borrador ni Administrar) — para que la
       // cuenta de tienda pueda ver quién tiene turno sin poder editar nada.
       if(tab==="turnos")    return <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={turnosAsignaciones}/>;
@@ -8880,8 +9319,12 @@ export default function App() {
     <style>{`
       @keyframes ozenPaneModulo { from { opacity:0; transform:translateY(18px) scale(.97); } 60% { opacity:1; } to { opacity:1; transform:translateY(0) scale(1); } }
       @keyframes ozenPaneTab { from { opacity:0; transform:translateX(14px); } to { opacity:1; transform:translateX(0); } }
-      .ozen-pane-anim-modulo { animation: ozenPaneModulo .42s cubic-bezier(.34,1.56,.64,1) both; }
-      .ozen-pane-anim-tab { animation: ozenPaneTab .28s cubic-bezier(.34,1.2,.5,1) both; }
+      .ozen-pane-anim-modulo { animation: ozenPaneModulo .42s cubic-bezier(.34,1.56,.64,1) backwards; }
+      /* "backwards" (no "both"): terminada la animación el panel queda SIN transform. Con "both" se
+         quedaba pegado un translateX(0), y cualquier transform en un ancestro hace que los elementos
+         position:fixed (visor de fotos de Asistencia, ventanas emergentes) se ubiquen respecto al
+         panel y no a la pantalla — por eso la foto se abría arriba y había que buscarla con scroll. */
+      .ozen-pane-anim-tab { animation: ozenPaneTab .28s cubic-bezier(.34,1.2,.5,1) backwards; }
       .ozen-collapse { display:grid; transition:grid-template-rows .38s cubic-bezier(.34,1.56,.64,1); }
       @keyframes ozenModalOverlay { from { opacity:0; } to { opacity:1; } }
       @keyframes ozenModalPop { from { opacity:0; transform:scale(.92) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
@@ -8891,17 +9334,39 @@ export default function App() {
          (se nota como una franja rara al pasar el mouse justo después de hacer scroll). Se
          redefine aquí, delgada y con los mismos colores del tema, para que se vea a propósito y no
          como si algo estuviera mal. */
-      * { scrollbar-width: thin; scrollbar-color: ${C.surfaceHover} transparent; }
+      * { scrollbar-width: thin; scrollbar-color: rgba(38,93,127,0.35) transparent; }
       *::-webkit-scrollbar { width: 9px; height: 9px; }
       *::-webkit-scrollbar-track { background: transparent; }
-      *::-webkit-scrollbar-thumb { background-color: ${C.surfaceHover}; border-radius: 999px; }
-      *::-webkit-scrollbar-thumb:hover { background-color: ${C.border}; }
+      *::-webkit-scrollbar-thumb { background-color: rgba(38,93,127,0.35); border-radius: 999px; }
+      *::-webkit-scrollbar-thumb:hover { background-color: rgba(38,93,127,0.55); }
       /* El desplegable de un <select> lo dibuja el navegador con SU propio fondo (casi siempre
          blanco), no con el fondo oscuro que se le puso al <select> — así el texto claro pensado
          para fondo oscuro quedaba casi ilegible al abrir cualquier lista (ej. elegir asesor). Se
          fija acá, una sola vez, para que todos los <select> de la app queden legibles. */
-      select { color-scheme: dark; }
+      select { color-scheme: light; }
       option { background-color: ${C.surface}; color: ${C.text}; }
+      /* Propuesta A: la línea de la pestaña activa se desliza; los menús flotantes aparecen con un
+         pequeño rebote; los renglones nuevos entran al recibo deslizándose; los pasos de Caja se
+         llenan de verde al quedar hechos. */
+      .ozen-tab-linea { transition: left .34s cubic-bezier(.34,1.3,.5,1), width .34s cubic-bezier(.34,1.3,.5,1); }
+      .ozen-tab-btn:hover, .ozen-area-btn:hover { color: ${C.goldDark} !important; }
+      .ozen-menu-item:hover { background: ${C.surfaceHover} !important; }
+      .ozen-fila-venta:hover { background: ${C.surfaceAlt} !important; }
+      @keyframes ozenAvisoSube { from { opacity:0; transform:translate(-50%, 24px); } to { opacity:1; transform:translate(-50%, 0); } }
+      .ozen-aviso-version { animation: ozenAvisoSube .45s cubic-bezier(.34,1.3,.5,1) backwards; }
+      @keyframes ozenMenuPop { from { opacity:0; transform:translateY(-6px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
+      .ozen-menu-pop { animation: ozenMenuPop .2s cubic-bezier(.34,1.4,.6,1) both; transform-origin: top right; }
+      @keyframes ozenReciboLinea { from { opacity:0; transform:translateX(18px); } to { opacity:1; transform:translateX(0); } }
+      .ozen-recibo-linea { animation: ozenReciboLinea .38s cubic-bezier(.34,1.3,.5,1) both; }
+      @keyframes ozenPasoHecho { 0% { transform:scale(.6); box-shadow:0 0 0 0 rgba(27,122,65,.45); } 60% { transform:scale(1.12); } 100% { transform:scale(1); box-shadow:0 0 0 10px rgba(27,122,65,0); } }
+      .ozen-paso-hecho { animation: ozenPasoHecho .55s cubic-bezier(.34,1.4,.6,1) both; }
+      /* Borde inferior "de recibo" (zigzag) bajo el recibo en curso. */
+      .ozen-recibo-zigzag { height:12px; background: linear-gradient(-45deg, transparent 8px, #fff 0) 0 0/16px 12px repeat-x, linear-gradient(45deg, transparent 8px, #fff 0) 0 0/16px 12px repeat-x; filter: drop-shadow(0 1px 0 ${C.border}); }
+      /* Si la persona pidió en su sistema "reducir movimiento", la app lo respeta y apaga las
+         animaciones (quedan los cambios, sin el movimiento). */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+      }
       @keyframes ozenMetaCumplida { 0%,100% { box-shadow: 0 3px 14px rgba(46,204,113,0.35); } 50% { box-shadow: 0 3px 24px rgba(46,204,113,0.65); } }
       .ozen-meta-cumplida { animation: ozenMetaCumplida 1.8s ease-in-out infinite; }
     `}</style>
@@ -8913,10 +9378,19 @@ export default function App() {
     </div>
   );
 
+  // Aviso de versión nueva (Propuesta A): tarjeta flotante abajo al centro, en Sombra con texto
+  // Tinta. A propósito NO se puede cerrar — se queda hasta que se actualice la página, porque
+  // trabajar con una versión vieja puede mostrar datos desactualizados.
   const bannerActualizacion = actualizacionDisponible && (
-    <div style={{ position:"fixed", left:0, right:0, bottom:0, zIndex:500, background:C.amber, color:"#241a00", padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"center", gap:12, flexWrap:"wrap", fontFamily:font.body, fontSize:13, fontWeight:600, boxShadow:"0 -4px 16px rgba(0,0,0,0.35)" }}>
-      <span>🔄 Hay una versión nueva de la app — actualiza cuando puedas para no ver datos desactualizados.</span>
-      <button onClick={()=>window.location.reload()} style={{ background:"#241a00", color:"#fff", border:"none", borderRadius:6, padding:"6px 14px", fontFamily:font.body, fontSize:12.5, fontWeight:700, cursor:"pointer" }}>Actualizar ahora</button>
+    <div className="ozen-aviso-version" role="status" style={{ position:"fixed", left:"50%", bottom:isMobile?84:22, transform:"translateX(-50%)", zIndex:500, width:isMobile?"calc(100% - 24px)":"max-content", maxWidth:isMobile?undefined:"calc(100% - 48px)", boxSizing:"border-box", background:C.goldDark, color:C.tinta, borderRadius:14, padding:"10px 10px 10px 14px", display:"flex", alignItems:"center", gap:12, fontFamily:font.body, lineHeight:1.3, letterSpacing:"0.01em", boxShadow:"0 20px 40px -18px rgba(26,59,82,0.65)" }}>
+      <span style={{ width:32, height:32, borderRadius:9, background:"rgba(229,213,204,0.14)", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="refresh" s={16}/></span>
+      <span style={{ minWidth:0, flex:isMobile?1:"0 1 auto" }}>
+        <b style={{ display:"block", fontSize:13.5, fontWeight:700, whiteSpace:isMobile?"normal":"nowrap" }}>Hay una versión nueva</b>
+        {!isMobile && <span style={{ display:"block", fontSize:12, opacity:0.72, whiteSpace:"nowrap" }}>Actualiza para ver los datos al día.</span>}
+      </span>
+      <span style={{ display:"flex", gap:6, flexShrink:0, marginLeft:isMobile?0:8 }}>
+        <button onClick={()=>window.location.reload()} style={{ background:C.tinta, color:C.goldDark, border:"none", borderRadius:9, padding:"7px 14px", fontFamily:font.body, fontSize:12.5, fontWeight:700, lineHeight:1.2, cursor:"pointer", whiteSpace:"nowrap" }}>Actualizar</button>
+      </span>
     </div>
   );
 
@@ -8938,12 +9412,20 @@ export default function App() {
     </div>
   );
 
+  const tabsVisibles = tabsPara(user, area);
+  const esAreaVentas = area==="ventas" || esCuentaTienda(user);
+  const mostrarTienda = esAreaVentas && (tab==="registrar" || tab==="caja");
+  const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
+  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:logout, onRefresh:refreshAll, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones };
+  const panel = <div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div>;
+
   if(isMobile) return (
     <ReadOnlyContext.Provider value={soloLectura}>
-      <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden"}}>
+      <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden",fontFamily:font.body}}>
         {globalAnimStyles}
-        <MobileHeader user={user} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onChangeArea={backToAreas} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)} onActivarNotificaciones={activarNotificaciones}/>
-        <main style={{flex:1,overflowY:"auto",padding:16}}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></main>
+        <BarraSuperiorMovil {...propsBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
+        {mostrarTienda && <FranjaTienda color={colorTiendaActiva}/>}
+        <main style={{flex:1,overflowY:"auto",padding:16}}>{panel}</main>
         <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
         {modalCambiarPassword}
         {modalUsuarios}
@@ -8955,10 +9437,12 @@ export default function App() {
 
   return (
     <ReadOnlyContext.Provider value={soloLectura}>
-      <div style={{display:"flex",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
+      <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
         {globalAnimStyles}
-        <Sidebar tab={tab} setTab={setTab} user={user} area={area} onChangeArea={backToAreas} onLogout={logout} onRefresh={refreshAll} refreshing={refreshing} onCambiarPassword={()=>setMostrarCambiarPassword(true)} onAbrirUsuarios={()=>setMostrarUsuarios(true)} onAbrirAccesoTiendas={()=>setMostrarAccesoTiendas(true)} onActivarNotificaciones={activarNotificaciones}/>
-        <main style={{flex:1,overflowY:"auto",padding:"32px 36px"}}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></main>
+        <BarraSuperior {...propsBarra}/>
+        <BarraPestanas tabs={tabsVisibles} tab={tab} setTab={setTab} derecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
+        {mostrarTienda && <FranjaTienda color={colorTiendaActiva}/>}
+        <main style={{flex:1,overflowY:"auto",padding:"26px 28px 40px"}}>{panel}</main>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
