@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, createContext, useContext, Fragment } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "./supabase";
 import { activarNotificacionesPush, notificacionesSoportadas, pushActivo, requiereInstalarEnIOS } from "./push";
 import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError, sonidoBienvenida } from "./sounds";
@@ -1011,8 +1012,18 @@ function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, o
 function MarcaOzen({ user, onAbrirUsuarios, compact }) {
   const presionarLogo = useLongPress(onAbrirUsuarios);
   // Logo real de la marca (solo "OZEN", sin "momento presente") — recortado del logo oficial.
-  return (
+  const logo = (
     <img src="/logo-wordmark.png" alt="OZEN" draggable={false} onContextMenu={e=>user.role==="master"&&e.preventDefault()} {...(user.role==="master"?presionarLogo:{})} style={{ height:compact?22:26, width:"auto", display:"block", flexShrink:0, cursor:user.role==="master"?"pointer":"default", userSelect:"none", WebkitTouchCallout:"none" }} />
+  );
+  if(!HALLOWEEN) return logo;
+  // Octubre: dos murciélagos chiquitos revoloteando junto al logo — siempre visibles en todas las
+  // pantallas, para que se sienta Halloween sin estorbar. Se van solos el 1 de noviembre.
+  return (
+    <span style={{ position:"relative", display:"inline-block", flexShrink:0 }}>
+      {logo}
+      <span aria-hidden="true" className="ozen-bat-flota" style={{ position:"absolute", top:compact?-7:-8, right:compact?-24:-28, pointerEvents:"none" }}><Murcielago w={compact?19:22} color={C.goldDark}/></span>
+      <span aria-hidden="true" className="ozen-bat-flota ozen-bat-flota-2" style={{ position:"absolute", top:compact?6:8, right:compact?-38:-44, pointerEvents:"none", opacity:0.55 }}><Murcielago w={compact?11:13} color={C.goldDark}/></span>
+    </span>
   );
 }
 
@@ -3772,23 +3783,31 @@ const DecoracionHalloweenLogin = ({ isMobile }) => (
 // Se monta con key distinta en cada venta, así cada una tiene su propio vuelo.
 const VueloMurcielagos = () => {
   const [bats] = useState(() => Array.from({ length:7 }, (_,i) => ({
-    left: 8 + Math.random()*84, dx: (Math.random()*30 - 15), delay: i*0.12 + Math.random()*0.2,
+    left: 8 + Math.random()*84, dx: (Math.random()*30 - 15), delay: i*0.12 + Math.random()*0.2, y: 20 + Math.random()*55,
     dur: 1.8 + Math.random()*0.8, w: 52 + Math.random()*30,
   })));
-  return (
+  // Portal directo al <body>: así ningún contenedor con transform/overflow de la app lo recorta.
+  return createPortal(
     <div aria-hidden="true" style={{ position:"fixed", inset:0, pointerEvents:"none", zIndex:9999, overflow:"hidden" }}>
       <style>{`
         @keyframes ozenBatVuela { 0% { transform:translate(0,0) scale(.7); opacity:0; } 10% { opacity:1; } 80% { opacity:1; } 100% { transform:translate(var(--dx), -115vh) scale(1.05); opacity:0; } }
         @keyframes ozenBatAletea { from { transform:scaleY(1); } to { transform:scaleY(.72); } }
+        @keyframes ozenBatAparece { 0% { opacity:0; } 20%,75% { opacity:.9; } 100% { opacity:0; } }
+        /* Con "reducir movimiento" activado, los murciélagos no vuelan: aparecen quietos a media
+           pantalla y se desvanecen (sin esto, la regla global los dejaba invisibles). */
+        @media (prefers-reduced-motion: reduce) {
+          .ozen-bat-vuelo { bottom:auto !important; top:var(--y) !important; animation:ozenBatAparece 2.4s ease both !important; animation-duration:2.4s !important; }
+        }
       `}</style>
       {bats.map((b,i) => (
-        <div key={i} style={{ position:"absolute", left:`${b.left}vw`, bottom:-40, "--dx":`${b.dx}vw`, animation:`ozenBatVuela ${b.dur}s ${b.delay}s cubic-bezier(.3,.6,.4,1) both` }}>
+        <div key={i} className="ozen-bat-vuelo" style={{ position:"absolute", left:`${b.left}vw`, bottom:-40, "--dx":`${b.dx}vw`, "--y":`${b.y}vh`, animation:`ozenBatVuela ${b.dur}s ${b.delay}s cubic-bezier(.3,.6,.4,1) both` }}>
           <div style={{ animation:"ozenBatAletea .16s ease-in-out infinite alternate", transformOrigin:"center 40%" }}>
             <Murcielago w={b.w} color={C.goldDark}/>
           </div>
         </div>
       ))}
-    </div>
+    </div>,
+    document.body
   );
 };
 
@@ -9490,6 +9509,9 @@ export default function App() {
       @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
       }
+      @keyframes ozenBatFlota { 0%,100% { transform:translateY(0) rotate(-6deg); } 50% { transform:translateY(-3px) rotate(4deg); } }
+      .ozen-bat-flota { animation: ozenBatFlota 3.2s ease-in-out infinite; }
+      .ozen-bat-flota-2 { animation-duration: 2.6s; animation-delay: -1.1s; }
       @keyframes ozenMetaCumplida { 0%,100% { box-shadow: 0 3px 14px rgba(46,204,113,0.35); } 50% { box-shadow: 0 3px 24px rgba(46,204,113,0.65); } }
       .ozen-meta-cumplida { animation: ozenMetaCumplida 1.8s ease-in-out infinite; }
     `}</style>
