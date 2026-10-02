@@ -9954,6 +9954,39 @@ export default function App() {
     setJuntaAreas(jar||[]);
     setJuntaLiderAreas(jla||[]);
     setJuntaIndicadoresCongelados(jic||[]);
+    // Corte automático del mes de La Junta — antes dependía de una tarea programada por fuera de
+    // la página (que solo corría si quedaba un computador prendido para ejecutarla), así que ahora
+    // lo hace la página misma: cada vez que alguien la abre, revisa si el mes candidato (el
+    // anterior al actual) ya "terminó de verdad" (pasó el domingo de su última semana — igual que
+    // decide el botón manual "Congelar este mes ahora") y si todavía no tiene una foto fija
+    // guardada. Si falta, la guarda sola, sin pedir confirmación (nadie la ve, es en segundo
+    // plano). Usa los datos recién traídos (jc/jl/jic) en vez de esperar al estado de React, para
+    // no depender de un re-render. Si dos personas abren la página casi al mismo tiempo, ambas
+    // podrían intentarlo a la vez — se protege con una restricción única (anio,mes) en la tabla
+    // (ver agregar-constraint-unico-congelados.sql): como mucho una inserción se queda, la otra
+    // falla calladamente sin avisarle a nadie, que es justo lo que se espera que pase.
+    (async () => {
+      const ahoraCol = toColombiaDate();
+      let anioCand = ahoraCol.getFullYear(), mesCand = ahoraCol.getMonth() - 1;
+      if (mesCand < 0) { mesCand = 11; anioCand -= 1; }
+      const yaCongelado = (jic||[]).some(c => c.anio===anioCand && c.mes===mesCand+1);
+      if (yaCongelado) return;
+      const martesCand = martesDelMes(anioCand, mesCand);
+      const ultimoMartes = martesCand[martesCand.length-1];
+      const limiteReal = ultimoMartes ? domingoDeLaSemana(ultimoMartes) : null;
+      if (!limiteReal || fmt(new Date()) <= limiteReal) return;
+      const s = statsDelMes(jc||[], anioCand, mesCand);
+      const porLider = statsPorLiderDelMes(jc||[], jl||[], anioCand, mesCand)
+        .map(x => ({ lider_id:x.lider.id, nombre:x.lider.nombre, total:x.total, completadas:x.completadas, completadasATiempo:x.completadasATiempo, totalCerradas:x.totalCerradas, pct:x.pct, pctATiempo:x.pctATiempo }));
+      const { data, error } = await supabase.from("junta_indicadores_congelados").insert({
+        anio:anioCand, mes:mesCand+1, sesiones:s.sesiones, total_martes:s.totalMartes, total_tareas:s.totalTareas,
+        completadas:s.completadas, completadas_a_tiempo:s.completadasATiempo, total_cerradas:s.totalCerradas, pct:s.pct, pct_a_tiempo:s.pctATiempo, congelado_por:"corte automático (página)",
+        por_lider:porLider,
+      }).select().single();
+      if (!error && data) setJuntaIndicadoresCongelados(prev => prev.some(c=>c.id===data.id) ? prev : [...prev, data]);
+      // Si hay error (ej. choque con la restricción única porque alguien más ya lo congeló justo
+      // antes), no hace falta avisar — es el comportamiento esperado, no un fallo real.
+    })();
     setVentas(v||[]);
     setVentasItems(vi||[]);
     setVentasMetas(vm||[]);
