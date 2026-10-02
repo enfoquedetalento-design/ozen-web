@@ -3746,6 +3746,63 @@ function JuntaGuionTab({ monitor, isMobile }) {
   );
 }
 
+// ── HALLOWEEN (temporal) ─────────────────────────────────────────────────────
+// Detalle de temporada que se prende SOLO en octubre (según la fecha del dispositivo) y se apaga
+// solo el 1 de noviembre — no hay que acordarse de quitarlo. Dos toques nada más: luna y
+// murciélagos en el panel del ingreso, y murciélagos volando + "¡Dulce venta!" al registrar una
+// venta. No toca colores de tienda, tablas, Caja ni fotos. Para verlo fuera de octubre (pruebas):
+// agregar ?halloween a la URL.
+const HALLOWEEN = (() => {
+  try { if(new URLSearchParams(window.location.search).has("halloween")) return true; } catch { /* sin URL */ }
+  return new Date().getMonth() === 9;
+})();
+const PARTES_MURCIELAGO = [
+  "M28 11 C22 8 14 4 5 2 C7 6 7 9 6 12 C9 11 12 12 13 14.5 C15 12.5 19 12.5 21 15.5 C23 13.5 26 14.5 28 17 Z",
+  "M36 11 C42 8 50 4 59 2 C57 6 57 9 58 12 C55 11 52 12 51 14.5 C49 12.5 45 12.5 43 15.5 C41 13.5 38 14.5 36 17 Z",
+  "M27.5 13 a4.5 6 0 1 0 9 0 a4.5 6 0 1 0 -9 0 Z",
+  "M28.8 7.5 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 Z",
+  "M29.4 6 Q29 3 29.6 2.2 Q30.8 3.6 31.6 5.2 Z",
+  "M34.6 6 Q35 3 34.4 2.2 Q33.2 3.6 32.4 5.2 Z",
+];
+const Murcielago = ({ w=34, color="currentColor", style }) => (
+  <svg width={w} height={w*21/64} viewBox="0 0 64 21" style={style} aria-hidden="true" data-ozen-bat="1">{PARTES_MURCIELAGO.map((d,i)=><path key={i} d={d} fill={color}/>)}</svg>
+);
+// Luna creciente + tres murciélagos, muy tenues, sobre el panel Sombra del ingreso.
+const DecoracionHalloweenLogin = ({ isMobile }) => (
+  <div aria-hidden="true" style={{ position:"absolute", inset:0, pointerEvents:"none" }}>
+    <svg width={isMobile?54:90} height={isMobile?54:90} viewBox="0 0 100 100" style={{ position:"absolute", left:isMobile?22:48, top:isMobile?"calc(22px + env(safe-area-inset-top, 0px))":46, opacity:0.5 }}>
+      <circle cx="50" cy="50" r="40" fill={C.tinta}/>
+      <circle cx="66" cy="40" r="36" fill={C.goldDark}/>
+    </svg>
+    <Murcielago w={isMobile?26:38} color={C.tinta} style={{ position:"absolute", left:isMobile?92:160, top:isMobile?48:92, opacity:0.45, transform:"rotate(-8deg)" }}/>
+    <Murcielago w={isMobile?18:26} color={C.tinta} style={{ position:"absolute", left:isMobile?126:214, top:isMobile?28:60, opacity:0.32, transform:"rotate(10deg)" }}/>
+    <Murcielago w={isMobile?14:20} color={C.tinta} style={{ position:"absolute", right:isMobile?40:70, bottom:isMobile?40:110, opacity:0.25, transform:"rotate(-14deg)" }}/>
+  </div>
+);
+// Murciélagos que cruzan la pantalla de abajo hacia arriba al registrar una venta (≈2,5 s).
+// Se monta con key distinta en cada venta, así cada una tiene su propio vuelo.
+const VueloMurcielagos = () => {
+  const [bats] = useState(() => Array.from({ length:7 }, (_,i) => ({
+    left: 8 + Math.random()*84, dx: (Math.random()*30 - 15), delay: i*0.12 + Math.random()*0.2,
+    dur: 1.8 + Math.random()*0.8, w: 52 + Math.random()*30,
+  })));
+  return (
+    <div aria-hidden="true" style={{ position:"fixed", inset:0, pointerEvents:"none", zIndex:9999, overflow:"hidden" }}>
+      <style>{`
+        @keyframes ozenBatVuela { 0% { transform:translate(0,0) scale(.7); opacity:0; } 10% { opacity:1; } 80% { opacity:1; } 100% { transform:translate(var(--dx), -115vh) scale(1.05); opacity:0; } }
+        @keyframes ozenBatAletea { from { transform:scaleY(1); } to { transform:scaleY(.72); } }
+      `}</style>
+      {bats.map((b,i) => (
+        <div key={i} style={{ position:"absolute", left:`${b.left}vw`, bottom:-40, "--dx":`${b.dx}vw`, animation:`ozenBatVuela ${b.dur}s ${b.delay}s cubic-bezier(.3,.6,.4,1) both` }}>
+          <div style={{ animation:"ozenBatAletea .16s ease-in-out infinite alternate", transformOrigin:"center 40%" }}>
+            <Murcielago w={b.w} color={C.goldDark}/>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const isMobile = useIsMobile();
@@ -3825,6 +3882,7 @@ function LoginScreen({ onLogin }) {
       <span style={{ position:"absolute", right:isMobile?-90:-160, top:isMobile?-90:-140, width:isMobile?260:520, height:isMobile?260:520, borderRadius:"50%", border:"1px solid rgba(229,213,204,0.12)" }}/>
       <span style={{ position:"absolute", right:isMobile?-40:-60, top:isMobile?-40:-40, width:isMobile?160:320, height:isMobile?160:320, borderRadius:"50%", border:"1px solid rgba(229,213,204,0.08)" }}/>
       {!isMobile && <span style={{ position:"absolute", left:-120, bottom:-160, width:380, height:380, borderRadius:"50%", background:"rgba(38,93,127,0.35)", filter:"blur(2px)" }}/>}
+      {HALLOWEEN && <DecoracionHalloweenLogin isMobile={isMobile}/>}
       <div style={{ position:"relative", flex:1, display:"flex", alignItems:"center", justifyContent:"center", animation:"ozenPopIn .6s cubic-bezier(.34,1.3,.64,1) both" }}>
         <img src="/logo-horizontal.png" alt="OZEN" style={{ width:isMobile?210:340, maxWidth:"80%", height:"auto", display:"block" }}/>
       </div>
@@ -6033,6 +6091,7 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
 
   const [guardando, setGuardando] = useState(false);
   const [msg, setMsg] = useState("");
+  const [vueloBats, setVueloBats] = useState(0); // Halloween: distinto de 0 mientras vuelan los murciélagos
 
   const asesores = users.filter(esVendedorPosible);
 
@@ -6153,8 +6212,9 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
     setVentas(prev=>[venta, ...prev]);
     const numeroMsg = venta.numero_factura ? ` #${venta.numero_factura}` : "";
     limpiarTodo();
-    setMsg(`✓ Venta${numeroMsg} registrada`);
+    setMsg(HALLOWEEN ? `✓ ¡Dulce venta! 🎃 Venta${numeroMsg} registrada` : `✓ Venta${numeroMsg} registrada`);
     sonidoVenta();
+    if(HALLOWEEN){ const k = Date.now(); setVueloBats(k); setTimeout(()=>setVueloBats(v=>v===k?0:v), 3200); }
     setTimeout(()=>setMsg(""), 3000);
   };
 
@@ -6274,6 +6334,7 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
 
   return (
     <>
+    {vueloBats>0 && <VueloMurcielagos key={vueloBats}/>}
     <div>
       {/* Encabezado: título + tienda/fecha, y la campana de Flexipagos por recordar. */}
       <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12, marginBottom:18 }}>
