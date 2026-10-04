@@ -88,6 +88,8 @@ const IC = {
   phone:<><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18h2"/></>,
   lunch:<path d="M7 3v8M5 3v5a2 2 0 004 0V3M7 11v10M17 3c-2 1-3 3.5-3 7h3v11"/>,
   flag:<path d="M5 21V4h11l-2 4 2 4H5"/>,
+  trophy:<><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 01-10 0V4z"/><path d="M17 5h3v2a3 3 0 01-3 3M7 5H4v2a3 3 0 003 3"/></>,
+  target:<><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></>,
   grid:<><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></>,
   pin:<><path d="M12 21s-7-6.2-7-11.5a7 7 0 0114 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></>,
   refresh:<><path d="M20 11a8 8 0 00-14.3-4.9L4 8"/><path d="M4 3.5V8h4.5M4 13a8 8 0 0014.3 4.9L20 16"/><path d="M20 20.5V16h-4.5"/></>,
@@ -4437,14 +4439,17 @@ const VENTAS_DESCUENTO_TIPOS = [
   { value:"porcentaje", label:"%" },
 ];
 
-const SeccionVenta = ({ icon, titulo, subtitulo, children }) => (
+// Propuesta A: título en frase (no en mayúsculas), ícono de línea en vez de emoji y una nota
+// opcional a la derecha (`derecha`). Si `icon` no es un nombre de IC, se pinta tal cual.
+const SeccionVenta = ({ icon, titulo, subtitulo, derecha, children }) => (
   <Card style={{ marginBottom:16 }}>
-    <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
-      <div style={{ width:36, height:36, borderRadius:9, background:`${C.gold}22`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>{icon}</div>
-      <div>
-        <div style={{ fontFamily:font.body, fontSize:12, fontWeight:700, color:C.goldLight, textTransform:"uppercase", letterSpacing:"0.05em" }}>{titulo}</div>
-        {subtitulo && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:1 }}>{subtitulo}</div>}
+    <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
+      <div style={{ width:34, height:34, borderRadius:10, background:C.surfaceHover, color:C.gold, display:"grid", placeItems:"center", fontSize:16, flexShrink:0 }}>{typeof icon==="string" && IC[icon] ? <Icon n={icon} s={18}/> : icon}</div>
+      <div style={{ minWidth:0 }}>
+        <div style={{ fontFamily:font.body, fontSize:16.5, fontWeight:700, color:C.text }}>{titulo}</div>
+        {subtitulo && <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:2 }}>{subtitulo}</div>}
       </div>
+      {derecha && <div style={{ marginLeft:"auto", fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"right" }}>{derecha}</div>}
     </div>
     {children}
   </Card>
@@ -7001,6 +7006,81 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
   );
 };
 
+// ── Métricas (Propuesta A) ──────────────────────────────────────────────────
+// Estado del cumplimiento con TEXTO + ícono (no solo color), con los mismos cortes del semáforo
+// de siempre (colorSemaforoIDC): 100 % o más = Cumplió, 70–99 % = En camino, menos de 70 % = Bajo.
+const EstadoIDC = ({ idc, conValor }) => {
+  if(idc===null || idc===undefined) return <span style={{ color:C.textMuted }}>—</span>;
+  const [txt, col, bg, ic] = idc>=100 ? ["Cumplió", C.green, C.greenDim, "check"] : idc>=70 ? ["En camino", C.amber, C.amberDim, null] : ["Bajo", C.red, C.redDim, null];
+  return (
+    <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:col, background:bg }}>
+      {ic ? <Icon n={ic} s={12} sw={2.4}/> : idc>=70 ? <span style={{ width:6, height:6, borderRadius:"50%", background:col }}/> : <span style={{ fontSize:9 }}>▼</span>}
+      {conValor ? `${idc}%` : txt}
+    </span>
+  );
+};
+// Escala común de las barras de cumplimiento: el 100 % queda siempre en el mismo punto (la raya
+// "meta") y la barra de quien va más adelante no se sale aunque pase del 100 %.
+const escalaCumplimiento = (lista) => Math.min(150, Math.max(100, ...lista.map(d=>d.idc||0)) * 1.12); // tope: si alguien va muy por encima, su barra llena todo y la raya de meta no se pierde al inicio
+const BarraConMeta = ({ idc, escala, color, alto=10, etiqueta }) => (
+  <div style={{ position:"relative", height:alto, background:C.surfaceHover, borderRadius:99, marginBottom:etiqueta?16:0 }}>
+    <div style={{ position:"absolute", left:0, top:0, bottom:0, width:`${Math.min(100, Math.max(0, (idc||0)/escala*100))}%`, background:color, borderRadius:99, transition:"width .6s cubic-bezier(.3,.7,.4,1)" }}/>
+    <div style={{ position:"absolute", left:`${100/escala*100}%`, top:-4, bottom:-4, width:2, marginLeft:-1, background:C.goldDark, borderRadius:2 }}>
+      {etiqueta && <span style={{ position:"absolute", top:alto+10, left:"50%", transform:"translateX(-50%)", fontFamily:font.body, fontSize:9.5, color:C.textMuted }}>meta</span>}
+    </div>
+  </div>
+);
+const fechaCortaDia = (f, sinMes) => { const t = new Date(f+"T12:00:00").toLocaleDateString("es-CO", sinMes ? {weekday:"short",day:"numeric"} : {weekday:"short",day:"numeric",month:"short"}); return t.charAt(0).toUpperCase()+t.slice(1); };
+const fmtCompacto = (v) => Math.abs(v)>=1e6 ? `$${(v/1e6).toLocaleString("es-CO",{maximumFractionDigits:1})}M` : `$${Math.round(v/1000).toLocaleString("es-CO")}K`;
+// Ventas por día como barras (una por día del mes, en orden del 1 al último). Hoy va más oscuro,
+// los días que faltan quedan vacíos y una línea punteada marca la meta diaria (meta del mes ÷ días).
+// Al pasar el mouse o tocar una barra sale el detalle de ese día.
+function GraficaVentasDia({ porDia, anio, mesIdx, totalDias, diaHoy, metaDiaria, isMobile }) {
+  const [sel, setSel] = useState(null);
+  const dias = Array.from({ length:totalDias }, (_,i)=>{ const f=`${anio}-${String(mesIdx+1).padStart(2,"0")}-${String(i+1).padStart(2,"0")}`; return { dia:i+1, fecha:f, d:porDia[f]||null }; });
+  const maxV = Math.max(1, metaDiaria||0, ...dias.map(x=>x.d?.sin||0)) * 1.1;
+  const H = isMobile ? 140 : 180;
+  const yPx = (v) => Math.max(0, v)/maxV*H;
+  const elegido = sel ? dias[sel-1] : null;
+  return (
+    <div style={{ position:"relative", marginBottom:18 }} onMouseLeave={()=>setSel(null)}>
+      <div style={{ position:"relative", height:H, marginLeft:isMobile?36:52, borderBottom:`1px solid ${C.border}` }}>
+        {[1,0.5].map(fr=>(
+          <div key={fr} style={{ position:"absolute", left:isMobile?-36:-52, width:isMobile?32:46, bottom:H*fr-6, fontFamily:font.mono, fontSize:10, color:C.textMuted, textAlign:"right" }}>{fmtCompacto(maxV*fr)}</div>
+        ))}
+        {metaDiaria>0 && (
+          <div style={{ position:"absolute", left:0, right:0, bottom:yPx(metaDiaria), borderTop:`1.5px dashed ${C.amber}`, zIndex:1, pointerEvents:"none" }}>
+            <span style={{ position:"absolute", right:0, top:-19, fontFamily:font.body, fontSize:11, fontWeight:600, color:C.amber, background:"#fff", padding:"0 4px" }}>Meta diaria {fmtCompacto(metaDiaria)}</span>
+          </div>
+        )}
+        <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"flex-end", gap:isMobile?2:4 }}>
+          {dias.map(x=>{
+            const futuro = diaHoy && x.dia>diaHoy;
+            const v = x.d?.sin||0;
+            const activo = sel===x.dia;
+            return (
+              <div key={x.dia} onMouseEnter={()=>!futuro&&setSel(x.dia)} onClick={()=>!futuro&&setSel(s=>s===x.dia?null:x.dia)} style={{ flex:1, height:"100%", display:"flex", alignItems:"flex-end", cursor:futuro?"default":"pointer" }}>
+                <div style={{ width:"100%", height:futuro?3:Math.max(v>0?3:2, yPx(v)), background:futuro?C.surfaceHover:(x.dia===diaHoy?C.goldDark:C.gold), opacity:(sel && !activo && !futuro)?0.55:1, borderRadius:"4px 4px 0 0", transition:"opacity .15s ease, height .5s cubic-bezier(.3,.7,.4,1)" }}/>
+              </div>
+            );
+          })}
+        </div>
+        {elegido && (
+          <div style={{ position:"absolute", bottom:Math.min(H-8, yPx(elegido.d?.sin||0)+8), left:`${(elegido.dia-0.5)/totalDias*100}%`, transform:`translateX(${elegido.dia/totalDias>0.75?"-100%":elegido.dia/totalDias<0.25?"0":"-50%"})`, background:C.goldDark, color:"#fff", borderRadius:8, padding:"8px 10px", fontFamily:font.body, fontSize:11.5, lineHeight:1.5, whiteSpace:"nowrap", boxShadow:"0 8px 20px -8px rgba(0,0,0,.4)", zIndex:3, pointerEvents:"none" }}>
+            <b>{fechaCortaDia(elegido.fecha)}</b><br/>
+            {elegido.d ? <><span style={{ fontFamily:font.mono }}>{fmtCOP(elegido.d.sin)}</span> · {elegido.d.count} venta{elegido.d.count!==1?"s":""}<br/><span style={{ opacity:.75 }}>Ingreso <span style={{ fontFamily:font.mono }}>{fmtCOP(elegido.d.con)}</span></span></> : <span style={{ opacity:.75 }}>Sin ventas</span>}
+          </div>
+        )}
+      </div>
+      <div style={{ display:"flex", gap:isMobile?2:4, marginLeft:isMobile?36:52, marginTop:5 }}>
+        {dias.map(x=><span key={x.dia} style={{ flex:1, textAlign:"center", fontFamily:font.body, fontSize:isMobile?8.5:10, color:x.dia===diaHoy?C.text:C.textMuted, fontWeight:x.dia===diaHoy?700:400 }}>{(x.dia%(isMobile?5:2)===1 || x.dia===diaHoy) ? x.dia : ""}</span>)}
+      </div>
+    </div>
+  );
+}
+const thMet = { padding:"0 10px 10px", fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap" };
+const tdMet = { padding:"11px 10px", borderBottom:`1px solid ${C.border}` };
+
 function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile, turnosAsignaciones, turnosGlobales }) {
   const hoy = toColombiaDate();
   const [anio, setAnio] = useState(hoy.getFullYear());
@@ -7015,6 +7095,11 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const [guardandoDetalle, setGuardandoDetalle] = useState(null);
   const [asesorExpandido, setAsesorExpandido] = useState(null);
 
+  // Orden de la tabla "Ventas por asesor": por defecto de mayor a menor venta; se cambia tocando
+  // el título de una columna (tocar de nuevo invierte el orden).
+  const [ordenAsesores, setOrdenAsesores] = useState({ col:"venta", dir:"desc" });
+  const tdDia = isMobile ? { ...tdMet, padding:"10px 6px" } : tdMet;
+  const thDia = isMobile ? { ...thMet, padding:"0 6px 8px", letterSpacing:"0.05em" } : thMet;
   const mesKey = `${anio}-${String(mesIdx+1).padStart(2,"0")}`;
   const esMesActual = anio===hoy.getFullYear() && mesIdx===hoy.getMonth();
   const diasTotalesMes = diasDelMes(anio, mesIdx);
@@ -7451,7 +7536,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
       </div>
 
       {puedeAsignarMetas && (
-        <SeccionVenta icon="🎯" titulo="Metas del mes">
+        <SeccionVenta icon="target" titulo="Metas del mes">
           {metaMsg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"9px 12px", color:C.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{metaMsg}</div>}
           <div style={{ display:"flex", flexDirection:"column", marginBottom:16 }}>
             {tiendasList.map(t=>{
@@ -7551,26 +7636,37 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
         </SeccionVenta>
       )}
 
-      <SeccionVenta icon="🏬" titulo="Top tiendas por cumplimiento">
-        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-          {rankingTiendas.map((d,idx)=>(
-            <RankingRow key={d.tienda.id} idx={idx} nombre={d.tienda.name} sinServicios={d.sinServicios} meta={d.meta} idc={d.idc} isMobile={isMobile} escalaMax={rankingTiendas[0]?.idc}/>
-          ))}
-          {rankingTiendas.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
-        </div>
+      <SeccionVenta icon="store" titulo="Top tiendas por cumplimiento" derecha={!isMobile && "IDC del mes · la raya marca el 100 % de la meta"}>
+        {rankingTiendas.length>0 ? (() => { const esc = escalaCumplimiento(rankingTiendas); return (
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":`repeat(${Math.min(rankingTiendas.length,3)}, minmax(0,1fr))`, gap:14 }}>
+            {rankingTiendas.map((d,idx)=>{ const col = colorTienda(d.tienda); const faltan = Math.max(0, d.meta-d.sinServicios); return (
+              <div key={d.tienda.id} style={{ border:`1px solid ${C.border}`, borderTop:`3px solid ${col||C.gold}`, borderRadius:14, padding:"16px 18px", background:"#fff" }}>
+                <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:600, letterSpacing:"0.08em", color:C.textMuted }}>{idx+1}.º LUGAR</div>
+                <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontWeight:700, fontSize:16, color:C.text, margin:"4px 0 10px" }}><PuntoTienda color={col}/>{nombreTiendaCorto(d.tienda)}</div>
+                <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:8 }}>
+                  <span style={{ fontFamily:font.mono, fontSize:isMobile?32:38, fontWeight:600, lineHeight:1, color:C.text }}>{d.idc}%</span>
+                  <EstadoIDC idc={d.idc}/>
+                </div>
+                <div style={{ margin:"14px 0 6px" }}><BarraConMeta idc={d.idc} escala={esc} color={col||C.gold} etiqueta/></div>
+                <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(d.sinServicios)}</span> de <span style={{ fontFamily:font.mono }}>{fmtCOP(d.meta)}</span></div>
+                <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginTop:3 }}>{faltan>0 ? <>Faltan <b style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(faltan)}</b></> : <b style={{ color:C.green }}>Meta cumplida</b>}</div>
+              </div>
+            ); })}
+          </div>
+        ); })() : <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
       </SeccionVenta>
 
       {/* Este ranking y la tabla de abajo ("Ventas por asesor") solo se muestran en "Todas las
           tiendas" — pedido explícito de Santiago: ya no existe versión por tienda de ninguno de
           los dos, así que en la pestaña de una tienda específica simplemente no aparecen. */}
       {!tiendaSel && (<>
-      <SeccionVenta icon="🏆" titulo="Top asesores por cumplimiento">
-        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-          {rankingTodasTiendas.map((d,idx)=>{
-            const exp = explicacionMetaAsesor(d.asesor.id);
-            return (
-              <RankingRow key={d.asesor.id} idx={idx} nombre={d.asesor.name} sinServicios={d.sinServicios} meta={d.meta} idc={d.idc} isMobile={isMobile} escalaMax={rankingTodasTiendas[0]?.idc} extra={!exp.sinDatos && (
-                <HoverTooltip label="ⓘ" labelStyle={{ fontSize:11, color:C.textMuted, flexShrink:0 }} width={300} clickOnly>
+      <SeccionVenta icon="trophy" titulo="Top asesores por cumplimiento" derecha="Todas las tiendas">
+        {rankingTodasTiendas.length>0 ? (() => { const esc = escalaCumplimiento(rankingTodasTiendas); return (
+          <div>
+            {rankingTodasTiendas.map((d,idx)=>{
+              const exp = explicacionMetaAsesor(d.asesor.id);
+              const info = !exp.sinDatos && (
+                <HoverTooltip label="ⓘ" labelStyle={{ fontSize:12, color:C.textMuted, flexShrink:0 }} width={300} clickOnly>
                   <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>Cómo salió la meta de {d.asesor.name.split(" ")[0]} — {MESES_NOMBRE[mesIdx]}</div>
                   {exp.diasNovedadTotal>0 && (
                     <div style={{ fontFamily:font.body, fontSize:11, color:C.text, lineHeight:1.5, marginBottom:6 }}>
@@ -7586,68 +7682,102 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                     Total meta: <span style={{ fontFamily:font.mono }}>{fmtCOP(exp.total)}</span>
                   </div>
                 </HoverTooltip>
-              )}/>
-            );
-          })}
-          {rankingTodasTiendas.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
-        </div>
+              );
+              const numero = <span style={{ width:26, height:26, borderRadius:"50%", display:"grid", placeItems:"center", flexShrink:0, fontFamily:font.body, fontSize:12.5, fontWeight:700, background:idx<3?C.goldDark:C.surfaceHover, color:idx<3?C.tinta:C.textSub }}>{idx+1}</span>;
+              const nombre = <span style={{ display:"flex", alignItems:"center", gap:6, minWidth:0, fontFamily:font.body, fontSize:14, fontWeight:idx<3?700:600, color:C.text }}><span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.asesor.name}</span>{info}</span>;
+              const pct = <span style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.text, textAlign:"right" }}>{d.idc}%</span>;
+              const plata = <span style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted, whiteSpace:"nowrap" }}>{fmtCompacto(d.sinServicios)} / {fmtCompacto(d.meta)}</span>;
+              const borde = idx<rankingTodasTiendas.length-1 ? `1px solid ${C.border}` : "none";
+              return isMobile ? (
+                <div key={d.asesor.id} style={{ padding:"11px 2px", borderBottom:borde }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>{numero}<div style={{ flex:1, minWidth:0 }}>{nombre}</div>{pct}</div>
+                  <div style={{ margin:"9px 0 7px 36px" }}><BarraConMeta idc={d.idc} escala={esc} color={C.gold} alto={8}/></div>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginLeft:36 }}>{plata}<EstadoIDC idc={d.idc}/></div>
+                </div>
+              ) : (
+                <div key={d.asesor.id} style={{ display:"grid", gridTemplateColumns:"34px minmax(150px,220px) 1fr 64px 250px", alignItems:"center", gap:14, padding:"11px 4px", borderBottom:borde }}>
+                  {numero}{nombre}<BarraConMeta idc={d.idc} escala={esc} color={C.gold} alto={8}/>{pct}
+                  <span style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:8 }}>{plata}<EstadoIDC idc={d.idc}/></span>
+                </div>
+              );
+            })}
+          </div>
+        ); })() : <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, textAlign:"center", padding:16 }}>Aún no hay metas asignadas o ventas este mes para armar el ranking.</div>}
       </SeccionVenta>
 
-      <SeccionVenta icon="👤" titulo="Ventas por asesor">
-        <div style={{ overflowX:"auto" }}>
-          <table style={{ width:"100%", borderCollapse:"collapse", fontFamily:font.body, fontSize:12 }}>
-            <thead>
-              <tr style={{ borderBottom:`1px solid ${C.border}`, color:C.textMuted, textAlign:"left" }}>
-                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Asesor</th>
-                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Venta total</th>
-                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Meta</th>
-                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>IDC</th>
-                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>MDA</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...dataAsesores].sort((a,b)=>a.asesor.name.localeCompare(b.asesor.name)).map(d=>(
-                <tr key={d.asesor.id} style={{ borderBottom:`1px solid ${C.border}` }}>
-                  <td style={{ padding:"7px 8px", color:C.text, textAlign:"left" }}>{d.asesor.name}</td>
-                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.text, textAlign:"left" }}>{fmtCOP(d.sinServicios)}</td>
-                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted, textAlign:"left" }}>{d.meta>0?fmtCOP(d.meta):"—"}</td>
-                  <td style={{ padding:"7px 8px", textAlign:"left" }}>{d.idc===null?"—":<Badge color={colorSemaforoIDC(d.idc)} sm>{d.idc}%</Badge>}</td>
-                  <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted, textAlign:"left" }}>{d.mda===null?"—":fmtCOP(d.mda)}</td>
-                </tr>
-              ))}
-              {dataAsesores.length===0 && <tr><td colSpan={5} style={{ padding:16, textAlign:"center", color:C.textMuted }}>No hay asesores activos.</td></tr>}
-            </tbody>
-          </table>
-        </div>
+      <SeccionVenta icon="user" titulo="Ventas por asesor" derecha={!isMobile && "Toca un título para ordenar"}>
+        {(() => {
+          const val = { nombre:d=>d.asesor.name, venta:d=>d.sinServicios, meta:d=>d.meta||0, idc:d=>d.idc??-1, mda:d=>d.mda??-1 };
+          const filas = [...dataAsesores].sort((a,b)=>{ const f=val[ordenAsesores.col]; const x=f(a), y=f(b); const c = typeof x==="string" ? x.localeCompare(y) : x-y; return ordenAsesores.dir==="asc"?c:-c; });
+          const maxVenta = Math.max(1, ...dataAsesores.map(d=>d.sinServicios));
+          const totVenta = dataAsesores.reduce((a,d)=>a+d.sinServicios,0);
+          const totMeta = dataAsesores.reduce((a,d)=>a+(d.meta||0),0);
+          const totIdc = totMeta>0 ? Math.round(totVenta/totMeta*1000)/10 : null;
+          const titulo = (col, txt, der) => {
+            const on = ordenAsesores.col===col;
+            return <th onClick={()=>setOrdenAsesores(o=>({ col, dir: o.col===col ? (o.dir==="desc"?"asc":"desc") : (col==="nombre"?"asc":"desc") }))} style={{ ...thMet, textAlign:der?"right":"left", cursor:"pointer", color:on?C.text:C.textMuted, userSelect:"none" }}>{txt}{on ? (ordenAsesores.dir==="desc"?" ▼":" ▲") : ""}</th>;
+          };
+          return (
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ width:"100%", minWidth:isMobile?560:0, borderCollapse:"collapse", fontFamily:font.body, fontSize:13.5, color:C.text }}>
+                <thead><tr>{titulo("nombre","Asesor")}{titulo("venta","Venta total",true)}{titulo("meta","Meta",true)}{titulo("idc","IDC",true)}{titulo("mda",<>MDA <span style={{ textTransform:"none", letterSpacing:0 }}>(por día)</span></>,true)}</tr></thead>
+                <tbody>
+                  {filas.map(d=>(
+                    <tr key={d.asesor.id}>
+                      <td style={tdMet}><b>{d.asesor.name}</b><div style={{ height:5, width:isMobile?110:150, background:C.surfaceHover, borderRadius:9, marginTop:6 }}><div style={{ height:"100%", width:`${d.sinServicios/maxVenta*100}%`, background:C.gold, borderRadius:9 }}/></div></td>
+                      <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:d.sinServicios>0?C.text:C.textMuted }}>{fmtCOP(d.sinServicios)}</td>
+                      <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{d.meta>0?fmtCOP(d.meta):"—"}</td>
+                      <td style={{ ...tdMet, textAlign:"right" }}><EstadoIDC idc={d.idc} conValor/></td>
+                      <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{d.mda===null?"—":fmtCOP(d.mda)}</td>
+                    </tr>
+                  ))}
+                  {dataAsesores.length===0 && <tr><td colSpan={5} style={{ padding:16, textAlign:"center", color:C.textMuted }}>No hay asesores activos.</td></tr>}
+                </tbody>
+                {dataAsesores.length>0 && (
+                  <tfoot><tr style={{ fontWeight:700 }}>
+                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}` }}>Total</td>
+                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right", fontFamily:font.mono }}>{fmtCOP(totVenta)}</td>
+                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right", fontFamily:font.mono }}>{totMeta>0?fmtCOP(totMeta):"—"}</td>
+                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right" }}><EstadoIDC idc={totIdc} conValor/></td>
+                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}` }}/>
+                  </tr></tfoot>
+                )}
+              </table>
+            </div>
+          );
+        })()}
       </SeccionVenta>
       </>)}
 
-      <SeccionVenta icon="📅" titulo={`Ventas por día — ${tiendaSel ? stores[tiendaSel]?.name : "Todas las tiendas"}`}>
+      <SeccionVenta icon="cal" titulo={`Ventas por día — ${tiendaSel ? nombreTiendaCorto(stores[tiendaSel]) : "Todas las tiendas"}`} derecha={!isMobile && `${MESES_NOMBRE[mesIdx]} · pasa el mouse o toca una barra`}>
+        <GraficaVentasDia porDia={porDia} anio={anio} mesIdx={mesIdx} totalDias={diasTotalesMes} diaHoy={esMesActual ? hoy.getDate() : null} metaDiaria={metaTiendaTotal>0 ? metaTiendaTotal/diasTotalesMes : 0} isMobile={isMobile}/>
         <div style={{ overflowX:"auto" }}>
-          <table style={{ width:"100%", borderCollapse:"collapse", fontFamily:font.body, fontSize:12 }}>
+          {/* Del 1 al último día del mes (ascendente), igual que la gráfica. */}
+          <table style={{ width:"100%", borderCollapse:"collapse", fontFamily:font.body, fontSize:isMobile?12.5:13.5, color:C.text }}>
             <thead>
-              <tr style={{ borderBottom:`1px solid ${C.border}`, color:C.textMuted, textAlign:"left" }}>
-                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Fecha</th>
-                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}># de ventas</th>
-                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Total ventas</th>
-                <th style={{ padding:"6px 8px", fontWeight:500, textAlign:"left" }}>Total ingreso</th>
+              <tr>
+                <th style={{ ...thDia, textAlign:"left" }}>Fecha</th>
+                <th style={{ ...thDia, textAlign:"right" }}>{isMobile?"#":"# ventas"}</th>
+                <th style={{ ...thDia, textAlign:"right" }}>{isMobile?"Ventas":"Total ventas"}</th>
+                <th style={{ ...thDia, textAlign:"right" }}>{isMobile?"Ingreso":"Total ingreso"}</th>
               </tr>
             </thead>
             <tbody>
-              {diasList.map(([fecha,d])=>{
+              {[...diasList].reverse().map(([fecha,d])=>{
                 const excedentes = excedentesPorDiaOriginal[fecha];
+                const conNota = excedentes && excedentes.length>0;
                 return (
                   <Fragment key={fecha}>
-                    <tr style={{ borderBottom: excedentes&&excedentes.length>0 ? "none" : `1px solid ${C.border}` }}>
-                      <td style={{ padding:"7px 8px", color:C.text, textAlign:"left", whiteSpace:"nowrap" }}>{new Date(fecha+"T12:00:00").toLocaleDateString("es-CO",{weekday:"short",day:"numeric",month:"short"})}</td>
-                      <td style={{ padding:"7px 8px", color:C.textMuted, textAlign:"left" }}>{d.count} venta{d.count!==1?"s":""}</td>
-                      <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.text, textAlign:"left" }}>{fmtCOP(d.sin)}</td>
-                      <td style={{ padding:"7px 8px", fontFamily:font.mono, color:C.textMuted, textAlign:"left" }}>{fmtCOP(d.con)}</td>
+                    <tr>
+                      <td style={{ ...tdDia, borderBottom:conNota?"none":tdDia.borderBottom, whiteSpace:"nowrap" }}><b>{fechaCortaDia(fecha, isMobile)}</b>{fecha===todayStr && <span style={{ marginLeft:isMobile?5:8, borderRadius:99, padding:"2px 8px", fontSize:11, fontWeight:700, background:C.surfaceHover, color:C.textSub }}>hoy</span>}</td>
+                      <td style={{ ...tdDia, borderBottom:conNota?"none":tdDia.borderBottom, textAlign:"right" }}>{d.count}</td>
+                      <td style={{ ...tdDia, borderBottom:conNota?"none":tdDia.borderBottom, textAlign:"right", fontFamily:font.mono }}>{fmtCOP(d.sin)}</td>
+                      <td style={{ ...tdDia, borderBottom:conNota?"none":tdDia.borderBottom, textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{fmtCOP(d.con)}</td>
                     </tr>
-                    {excedentes && excedentes.length>0 && (
-                      <tr style={{ borderBottom:`1px solid ${C.border}` }}>
-                        <td colSpan={4} style={{ padding:"0 8px 6px", fontFamily:font.body, fontSize:10.5, color:C.amber }} title="Este valor ya entró y se sumó en la fecha real de la Notacrédito, no aquí.">
-                          ⓘ {excedentes.map((e,idx)=>`+${fmtCOP(e.valor)} nota crédito el ${new Date(e.fecha+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"})}`).join(" · ")}
+                    {conNota && (
+                      <tr>
+                        <td colSpan={4} style={{ padding:"0 10px 8px", borderBottom:`1px solid ${C.border}`, fontFamily:font.body, fontSize:11, color:C.amber }} title="Este valor ya entró y se sumó en la fecha real de la Notacrédito, no aquí.">
+                          ⓘ {excedentes.map(e=>`+${fmtCOP(e.valor)} nota crédito el ${new Date(e.fecha+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"})}`).join(" · ")}
                         </td>
                       </tr>
                     )}
