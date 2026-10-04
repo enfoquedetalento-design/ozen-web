@@ -7799,10 +7799,13 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                   </div>
                 </HoverTooltip>
               );
-              const numero = <span style={{ width:26, height:26, borderRadius:"50%", display:"grid", placeItems:"center", flexShrink:0, fontFamily:font.body, fontSize:12.5, fontWeight:700, background:idx<3?C.goldDark:C.surfaceHover, color:idx<3?C.tinta:C.textSub }}>{idx+1}</span>;
+              // Los 3 primeros llevan medalla (pedido de Santiago); del 4.º en adelante, número.
+              const numero = idx<3
+                ? <span style={{ width:26, textAlign:"center", flexShrink:0, fontSize:20, lineHeight:1 }}>{medalla(idx)}</span>
+                : <span style={{ width:26, height:26, borderRadius:"50%", display:"grid", placeItems:"center", flexShrink:0, fontFamily:font.body, fontSize:12.5, fontWeight:700, background:C.surfaceHover, color:C.textSub }}>{idx+1}</span>;
               const nombre = <span style={{ display:"flex", alignItems:"center", gap:6, minWidth:0, fontFamily:font.body, fontSize:14, fontWeight:idx<3?700:600, color:C.text }}><span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.asesor.name}</span>{info}</span>;
               const pct = <span style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.text, textAlign:"right" }}>{d.idc}%</span>;
-              const plata = <span style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted, whiteSpace:"nowrap" }}>{fmtCompacto(d.sinServicios)} / {fmtCompacto(d.meta)}</span>;
+              const plata = <span style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted, whiteSpace:"nowrap" }}><span style={{ color:C.text }}>{fmtCOP(d.sinServicios)}</span> / {fmtCOP(d.meta)}</span>;
               const borde = idx<rankingTodasTiendas.length-1 ? `1px solid ${C.border}` : "none";
               return isMobile ? (
                 <div key={d.asesor.id} style={{ padding:"11px 2px", borderBottom:borde }}>
@@ -7811,7 +7814,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                   <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginLeft:36 }}>{plata}<EstadoIDC idc={d.idc}/></div>
                 </div>
               ) : (
-                <div key={d.asesor.id} style={{ display:"grid", gridTemplateColumns:"34px minmax(150px,220px) 1fr 64px 250px", alignItems:"center", gap:14, padding:"11px 4px", borderBottom:borde }}>
+                <div key={d.asesor.id} style={{ display:"grid", gridTemplateColumns:"34px minmax(150px,220px) 1fr 64px 330px", alignItems:"center", gap:14, padding:"11px 4px", borderBottom:borde }}>
                   {numero}{nombre}<BarraConMeta idc={d.idc} escala={esc} color={C.gold} alto={8}/>{pct}
                   <span style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:8 }}>{plata}<EstadoIDC idc={d.idc}/></span>
                 </div>
