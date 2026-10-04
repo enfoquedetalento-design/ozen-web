@@ -7173,6 +7173,27 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const setMetaDiaValor = (tiendaId, diaNum, value) => setMetaDiasInputs(prev=>({...prev, [tiendaId]: {...prev[tiendaId], [diaNum]:value}}));
   const sumaMetaDias = (tiendaId) => Object.values(metaDiasInputs[tiendaId]||{}).reduce((s,v)=>s+Number(v||0),0);
   const tieneMetaPorDia = (tiendaId) => Object.values(metaDiasInputs[tiendaId]||{}).some(v=>Number(v||0)>0);
+  // Pegar las metas diarias desde Excel: las metas llegan en una lista (una fila por día, del 1 al
+  // último), así que en vez de escribirlas una por una se copia la columna y se pega. Cada fila
+  // cae en su día. Acepta "$ 2.900.000", "2900000", "2,900,000.00", y si se copian dos columnas
+  // (ej. fecha + meta) toma la última cifra de cada fila. Las filas de título del principio se
+  // ignoran. Solo llena las casillas — igual hay que darle "Guardar".
+  const [pegadoInfo, setPegadoInfo] = useState({}); // { [tiendaId]: { ok, texto } }
+  const pegarMetasDias = (tiendaId, texto) => {
+    const montoExcel = (celda) => { let x = String(celda||"").replace(/[$\s]/g,""); x = x.replace(/[.,]\d{1,2}$/,""); return x.replace(/\D/g,""); };
+    let filas = String(texto||"").replace(/\r/g,"").split("\n");
+    while(filas.length && !/\d/.test(filas[filas.length-1])) filas.pop();
+    while(filas.length && !/\d/.test(filas[0])) filas.shift();
+    const valores = filas.map(f=>{ const celdas = f.split("\t").filter(c=>/\d/.test(c)); return celdas.length ? montoExcel(celdas[celdas.length-1]) : ""; });
+    const totalDias = diasDelMes(anio, mesIdx);
+    if(valores.length===0){ setPegadoInfo(prev=>({...prev,[tiendaId]:{ ok:false, texto:"No se encontraron cifras en lo que pegaste." }})); return; }
+    const usados = valores.slice(0, totalDias);
+    const nuevos = {}; usados.forEach((v,i)=>{ if(v && Number(v)>0) nuevos[i+1] = v; });
+    setMetaDiasInputs(prev=>({ ...prev, [tiendaId]: nuevos }));
+    const suma = Object.values(nuevos).reduce((a,v)=>a+Number(v),0);
+    const aviso = valores.length>totalDias ? ` Pegaste ${valores.length} filas y el mes tiene ${totalDias} días: se usaron las primeras ${totalDias}.` : valores.length<totalDias ? ` Llegaron ${valores.length} filas: se llenó del día 1 al ${valores.length}; los demás quedaron vacíos.` : "";
+    setPegadoInfo(prev=>({...prev,[tiendaId]:{ ok:valores.length===totalDias, texto:`Se llenaron ${Object.keys(nuevos).length} días · total ${fmtCOP(suma)}.${aviso} Revisa y dale Guardar.` }}));
+  };
 
   const guardarMetaTienda = async (tiendaId) => {
     setGuardandoMeta(tiendaId);
@@ -7553,7 +7574,13 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                   </div>
                   {diaAbierto && (
                     <div style={{ marginTop:6, marginBottom:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
-                      <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginBottom:6 }}>Meta de cada día del mes — la meta total de la tienda queda como la suma de estos valores. Deja en blanco los días sin meta puntual.</div>
+                      <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginBottom:8 }}>Meta de cada día del mes — la meta total de la tienda queda como la suma de estos valores. Deja en blanco los días sin meta puntual.</div>
+                      <div style={{ border:`1.5px dashed ${C.gold}55`, borderRadius:10, background:"#fff", padding:"10px 12px", marginBottom:10 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, marginBottom:4 }}><Icon n="file" s={16}/>Pegar desde Excel</div>
+                        <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginBottom:8, lineHeight:1.45 }}>En Excel selecciona la columna de metas (del día 1 al último), cópiala y pégala aquí. Cada fila cae en su día.</div>
+                        <textarea value="" onChange={()=>{}} onPaste={e=>{ e.preventDefault(); pegarMetasDias(t.id, e.clipboardData.getData("text")); }} placeholder="Haz clic aquí y pega (Ctrl+V / ⌘V)" rows={2} style={{ width:"100%", resize:"none", boxSizing:"border-box", border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px", fontFamily:font.body, fontSize:12.5, color:C.text, background:C.surfaceAlt, outline:"none" }}/>
+                        {pegadoInfo[t.id] && <div style={{ marginTop:8, fontFamily:font.body, fontSize:12, fontWeight:600, color:pegadoInfo[t.id].ok?C.green:C.amber, lineHeight:1.45 }}>{pegadoInfo[t.id].ok?"✓ ":"⚠ "}{pegadoInfo[t.id].texto}</div>}
+                      </div>
                       <div style={{ display:"flex", flexDirection:"column", gap:3, maxHeight:260, overflowY:"auto" }}>
                         {Array.from({length:diasDelMes(anio,mesIdx)}, (_,i)=>i+1).map(diaNum=>(
                           <div key={diaNum} style={{ display:"flex", alignItems:"center", gap:8 }}>
