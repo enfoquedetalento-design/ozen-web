@@ -8314,6 +8314,9 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   // Qué registro de Historial tiene abierta su vista "congelada" (ver FrozenCajaCard) — solo uno a
   // la vez, formato `${tipo}:${id}` (ej. "apertura:abc123").
   const [verDetalleId, setVerDetalleId] = useState(null);
+  const [histFiltro, setHistFiltro] = useState("todo"); // pestaña del Historial de Caja
+  const [histDias, setHistDias] = useState(7);          // cuántos días se muestran (botón "Ver días anteriores")
+  const [histMenu, setHistMenu] = useState(null);       // registro con el menú ⋯ abierto
   const asesores = users.filter(esVendedorPosible);
   const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin"||u.role==="admin_finanzas"||u.role==="admin_turnos") && u.active);
 
@@ -9254,125 +9257,165 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
         </div>
       ) : (
         <>
+          {/* Propuesta A — Historial de Caja: una sola línea de tiempo por día (aperturas,
+              novedades, cierres y recolecciones juntas, en orden de hora), con pestañas para ver un
+              solo tipo, el resumen del cierre arriba de cada día y las acciones en un menú ⋯. Los
+              permisos (borrar / pedir borrado / editar novedades) son exactamente los de antes. */}
           {puedeBorrarCaja && solicitudesPendientes.length>0 && (
-            <CajaCard icon="🗑️" titulo="Solicitudes de borrado pendientes" color={tiendaColor}>
-              <div style={{ display:"flex", flexDirection:"column" }}>
-                {solicitudesPendientes.map(s=>(
-                  <div key={s.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"4px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
-                    <span>{s.resumen} <span style={{ color:C_DARK.textMuted }}>· pidió {s.solicitado_por} · {fmtFechaHora(s.fecha_solicitud)}</span></span>
-                    <span style={{ display:"flex", gap:6 }}>
-                      <button onClick={()=>resolverSolicitudBorrado(s,"aprobada")} style={{ background:"none", border:`1px solid ${C_DARK.green}`, borderRadius:5, color:C_DARK.green, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Aprobar y borrar</button>
-                      <button onClick={()=>resolverSolicitudBorrado(s,"rechazada")} style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.textMuted, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Rechazar</button>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </CajaCard>
+            <div style={{ background:"#fff", border:`1px solid ${C_DARK.amber}55`, borderLeft:`4px solid ${C_DARK.amber}`, borderRadius:14, padding:"14px 18px", marginBottom:14 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:14, fontWeight:700, color:C_DARK.text, marginBottom:6 }}><span style={{ width:7, height:7, borderRadius:"50%", background:C_DARK.amber }}/>{solicitudesPendientes.length} solicitud{solicitudesPendientes.length!==1?"es":""} de borrado esperando aprobación</div>
+              {solicitudesPendientes.map(s=>(
+                <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"8px 0", borderTop:`1px dashed ${C_DARK.border}`, fontFamily:font.body, fontSize:13, color:C_DARK.text }}>
+                  <span>{s.resumen} <span style={{ color:C_DARK.textMuted }}>· pidió {s.solicitado_por} · {fmtFechaHora(s.fecha_solicitud)}</span></span>
+                  <span style={{ marginLeft:"auto", display:"flex", gap:8 }}>
+                    <Btn onClick={()=>resolverSolicitudBorrado(s,"rechazada")} variant="ghost" sm>Rechazar</Btn>
+                    <Btn onClick={()=>resolverSolicitudBorrado(s,"aprobada")} sm>Aprobar y borrar</Btn>
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
-
-          <CajaCard icon="🔓" titulo="Historial de apertura" color={tiendaColor}>
-            <div style={{ display:"flex", flexDirection:"column" }}>
-              {aperturasTienda.slice(0,30).map(a=>(
-                <div key={a.id}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"3px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
-                    <button onClick={()=>setVerDetalleId(id=>id===`apertura:${a.id}`?null:`apertura:${a.id}`)} style={{ background:"none", border:"none", color:C_DARK.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(a.created_at)} · {a.asesor_nombre}</button>
-                    <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                      <span style={{ fontFamily:font.mono, color:C_DARK.textMuted }}>Base: {fmtCOP(a.base_caja)}</span>
-                      {puedeBorrarCaja && <button onClick={()=>borrarApertura(a)} title="Borrar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
-                      {puedeSolicitarBorradoCaja && (solicitudPendientePara("apertura",a.id) ? <span style={{ color:C_DARK.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("apertura",a,`Apertura ${fmtFechaHora(a.created_at)} · ${a.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
-                    </span>
-                  </div>
-                  {verDetalleId===`apertura:${a.id}` && <FrozenCajaCard tipo="apertura" registro={a} tiendaColor={tiendaColor} setToastCaptura={setToastCaptura}/>}
-                </div>
-              ))}
-              {aperturasTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted, padding:4 }}>Sin registros todavía.</div>}
-            </div>
-          </CajaCard>
-
-          <CajaCard icon="🔒" titulo="Historial de cierre" color={tiendaColor}>
-            <div style={{ display:"flex", flexDirection:"column" }}>
-              {cierresTienda.slice(0,30).map(c=>{
-                const rd = resumenDia(c.fecha);
-                const totalDia = rd.totalIngresoNeto + rd.totalServicios;
-                return (
-                  <div key={c.id}>
-                    <div style={{ display:"flex", flexDirection:"column", gap:1, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"4px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4 }}>
-                        <button onClick={()=>setVerDetalleId(id=>id===`cierre:${c.id}`?null:`cierre:${c.id}`)} style={{ background:"none", border:"none", color:C_DARK.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(c.created_at)} · {c.asesor_nombre} · {c.tipo==="parcial"?"Parcial":"Definitivo"}{c.novedades?` · ${c.novedades}`:""}</button>
-                        <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                          <span style={{ fontFamily:font.mono, color:C_DARK.textMuted }}>Base al cierre: {fmtCOP(c.base_caja)}</span>
-                          {puedeBorrarCaja && <button onClick={()=>borrarCierre(c)} title="Borrar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
-                          {puedeSolicitarBorradoCaja && (solicitudPendientePara("cierre",c.id) ? <span style={{ color:C_DARK.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("cierre",c,`Cierre ${fmtFechaHora(c.created_at)} · ${c.asesor_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
-                        </span>
-                      </div>
-                      <div style={{ fontFamily:font.mono, fontSize:10.5, color:C_DARK.textMuted }}>
-                        Ventas {fmtCOP(rd.totalIngresoNeto)} · Servicios {fmtCOP(rd.totalServicios)} · <span style={{ color:C_DARK.goldLight, fontWeight:700 }}>Total {fmtCOP(totalDia)}</span>
-                        {rd.totalNotaCreditoDia>0 && <span style={{ color:C_DARK.amber }}> · Notacrédito {fmtCOP(rd.totalNotaCreditoDia)}</span>}
-                      </div>
+          {(() => {
+            const horaDe = (iso) => iso ? new Date(iso).toLocaleTimeString("es-CO",{ hour:"2-digit", minute:"2-digit", hour12:false }) : "—";
+            const diaDe = (fecha, iso) => fecha || (iso ? fmt(new Date(iso)) : "");
+            const eventos = [
+              ...aperturasTienda.map(a=>({ tipo:"apertura", id:a.id, r:a, fecha:diaDe(a.fecha,a.created_at), ts:a.created_at })),
+              ...gastosTienda.map(g=>({ tipo:"novedad", id:g.id, r:g, fecha:diaDe(g.fecha,g.created_at), ts:g.created_at })),
+              ...cierresTienda.map(c=>({ tipo:"cierre", id:c.id, r:c, fecha:diaDe(c.fecha,c.created_at), ts:c.created_at })),
+              ...recoleccionesTienda.map(r=>({ tipo:"recoleccion", id:r.id, r, fecha:diaDe(r.fecha,r.created_at), ts:r.created_at })),
+            ];
+            const cuenta = (t) => eventos.filter(e=>e.tipo===t).length;
+            const filtrados = histFiltro==="todo" ? eventos : eventos.filter(e=>e.tipo===histFiltro);
+            const porDia = {};
+            filtrados.forEach(e=>{ (porDia[e.fecha] = porDia[e.fecha] || []).push(e); });
+            const dias = Object.keys(porDia).sort((a,b)=>b.localeCompare(a));
+            const visibles = dias.slice(0, histDias);
+            const tituloDia = (f) => { const t = new Date(f+"T12:00:00").toLocaleDateString("es-CO",{ weekday:"long", day:"numeric", month:"long" }); const tt = t.charAt(0).toUpperCase()+t.slice(1); return f===todayStr ? `Hoy · ${t}` : tt; };
+            const TIPOS = {
+              apertura:{ ic:"unlock", col:C_DARK.blue, bg:C_DARK.blueDim },
+              cierre:{ ic:"lock", col:C_DARK.goldDark, bg:"rgba(26,59,82,0.08)" },
+              recoleccion:{ ic:"truck", col:C_DARK.green, bg:C_DARK.greenDim },
+            };
+            const chip = (txt, col, bg) => <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"3px 8px", fontFamily:font.body, fontSize:11, fontWeight:700, color:col, background:bg, marginLeft:6, verticalAlign:1 }}>{txt}</span>;
+            const tabla = { apertura:"apertura", cierre:"cierre", recoleccion:"recoleccion" };
+            const fila = (e) => {
+              const key = `${e.tipo}:${e.id}`;
+              const abiertoRecibo = verDetalleId===key;
+              const menuAbierto = histMenu===key;
+              let titulo, sub, monto, montoSub, montoCol = C_DARK.text, estado = null, ic, col, bg;
+              const pend = tabla[e.tipo] ? solicitudPendientePara(tabla[e.tipo], e.id) : null;
+              if(e.tipo==="apertura"){
+                ({ ic, col, bg } = TIPOS.apertura);
+                titulo = `Apertura de turno · ${e.r.asesor_nombre}`;
+                sub = e.r.detalle?.turno ? `Turno ${e.r.detalle.turno}` : "Apertura";
+                const enCaja = e.r.detalle?.totalEnCajaAhora;
+                monto = fmtCOP(enCaja ?? e.r.base_caja); montoSub = enCaja!=null ? `en caja · base ${fmtCOP(e.r.base_caja)}` : "base";
+              } else if(e.tipo==="cierre"){
+                ({ ic, col, bg } = TIPOS.cierre);
+                const rd = resumenDia(e.r.fecha);
+                titulo = `Cierre ${e.r.tipo==="parcial"?"parcial":"definitivo"} · ${e.r.asesor_nombre}`;
+                sub = `Base al cierre ${fmtCOP(e.r.base_caja)}${e.r.novedades?` · ${e.r.novedades}`:""}`;
+                monto = fmtCOP(rd.totalIngresoNeto + rd.totalServicios); montoSub = "total del día";
+              } else if(e.tipo==="recoleccion"){
+                ({ ic, col, bg } = TIPOS.recoleccion);
+                titulo = `Recolección · ${e.r.entrega_nombre} → ${e.r.recibe_nombre}`;
+                sub = [e.r.incluye_hoy && Number(e.r.valor_hoy||0)>0 ? `Incluye ${fmtCOP(e.r.valor_hoy)} de ese mismo día` : null, `queda base ${fmtCOP(e.r.base_caja)}`, e.r.comentarios||null].filter(Boolean).join(" · ");
+                monto = fmtCOP(e.r.valor); montoSub = "recolectado";
+              } else {
+                const ingreso = e.r.tipo==="ingreso";
+                ic = "note"; col = ingreso?C_DARK.green:C_DARK.red; bg = ingreso?C_DARK.greenDim:C_DARK.redDim;
+                titulo = `Novedad · ${e.r.motivo}`;
+                sub = [e.r.registrado_por?`Registró ${e.r.registrado_por}`:null, e.r.autorizado_por?`Autorizó ${e.r.autorizado_por}`:null, e.r.aprobado_por?`Aprobó ${e.r.aprobado_por}`:null].filter(Boolean).join(" · ");
+                monto = `${ingreso?"+":"−"}${fmtCOP(e.r.valor)}`; montoSub = ingreso?"ingreso":"costo"; montoCol = col;
+                if(e.r.estado!=="aprobado") estado = chip("● Pendiente", C_DARK.amber, C_DARK.amberDim);
+              }
+              if(pend) estado = chip("● Borrado solicitado", C_DARK.amber, C_DARK.amberDim);
+              // Acciones del menú ⋯ (mismos permisos de antes).
+              const acciones = [];
+              if(e.tipo!=="novedad") acciones.push({ txt: abiertoRecibo?"Ocultar recibo":"Ver recibo", fn:()=>setVerDetalleId(abiertoRecibo?null:key) });
+              if(e.tipo==="novedad" && puedeTocarGasto(e.r)){
+                acciones.push({ txt:"Editar", fn:()=>empezarEditarGasto(e.r) });
+                acciones.push({ txt:"Borrar", fn:()=>borrarGasto(e.r), rojo:true });
+              }
+              if(e.tipo!=="novedad"){
+                const borrar = { apertura:borrarApertura, cierre:borrarCierre, recoleccion:borrarRecoleccion }[e.tipo];
+                if(puedeBorrarCaja) acciones.push({ txt:"Borrar", fn:()=>borrar(e.r), rojo:true });
+                if(puedeSolicitarBorradoCaja && !pend){
+                  const resumen = e.tipo==="apertura" ? `Apertura ${fmtFechaHora(e.r.created_at)} · ${e.r.asesor_nombre}` : e.tipo==="cierre" ? `Cierre ${fmtFechaHora(e.r.created_at)} · ${e.r.asesor_nombre}` : `Recolección ${fmtFechaHora(e.r.created_at)} · ${e.r.entrega_nombre} → ${e.r.recibe_nombre}`;
+                  acciones.push({ txt:"Solicitar borrado", fn:()=>solicitarBorrado(e.tipo, e.r, resumen), ambar:true });
+                }
+              }
+              const clicFila = () => { if(e.tipo!=="novedad") setVerDetalleId(abiertoRecibo?null:key); };
+              return (
+                <div key={key}>
+                  <div style={{ display:"grid", gridTemplateColumns:isMobile?"34px 1fr auto 28px":"50px 34px 1fr auto 30px", alignItems:"center", gap:isMobile?10:12, padding:"11px 4px", borderBottom:`1px solid ${C_DARK.border}`, background:abiertoRecibo?C_DARK.surfaceAlt:"transparent" }}>
+                    {!isMobile && <span style={{ fontFamily:font.mono, fontSize:12.5, color:C_DARK.textMuted }}>{horaDe(e.ts)}</span>}
+                    <span style={{ width:34, height:34, borderRadius:10, display:"grid", placeItems:"center", background:bg, color:col }}><Icon n={ic} s={17}/></span>
+                    <button type="button" onClick={clicFila} style={{ background:"none", border:"none", padding:0, textAlign:"left", cursor:e.tipo!=="novedad"?"pointer":"default", minWidth:0 }}>
+                      <div style={{ fontFamily:font.body, fontSize:isMobile?13.5:14, fontWeight:700, color:C_DARK.text }}>{titulo}{estado}</div>
+                      <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted, marginTop:3 }}>{isMobile ? `${horaDe(e.ts)}${sub?` · ${sub}`:""}` : sub}</div>
+                    </button>
+                    <div style={{ textAlign:"right" }}>
+                      <b style={{ fontFamily:font.mono, fontSize:isMobile?13:14, color:montoCol, whiteSpace:"nowrap" }}>{monto}</b>
+                      {!isMobile && <div style={{ fontFamily:font.body, fontSize:11.5, color:C_DARK.textMuted, marginTop:2 }}>{montoSub}</div>}
                     </div>
-                    {verDetalleId===`cierre:${c.id}` && <FrozenCajaCard tipo="cierre" registro={c} tiendaColor={tiendaColor} setToastCaptura={setToastCaptura}/>}
+                    <div style={{ position:"relative" }}>
+                      {acciones.length>0 ? (
+                        <button type="button" onClick={()=>setHistMenu(menuAbierto?null:key)} title="Más opciones" style={{ width:30, height:30, borderRadius:8, border:"none", background:menuAbierto?C_DARK.surfaceHover:"transparent", color:C_DARK.textMuted, cursor:"pointer", fontSize:18, lineHeight:1 }}>⋯</button>
+                      ) : <span/>}
+                      <MenuFlotante abierto={menuAbierto} onCerrar={()=>setHistMenu(null)} width={210} top={34}>
+                        {acciones.map((a,i)=>(
+                          <MenuItem key={i} onClick={()=>{ setHistMenu(null); a.fn(); }} color={a.rojo?C_DARK.red:a.ambar?C_DARK.amber:undefined}>{a.txt}</MenuItem>
+                        ))}
+                      </MenuFlotante>
+                    </div>
                   </div>
-                );
-              })}
-              {cierresTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted, padding:4 }}>Sin registros todavía.</div>}
-            </div>
-          </CajaCard>
-
-          <CajaCard icon="🚚" titulo="Historial de recolección" color={tiendaColor}>
-            <div style={{ display:"flex", flexDirection:"column" }}>
-              {recoleccionesTienda.slice(0,30).map(r=>(
-                <div key={r.id}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:4, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"3px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
-                    <button onClick={()=>setVerDetalleId(id=>id===`recoleccion:${r.id}`?null:`recoleccion:${r.id}`)} style={{ background:"none", border:"none", color:C_DARK.text, cursor:"pointer", fontFamily:font.body, fontSize:11.5, textAlign:"left", padding:0 }}>👁 {fmtFechaHora(r.created_at)} · {r.entrega_nombre} → {r.recibe_nombre}{r.comentarios?` · ${r.comentarios}`:""}{r.incluye_hoy && Number(r.valor_hoy||0)>0 ? ` · incluye ${fmtCOP(r.valor_hoy)} de ese mismo día` : ""}</button>
-                    <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                      <span style={{ fontFamily:font.mono }}>{fmtCOP(r.valor)} <span style={{ color:C_DARK.textMuted }}>(queda base {fmtCOP(r.base_caja)})</span></span>
-                      {puedeBorrarCaja && <button onClick={()=>borrarRecoleccion(r)} title="Borrar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
-                      {puedeSolicitarBorradoCaja && (solicitudPendientePara("recoleccion",r.id) ? <span style={{ color:C_DARK.amber, fontSize:10 }}>Pendiente de aprobación</span> : <button onClick={()=>solicitarBorrado("recoleccion",r,`Recolección ${fmtFechaHora(r.created_at)} · ${r.entrega_nombre} → ${r.recibe_nombre}`)} title="Solicitar borrado" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.amber, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Solicitar borrado</button>)}
-                    </span>
-                  </div>
-                  {verDetalleId===`recoleccion:${r.id}` && <FrozenCajaCard tipo="recoleccion" registro={r} tiendaColor={tiendaColor} setToastCaptura={setToastCaptura}/>}
-                </div>
-              ))}
-              {recoleccionesTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted, padding:4 }}>Sin registros todavía.</div>}
-            </div>
-          </CajaCard>
-
-          <CajaCard icon="🗒️" titulo="Historial de novedades" color={tiendaColor}>
-            <div style={{ fontFamily:font.body, fontSize:11, color:C_DARK.textMuted, marginBottom:4 }}>La tienda puede editar/borrar solo las de hoy — master y admin de finanzas, cualquier día.</div>
-            <div style={{ display:"flex", flexDirection:"column" }}>
-              {gastosTienda.slice(0,30).map(g=>(
-                <div key={g.id} style={{ display:"flex", flexDirection:"column", gap:3, fontFamily:font.body, fontSize:11.5, color:C_DARK.text, padding:"4px 2px", borderBottom:`1px solid ${C_DARK.border}` }}>
-                  {gastoEditandoId===g.id ? (
-                    <div style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"center" }}>
+                  {e.tipo==="novedad" && gastoEditandoId===e.r.id && (
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"center", padding:"10px 4px", borderBottom:`1px solid ${C_DARK.border}`, background:C_DARK.surfaceAlt }}>
                       <CajaFieldRow compact label="Tipo" value={geTipo} onChange={setGeTipo} options={[{value:"costo",label:"Costo"},{value:"ingreso",label:"Ingreso"}]}/>
                       <CajaMoneyRow compact label="Valor" value={geValor} onChange={setGeValor}/>
                       <CajaFieldRow compact wide label="Motivo" value={geMotivo} onChange={setGeMotivo}/>
                       <CajaFieldRow compact label="Quién autorizó" value={geAutorizoLiderId} onChange={setGeAutorizoLiderId} options={[{value:"",label:"Selecciona un líder..."}, ...lideresActivos.map(l=>({value:l.id,label:l.nombre}))]}/>
-                      <span style={{ display:"flex", gap:6 }}>
-                        <button onClick={()=>guardarEdicionGasto(g)} style={{ background:"none", border:`1px solid ${C_DARK.green}`, borderRadius:5, color:C_DARK.green, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Guardar</button>
-                        <button onClick={cancelarEditarGasto} style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.textMuted, cursor:"pointer", fontSize:10, padding:"2px 8px" }}>Cancelar</button>
-                      </span>
-                    </div>
-                  ) : (
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6 }}>
-                      <span>
-                        {g.fecha ? new Date(g.fecha+"T00:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"}) : "—"} · {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C_DARK.amber }}> · pendiente</span>}
-                        <span style={{ display:"block", fontSize:10, color:C_DARK.textMuted, marginTop:1 }}>
-                          {[g.registrado_por?`Registró: ${g.registrado_por}`:null, g.autorizado_por?`Autorizó: ${g.autorizado_por}`:null, g.aprobado_por?`Aprobó: ${g.aprobado_por}`:null].filter(Boolean).join(" · ")}
-                        </span>
-                      </span>
-                      <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <span style={{ fontFamily:font.mono, color:g.tipo==="ingreso"?C_DARK.green:C_DARK.red }}>{g.tipo==="ingreso"?"+":"−"}{fmtCOP(g.valor)}</span>
-                        {puedeTocarGasto(g) && <button onClick={()=>empezarEditarGasto(g)} title="Editar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.goldLight, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Editar</button>}
-                        {puedeTocarGasto(g) && <button onClick={()=>borrarGasto(g)} title="Borrar" style={{ background:"none", border:`1px solid ${C_DARK.border}`, borderRadius:5, color:C_DARK.red, cursor:"pointer", fontSize:10, padding:"2px 6px" }}>Borrar</button>}
+                      <span style={{ display:"flex", gap:6, marginLeft:"auto" }}>
+                        <Btn onClick={cancelarEditarGasto} variant="ghost" sm>Cancelar</Btn>
+                        <Btn onClick={()=>guardarEdicionGasto(e.r)} sm>Guardar</Btn>
                       </span>
                     </div>
                   )}
+                  {abiertoRecibo && <div style={{ padding:isMobile?"8px 0 6px":"8px 0 6px 96px", maxWidth:isMobile?"100%":520 }}><FrozenCajaCard tipo={e.tipo} registro={e.r} tiendaColor={tiendaColor} setToastCaptura={setToastCaptura}/></div>}
                 </div>
-              ))}
-              {gastosTienda.length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C_DARK.textMuted, padding:4 }}>Sin novedades registradas.</div>}
-            </div>
-          </CajaCard>
+              );
+            };
+            const pestanas = [["todo","Todo",eventos.length],["apertura","Aperturas",cuenta("apertura")],["cierre","Cierres",cuenta("cierre")],["recoleccion","Recolecciones",cuenta("recoleccion")],["novedad","Novedades",cuenta("novedad")]];
+            return (
+              <div style={{ background:"#fff", border:`1px solid ${C_DARK.border}`, borderRadius:16, padding:isMobile?"14px 14px":"20px 22px" }}>
+                <div style={{ display:"flex", gap:6, flexWrap:isMobile?"nowrap":"wrap", overflowX:isMobile?"auto":"visible", marginBottom:16, paddingBottom:isMobile?4:0 }}>
+                  {pestanas.map(([id,txt,n])=>{ const on = histFiltro===id; return (
+                    <button key={id} type="button" onClick={()=>{ setHistFiltro(id); setHistDias(7); }} style={{ display:"inline-flex", alignItems:"center", gap:7, height:34, padding:"0 13px", borderRadius:99, border:`1px solid ${on?C_DARK.goldDark:C_DARK.border}`, background:on?C_DARK.goldDark:"#fff", color:on?C.tinta:C_DARK.textSub, fontFamily:font.body, fontSize:13, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap", flexShrink:0 }}>{txt}<span style={{ fontFamily:font.mono, fontSize:11, opacity:0.75 }}>{n}</span></button>
+                  ); })}
+                </div>
+                {histFiltro==="novedad" && <div style={{ fontFamily:font.body, fontSize:11.5, color:C_DARK.textMuted, marginBottom:10 }}>La tienda puede editar/borrar solo las de hoy — master y admin de finanzas, cualquier día.</div>}
+                {visibles.map(f=>{
+                  const evs = porDia[f].sort((a,b)=> new Date(b.ts)-new Date(a.ts));
+                  const tieneCierre = cierresTienda.some(c=>c.fecha===f);
+                  const rd = tieneCierre ? resumenDia(f) : null;
+                  return (
+                    <div key={f} style={{ marginBottom:18 }}>
+                      <div style={{ display:"flex", alignItems:"baseline", gap:12, flexWrap:"wrap", padding:"0 4px 8px", borderBottom:`1.5px solid ${C_DARK.goldDark}`, marginBottom:2 }}>
+                        <b style={{ fontFamily:font.body, fontSize:15, color:C_DARK.text }}>{tituloDia(f)}</b>
+                        <span style={{ marginLeft:isMobile?0:"auto", fontFamily:font.body, fontSize:12.5, color:C_DARK.textMuted }}>
+                          {rd ? <>{!isMobile && <>Ventas <span style={{ fontFamily:font.mono }}>{fmtCOP(rd.totalIngresoNeto)}</span> · Servicios <span style={{ fontFamily:font.mono }}>{fmtCOP(rd.totalServicios)}</span> · </>}<b style={{ fontFamily:font.mono, color:C_DARK.text }}>Total {fmtCOP(rd.totalIngresoNeto + rd.totalServicios)}</b>{rd.totalNotaCreditoDia>0 && <span style={{ color:C_DARK.amber }}> · Notacrédito {fmtCOP(rd.totalNotaCreditoDia)}</span>}</> : f===todayStr ? "Caja abierta · aún sin cierre" : ""}
+                        </span>
+                      </div>
+                      {evs.map(fila)}
+                    </div>
+                  );
+                })}
+                {dias.length===0 && <div style={{ fontFamily:font.body, fontSize:13, color:C_DARK.textMuted, textAlign:"center", padding:20 }}>Sin registros todavía.</div>}
+                {dias.length>histDias && <div style={{ textAlign:"center", paddingTop:4 }}><Btn onClick={()=>setHistDias(n=>n+7)} variant="ghost" sm>Ver días anteriores ▾</Btn></div>}
+              </div>
+            );
+          })()}
         </>
       )}
       </div>
