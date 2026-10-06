@@ -539,15 +539,16 @@ const Field = ({ label, value, onChange, type="text", placeholder, options, disa
 // explicaciones cortas (IDC, MDA) o avisos largos (términos del Flexipago) sin ocupar espacio fijo.
 // clickOnly: en algunos dispositivos el hover titila o la nube sale cortada — con clickOnly
 // se abre/cierra solo al dar clic, sin depender del hover.
-const HoverTooltip = ({ label, labelStyle={}, width=280, align="left", clickOnly=false, children }) => {
+const HoverTooltip = ({ label, labelStyle={}, width=280, align="left", clickOnly=false, bloque=false, children }) => {
   const [show, setShow] = useState(false);
+  // `bloque`: el disparador ocupa todo el ancho disponible (para filas que deben estirarse).
   return (
-    <span style={{ position:"relative", display:"inline-block" }}>
+    <span style={{ position:"relative", display:bloque?"block":"inline-block" }}>
       <span
         onMouseEnter={clickOnly?undefined:()=>setShow(true)}
         onMouseLeave={clickOnly?undefined:()=>setShow(false)}
         onClick={()=>setShow(s=>!s)}
-        style={{ textDecoration:"underline dotted", textUnderlineOffset:3, cursor:"help", fontFamily:font.body, ...labelStyle }}
+        style={{ textDecoration:"underline dotted", textUnderlineOffset:3, cursor:"help", fontFamily:font.body, ...(bloque?{ display:"block" }:{}), ...labelStyle }}
       >{label}</span>
       {show && clickOnly && (
         // En clickOnly, además de volver a tocar el mismo ⓘ, dar clic en cualquier otra parte de
@@ -988,11 +989,44 @@ function SelectorTienda({ stores, tiendaId, setTiendaId, fija, compact }) {
   );
 }
 
+// Menús que se deslizan de lado en el celular: al entrar, se mueven solos hacia la derecha y
+// vuelven, para que se note que hay más opciones escondidas (pedido de Santiago). Se repite un
+// par de veces mientras nadie lo toque; en cuanto la persona lo toca, deja de moverse. Si todo
+// cabe en la pantalla, no hace nada.
+function useAvisoDeslizar(ref, activo=true){
+  useEffect(()=>{
+    const el = ref.current;
+    if(!activo || !el) return;
+    let tocado = false, veces = 0, timers = [];
+    const parar = () => { tocado = true; timers.forEach(clearTimeout); };
+    el.addEventListener("touchstart", parar, { passive:true });
+    el.addEventListener("pointerdown", parar);
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const mover = () => {
+      if(tocado || veces>=3) return;
+      const extra = el.scrollWidth - el.clientWidth;
+      if(extra < 8) return;
+      veces++;
+      const inicio = el.scrollLeft;
+      el.scrollTo({ left: inicio + Math.min(extra, 140), behavior: reduce ? "auto" : "smooth" });
+      timers.push(setTimeout(()=>{ if(!tocado) el.scrollTo({ left: inicio, behavior: reduce ? "auto" : "smooth" }); }, 900));
+      timers.push(setTimeout(mover, 9000));
+    };
+    timers.push(setTimeout(mover, 1200));
+    return () => { parar(); el.removeEventListener("touchstart", parar); el.removeEventListener("pointerdown", parar); };
+  }, [ref, activo]);
+}
+
 function SelectorArea({ user, area, onChooseArea, compact }) {
+  // En celular cada botón mide lo que mide su texto (no repartidos en partes iguales) y la fila se
+  // desliza de lado, con el aviso de movimiento de arriba. El botón activo queda siempre a la vista.
+  const fila = useRef(null);
+  useAvisoDeslizar(fila, !!compact);
+  useEffect(()=>{ if(!compact || !fila.current) return; const on = fila.current.querySelector("[data-activo='1']"); on && on.scrollIntoView({ inline:"nearest", block:"nearest" }); }, [area, compact]);
   return (
-    <div style={{ display:"flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, ...(compact?{ width:"100%" }:{}) }}>
+    <div ref={fila} className={compact?"ozen-sin-barra":undefined} style={{ display:"flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, ...(compact?{ width:"100%", overflowX:"auto", scrollbarWidth:"none", WebkitOverflowScrolling:"touch", boxSizing:"border-box" }:{}) }}>
       {areasPara(user).map(a=>{ const on=a.id===area; return (
-        <button key={a.id} onClick={()=>!on && onChooseArea(a.id)} className="ozen-area-btn" style={{ flex:compact?1:undefined, display:"flex", alignItems:"center", justifyContent:"center", gap:7, padding:compact?"7px 4px":"8px 16px", borderRadius:99, border:"none", cursor:on?"default":"pointer", background:on?C.goldDark:"transparent", color:on?"#fff":C.textSub, fontFamily:font.body, fontSize:compact?11.5:13, fontWeight:on?600:500, transition:"background .25s ease, color .25s ease", whiteSpace:"nowrap" }}>
+        <button key={a.id} data-activo={on?"1":"0"} onClick={()=>!on && onChooseArea(a.id)} className="ozen-area-btn" style={{ flex:compact?"0 0 auto":undefined, whiteSpace:"nowrap", display:"flex", alignItems:"center", justifyContent:"center", gap:7, padding:compact?"7px 14px":"8px 16px", borderRadius:99, border:"none", cursor:on?"default":"pointer", background:on?C.goldDark:"transparent", color:on?"#fff":C.textSub, fontFamily:font.body, fontSize:compact?11.5:13, fontWeight:on?600:500, transition:"background .25s ease, color .25s ease", whiteSpace:"nowrap" }}>
           {!compact && <Icon n={a.ic} s={15}/>}{compact ? (a.corto||a.label) : a.label}
         </button>
       ); })}
@@ -6361,7 +6395,7 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
     {vueloBats>0 && <VueloMurcielagos key={vueloBats}/>}
     <div>
       {/* Encabezado: título + tienda/fecha, y la campana de Flexipagos por recordar. */}
-      <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12, marginBottom:18 }}>
+      <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:18 }}>
         <div>
           <h1 style={{ margin:0, fontFamily:font.body, fontSize:isMobile?22:26, fontWeight:700, color:C.text }}>Registrar venta</h1>
           <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:4, display:"flex", alignItems:"center", gap:8 }}>
@@ -6370,9 +6404,9 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
         </div>
         {/* Burbuja de progreso de hoy (la misma de Lista de ventas y Métricas) en vez de la franja
             grande de metas — pedido de Santiago. */}
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:10, width:isMobile?"100%":"50%" }}>
           {bellButton}
-          <MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>
+          <MetaHoyCompetencia llenar stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>
         </div>
       </div>
 
@@ -6903,7 +6937,7 @@ const MetaHoyFranja = ({ stores, tiendaIdActual, fecha, ventas, ventasItems, ven
 };
 
 const LIMITE_PODIO = 3;
-const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile }) => {
+const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile, llenar }) => {
   // Master/admin finanzas pueden cambiar la fecha en Registrar venta para trabajar sobre un día
   // distinto a hoy — la burbuja sigue esa fecha (si se pasa) en vez de quedarse pegada en "hoy" y
   // mostrar todo en cero. Lista/Métricas no pasan `fecha`, así que ahí sigue siendo siempre hoy.
@@ -6940,6 +6974,7 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
     return (
       <HoverTooltip
         clickOnly
+        bloque
         align="right"
         width={220}
         label={
@@ -6947,7 +6982,7 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
           // <span style="display:inline-block"> de HoverTooltip, y ahí un flex:1 no siempre
           // se estira de verdad (por eso la barra quedaba minúscula pese a subir las fuentes).
           // Con anchos fijos el tamaño total queda garantizado sin depender de esa cadena.
-          <div style={{ display:"flex", alignItems:"center", gap:9, width:isMobile?328:320, cursor:"pointer" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, width:"100%", cursor:"pointer" }}>
             <span style={{ width:20, textAlign:"center", fontSize:14, flexShrink:0, lineHeight:1 }}>{idxReal===0?"🥇":idxReal===1?"🥈":idxReal===2?"🥉":`${idxReal+1}.`}</span>
             <span style={{
               width:isMobile?76:96, flexShrink:0, fontFamily:font.body, fontSize:13, lineHeight:1.2,
@@ -6957,7 +6992,7 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
             {/* En celular la barra crece (110→150) para aprovechar el ancho completo de la burbuja
                 (100% de la pantalla) en vez de dejar un hueco vacío a la derecha — en escritorio
                 la burbuja es una tarjeta angosta de tamaño fijo, así que ahí se deja igual. */}
-            <BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={colorTienda(x.tienda)} solido width={isMobile?150:130} height={13}/>
+            <span style={{ flex:1, minWidth:40, display:"flex" }}><BarraCumplimiento pctRaw={pctRaw} escalaMax={escalaMax} color={colorTienda(x.tienda)} solido width="100%" height={13}/></span>
             <span style={{ width:48, textAlign:"right", flexShrink:0, fontFamily:font.mono, fontSize:14, lineHeight:1, fontWeight:700, color:etapaColor }}>{pct}%</span>
           </div>
         }
@@ -6980,7 +7015,9 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
     <div style={{
       display:"flex", flexDirection:"column", gap:7,
       background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:12, padding:"11px 16px",
-      width: isMobile?"100%":352, boxSizing:"border-box", flexShrink:0,
+      // Burbuja hasta la mitad de la pantalla (pedido de Santiago), y las filas se estiran a su
+      // ancho — así no queda espacio vacío a la derecha. En celular, todo el ancho.
+      width: (isMobile||llenar)?"100%":"50%", minWidth:isMobile?0:340, boxSizing:"border-box", flexShrink:llenar?1:0,
     }}>
       {filas.map(({x,idxReal},i)=>(
         <Fragment key={x.tienda.id}>
@@ -7037,12 +7074,17 @@ const EstadoIDC = ({ idc, conValor }) => {
 // Escala común de las barras de cumplimiento: el 100 % queda siempre en el mismo punto (la raya
 // "meta") y la barra de quien va más adelante no se sale aunque pase del 100 %.
 const escalaCumplimiento = (lista) => Math.min(150, Math.max(100, ...lista.map(d=>d.idc||0)) * 1.12); // tope: si alguien va muy por encima, su barra llena todo y la raya de meta no se pierde al inicio
-const BarraConMeta = ({ idc, escala, color, alto=10, etiqueta }) => (
-  <div style={{ position:"relative", height:alto, background:C.surfaceHover, borderRadius:99, marginBottom:etiqueta?16:0 }}>
+const BarraConMeta = ({ idc, escala, color, alto=10, etiqueta, esperado }) => (
+  <div style={{ position:"relative", height:alto, background:C.surfaceHover, borderRadius:99, marginBottom:etiqueta?24:0 }}>
     <div style={{ position:"absolute", left:0, top:0, bottom:0, width:`${Math.min(100, Math.max(0, (idc||0)/escala*100))}%`, background:color, borderRadius:99, transition:"width .6s cubic-bezier(.3,.7,.4,1)" }}/>
     <div style={{ position:"absolute", left:`${100/escala*100}%`, top:-4, bottom:-4, width:2, marginLeft:-1, background:C.goldDark, borderRadius:2 }}>
       {etiqueta && <span style={{ position:"absolute", top:alto+10, left:"50%", transform:"translateX(-50%)", fontFamily:font.body, fontSize:9.5, color:C.textMuted }}>meta</span>}
     </div>
+    {esperado!=null && esperado<100 && (
+      <div style={{ position:"absolute", left:`${Math.min(100,esperado/escala*100)}%`, top:-4, bottom:-4, width:2.5, marginLeft:-1, background:C.amber, borderRadius:2 }}>
+        {etiqueta && <span style={{ position:"absolute", top:alto+10, left:"50%", transform:"translateX(-50%)", fontFamily:font.body, fontSize:9.5, fontWeight:700, color:C.amber, whiteSpace:"nowrap" }}>hoy</span>}
+      </div>
+    )}
   </div>
 );
 const fechaCortaDia = (f, sinMes) => { const t = new Date(f+"T12:00:00").toLocaleDateString("es-CO", sinMes ? {weekday:"short",day:"numeric"} : {weekday:"short",day:"numeric",month:"short"}); return t.charAt(0).toUpperCase()+t.slice(1); };
@@ -7094,6 +7136,9 @@ function GraficaVentasDia({ porDia, anio, mesIdx, totalDias, diaHoy, metasDia, i
     </div>
   );
 }
+// Administrativos que NO entran al "Equipo admin" del Top de asesores aunque tengan rol de admin.
+const FUERA_DE_EQUIPO_ADMIN = ["paolo"];
+const primerNombreNorm = (n) => (n||"").trim().split(/\s+/)[0].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
 const thMet = { padding:"0 10px 10px", fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap" };
 const tdMet = { padding:"11px 10px", borderBottom:`1px solid ${C.border}` };
 
@@ -7454,13 +7499,16 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   // separado tenía una meta chiquita y siempre quedaba de primero en el ranking, lo que no era
   // justo con los asesores de planta (pedido de la Junta). En "Ventas por asesor" siguen
   // apareciendo uno por uno.
-  const miembrosEquipoAdmin = dataAsesoresTodasTiendas.filter(d=>ROLES_ADMIN_VENDEDOR.includes(d.asesor.role) && d.meta>0);
+  // Paolo (líder comercial) tiene rol administrativo pero su meta es de asesor normal, así que
+  // compite solo, no dentro del equipo. Se compara por el primer nombre sin tildes.
+  const enEquipoAdmin = (a) => ROLES_ADMIN_VENDEDOR.includes(a.role) && !FUERA_DE_EQUIPO_ADMIN.includes(primerNombreNorm(a.name));
+  const miembrosEquipoAdmin = dataAsesoresTodasTiendas.filter(d=>enEquipoAdmin(d.asesor) && d.meta>0);
   const equipoAdmin = miembrosEquipoAdmin.length>0 ? (() => {
     const venta = miembrosEquipoAdmin.reduce((s,d)=>s+d.sinServicios,0);
     const meta = miembrosEquipoAdmin.reduce((s,d)=>s+d.meta,0);
     return { asesor:{ id:"__equipo_admin__", name:"Equipo admin" }, esEquipo:true, miembros:miembrosEquipoAdmin, sinServicios:venta, meta, idc: meta>0 ? Math.round(venta/meta*1000)/10 : null };
   })() : null;
-  const rankingTodasTiendas = [...dataAsesoresTodasTiendas.filter(d=>!ROLES_ADMIN_VENDEDOR.includes(d.asesor.role)), ...(equipoAdmin?[equipoAdmin]:[])].filter(d=>d.idc!==null).sort((a,b)=>b.idc-a.idc);
+  const rankingTodasTiendas = [...dataAsesoresTodasTiendas.filter(d=>!enEquipoAdmin(d.asesor)), ...(equipoAdmin?[equipoAdmin]:[])].filter(d=>d.idc!==null).sort((a,b)=>b.idc-a.idc);
 
   const dataTiendas = tiendasList.map(t=>{
     const ventasTienda = ventas.filter(v => v.fecha && v.fecha.slice(0,7)===mesKey && v.tienda_id===t.id);
@@ -7471,7 +7519,15 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     const sinServicios = sinServiciosProducto + sinServiciosFlexipago;
     const meta = metaTiendaValor(t.id,"total");
     const idc = meta>0 ? Math.round((sinServicios/meta)*1000)/10 : null;
-    return { tienda:t, sinServicios, meta, idc };
+    // Cuánto DEBERÍA llevar a hoy: la meta acumulada del día 1 a hoy (con las metas por día si las
+    // hay; si no, meta del mes ÷ días × días corridos) sobre la meta del mes.
+    const vd = metaTiendaValoresDia(t.id);
+    const usaDias = Object.values(vd).some(v=>Number(v||0)>0);
+    const diasCorridos = esMesActual ? hoy.getDate() : diasTotalesMes;
+    let metaHastaHoy = 0;
+    if(usaDias){ for(let dn=1; dn<=diasCorridos; dn++) metaHastaHoy += Number(vd[dn]||0); } else metaHastaHoy = meta/diasTotalesMes*diasCorridos;
+    const esperado = meta>0 ? Math.round(metaHastaHoy/meta*1000)/10 : null;
+    return { tienda:t, sinServicios, meta, idc, esperado, metaHastaHoy:Math.round(metaHastaHoy) };
   });
   const rankingTiendas = [...dataTiendas].filter(d=>d.idc!==null).sort((a,b)=>b.idc-a.idc);
 
@@ -7588,7 +7644,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
         </div>
       </div>
 
-      <SeccionVenta icon="store" titulo="Top tiendas por cumplimiento" derecha={!isMobile && "IDC del mes · la raya marca el 100 % de la meta"}>
+      <SeccionVenta icon="store" titulo="Top tiendas por cumplimiento" >
         {rankingTiendas.length>0 ? (() => { const esc = escalaCumplimiento(rankingTiendas); return (
           <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":`repeat(${Math.min(rankingTiendas.length,3)}, minmax(0,1fr))`, gap:14 }}>
             {rankingTiendas.map((d,idx)=>{ const col = colorTienda(d.tienda); const faltan = Math.max(0, d.meta-d.sinServicios); return (
@@ -7597,9 +7653,18 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                 <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontWeight:700, fontSize:16, color:C.text, margin:"4px 0 10px" }}><PuntoTienda color={col}/>{nombreTiendaCorto(d.tienda)}</div>
                 <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:8 }}>
                   <span style={{ fontFamily:font.mono, fontSize:isMobile?32:38, fontWeight:600, lineHeight:1, color:C.text }}>{d.idc}%</span>
-                  <EstadoIDC idc={d.idc}/>
+                  {esMesActual && d.esperado!=null && d.idc<100 ? (d.idc>=d.esperado
+                    ? <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.green, background:C.greenDim }}><Icon n="check" s={12} sw={2.4}/>Al día</span>
+                    : <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.red, background:C.redDim }}><span style={{ fontSize:9 }}>▼</span>Atrasada</span>
+                  ) : <EstadoIDC idc={d.idc}/>}
                 </div>
-                <div style={{ margin:"14px 0 6px" }}><BarraConMeta idc={d.idc} escala={esc} color={col||C.gold} etiqueta/></div>
+                <div style={{ margin:"14px 0 6px" }}><BarraConMeta idc={d.idc} escala={esc} color={col||C.gold} etiqueta esperado={esMesActual?d.esperado:null}/></div>
+                {esMesActual && d.esperado!=null && (() => { const dif = Math.round((d.idc - d.esperado)*10)/10; return (
+                  <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:8, flexWrap:"wrap", fontFamily:font.body, fontSize:12.5, color:C.textMuted, margin:"2px 0 8px" }}>
+                    <span>Debería llevar <b style={{ fontFamily:font.mono, color:C.amber }}>{d.esperado}%</b></span>
+                    <b style={{ color: dif>=0 ? C.green : C.red }}>{dif>=0 ? `▲ ${dif} pts adelante` : `▼ ${Math.abs(dif)} pts atrás`}</b>
+                  </div>
+                ); })()}
                 <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(d.sinServicios)}</span> de <span style={{ fontFamily:font.mono }}>{fmtCOP(d.meta)}</span></div>
                 <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginTop:3 }}>{faltan>0 ? <>Faltan <b style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(faltan)}</b></> : <b style={{ color:C.green }}>Meta cumplida</b>}</div>
               </div>
@@ -7716,7 +7781,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
       </SeccionVenta>
       </>)}
 
-      <SeccionVenta icon="cal" titulo={`Ventas por día — ${tiendaSel ? nombreTiendaCorto(stores[tiendaSel]) : "Todas las tiendas"}`} derecha={!isMobile && `${MESES_NOMBRE[mesIdx]} · pasa el mouse o toca una barra`}>
+      <SeccionVenta icon="cal" titulo={`Ventas por día — ${tiendaSel ? nombreTiendaCorto(stores[tiendaSel]) : "Todas las tiendas"}`}>
         {(() => {
           // Meta de cada día: si la tienda tiene metas por día se usa la de ese día; si no, la meta
           // del mes ÷ días del mes. Con "Todas las tiendas" se suman las tiendas.
@@ -10619,6 +10684,7 @@ export default function App() {
       @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
       }
+      .ozen-sin-barra::-webkit-scrollbar { display:none; }
       @keyframes ozenBatFlota { 0%,100% { transform:translateY(0) rotate(-6deg); } 50% { transform:translateY(-3px) rotate(4deg); } }
       .ozen-bat-flota { animation: ozenBatFlota 3.2s ease-in-out infinite; }
       .ozen-bat-flota-2 { animation-duration: 2.6s; animation-delay: -1.1s; }
