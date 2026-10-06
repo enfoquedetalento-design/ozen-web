@@ -7126,6 +7126,8 @@ function GraficaVentasDia({ porDia, anio, mesIdx, totalDias, diaHoy, metasDia, i
 }
 // Administrativos que NO entran al "Equipo admin" del Top de asesores aunque tengan rol de admin.
 const FUERA_DE_EQUIPO_ADMIN = ["paolo"];
+// Cuántas personas del Equipo admin quedan asignadas al mismo turno (cubren de a dos, pero vende uno).
+const PERSONAS_POR_TURNO_EQUIPO_ADMIN = 2;
 const primerNombreNorm = (n) => (n||"").trim().split(/\s+/)[0].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
 const thMet = { padding:"0 10px 10px", fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap" };
 const tdMet = { padding:"11px 10px", borderBottom:`1px solid ${C.border}` };
@@ -7493,8 +7495,12 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const miembrosEquipoAdmin = dataAsesoresTodasTiendas.filter(d=>enEquipoAdmin(d.asesor) && d.meta>0);
   const equipoAdmin = miembrosEquipoAdmin.length>0 ? (() => {
     const venta = miembrosEquipoAdmin.reduce((s,d)=>s+d.sinServicios,0);
-    const meta = miembrosEquipoAdmin.reduce((s,d)=>s+d.meta,0);
-    return { asesor:{ id:"__equipo_admin__", name:"Equipo admin" }, esEquipo:true, miembros:miembrosEquipoAdmin, sinServicios:venta, meta, idc: meta>0 ? Math.round(venta/meta*1000)/10 : null };
+    // En Turnos quedan asignados DE A DOS en el mismo turno, pero en realidad solo uno lo cubre — así
+    // que la suma de sus metas cuenta cada turno dos veces. La meta real del equipo es esa suma
+    // dividida entre las personas por turno (ver PERSONAS_POR_TURNO_EQUIPO_ADMIN).
+    const metaSumada = miembrosEquipoAdmin.reduce((s,d)=>s+d.meta,0);
+    const meta = Math.round(metaSumada / PERSONAS_POR_TURNO_EQUIPO_ADMIN);
+    return { asesor:{ id:"__equipo_admin__", name:"Equipo admin" }, esEquipo:true, miembros:miembrosEquipoAdmin, sinServicios:venta, meta, metaSumada, idc: meta>0 ? Math.round(venta/meta*1000)/10 : null };
   })() : null;
   const rankingTodasTiendas = [...dataAsesoresTodasTiendas.filter(d=>!enEquipoAdmin(d.asesor)), ...(equipoAdmin?[equipoAdmin]:[])].filter(d=>d.idc!==null).sort((a,b)=>b.idc-a.idc);
 
@@ -7678,9 +7684,13 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                       <span>{m.asesor.name}</span><span style={{ fontFamily:font.mono }}>{fmtCOP(m.sinServicios)} / {fmtCOP(m.meta)}</span>
                     </div>
                   ))}
-                  <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.text, marginTop:6, paddingTop:6, borderTop:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between" }}>
-                    <span>Total</span><span style={{ fontFamily:font.mono }}>{fmtCOP(d.sinServicios)} / {fmtCOP(d.meta)}</span>
+                  <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:6, paddingTop:6, borderTop:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between" }}>
+                    <span>Suma</span><span style={{ fontFamily:font.mono }}>{fmtCOP(d.sinServicios)} / {fmtCOP(d.metaSumada)}</span>
                   </div>
+                  <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.text, marginTop:4, display:"flex", justifyContent:"space-between" }}>
+                    <span>Meta del equipo (÷ {PERSONAS_POR_TURNO_EQUIPO_ADMIN})</span><span style={{ fontFamily:font.mono }}>{fmtCOP(d.sinServicios)} / {fmtCOP(d.meta)}</span>
+                  </div>
+                  <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:4, lineHeight:1.4 }}>En Turnos quedan de a {PERSONAS_POR_TURNO_EQUIPO_ADMIN} por turno, pero solo uno lo cubre — por eso la meta del equipo es la suma ÷ {PERSONAS_POR_TURNO_EQUIPO_ADMIN}.</div>
                 </HoverTooltip>
               ) : !exp.sinDatos && (
                 <HoverTooltip label="ⓘ" labelStyle={{ fontSize:12, color:C.textMuted, flexShrink:0 }} width={300} clickOnly>
