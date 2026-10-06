@@ -6368,10 +6368,13 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
             <PuntoTienda color={colorTienda(tiendaActual)} size={8}/>{nombreTiendaCorto(tiendaActual)} · {esHoyVenta ? "hoy" : fecha}
           </div>
         </div>
-        {bellButton}
+        {/* Burbuja de progreso de hoy (la misma de Lista de ventas y Métricas) en vez de la franja
+            grande de metas — pedido de Santiago. */}
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          {bellButton}
+          <MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>
+        </div>
       </div>
-
-      <MetaHoyFranja stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>
 
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(0,1fr) 390px", gap:22, alignItems:"start" }}>
         <Card p={isMobile?"18px":"22px"}>
@@ -7043,48 +7046,49 @@ const BarraConMeta = ({ idc, escala, color, alto=10, etiqueta }) => (
   </div>
 );
 const fechaCortaDia = (f, sinMes) => { const t = new Date(f+"T12:00:00").toLocaleDateString("es-CO", sinMes ? {weekday:"short",day:"numeric"} : {weekday:"short",day:"numeric",month:"short"}); return t.charAt(0).toUpperCase()+t.slice(1); };
-const fmtCompacto = (v) => Math.abs(v)>=1e6 ? `$${(v/1e6).toLocaleString("es-CO",{maximumFractionDigits:1})}M` : `$${Math.round(v/1000).toLocaleString("es-CO")}K`;
-// Ventas por día como barras (una por día del mes, en orden del 1 al último). Hoy va más oscuro,
-// los días que faltan quedan vacíos y una línea punteada marca la meta diaria (meta del mes ÷ días).
-// Al pasar el mouse o tocar una barra sale el detalle de ese día.
-function GraficaVentasDia({ porDia, anio, mesIdx, totalDias, diaHoy, metaDiaria, isMobile }) {
+// Ventas por día como barras (una por día del mes, del 1 al último). Hoy va más oscuro, los días
+// que faltan quedan vacíos y sobre cada barra una rayita ámbar marca la META DE ESE DÍA (la que
+// se puso por día, o meta del mes ÷ días). Al pasar el mouse o tocar una barra sale el detalle.
+// Todos los valores en pesos completos (nada de "2,2M" — pedido de Santiago).
+function GraficaVentasDia({ porDia, anio, mesIdx, totalDias, diaHoy, metasDia, isMobile }) {
   const [sel, setSel] = useState(null);
-  const dias = Array.from({ length:totalDias }, (_,i)=>{ const f=`${anio}-${String(mesIdx+1).padStart(2,"0")}-${String(i+1).padStart(2,"0")}`; return { dia:i+1, fecha:f, d:porDia[f]||null }; });
-  const maxV = Math.max(1, metaDiaria||0, ...dias.map(x=>x.d?.sin||0)) * 1.1;
+  const dias = Array.from({ length:totalDias }, (_,i)=>{ const f=`${anio}-${String(mesIdx+1).padStart(2,"0")}-${String(i+1).padStart(2,"0")}`; return { dia:i+1, fecha:f, d:porDia[f]||null, meta:metasDia?.[f]||0 }; });
+  const maxV = Math.max(1, ...dias.map(x=>x.meta), ...dias.map(x=>x.d?.sin||0)) * 1.1;
   const H = isMobile ? 140 : 180;
+  const EJE = isMobile ? 66 : 92;
   const yPx = (v) => Math.max(0, v)/maxV*H;
   const elegido = sel ? dias[sel-1] : null;
+  const hayMetas = dias.some(x=>x.meta>0);
   return (
     <div style={{ position:"relative", marginBottom:18 }} onMouseLeave={()=>setSel(null)}>
-      <div style={{ position:"relative", height:H, marginLeft:isMobile?36:52, borderBottom:`1px solid ${C.border}` }}>
+      {hayMetas && <div style={{ display:"flex", alignItems:"center", gap:7, justifyContent:"flex-end", fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginBottom:8 }}><span style={{ width:14, height:2.5, borderRadius:2, background:C.amber }}/>Meta del día</div>}
+      <div style={{ position:"relative", height:H, marginLeft:EJE, borderBottom:`1px solid ${C.border}` }}>
         {[1,0.5].map(fr=>(
-          <div key={fr} style={{ position:"absolute", left:isMobile?-36:-52, width:isMobile?32:46, bottom:H*fr-6, fontFamily:font.mono, fontSize:10, color:C.textMuted, textAlign:"right" }}>{fmtCompacto(maxV*fr)}</div>
+          <div key={fr} style={{ position:"absolute", left:-EJE, width:EJE-6, bottom:H*fr-6, fontFamily:font.mono, fontSize:isMobile?9:10, color:C.textMuted, textAlign:"right" }}>{fmtCOP(Math.round(maxV*fr/1000)*1000)}</div>
         ))}
-        {metaDiaria>0 && (
-          <div style={{ position:"absolute", left:0, right:0, bottom:yPx(metaDiaria), borderTop:`1.5px dashed ${C.amber}`, zIndex:1, pointerEvents:"none" }}>
-            <span style={{ position:"absolute", right:0, top:-19, fontFamily:font.body, fontSize:11, fontWeight:600, color:C.amber, background:"#fff", padding:"0 4px" }}>Meta diaria {fmtCompacto(metaDiaria)}</span>
-          </div>
-        )}
         <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"flex-end", gap:isMobile?2:4 }}>
           {dias.map(x=>{
             const futuro = diaHoy && x.dia>diaHoy;
             const v = x.d?.sin||0;
             const activo = sel===x.dia;
             return (
-              <div key={x.dia} onMouseEnter={()=>!futuro&&setSel(x.dia)} onClick={()=>!futuro&&setSel(s=>s===x.dia?null:x.dia)} style={{ flex:1, height:"100%", display:"flex", alignItems:"flex-end", cursor:futuro?"default":"pointer" }}>
+              <div key={x.dia} onMouseEnter={()=>!futuro&&setSel(x.dia)} onClick={()=>!futuro&&setSel(s=>s===x.dia?null:x.dia)} style={{ flex:1, height:"100%", display:"flex", alignItems:"flex-end", cursor:futuro?"default":"pointer", position:"relative" }}>
                 <div style={{ width:"100%", height:futuro?3:Math.max(v>0?3:2, yPx(v)), background:futuro?C.surfaceHover:(x.dia===diaHoy?C.goldDark:C.gold), opacity:(sel && !activo && !futuro)?0.55:1, borderRadius:"4px 4px 0 0", transition:"opacity .15s ease, height .5s cubic-bezier(.3,.7,.4,1)" }}/>
+                {x.meta>0 && <div style={{ position:"absolute", left:-1, right:-1, bottom:yPx(x.meta)-1, height:2.5, borderRadius:2, background:C.amber, opacity:futuro?0.45:1, pointerEvents:"none" }}/>}
               </div>
             );
           })}
         </div>
-        {elegido && (
-          <div style={{ position:"absolute", bottom:Math.min(H-8, yPx(elegido.d?.sin||0)+8), left:`${(elegido.dia-0.5)/totalDias*100}%`, transform:`translateX(${elegido.dia/totalDias>0.75?"-100%":elegido.dia/totalDias<0.25?"0":"-50%"})`, background:C.goldDark, color:"#fff", borderRadius:8, padding:"8px 10px", fontFamily:font.body, fontSize:11.5, lineHeight:1.5, whiteSpace:"nowrap", boxShadow:"0 8px 20px -8px rgba(0,0,0,.4)", zIndex:3, pointerEvents:"none" }}>
+        {elegido && (() => { const v = elegido.d?.sin||0; const pct = elegido.meta>0 ? Math.round(v/elegido.meta*1000)/10 : null; return (
+          <div style={{ position:"absolute", bottom:Math.min(H-8, Math.max(yPx(v), yPx(elegido.meta))+8), left:`${(elegido.dia-0.5)/totalDias*100}%`, transform:`translateX(${elegido.dia/totalDias>0.75?"-100%":elegido.dia/totalDias<0.25?"0":"-50%"})`, background:C.goldDark, color:"#fff", borderRadius:8, padding:"8px 10px", fontFamily:font.body, fontSize:11.5, lineHeight:1.55, whiteSpace:"nowrap", boxShadow:"0 8px 20px -8px rgba(0,0,0,.4)", zIndex:3, pointerEvents:"none" }}>
             <b>{fechaCortaDia(elegido.fecha)}</b><br/>
-            {elegido.d ? <><span style={{ fontFamily:font.mono }}>{fmtCOP(elegido.d.sin)}</span> · {elegido.d.count} venta{elegido.d.count!==1?"s":""}<br/><span style={{ opacity:.75 }}>Ingreso <span style={{ fontFamily:font.mono }}>{fmtCOP(elegido.d.con)}</span></span></> : <span style={{ opacity:.75 }}>Sin ventas</span>}
+            Vendido <span style={{ fontFamily:font.mono }}>{fmtCOP(v)}</span>{elegido.d ? ` · ${elegido.d.count} venta${elegido.d.count!==1?"s":""}` : ""}<br/>
+            {elegido.meta>0 && <>Meta <span style={{ fontFamily:font.mono }}>{fmtCOP(Math.round(elegido.meta))}</span> · <b>{pct}%</b><br/></>}
+            {elegido.d && <span style={{ opacity:.75 }}>Ingreso <span style={{ fontFamily:font.mono }}>{fmtCOP(elegido.d.con)}</span></span>}
           </div>
-        )}
+        ); })()}
       </div>
-      <div style={{ display:"flex", gap:isMobile?2:4, marginLeft:isMobile?36:52, marginTop:5 }}>
+      <div style={{ display:"flex", gap:isMobile?2:4, marginLeft:EJE, marginTop:5 }}>
         {dias.map(x=><span key={x.dia} style={{ flex:1, textAlign:"center", fontFamily:font.body, fontSize:isMobile?8.5:10, color:x.dia===diaHoy?C.text:C.textMuted, fontWeight:x.dia===diaHoy?700:400 }}>{(x.dia%(isMobile?5:2)===1 || x.dia===diaHoy) ? x.dia : ""}</span>)}
       </div>
     </div>
@@ -7445,7 +7449,18 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     const idc = meta>0 ? Math.round((sinServicios/meta)*1000)/10 : null;
     return { asesor:a, sinServicios, meta, idc };
   });
-  const rankingTodasTiendas = [...dataAsesoresTodasTiendas].filter(d=>d.idc!==null).sort((a,b)=>b.idc-a.idc);
+  // "Equipo admin": los administrativos que cubren turnos de asesor (master/admin con meta este mes)
+  // compiten como UN solo equipo — suma de sus ventas contra la suma de sus metas. Cada uno por
+  // separado tenía una meta chiquita y siempre quedaba de primero en el ranking, lo que no era
+  // justo con los asesores de planta (pedido de la Junta). En "Ventas por asesor" siguen
+  // apareciendo uno por uno.
+  const miembrosEquipoAdmin = dataAsesoresTodasTiendas.filter(d=>ROLES_ADMIN_VENDEDOR.includes(d.asesor.role) && d.meta>0);
+  const equipoAdmin = miembrosEquipoAdmin.length>0 ? (() => {
+    const venta = miembrosEquipoAdmin.reduce((s,d)=>s+d.sinServicios,0);
+    const meta = miembrosEquipoAdmin.reduce((s,d)=>s+d.meta,0);
+    return { asesor:{ id:"__equipo_admin__", name:"Equipo admin" }, esEquipo:true, miembros:miembrosEquipoAdmin, sinServicios:venta, meta, idc: meta>0 ? Math.round(venta/meta*1000)/10 : null };
+  })() : null;
+  const rankingTodasTiendas = [...dataAsesoresTodasTiendas.filter(d=>!ROLES_ADMIN_VENDEDOR.includes(d.asesor.role)), ...(equipoAdmin?[equipoAdmin]:[])].filter(d=>d.idc!==null).sort((a,b)=>b.idc-a.idc);
 
   const dataTiendas = tiendasList.map(t=>{
     const ventasTienda = ventas.filter(v => v.fecha && v.fecha.slice(0,7)===mesKey && v.tienda_id===t.id);
@@ -7601,8 +7616,20 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
         {rankingTodasTiendas.length>0 ? (() => { const esc = escalaCumplimiento(rankingTodasTiendas); return (
           <div>
             {rankingTodasTiendas.map((d,idx)=>{
-              const exp = explicacionMetaAsesor(d.asesor.id);
-              const info = !exp.sinDatos && (
+              const exp = d.esEquipo ? { sinDatos:true } : explicacionMetaAsesor(d.asesor.id);
+              const info = d.esEquipo ? (
+                <HoverTooltip label="ⓘ" labelStyle={{ fontSize:12, color:C.textMuted, flexShrink:0 }} width={300} clickOnly>
+                  <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>Equipo admin — suma de los {d.miembros.length}</div>
+                  {d.miembros.map(m=>(
+                    <div key={m.asesor.id} style={{ display:"flex", justifyContent:"space-between", gap:10, fontFamily:font.body, fontSize:11, color:C.text, lineHeight:1.6 }}>
+                      <span>{m.asesor.name}</span><span style={{ fontFamily:font.mono }}>{fmtCOP(m.sinServicios)} / {fmtCOP(m.meta)}</span>
+                    </div>
+                  ))}
+                  <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.text, marginTop:6, paddingTop:6, borderTop:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between" }}>
+                    <span>Total</span><span style={{ fontFamily:font.mono }}>{fmtCOP(d.sinServicios)} / {fmtCOP(d.meta)}</span>
+                  </div>
+                </HoverTooltip>
+              ) : !exp.sinDatos && (
                 <HoverTooltip label="ⓘ" labelStyle={{ fontSize:12, color:C.textMuted, flexShrink:0 }} width={300} clickOnly>
                   <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, marginBottom:6 }}>Cómo salió la meta de {d.asesor.name.split(" ")[0]} — {MESES_NOMBRE[mesIdx]}</div>
                   {exp.diasNovedadTotal>0 && (
@@ -7624,7 +7651,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
               const numero = idx<3
                 ? <span style={{ width:26, textAlign:"center", flexShrink:0, fontSize:20, lineHeight:1 }}>{medalla(idx)}</span>
                 : <span style={{ width:26, height:26, borderRadius:"50%", display:"grid", placeItems:"center", flexShrink:0, fontFamily:font.body, fontSize:12.5, fontWeight:700, background:C.surfaceHover, color:C.textSub }}>{idx+1}</span>;
-              const nombre = <span style={{ display:"flex", alignItems:"center", gap:6, minWidth:0, fontFamily:font.body, fontSize:14, fontWeight:idx<3?700:600, color:C.text }}><span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.asesor.name}</span>{info}</span>;
+              const nombre = <span style={{ display:"flex", alignItems:"center", gap:6, minWidth:0, fontFamily:font.body, fontSize:14, fontWeight:idx<3?700:600, color:C.text }}>{d.esEquipo && <Icon n="users" s={15} style={{ color:C.gold }}/>}<span style={{ minWidth:0 }}><span style={{ display:"block", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.asesor.name}</span>{d.esEquipo && <span style={{ display:"block", fontSize:11, fontWeight:400, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.miembros.map(m=>m.asesor.name.split(" ")[0]).join(", ")}</span>}</span>{info}</span>;
               const pct = <span style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.text, textAlign:"right" }}>{d.idc}%</span>;
               const plata = <span style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted, whiteSpace:"nowrap" }}><span style={{ color:C.text }}>{fmtCOP(d.sinServicios)}</span> / {fmtCOP(d.meta)}</span>;
               const borde = idx<rankingTodasTiendas.length-1 ? `1px solid ${C.border}` : "none";
@@ -7690,44 +7717,86 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
       </>)}
 
       <SeccionVenta icon="cal" titulo={`Ventas por día — ${tiendaSel ? nombreTiendaCorto(stores[tiendaSel]) : "Todas las tiendas"}`} derecha={!isMobile && `${MESES_NOMBRE[mesIdx]} · pasa el mouse o toca una barra`}>
-        <GraficaVentasDia porDia={porDia} anio={anio} mesIdx={mesIdx} totalDias={diasTotalesMes} diaHoy={esMesActual ? hoy.getDate() : null} metaDiaria={metaTiendaTotal>0 ? metaTiendaTotal/diasTotalesMes : 0} isMobile={isMobile}/>
-        <div style={{ overflowX:"auto" }}>
-          {/* Del 1 al último día del mes (ascendente), igual que la gráfica. */}
-          <table style={{ width:"100%", borderCollapse:"collapse", fontFamily:font.body, fontSize:isMobile?12.5:13.5, color:C.text }}>
-            <thead>
-              <tr>
-                <th style={{ ...thDia, textAlign:"left" }}>Fecha</th>
-                <th style={{ ...thDia, textAlign:"right" }}>{isMobile?"#":"# ventas"}</th>
-                <th style={{ ...thDia, textAlign:"right" }}>{isMobile?"Ventas":"Total ventas"}</th>
-                <th style={{ ...thDia, textAlign:"right" }}>{isMobile?"Ingreso":"Total ingreso"}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...diasList].reverse().map(([fecha,d])=>{
-                const excedentes = excedentesPorDiaOriginal[fecha];
-                const conNota = excedentes && excedentes.length>0;
-                return (
-                  <Fragment key={fecha}>
-                    <tr>
-                      <td style={{ ...tdDia, borderBottom:conNota?"none":tdDia.borderBottom, whiteSpace:"nowrap" }}><b>{fechaCortaDia(fecha, isMobile)}</b>{fecha===todayStr && <span style={{ marginLeft:isMobile?5:8, borderRadius:99, padding:"2px 8px", fontSize:11, fontWeight:700, background:C.surfaceHover, color:C.textSub }}>hoy</span>}</td>
-                      <td style={{ ...tdDia, borderBottom:conNota?"none":tdDia.borderBottom, textAlign:"right" }}>{d.count}</td>
-                      <td style={{ ...tdDia, borderBottom:conNota?"none":tdDia.borderBottom, textAlign:"right", fontFamily:font.mono }}>{fmtCOP(d.sin)}</td>
-                      <td style={{ ...tdDia, borderBottom:conNota?"none":tdDia.borderBottom, textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{fmtCOP(d.con)}</td>
-                    </tr>
-                    {conNota && (
-                      <tr>
-                        <td colSpan={4} style={{ padding:"0 10px 8px", borderBottom:`1px solid ${C.border}`, fontFamily:font.body, fontSize:11, color:C.amber }} title="Este valor ya entró y se sumó en la fecha real de la Notacrédito, no aquí.">
-                          ⓘ {excedentes.map(e=>`+${fmtCOP(e.valor)} nota crédito el ${new Date(e.fecha+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"})}`).join(" · ")}
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-              {diasList.length===0 && <tr><td colSpan={4} style={{ padding:16, textAlign:"center", color:C.textMuted }}>Sin ventas registradas este mes.</td></tr>}
-            </tbody>
-          </table>
-        </div>
+        {(() => {
+          // Meta de cada día: si la tienda tiene metas por día se usa la de ese día; si no, la meta
+          // del mes ÷ días del mes. Con "Todas las tiendas" se suman las tiendas.
+          const idsMeta = tiendaSel ? [tiendaSel] : tiendasList.map(t=>t.id);
+          const metaDelDia = (dn) => idsMeta.reduce((acc,id)=>{
+            const vd = metaTiendaValoresDia(id);
+            const usaDias = Object.values(vd).some(v=>Number(v||0)>0);
+            return acc + (usaDias ? Number(vd[dn]||0) : metaTiendaValor(id,"total")/diasTotalesMes);
+          }, 0);
+          const ultimoDia = esMesActual ? hoy.getDate() : diasTotalesMes;
+          const filas = Array.from({ length:ultimoDia }, (_,i)=>{
+            const dn = i+1; const f = `${anio}-${String(mesIdx+1).padStart(2,"0")}-${String(dn).padStart(2,"0")}`;
+            const d = porDia[f] || { sin:0, con:0, count:0 };
+            const meta = Math.round(metaDelDia(dn));
+            return { dn, f, d, meta, pct: meta>0 ? Math.round(d.sin/meta*1000)/10 : null };
+          });
+          const metasDia = {}; for(let dn=1; dn<=diasTotalesMes; dn++){ metasDia[`${anio}-${String(mesIdx+1).padStart(2,"0")}-${String(dn).padStart(2,"0")}`] = metaDelDia(dn); }
+          const tot = filas.reduce((a,x)=>({ meta:a.meta+x.meta, sin:a.sin+x.d.sin, con:a.con+x.d.con, count:a.count+x.d.count }), { meta:0, sin:0, con:0, count:0 });
+          const totPct = tot.meta>0 ? Math.round(tot.sin/tot.meta*1000)/10 : null;
+          const chipDia = (pct, enCurso) => {
+            if(pct===null) return <span style={{ color:C.textMuted }}>—</span>;
+            const ok = pct>=100;
+            const [col,bg,txt] = ok ? [C.green, C.greenDim, isMobile?"✓":"✓ Cumplió"] : enCurso ? [C.amber, C.amberDim, isMobile?"●":"● En curso"] : [C.red, C.redDim, isMobile?"✗":"✗ No cumplió"];
+            return <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:isMobile?"3px 7px":"4px 9px", fontFamily:font.body, fontSize:isMobile?11:11.5, fontWeight:700, color:col, background:bg }}>{txt} {pct}%</span>;
+          };
+          const tdN = { ...tdDia, textAlign:"right", fontFamily:font.mono, whiteSpace:"nowrap" };
+          return (<>
+            <GraficaVentasDia porDia={porDia} anio={anio} mesIdx={mesIdx} totalDias={diasTotalesMes} diaHoy={esMesActual ? hoy.getDate() : null} metasDia={metasDia} isMobile={isMobile}/>
+            <div style={{ overflowX:"auto" }}>
+              {/* Del 1 al último día (ascendente). Aparecen TODOS los días, también los que no vendieron. */}
+              <table style={{ width:"100%", borderCollapse:"collapse", fontFamily:font.body, fontSize:isMobile?12:13.5, color:C.text }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...thDia, textAlign:"left" }}>Fecha</th>
+                    {!isMobile && <th style={{ ...thDia, textAlign:"right" }}>Meta</th>}
+                    <th style={{ ...thDia, textAlign:"right" }}>{isMobile?"Vendido / meta":"Vendido"}</th>
+                    <th style={{ ...thDia, textAlign:"right" }}>{isMobile?"%":"Cumplimiento"}</th>
+                    {!isMobile && <th style={{ ...thDia, textAlign:"right" }}># ventas</th>}
+                    {!isMobile && <th style={{ ...thDia, textAlign:"right" }}>Ingreso</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filas.map(x=>{
+                    const excedentes = excedentesPorDiaOriginal[x.f];
+                    const conNota = excedentes && excedentes.length>0;
+                    const bb = conNota ? { borderBottom:"none" } : {};
+                    const sinVentas = x.d.count===0 && x.d.sin===0;
+                    return (
+                      <Fragment key={x.f}>
+                        <tr style={{ background: sinVentas ? C.surfaceAlt : "transparent" }}>
+                          <td style={{ ...tdDia, ...bb, whiteSpace:"nowrap" }}><b>{fechaCortaDia(x.f, isMobile)}</b>{x.f===todayStr && <span style={{ marginLeft:isMobile?5:8, borderRadius:99, padding:"2px 8px", fontSize:11, fontWeight:700, background:C.surfaceHover, color:C.textSub }}>hoy</span>}</td>
+                          {!isMobile && <td style={{ ...tdN, ...bb, color:C.textMuted }}>{x.meta>0?fmtCOP(x.meta):"—"}</td>}
+                          <td style={{ ...tdN, ...bb, color:sinVentas?C.textMuted:C.text }}>{fmtCOP(x.d.sin)}{isMobile && <div style={{ fontSize:10.5, color:C.textMuted, marginTop:2 }}>{x.meta>0?fmtCOP(x.meta):"—"}</div>}</td>
+                          <td style={{ ...tdDia, ...bb, textAlign:"right" }}>{chipDia(x.pct, x.f===todayStr)}</td>
+                          {!isMobile && <td style={{ ...tdDia, ...bb, textAlign:"right", color:sinVentas?C.textMuted:C.text }}>{sinVentas ? "Sin ventas" : x.d.count}</td>}
+                          {!isMobile && <td style={{ ...tdN, ...bb, color:C.textMuted }}>{fmtCOP(x.d.con)}</td>}
+                        </tr>
+                        {conNota && (
+                          <tr>
+                            <td colSpan={isMobile?3:6} style={{ padding:"0 10px 8px", borderBottom:`1px solid ${C.border}`, fontFamily:font.body, fontSize:11, color:C.amber }} title="Este valor ya entró y se sumó en la fecha real de la Notacrédito, no aquí.">
+                              ⓘ {excedentes.map(e=>`+${fmtCOP(e.valor)} nota crédito el ${new Date(e.fecha+"T12:00:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"})}`).join(" · ")}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+                <tfoot><tr style={{ fontWeight:700 }}>
+                  <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}` }}>{esMesActual ? "Al día de hoy" : "Total del mes"}</td>
+                  {!isMobile && <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right", fontFamily:font.mono, whiteSpace:"nowrap" }}>{tot.meta>0?fmtCOP(tot.meta):"—"}</td>}
+                  <td style={{ padding:isMobile?"11px 6px":"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right", fontFamily:font.mono, whiteSpace:"nowrap" }}>{fmtCOP(tot.sin)}{isMobile && <div style={{ fontSize:10.5, color:C.textMuted, fontWeight:400, marginTop:2 }}>{tot.meta>0?fmtCOP(tot.meta):"—"}</div>}</td>
+                  <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right" }}>{chipDia(totPct, esMesActual)}</td>
+                  {!isMobile && <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right" }}>{tot.count}</td>}
+                  {!isMobile && <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right", fontFamily:font.mono, whiteSpace:"nowrap" }}>{fmtCOP(tot.con)}</td>}
+                </tr></tfoot>
+              </table>
+            </div>
+          </>);
+        })()}
       </SeccionVenta>
 
       {puedeAsignarMetas && (() => {
@@ -7927,7 +7996,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                                 <span style={{ display:"flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:600, marginBottom:5, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)}</span>
                                 <span style={{ display:"flex", alignItems:"center", gap:6, height:38, border:`1px solid rgba(26,59,82,0.2)`, borderRadius:10, background:"#fff", padding:"0 10px" }}>
                                   <input value={d.diasTienda?.[t.id]||""} onChange={e=>setDetalleTienda(a.id,t.id,e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" placeholder="0" style={{ width:"100%", minWidth:0, border:"none", outline:"none", background:"transparent", padding:0, fontFamily:font.mono, fontSize:14, color:C.text }}/>
-                                  <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, whiteSpace:"nowrap" }}>{aporte===null ? "no suma" : aporte>0 ? fmtCompacto(aporte) : "—"}</span>
+                                  <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, whiteSpace:"nowrap" }}>{aporte===null ? "no suma" : aporte>0 ? fmtCOP(aporte) : "—"}</span>
                                 </span>
                               </label>
                             );
