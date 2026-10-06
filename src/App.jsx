@@ -7110,6 +7110,11 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   // Orden de la tabla "Ventas por asesor": por defecto de mayor a menor venta; se cambia tocando
   // el título de una columna (tocar de nuevo invierte el orden).
   const [ordenAsesores, setOrdenAsesores] = useState({ col:"venta", dir:"desc" });
+  // Metas del mes llega TODO plegado (pedido de Santiago: en celular era un chorrero de datos que
+  // no se revisa cada vez): sección → "Tiendas" / "Asesores" → cada tienda / cada asesor.
+  const [metasAbierto, setMetasAbierto] = useState(false);
+  const [metasGrupo, setMetasGrupo] = useState({ tiendas:false, asesores:false });
+  const [tiendaMetaAbierta, setTiendaMetaAbierta] = useState(null);
   const tdDia = isMobile ? { ...tdMet, padding:"10px 6px" } : tdMet;
   const thDia = isMobile ? { ...thMet, padding:"0 6px 8px", letterSpacing:"0.05em" } : thMet;
   const mesKey = `${anio}-${String(mesIdx+1).padStart(2,"0")}`;
@@ -7568,202 +7573,6 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
         </div>
       </div>
 
-      {puedeAsignarMetas && (() => {
-        // ── Metas del mes (Propuesta A) ───────────────────────────────────────────────────────
-        // Dos pasos en orden: 1) la meta de cada tienda, 2) los días de cada asesor en cada tienda
-        // (de ahí sale su meta). Pensado para crecer: las tarjetas de tienda y las casillas de
-        // días por tienda se reacomodan solas (auto-fill) cuando se abren más tiendas.
-        const totalDiasMes = diasDelMes(anio, mesIdx);
-        const offsetLunes = (new Date(anio, mesIdx, 1).getDay() + 6) % 7; // 0 = lunes
-        const estadoTienda = (t) => {
-          const usaDias = tieneMetaPorDia(t.id);
-          const savedTotal = metaTiendaValor(t.id,"total"), savedPersonal = metaTiendaValor(t.id,"personal");
-          const savedDias = metaTiendaValoresDia(t.id);
-          const curTotal = usaDias ? sumaMetaDias(t.id) : Number(metaInputs[`tienda:${t.id}:total`]||0);
-          const curPersonal = Number(metaInputs[`tienda:${t.id}:personal`]||0);
-          let diasDirty = false;
-          for(let dn=1; dn<=totalDiasMes; dn++){ if(Number(metaDiasInputs[t.id]?.[dn]||0)!==Number(savedDias[dn]||0)) { diasDirty = true; break; } }
-          // Con meta por día, el total es la suma de los días: basta comparar los días.
-          const dirty = (usaDias ? diasDirty : (curTotal!==savedTotal || diasDirty)) || curPersonal!==savedPersonal;
-          return { usaDias, curTotal, dirty, guardada: !dirty && (savedTotal>0 || savedPersonal>0) };
-        };
-        const totalTiendas = tiendasList.reduce((s,t)=>s+estadoTienda(t).curTotal, 0);
-        const metaDesdeInputs = (asesorId) => {
-          const dt = detalleInputs[asesorId]?.diasTienda || {};
-          return Math.round(tiendasListConOficina.reduce((s,t)=> esTiendaOficina(t) ? s : s + (Number(dt[t.id]||0)/DIAS_META)*metaTiendaValor(t.id,"personal"), 0));
-        };
-        const estadoAsesor = (a) => {
-          const existente = metasAsesor.find(m=>m.mes===mesKey && m.vendedor_id===a.id);
-          const saved = existente?.dias_tienda || {};
-          const haySaved = Object.values(saved).some(v=>Number(v||0)>0);
-          const dt = detalleInputs[a.id]?.diasTienda || {};
-          const hayInputs = Object.values(dt).some(v=>Number(v||0)>0);
-          const dirty = haySaved && tiendasListConOficina.some(t=>Number(dt[t.id]||0)!==Number(saved[t.id]||0));
-          if(haySaved && !dirty) return { clave:"ok", txt:"Confirmada" };
-          if(dirty) return { clave:"dirty", txt:"Sin guardar" };
-          if(hayInputs) return { clave:"auto", txt:"Sugerida por la malla" };
-          return { clave:"vacio", txt:"Sin días asignados" };
-        };
-        const pendientes = asesores.filter(a=>estadoAsesor(a).clave!=="ok").length;
-        const chipEstado = (clave, txt) => {
-          const [col, bg, ic] = clave==="ok" ? [C.green, C.greenDim, "check"] : clave==="vacio" ? [C.textSub, C.surfaceHover, null] : [C.amber, C.amberDim, null];
-          return <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:col, background:bg }}>{ic ? <Icon n={ic} s={12} sw={2.4}/> : <span style={{ width:6, height:6, borderRadius:"50%", background:col }}/>}{txt}</span>;
-        };
-        const etiquetaCampo = { fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:600, marginBottom:6 };
-        const ayuda = { fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:5, lineHeight:1.4 };
-        const paso = (n, txt, der) => (
-          <div style={{ display:"flex", alignItems:"baseline", gap:10, flexWrap:"wrap", margin:"20px 0 12px" }}>
-            <span style={{ fontFamily:font.body, fontSize:11, letterSpacing:"0.14em", textTransform:"uppercase", color:C.textMuted, fontWeight:700 }}>{n} · {txt}</span>
-            {der && <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:13, color:C.text }}>{der}</span>}
-          </div>
-        );
-        const iniciales = (n) => (n||"").split(/\s+/).filter(Boolean).slice(0,2).map(p=>p[0]).join("").toUpperCase();
-        return (
-        <SeccionVenta icon="target" titulo="Metas del mes" subtitulo="Primero la meta de cada tienda; con eso se calcula la de cada asesor según los días que trabaja en cada una." derecha={asesores.length>0 && chipEstado(pendientes>0?"auto":"ok", pendientes>0 ? `${pendientes} asesor${pendientes!==1?"es":""} sin confirmar` : "Todos confirmados")}>
-          {metaMsg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"9px 12px", color:C.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{metaMsg}</div>}
-
-          {paso(1, "Tiendas", tiendasList.length>1 && <>Total de las {tiendasList.length}: <b style={{ fontFamily:font.mono }}>{fmtCOP(totalTiendas)}</b></>)}
-          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill, minmax(255px, 1fr))", gridAutoFlow:"dense", gap:14 }}>
-            {tiendasList.map(t=>{
-              const col = colorTienda(t);
-              const est = estadoTienda(t);
-              const diaAbierto = metaDiaAbierto===t.id;
-              const guardando = guardandoMeta===t.id;
-              const campos = (
-                <div>
-                  <div style={etiquetaCampo}>Meta de la tienda{est.usaDias && <span style={{ textTransform:"none", letterSpacing:0, color:C.gold }}> · suma de los días</span>}</div>
-                  <CurrencyField placeholder="$0" value={est.usaDias?String(sumaMetaDias(t.id)):(metaInputs[`tienda:${t.id}:total`]||"")} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:total`]:v}))} disabled={est.usaDias} noMargin/>
-                  <div style={ayuda}>{est.usaDias ? "Se arma sumando la meta de cada día." : "Lo que debe vender la tienda en el mes."}</div>
-                  <div style={{ ...etiquetaCampo, marginTop:14 }}>Meta por asesor (30 días)</div>
-                  <CurrencyField placeholder="$0" value={metaInputs[`tienda:${t.id}:personal`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:personal`]:v}))} noMargin/>
-                  <div style={ayuda}>Lo que vende un asesor que trabaje los 30 días aquí. Se reparte según sus días.</div>
-                </div>
-              );
-              const calendario = diaAbierto && (
-                <div>
-                  <div style={{ border:`1.5px dashed ${C.gold}55`, borderRadius:10, background:C.surfaceAlt, padding:"10px 12px", marginBottom:12 }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, marginBottom:4 }}><Icon n="file" s={16}/>Pegar desde Excel</div>
-                    <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginBottom:8, lineHeight:1.45 }}>En Excel selecciona la columna de metas (del día 1 al último), cópiala y pégala aquí. Cada fila cae en su día.</div>
-                    <textarea value="" onChange={()=>{}} onPaste={e=>{ e.preventDefault(); pegarMetasDias(t.id, e.clipboardData.getData("text")); }} placeholder="Haz clic aquí y pega (Ctrl+V / ⌘V)" rows={2} style={{ width:"100%", resize:"none", boxSizing:"border-box", border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px", fontFamily:font.body, fontSize:12.5, color:C.text, background:"#fff", outline:"none" }}/>
-                    {pegadoInfo[t.id] && <div style={{ marginTop:8, fontFamily:font.body, fontSize:12, fontWeight:600, color:pegadoInfo[t.id].ok?C.green:C.amber, lineHeight:1.45 }}>{pegadoInfo[t.id].ok?"✓ ":"⚠ "}{pegadoInfo[t.id].texto}</div>}
-                  </div>
-                  <div style={{ display:"grid", gridTemplateColumns:"repeat(7, minmax(0,1fr))", gap:isMobile?4:6 }}>
-                    {["L","M","M","J","V","S","D"].map((w,i)=><div key={i} style={{ textAlign:"center", fontFamily:font.body, fontSize:10.5, fontWeight:700, letterSpacing:"0.08em", color:C.textMuted }}>{w}</div>)}
-                    {Array.from({ length:offsetLunes }, (_,i)=><div key={`v${i}`}/>)}
-                    {Array.from({ length:totalDiasMes }, (_,i)=>i+1).map(dn=>{
-                      const raw = metaDiasInputs[t.id]?.[dn]||"";
-                      const domingo = (offsetLunes + dn - 1) % 7 === 6;
-                      return (
-                        <label key={dn} style={{ display:"block", border:`1px solid ${C.border}`, borderRadius:8, padding:isMobile?"3px 4px":"4px 6px", background:domingo?C.surfaceAlt:"#fff", cursor:"text" }}>
-                          <span style={{ display:"block", fontFamily:font.body, fontSize:10, color:C.textMuted }}>{dn}</span>
-                          <input value={raw ? Number(raw).toLocaleString("es-CO") : ""} onChange={e=>setMetaDiaValor(t.id, dn, e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" placeholder="—" style={{ width:"100%", border:"none", outline:"none", background:"transparent", padding:0, fontFamily:font.mono, fontSize:isMobile?10:11.5, color:C.text }}/>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, marginTop:10, fontWeight:700 }}>Total del mes: <span style={{ fontFamily:font.mono }}>{fmtCOP(sumaMetaDias(t.id))}</span></div>
-                </div>
-              );
-              return (
-                <div key={t.id} style={{ gridColumn:diaAbierto && !isMobile ? "1 / -1" : "auto", border:`1px solid ${C.border}`, borderTop:`3px solid ${col}`, borderRadius:14, padding:"16px 18px", background:"#fff" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
-                    <PuntoTienda color={col}/><span style={{ fontFamily:font.body, fontWeight:700, fontSize:16, color:C.text }}>{nombreTiendaCorto(t)}</span>
-                    <span style={{ marginLeft:"auto" }}>{est.dirty ? chipEstado("dirty","Sin guardar") : est.guardada ? chipEstado("ok","Guardada") : chipEstado("vacio","Sin meta")}</span>
-                  </div>
-                  {diaAbierto && !isMobile ? (
-                    <div style={{ display:"grid", gridTemplateColumns:"minmax(260px, 340px) 1fr", gap:24 }}>{campos}{calendario}</div>
-                  ) : <>{campos}{calendario && <div style={{ marginTop:14 }}>{calendario}</div>}</>}
-                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginTop:14, paddingTop:12, borderTop:`1px dashed ${C.border}` }}>
-                    <button type="button" onClick={()=>setMetaDiaAbierto(diaAbierto?null:t.id)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontFamily:font.body, fontSize:13, fontWeight:600, color:C.gold }}>{diaAbierto ? "▾ Ocultar días" : "▸ Repartir por día"}</button>
-                    <Btn onClick={()=>guardarMetaTienda(t.id)} disabled={guardando || !est.dirty} variant={est.dirty?"primary":"ghost"} sm>{guardando?"Guardando...":"Guardar"}</Btn>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {paso(2, "Asesores", asesores.length>0 && <>Meta calculada de todos: <b style={{ fontFamily:font.mono }}>{fmtCOP(asesores.reduce((s,a)=>s+metaDesdeInputs(a.id),0))}</b></>)}
-          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-            {asesores.map(a=>{
-              const d = detalleInputs[a.id] || { diasTienda:{} };
-              const abierto = asesorExpandido===a.id;
-              // Novedades (Vacaciones, Incapacidad, DR, DNR, cumpleaños, etc.) ya no se escriben a
-              // mano — se leen directo de la malla real de Turnos de ese mes.
-              const novedadesAuto = novedadesDesdeMalla(a.id, mesKey, turnosAsignaciones, turnosGlobales);
-              const diasNovedadTotal = novedadesAuto.reduce((s,n)=>s+n.dias,0);
-              const diasDisponibles = totalDiasMes - diasNovedadTotal;
-              const sumaDiasTienda = Object.values(d.diasTienda||{}).reduce((s,v)=>s+Number(v||0),0);
-              const est = estadoAsesor(a);
-              const metaPrev = metaDesdeInputs(a.id);
-              const tiendasConDias = tiendasListConOficina.filter(t=>Number(d.diasTienda?.[t.id]||0)>0);
-              const pastillas = (
-                <span style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                  {tiendasConDias.length ? tiendasConDias.map(t=>(
-                    <span key={t.id} style={{ display:"inline-flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:12, color:C.text, border:`1px solid ${C.border}`, borderRadius:99, padding:"3px 9px", background:"#fff", whiteSpace:"nowrap" }}><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)} {d.diasTienda[t.id]} d</span>
-                  )) : <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin días por tienda</span>}
-                  <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, border:`1px solid ${C.border}`, borderRadius:99, padding:"3px 9px", whiteSpace:"nowrap" }}>{novedadesAuto.length ? novedadesAuto.map(n=>`${n.dias} ${n.nombre.toLowerCase()}`).join(" · ") : "Sin novedades"}</span>
-                </span>
-              );
-              const avatar = <span style={{ width:28, height:28, borderRadius:"50%", background:C.surfaceHover, display:"grid", placeItems:"center", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.textSub, flexShrink:0 }}>{iniciales(a.name)}</span>;
-              const lado = <span style={{ textAlign:"right", display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}><b style={{ fontFamily:font.mono, fontSize:14.5, color:C.text }}>{metaPrev>0?fmtCOP(metaPrev):"—"}</b>{chipEstado(est.clave, est.txt)}</span>;
-              return (
-                <div key={a.id} style={{ border:`1px solid ${abierto?C.gold:C.border}`, borderRadius:12, overflow:"hidden", background:"#fff" }}>
-                  <button type="button" onClick={()=>setAsesorExpandido(abierto?null:a.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", textAlign:"left", padding:"12px 14px", display:"grid", gridTemplateColumns:isMobile?"28px 1fr auto":"28px minmax(150px,210px) 1fr auto 18px", alignItems:"center", gap:12 }}>
-                    {avatar}
-                    {isMobile ? (
-                      <span style={{ minWidth:0 }}><b style={{ fontFamily:font.body, fontSize:14, color:C.text }}>{a.name}</b><span style={{ display:"block", marginTop:6 }}>{pastillas}</span></span>
-                    ) : <><b style={{ fontFamily:font.body, fontSize:14.5, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.name}</b>{pastillas}</>}
-                    {lado}
-                    {!isMobile && <span style={{ color:C.textMuted, fontSize:11 }}>{abierto?"▴":"▾"}</span>}
-                  </button>
-                  <Collapse open={abierto}>
-                    <div style={{ background:C.surfaceAlt, borderTop:`1px solid ${C.border}`, padding:isMobile?"14px":"16px 18px", display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(220px, 300px) 1fr", gap:isMobile?16:24 }}>
-                      <div>
-                        <div style={{ ...etiquetaCampo, fontWeight:700 }}>Novedades del mes · según Turnos</div>
-                        {[["Días del mes", totalDiasMes], ...novedadesAuto.map(n=>[n.nombre, `−${n.dias}`])].map(([k,v],i)=>(
-                          <div key={i} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:13, color:C.text, padding:"5px 0", borderBottom:`1px dashed ${C.border}` }}><span>{k}</span><span style={{ fontFamily:font.mono }}>{v}</span></div>
-                        ))}
-                        <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:13, fontWeight:700, color:diasDisponibles>0?C.text:C.red, padding:"5px 0" }}><span>Días disponibles</span><span style={{ fontFamily:font.mono }}>{diasDisponibles}</span></div>
-                        <div style={{ ...ayuda, marginTop:8 }}>Las vacaciones, incapacidades y descansos se leen solos de la malla de Turnos.</div>
-                      </div>
-                      <div>
-                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
-                          <div style={{ ...etiquetaCampo, fontWeight:700, marginBottom:0 }}>Días en cada tienda</div>
-                          <button type="button" onClick={()=>actualizarDiasDesdeMalla(a.id)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontFamily:font.body, fontSize:13, fontWeight:600, color:C.gold, display:"inline-flex", alignItems:"center", gap:5 }}><Icon n="refresh" s={14}/>Traer de la malla</button>
-                        </div>
-                        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(130px, 1fr))", gap:8, marginTop:10 }}>
-                          {tiendasListConOficina.map(t=>{
-                            const dias = Number(d.diasTienda?.[t.id]||0);
-                            const aporte = esTiendaOficina(t) ? null : Math.round(dias/DIAS_META*metaTiendaValor(t.id,"personal"));
-                            return (
-                              <label key={t.id} style={{ display:"block", cursor:"text" }}>
-                                <span style={{ display:"flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:600, marginBottom:5, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)}</span>
-                                <span style={{ display:"flex", alignItems:"center", gap:6, height:38, border:`1px solid rgba(26,59,82,0.2)`, borderRadius:10, background:"#fff", padding:"0 10px" }}>
-                                  <input value={d.diasTienda?.[t.id]||""} onChange={e=>setDetalleTienda(a.id,t.id,e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" placeholder="0" style={{ width:"100%", minWidth:0, border:"none", outline:"none", background:"transparent", padding:0, fontFamily:font.mono, fontSize:14, color:C.text }}/>
-                                  <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, whiteSpace:"nowrap" }}>{aporte===null ? "no suma" : aporte>0 ? fmtCompacto(aporte) : "—"}</span>
-                                </span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                        <div style={{ height:8, borderRadius:99, background:C.surfaceHover, margin:"12px 0 6px", overflow:"hidden" }}><div style={{ height:"100%", width:`${Math.min(100, diasDisponibles>0 ? sumaDiasTienda/diasDisponibles*100 : 0)}%`, background:sumaDiasTienda>diasDisponibles?C.red:C.gold, borderRadius:99, transition:"width .3s ease" }}/></div>
-                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
-                          <span style={{ fontFamily:font.body, fontSize:12, color:sumaDiasTienda>diasDisponibles?C.red:C.textMuted }}>{sumaDiasTienda>diasDisponibles ? <>Te pasaste: <b style={{ fontFamily:font.mono }}>{sumaDiasTienda}</b> de <b style={{ fontFamily:font.mono }}>{diasDisponibles}</b> días disponibles</> : <>Repartidos <b style={{ fontFamily:font.mono, color:C.text }}>{sumaDiasTienda}</b> de <b style={{ fontFamily:font.mono, color:C.text }}>{diasDisponibles}</b> días disponibles</>}</span>
-                          <Btn onClick={()=>guardarDetalleAsesor(a.id)} disabled={guardandoDetalle===a.id || sumaDiasTienda>diasDisponibles} sm>{guardandoDetalle===a.id ? "Guardando..." : `Confirmar meta · ${fmtCOP(metaPrev)}`}</Btn>
-                        </div>
-                        <div style={{ ...ayuda, marginTop:6 }}>Oficina no suma a la meta de ninguna tienda (no vendió ese día).</div>
-                      </div>
-                    </div>
-                  </Collapse>
-                </div>
-              );
-            })}
-            {asesores.length===0 && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>No hay asesores activos.</div>}
-          </div>
-        </SeccionVenta>
-        );
-      })()}
-
       <SeccionVenta icon="store" titulo="Top tiendas por cumplimiento" derecha={!isMobile && "IDC del mes · la raya marca el 100 % de la meta"}>
         {rankingTiendas.length>0 ? (() => { const esc = escalaCumplimiento(rankingTiendas); return (
           <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":`repeat(${Math.min(rankingTiendas.length,3)}, minmax(0,1fr))`, gap:14 }}>
@@ -7920,6 +7729,230 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
           </table>
         </div>
       </SeccionVenta>
+
+      {puedeAsignarMetas && (() => {
+        // ── Metas del mes (Propuesta A) ───────────────────────────────────────────────────────
+        // Dos pasos en orden: 1) la meta de cada tienda, 2) los días de cada asesor en cada tienda
+        // (de ahí sale su meta). Pensado para crecer: las tarjetas de tienda y las casillas de
+        // días por tienda se reacomodan solas (auto-fill) cuando se abren más tiendas.
+        const totalDiasMes = diasDelMes(anio, mesIdx);
+        const offsetLunes = (new Date(anio, mesIdx, 1).getDay() + 6) % 7; // 0 = lunes
+        const estadoTienda = (t) => {
+          const usaDias = tieneMetaPorDia(t.id);
+          const savedTotal = metaTiendaValor(t.id,"total"), savedPersonal = metaTiendaValor(t.id,"personal");
+          const savedDias = metaTiendaValoresDia(t.id);
+          const curTotal = usaDias ? sumaMetaDias(t.id) : Number(metaInputs[`tienda:${t.id}:total`]||0);
+          const curPersonal = Number(metaInputs[`tienda:${t.id}:personal`]||0);
+          let diasDirty = false;
+          for(let dn=1; dn<=totalDiasMes; dn++){ if(Number(metaDiasInputs[t.id]?.[dn]||0)!==Number(savedDias[dn]||0)) { diasDirty = true; break; } }
+          // Con meta por día, el total es la suma de los días: basta comparar los días.
+          const dirty = (usaDias ? diasDirty : (curTotal!==savedTotal || diasDirty)) || curPersonal!==savedPersonal;
+          return { usaDias, curTotal, dirty, guardada: !dirty && (savedTotal>0 || savedPersonal>0) };
+        };
+        const totalTiendas = tiendasList.reduce((s,t)=>s+estadoTienda(t).curTotal, 0);
+        const metaDesdeInputs = (asesorId) => {
+          const dt = detalleInputs[asesorId]?.diasTienda || {};
+          return Math.round(tiendasListConOficina.reduce((s,t)=> esTiendaOficina(t) ? s : s + (Number(dt[t.id]||0)/DIAS_META)*metaTiendaValor(t.id,"personal"), 0));
+        };
+        const estadoAsesor = (a) => {
+          const existente = metasAsesor.find(m=>m.mes===mesKey && m.vendedor_id===a.id);
+          const saved = existente?.dias_tienda || {};
+          const haySaved = Object.values(saved).some(v=>Number(v||0)>0);
+          const dt = detalleInputs[a.id]?.diasTienda || {};
+          const hayInputs = Object.values(dt).some(v=>Number(v||0)>0);
+          const dirty = haySaved && tiendasListConOficina.some(t=>Number(dt[t.id]||0)!==Number(saved[t.id]||0));
+          if(haySaved && !dirty) return { clave:"ok", txt:"Confirmada" };
+          if(dirty) return { clave:"dirty", txt:"Sin guardar" };
+          if(hayInputs) return { clave:"auto", txt:"Sugerida por la malla" };
+          return { clave:"vacio", txt:"Sin días asignados" };
+        };
+        const pendientes = asesores.filter(a=>estadoAsesor(a).clave!=="ok").length;
+        const chipEstado = (clave, txt) => {
+          const [col, bg, ic] = clave==="ok" ? [C.green, C.greenDim, "check"] : clave==="vacio" ? [C.textSub, C.surfaceHover, null] : [C.amber, C.amberDim, null];
+          return <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:col, background:bg }}>{ic ? <Icon n={ic} s={12} sw={2.4}/> : <span style={{ width:6, height:6, borderRadius:"50%", background:col }}/>}{txt}</span>;
+        };
+        const etiquetaCampo = { fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:600, marginBottom:6 };
+        const ayuda = { fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:5, lineHeight:1.4 };
+        const paso = (clave, n, txt, der) => {
+          const abierto = metasGrupo[clave];
+          return (
+            <button type="button" onClick={()=>setMetasGrupo(g=>({ ...g, [clave]:!g[clave] }))} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", margin:"12px 0 0", padding:"12px 14px", background:abierto?C.surfaceAlt:"#fff", border:`1px solid ${C.border}`, borderRadius:12, cursor:"pointer", textAlign:"left" }}>
+              <span style={{ fontFamily:font.body, fontSize:14.5, fontWeight:700, color:C.text }}>{n} · {txt}</span>
+              <span style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:10, fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>{der}<span style={{ fontSize:12 }}>{abierto?"▴":"▾"}</span></span>
+            </button>
+          );
+        };
+        const iniciales = (n) => (n||"").split(/\s+/).filter(Boolean).slice(0,2).map(p=>p[0]).join("").toUpperCase();
+        return (
+        <Card style={{ marginBottom:16 }}>
+          <button type="button" onClick={()=>setMetasAbierto(v=>!v)} style={{ width:"100%", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", background:"none", border:"none", padding:0, cursor:"pointer", textAlign:"left" }}>
+            <span style={{ width:34, height:34, borderRadius:10, background:C.surfaceHover, color:C.gold, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="target" s={18}/></span>
+            <span style={{ fontFamily:font.body, fontSize:16.5, fontWeight:700, color:C.text }}>Metas del mes</span>
+            <span style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:10 }}>
+              {asesores.length>0 && chipEstado(pendientes>0?"auto":"ok", pendientes>0 ? `${pendientes} sin confirmar` : "Todo confirmado")}
+              <span style={{ color:C.textMuted, fontSize:12 }}>{metasAbierto?"▴":"▾"}</span>
+            </span>
+          </button>
+          <Collapse open={metasAbierto}>
+          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, margin:"10px 0 4px" }}>Primero la meta de cada tienda; con eso se calcula la de cada asesor según los días que trabaja en cada una.</div>
+          {metaMsg && <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"9px 12px", color:C.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{metaMsg}</div>}
+
+          {paso("tiendas", 1, "Tiendas", <><b style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(totalTiendas)}</b>{tiendasList.some(t=>estadoTienda(t).dirty) && chipEstado("dirty","Sin guardar")}</>)}
+          <Collapse open={metasGrupo.tiendas}>
+          <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:10 }}>
+            {tiendasList.map(t=>{
+              const col = colorTienda(t);
+              const est = estadoTienda(t);
+              const diaAbierto = metaDiaAbierto===t.id;
+              const guardando = guardandoMeta===t.id;
+              const campos = (
+                <div>
+                  <div style={etiquetaCampo}>Meta de la tienda{est.usaDias && <span style={{ textTransform:"none", letterSpacing:0, color:C.gold }}> · suma de los días</span>}</div>
+                  <CurrencyField placeholder="$0" value={est.usaDias?String(sumaMetaDias(t.id)):(metaInputs[`tienda:${t.id}:total`]||"")} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:total`]:v}))} disabled={est.usaDias} noMargin/>
+                  <div style={ayuda}>{est.usaDias ? "Se arma sumando la meta de cada día." : "Lo que debe vender la tienda en el mes."}</div>
+                  <div style={{ ...etiquetaCampo, marginTop:14 }}>Meta por asesor (30 días)</div>
+                  <CurrencyField placeholder="$0" value={metaInputs[`tienda:${t.id}:personal`]||""} onChange={v=>setMetaInputs(prev=>({...prev,[`tienda:${t.id}:personal`]:v}))} noMargin/>
+                  <div style={ayuda}>Lo que vende un asesor que trabaje los 30 días aquí. Se reparte según sus días.</div>
+                </div>
+              );
+              const calendario = diaAbierto && (
+                <div>
+                  <div style={{ border:`1.5px dashed ${C.gold}55`, borderRadius:10, background:C.surfaceAlt, padding:"10px 12px", marginBottom:12 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, marginBottom:4 }}><Icon n="file" s={16}/>Pegar desde Excel</div>
+                    <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginBottom:8, lineHeight:1.45 }}>En Excel selecciona la columna de metas (del día 1 al último), cópiala y pégala aquí. Cada fila cae en su día.</div>
+                    <textarea value="" onChange={()=>{}} onPaste={e=>{ e.preventDefault(); pegarMetasDias(t.id, e.clipboardData.getData("text")); }} placeholder="Haz clic aquí y pega (Ctrl+V / ⌘V)" rows={2} style={{ width:"100%", resize:"none", boxSizing:"border-box", border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px", fontFamily:font.body, fontSize:12.5, color:C.text, background:"#fff", outline:"none" }}/>
+                    {pegadoInfo[t.id] && <div style={{ marginTop:8, fontFamily:font.body, fontSize:12, fontWeight:600, color:pegadoInfo[t.id].ok?C.green:C.amber, lineHeight:1.45 }}>{pegadoInfo[t.id].ok?"✓ ":"⚠ "}{pegadoInfo[t.id].texto}</div>}
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(7, minmax(0,1fr))", gap:isMobile?4:6 }}>
+                    {["L","M","M","J","V","S","D"].map((w,i)=><div key={i} style={{ textAlign:"center", fontFamily:font.body, fontSize:10.5, fontWeight:700, letterSpacing:"0.08em", color:C.textMuted }}>{w}</div>)}
+                    {Array.from({ length:offsetLunes }, (_,i)=><div key={`v${i}`}/>)}
+                    {Array.from({ length:totalDiasMes }, (_,i)=>i+1).map(dn=>{
+                      const raw = metaDiasInputs[t.id]?.[dn]||"";
+                      const domingo = (offsetLunes + dn - 1) % 7 === 6;
+                      return (
+                        <label key={dn} style={{ display:"block", border:`1px solid ${C.border}`, borderRadius:8, padding:isMobile?"3px 4px":"4px 6px", background:domingo?C.surfaceAlt:"#fff", cursor:"text" }}>
+                          <span style={{ display:"block", fontFamily:font.body, fontSize:10, color:C.textMuted }}>{dn}</span>
+                          <input value={raw ? Number(raw).toLocaleString("es-CO") : ""} onChange={e=>setMetaDiaValor(t.id, dn, e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" placeholder="—" style={{ width:"100%", border:"none", outline:"none", background:"transparent", padding:0, fontFamily:font.mono, fontSize:isMobile?10:11.5, color:C.text }}/>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, marginTop:10, fontWeight:700 }}>Total del mes: <span style={{ fontFamily:font.mono }}>{fmtCOP(sumaMetaDias(t.id))}</span></div>
+                </div>
+              );
+              return (
+                <div key={t.id} style={{ border:`1px solid ${tiendaMetaAbierta===t.id?C.gold:C.border}`, borderLeft:`3px solid ${col}`, borderRadius:12, background:"#fff", overflow:"hidden" }}>
+                  <button type="button" onClick={()=>setTiendaMetaAbierta(x=>x===t.id?null:t.id)} style={{ width:"100%", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", padding:"12px 14px", background:"none", border:"none", cursor:"pointer", textAlign:"left" }}>
+                    <PuntoTienda color={col}/><span style={{ fontFamily:font.body, fontWeight:700, fontSize:14.5, color:C.text }}>{nombreTiendaCorto(t)}</span>
+                    <span style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:10 }}>
+                      <b style={{ fontFamily:font.mono, fontSize:13.5, color:C.text }}>{est.curTotal>0?fmtCOP(est.curTotal):"—"}</b>
+                      {est.dirty ? chipEstado("dirty","Sin guardar") : est.guardada ? chipEstado("ok","Guardada") : chipEstado("vacio","Sin meta")}
+                      <span style={{ color:C.textMuted, fontSize:11 }}>{tiendaMetaAbierta===t.id?"▴":"▾"}</span>
+                    </span>
+                  </button>
+                  <Collapse open={tiendaMetaAbierta===t.id}>
+                  <div style={{ padding:"4px 18px 16px", borderTop:`1px solid ${C.border}` }}>
+                  <div style={{ height:12 }}/>
+                  {diaAbierto && !isMobile ? (
+                    <div style={{ display:"grid", gridTemplateColumns:"minmax(260px, 340px) 1fr", gap:24 }}>{campos}{calendario}</div>
+                  ) : <>{campos}{calendario && <div style={{ marginTop:14 }}>{calendario}</div>}</>}
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginTop:14, paddingTop:12, borderTop:`1px dashed ${C.border}` }}>
+                    <button type="button" onClick={()=>setMetaDiaAbierto(diaAbierto?null:t.id)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontFamily:font.body, fontSize:13, fontWeight:600, color:C.gold }}>{diaAbierto ? "▾ Ocultar días" : "▸ Repartir por día"}</button>
+                    <Btn onClick={()=>guardarMetaTienda(t.id)} disabled={guardando || !est.dirty} variant={est.dirty?"primary":"ghost"} sm>{guardando?"Guardando...":"Guardar"}</Btn>
+                  </div>
+                  </div>
+                  </Collapse>
+                </div>
+              );
+            })}
+          </div>
+
+                    </Collapse>
+          {paso("asesores", 2, "Asesores", <><b style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(asesores.reduce((s,a)=>s+metaDesdeInputs(a.id),0))}</b>{pendientes>0 && chipEstado("auto", `${pendientes} sin confirmar`)}</>)}
+          <Collapse open={metasGrupo.asesores}>
+          <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:10 }}>
+            {asesores.map(a=>{
+              const d = detalleInputs[a.id] || { diasTienda:{} };
+              const abierto = asesorExpandido===a.id;
+              // Novedades (Vacaciones, Incapacidad, DR, DNR, cumpleaños, etc.) ya no se escriben a
+              // mano — se leen directo de la malla real de Turnos de ese mes.
+              const novedadesAuto = novedadesDesdeMalla(a.id, mesKey, turnosAsignaciones, turnosGlobales);
+              const diasNovedadTotal = novedadesAuto.reduce((s,n)=>s+n.dias,0);
+              const diasDisponibles = totalDiasMes - diasNovedadTotal;
+              const sumaDiasTienda = Object.values(d.diasTienda||{}).reduce((s,v)=>s+Number(v||0),0);
+              const est = estadoAsesor(a);
+              const metaPrev = metaDesdeInputs(a.id);
+              const tiendasConDias = tiendasListConOficina.filter(t=>Number(d.diasTienda?.[t.id]||0)>0);
+              const pastillas = (
+                <span style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                  {tiendasConDias.length ? tiendasConDias.map(t=>(
+                    <span key={t.id} style={{ display:"inline-flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:12, color:C.text, border:`1px solid ${C.border}`, borderRadius:99, padding:"3px 9px", background:"#fff", whiteSpace:"nowrap" }}><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)} {d.diasTienda[t.id]} d</span>
+                  )) : <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin días por tienda</span>}
+                  <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, border:`1px solid ${C.border}`, borderRadius:99, padding:"3px 9px", whiteSpace:"nowrap" }}>{novedadesAuto.length ? novedadesAuto.map(n=>`${n.dias} ${n.nombre.toLowerCase()}`).join(" · ") : "Sin novedades"}</span>
+                </span>
+              );
+              const avatar = <span style={{ width:28, height:28, borderRadius:"50%", background:C.surfaceHover, display:"grid", placeItems:"center", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.textSub, flexShrink:0 }}>{iniciales(a.name)}</span>;
+              const lado = <span style={{ textAlign:"right", display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}><b style={{ fontFamily:font.mono, fontSize:14.5, color:C.text }}>{metaPrev>0?fmtCOP(metaPrev):"—"}</b>{chipEstado(est.clave, est.txt)}</span>;
+              return (
+                <div key={a.id} style={{ border:`1px solid ${abierto?C.gold:C.border}`, borderRadius:12, overflow:"hidden", background:"#fff" }}>
+                  <button type="button" onClick={()=>setAsesorExpandido(abierto?null:a.id)} style={{ width:"100%", background:"none", border:"none", cursor:"pointer", textAlign:"left", padding:"12px 14px", display:"grid", gridTemplateColumns:isMobile?"28px 1fr auto":"28px minmax(150px,210px) 1fr auto 18px", alignItems:"center", gap:12 }}>
+                    {avatar}
+                    {isMobile ? (
+                      <span style={{ minWidth:0 }}><b style={{ fontFamily:font.body, fontSize:14, color:C.text }}>{a.name}</b><span style={{ display:"block", marginTop:6 }}>{pastillas}</span></span>
+                    ) : <><b style={{ fontFamily:font.body, fontSize:14.5, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.name}</b>{pastillas}</>}
+                    {lado}
+                    {!isMobile && <span style={{ color:C.textMuted, fontSize:11 }}>{abierto?"▴":"▾"}</span>}
+                  </button>
+                  <Collapse open={abierto}>
+                    <div style={{ background:C.surfaceAlt, borderTop:`1px solid ${C.border}`, padding:isMobile?"14px":"16px 18px", display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(220px, 300px) 1fr", gap:isMobile?16:24 }}>
+                      <div>
+                        <div style={{ ...etiquetaCampo, fontWeight:700 }}>Novedades del mes · según Turnos</div>
+                        {[["Días del mes", totalDiasMes], ...novedadesAuto.map(n=>[n.nombre, `−${n.dias}`])].map(([k,v],i)=>(
+                          <div key={i} style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:13, color:C.text, padding:"5px 0", borderBottom:`1px dashed ${C.border}` }}><span>{k}</span><span style={{ fontFamily:font.mono }}>{v}</span></div>
+                        ))}
+                        <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:13, fontWeight:700, color:diasDisponibles>0?C.text:C.red, padding:"5px 0" }}><span>Días disponibles</span><span style={{ fontFamily:font.mono }}>{diasDisponibles}</span></div>
+                        <div style={{ ...ayuda, marginTop:8 }}>Las vacaciones, incapacidades y descansos se leen solos de la malla de Turnos.</div>
+                      </div>
+                      <div>
+                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
+                          <div style={{ ...etiquetaCampo, fontWeight:700, marginBottom:0 }}>Días en cada tienda</div>
+                          <button type="button" onClick={()=>actualizarDiasDesdeMalla(a.id)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontFamily:font.body, fontSize:13, fontWeight:600, color:C.gold, display:"inline-flex", alignItems:"center", gap:5 }}><Icon n="refresh" s={14}/>Traer de la malla</button>
+                        </div>
+                        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(130px, 1fr))", gap:8, marginTop:10 }}>
+                          {tiendasListConOficina.map(t=>{
+                            const dias = Number(d.diasTienda?.[t.id]||0);
+                            const aporte = esTiendaOficina(t) ? null : Math.round(dias/DIAS_META*metaTiendaValor(t.id,"personal"));
+                            return (
+                              <label key={t.id} style={{ display:"block", cursor:"text" }}>
+                                <span style={{ display:"flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:600, marginBottom:5, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)}</span>
+                                <span style={{ display:"flex", alignItems:"center", gap:6, height:38, border:`1px solid rgba(26,59,82,0.2)`, borderRadius:10, background:"#fff", padding:"0 10px" }}>
+                                  <input value={d.diasTienda?.[t.id]||""} onChange={e=>setDetalleTienda(a.id,t.id,e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" placeholder="0" style={{ width:"100%", minWidth:0, border:"none", outline:"none", background:"transparent", padding:0, fontFamily:font.mono, fontSize:14, color:C.text }}/>
+                                  <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, whiteSpace:"nowrap" }}>{aporte===null ? "no suma" : aporte>0 ? fmtCompacto(aporte) : "—"}</span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                        <div style={{ height:8, borderRadius:99, background:C.surfaceHover, margin:"12px 0 6px", overflow:"hidden" }}><div style={{ height:"100%", width:`${Math.min(100, diasDisponibles>0 ? sumaDiasTienda/diasDisponibles*100 : 0)}%`, background:sumaDiasTienda>diasDisponibles?C.red:C.gold, borderRadius:99, transition:"width .3s ease" }}/></div>
+                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
+                          <span style={{ fontFamily:font.body, fontSize:12, color:sumaDiasTienda>diasDisponibles?C.red:C.textMuted }}>{sumaDiasTienda>diasDisponibles ? <>Te pasaste: <b style={{ fontFamily:font.mono }}>{sumaDiasTienda}</b> de <b style={{ fontFamily:font.mono }}>{diasDisponibles}</b> días disponibles</> : <>Repartidos <b style={{ fontFamily:font.mono, color:C.text }}>{sumaDiasTienda}</b> de <b style={{ fontFamily:font.mono, color:C.text }}>{diasDisponibles}</b> días disponibles</>}</span>
+                          <Btn onClick={()=>guardarDetalleAsesor(a.id)} disabled={guardandoDetalle===a.id || sumaDiasTienda>diasDisponibles} sm>{guardandoDetalle===a.id ? "Guardando..." : `Confirmar meta · ${fmtCOP(metaPrev)}`}</Btn>
+                        </div>
+                        <div style={{ ...ayuda, marginTop:6 }}>Oficina no suma a la meta de ninguna tienda (no vendió ese día).</div>
+                      </div>
+                    </div>
+                  </Collapse>
+                </div>
+              );
+            })}
+            {asesores.length===0 && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>No hay asesores activos.</div>}
+          </div>
+          </Collapse>
+          </Collapse>
+        </Card>
+        );
+      })()}
+
     </div>
   );
 }
@@ -9208,7 +9241,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
                       {reFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10.5, color:puedeFechaLibre?C_DARK.amber:C_DARK.red, marginTop:4 }}>{puedeFechaLibre?"Vas a registrar con una fecha distinta a hoy.":"Solo el master o admin de finanzas puede registrar con una fecha distinta a hoy — pide autorización."}</div>}
                       {reFecha===todayStr && (
                         <label className="ozen-no-foto" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, margin:"6px 0 2px", padding:"7px 10px", background:C_DARK.surfaceAlt, borderRadius:8, border:`1px solid ${C_DARK.border}`, fontFamily:font.body, fontSize:12.5, color:C_DARK.text, cursor:efectivoHoyPendiente>0?"pointer":"default" }}>
-                          <span>¿Recoges efectivo de hoy? <span style={{ color:C_DARK.textMuted }}>{efectivoHoyPendiente>0 ? `(hay ${fmtCOP(efectivoHoyPendiente)})` : "(aún no hay efectivo de hoy)"}</span></span>
+                          <span>¿Recoges efectivo de hoy? <span style={{ color:C_DARK.textMuted }}>{`(hay ${fmtCOP(Math.max(0, efectivoHoyPendiente))})`}</span></span>
                           <input type="checkbox" checked={reIncluyeHoy} onChange={e=>{ setReIncluyeHoy(e.target.checked); if(!e.target.checked) setReValorHoy(""); }} disabled={efectivoHoyPendiente<=0}/>
                         </label>
                       )}
