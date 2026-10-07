@@ -101,6 +101,8 @@ const IC = {
   play:<><circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l5.5-3.5z"/></>,
   file:<><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/><path d="M9 14.5h6M9 17.5h4"/></>,
   up:<path d="M6 15l6-6 6 6"/>,
+  slides:<><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 16v4M8 20h8M7.5 8h6M7.5 11.5h9"/></>,
+  expand:<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>,
 };
 const Icon = ({ n, s=18, sw=1.7, style }) => (
   <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0, display:"block", ...style }} aria-hidden="true">{IC[n]}</svg>
@@ -9607,11 +9609,40 @@ const puedeEditarCapacitacion = (user) => user.role==="master" || user.role==="a
 const tomaCapacitaciones = (user) => user.role!=="visualizador" && user.role!=="tienda";
 const BUCKET_CAPACITACION = "capacitacion-pdfs";
 const MAX_PDF_MB = 50;
-const TIPO_LECCION = { video:{ label:"Video", ic:"play" }, pdf:{ label:"PDF", ic:"file" }, texto:{ label:"Texto", ic:"note" } };
+const TIPO_LECCION = { presentacion:{ label:"Presentación", ic:"slides" }, video:{ label:"Video", ic:"play" }, pdf:{ label:"PDF", ic:"file" }, texto:{ label:"Texto", ic:"note" } };
 
 // Links de YouTube y Google Drive se pueden ver dentro de la app; cualquier otro link se abre aparte.
 const idYoutube = (url) => { const m=(url||"").match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/); return m?m[1]:null; };
 const idDrive = (url) => { const m=(url||"").match(/drive\.google\.com\/(?:file\/d\/|open\?id=)([\w-]+)/); return m?m[1]:null; };
+// Presentaciones (Canva, Google Slides, PowerPoint en línea o un .pptx en Google Drive): a partir
+// del link normal de compartir se arma el link "para insertar", que muestra SOLO las diapositivas
+// dentro de la app, sin la interfaz del editor. También se acepta pegar el código "<iframe ...>"
+// que dan esas plataformas en su opción "Insertar": de ahí se saca el link.
+const extraerLinkPresentacion = (txt) => { const t=(txt||"").trim(); const m=t.match(/<iframe[^>]*\ssrc=["']([^"']+)["']/i); return (m ? m[1] : t).replace(/&amp;/g,"&"); };
+const presentacionEmbebible = (txt) => {
+  const url = extraerLinkPresentacion(txt);
+  if(!/^https:\/\//i.test(url)) return null;
+  let m;
+  // Canva: .../design/<id>/<clave>/view (o /edit, /watch) → .../view?embed
+  if((m = url.match(/^https:\/\/(?:www\.)?canva\.com\/design\/([\w-]+)\/([\w-]+)/i))) return { src:`https://www.canva.com/design/${m[1]}/${m[2]}/view?embed`, proveedor:"Canva" };
+  // Google Slides: /presentation/d/<id>/... → /embed ; los "publicados en la web" (/d/e/...) también
+  if((m = url.match(/docs\.google\.com\/presentation\/d\/e\/([\w-]+)/i))) return { src:`https://docs.google.com/presentation/d/e/${m[1]}/embed?start=false&loop=false&delayms=5000`, proveedor:"Google Slides" };
+  if((m = url.match(/docs\.google\.com\/presentation\/d\/([\w-]+)/i))) return { src:`https://docs.google.com/presentation/d/${m[1]}/embed?start=false&loop=false&delayms=5000`, proveedor:"Google Slides" };
+  // Un archivo .pptx (o PDF) subido a Google Drive: el visor de Drive muestra las diapositivas.
+  const d = idDrive(url); if(d) return { src:`https://drive.google.com/file/d/${d}/preview`, proveedor:"Google Drive" };
+  // PowerPoint en línea (OneDrive / SharePoint): el link sale de "Archivo → Compartir → Insertar".
+  if(/onedrive\.live\.com\/embed/i.test(url)) return { src:url, proveedor:"PowerPoint" };
+  if(/\.sharepoint\.com\//i.test(url)) return { src: /action=embedview/i.test(url) ? url : url + (url.includes("?")?"&":"?") + "action=embedview", proveedor:"PowerPoint" };
+  if(/officeapps\.live\.com\/op\/(?:embed|view)\.aspx/i.test(url)) return { src:url.replace("/op/view.aspx","/op/embed.aspx"), proveedor:"PowerPoint" };
+  return null;
+};
+// Links que se ven como presentación pero NO se pueden mostrar dentro de la app (hay que usar otro).
+const avisoLinkPresentacion = (txt) => {
+  const url = extraerLinkPresentacion(txt);
+  if(/canva\.link\//i.test(url)) return "Ese es un link corto de Canva. En Canva usa Compartir → \"Ver solo\" (o \"Insertar\") y copia ese link.";
+  if(/1drv\.ms\//i.test(url) || /onedrive\.live\.com\/(?!embed)/i.test(url)) return "Ese link de OneDrive no se puede mostrar dentro de la app. En PowerPoint en línea usa Archivo → Compartir → Insertar, y pega aquí el código que te da.";
+  return null;
+};
 const urlVideoEmbebible = (url) => { const y=idYoutube(url); if(y) return `https://www.youtube.com/embed/${y}`; const d=idDrive(url); if(d) return `https://drive.google.com/file/d/${d}/preview`; return null; };
 const barajar = (arr) => { const a=[...arr]; for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; };
 const porOrden = (a,b) => (a.orden??0)-(b.orden??0) || (a.created_at||"").localeCompare(b.created_at||"");
@@ -9651,11 +9682,40 @@ const TituloSeccion = ({ children, extra }) => (
   </div>
 );
 
+// Visor de presentación: muestra solo las diapositivas, con botón de pantalla completa. En iPhone
+// el navegador no deja poner un recuadro en pantalla completa, así que ahí se abre en otra pestaña.
+function VisorPresentacion({ leccion, isMobile }) {
+  const caja = useRef(null);
+  const emb = presentacionEmbebible(leccion.url);
+  const linkAparte = emb?.proveedor==="Canva" ? emb.src.replace("?embed","") : extraerLinkPresentacion(leccion.url);
+  if(!emb) return leccion.url
+    ? <a href={linkAparte} target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none", alignSelf:"flex-start" }}><Btn variant="ghost"><Icon n="slides" s={15}/>Abrir presentación</Btn></a>
+    : <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>Esta lección no tiene link de presentación.</div>;
+  const puedePantallaCompleta = typeof document!=="undefined" && !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+  const pantallaCompleta = () => {
+    const el = caja.current; if(!el) return;
+    if(el.requestFullscreen) el.requestFullscreen(); else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  };
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+      <div ref={caja} style={{ position:"relative", width:"100%", paddingTop:"56.25%", borderRadius:10, overflow:"hidden", background:C.goldDark }}>
+        <iframe src={emb.src} title={leccion.titulo} allow="fullscreen; autoplay" allowFullScreen style={{ position:"absolute", inset:0, width:"100%", height:"100%", border:"none" }}/>
+      </div>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+        {puedePantallaCompleta && <Btn onClick={pantallaCompleta} variant="ghost" sm><Icon n="expand" s={14}/>Pantalla completa</Btn>}
+        <a href={linkAparte} target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none" }}><Btn variant="ghost" sm><Icon n="slides" s={14}/>{isMobile?"Abrir aparte":"Abrir en otra pestaña"}</Btn></a>
+        <span style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>{emb.proveedor}</span>
+      </div>
+    </div>
+  );
+}
+
 // Contenido de una lección: el video o el PDF (dentro de la app cuando se puede) y el texto.
 function LeccionContenido({ leccion, isMobile }) {
   const embebido = leccion.tipo==="video" ? urlVideoEmbebible(leccion.url) : null;
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+      {leccion.tipo==="presentacion" && <VisorPresentacion leccion={leccion} isMobile={isMobile}/>}
       {leccion.tipo==="video" && (embebido ? (
         <div style={{ position:"relative", width:"100%", paddingTop:"56.25%", borderRadius:10, overflow:"hidden", background:C.goldDark }}>
           <iframe src={embebido} title={leccion.titulo} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ position:"absolute", inset:0, width:"100%", height:"100%", border:"none" }}/>
@@ -9979,7 +10039,7 @@ function CapacitacionProgresoScreen({ users, cursos, lecciones, preguntas, vista
 
 // ── Formularios de administración ──
 function FormLeccion({ curso, leccion, onGuardado, onCancelar }) {
-  const [f, setF] = useState({ titulo:leccion?.titulo||"", tipo:leccion?.tipo||"video", url:leccion?.tipo==="video"?(leccion?.url||""):"", contenido:leccion?.contenido||"" });
+  const [f, setF] = useState({ titulo:leccion?.titulo||"", tipo:leccion?.tipo||"presentacion", url:(leccion?.tipo==="video"||leccion?.tipo==="presentacion")?(leccion?.url||""):"", contenido:leccion?.contenido||"" });
   const [archivo, setArchivo] = useState(null);
   const [guardando, setGuardando] = useState(false);
   const set = (k) => (v) => setF(p=>({ ...p, [k]:v }));
@@ -9987,10 +10047,12 @@ function FormLeccion({ curso, leccion, onGuardado, onCancelar }) {
   const guardar = async () => {
     if(!f.titulo.trim()) return alert("Ponle un título a la lección.");
     if(f.tipo==="video" && !f.url.trim()) return alert("Pega el link del video (YouTube o Google Drive).");
+    if(f.tipo==="presentacion" && !f.url.trim()) return alert("Pega el link de la presentación (Canva, Google Slides, PowerPoint en línea o Google Drive).");
+    if(f.tipo==="presentacion" && avisoLinkPresentacion(f.url)) return alert(avisoLinkPresentacion(f.url));
     if(f.tipo==="pdf" && !archivo && !(leccion?.tipo==="pdf" && leccion?.url)) return alert("Elige el archivo PDF.");
     if(f.tipo==="texto" && !f.contenido.trim()) return alert("Escribe el texto de la lección.");
     setGuardando(true);
-    let url = f.tipo==="video" ? f.url.trim() : f.tipo==="pdf" ? (leccion?.tipo==="pdf" ? leccion.url : null) : null;
+    let url = f.tipo==="video" ? f.url.trim() : f.tipo==="presentacion" ? extraerLinkPresentacion(f.url) : f.tipo==="pdf" ? (leccion?.tipo==="pdf" ? leccion.url : null) : null;
     let pdf_path = f.tipo==="pdf" ? (leccion?.pdf_path||null) : null;
     const pathViejo = leccion?.pdf_path || null;
     if(f.tipo==="pdf" && archivo){
@@ -10016,11 +10078,33 @@ function FormLeccion({ curso, leccion, onGuardado, onCancelar }) {
     <Card glow style={{ marginBottom:10 }}>
       <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.goldLight, marginBottom:12 }}>{leccion ? "Editar lección" : "Nueva lección"}</div>
       <Field label="Título" value={f.titulo} onChange={set("titulo")} placeholder="Ej: Historia y valores de OZEN"/>
-      <Field label="Tipo" value={f.tipo} onChange={set("tipo")} options={[{ value:"video", label:"Video (link de YouTube o Google Drive)" },{ value:"pdf", label:"PDF (subir archivo)" },{ value:"texto", label:"Texto" }]}/>
+      <Field label="Tipo" value={f.tipo} onChange={set("tipo")} options={[{ value:"presentacion", label:"Presentación (link de Canva, Google Slides o PowerPoint)" },{ value:"video", label:"Video (link de YouTube o Google Drive)" },{ value:"pdf", label:"PDF (subir archivo)" },{ value:"texto", label:"Texto" }]}/>
       {f.tipo==="video" && (
         <>
           <Field label="Link del video" value={f.url} onChange={set("url")} placeholder="https://youtu.be/... o https://drive.google.com/file/d/..."/>
           <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, margin:"-6px 0 14px", lineHeight:1.5 }}>En YouTube súbelo como <b>"No listado"</b>. En Google Drive, compártelo como <b>"Cualquier persona con el enlace"</b> para que se vea dentro de la app.{f.url.trim() && !urlVideoEmbebible(f.url) && <span style={{ color:C.amber }}> Este link no es de YouTube ni de Drive: se abrirá en otra pestaña.</span>}</div>
+        </>
+      )}
+      {f.tipo==="presentacion" && (
+        <>
+          <Field label="Link de la presentación (o código para insertar)" value={f.url} onChange={set("url")} multiline rows={2} placeholder="https://www.canva.com/design/... o https://docs.google.com/presentation/d/..."/>
+          <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, margin:"-6px 0 14px", lineHeight:1.55 }}>
+            <b>Canva:</b> Compartir → acceso "Cualquier persona con el enlace" → copia el link. · <b>Google Slides:</b> Compartir → "Cualquier persona con el enlace". · <b>PowerPoint:</b> súbelo a Google Drive y pega su link, o en PowerPoint en línea usa Archivo → Compartir → Insertar y pega el código.
+            {f.url.trim() && (avisoLinkPresentacion(f.url)
+              ? <div style={{ color:C.amber, marginTop:4 }}>{avisoLinkPresentacion(f.url)}</div>
+              : presentacionEmbebible(f.url)
+                ? <div style={{ color:C.green, marginTop:4 }}>✓ Link de {presentacionEmbebible(f.url).proveedor}: se verá dentro de la app.</div>
+                : <div style={{ color:C.amber, marginTop:4 }}>No reconozco este link: se abrirá en otra pestaña en vez de verse dentro de la app.</div>)}
+          </div>
+          {presentacionEmbebible(f.url) && !avisoLinkPresentacion(f.url) && (
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Vista previa</div>
+              <div style={{ position:"relative", width:"100%", paddingTop:"56.25%", borderRadius:10, overflow:"hidden", background:C.goldDark }}>
+                <iframe src={presentacionEmbebible(f.url).src} title="Vista previa" allowFullScreen style={{ position:"absolute", inset:0, width:"100%", height:"100%", border:"none" }}/>
+              </div>
+              <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:5 }}>Si aquí sale un error o una pantalla de inicio de sesión, la presentación no está compartida como pública.</div>
+            </div>
+          )}
         </>
       )}
       {f.tipo==="pdf" && (
@@ -10184,7 +10268,7 @@ function EditorCurso({ curso, setCursos, lecciones, setLecciones, preguntas, set
             <span style={{ width:28, height:28, borderRadius:"50%", flexShrink:0, display:"grid", placeItems:"center", fontFamily:font.body, fontSize:12.5, fontWeight:700, background:C.surfaceHover, color:C.goldDark }}>{i+1}</span>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:isMobile?"normal":"nowrap" }}>{l.titulo}</div>
-              <div style={{ display:"flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:2 }}><Icon n={TIPO_LECCION[l.tipo]?.ic||"note"} s={12}/>{TIPO_LECCION[l.tipo]?.label}{l.tipo==="video" && l.url && !urlVideoEmbebible(l.url) && <span style={{ color:C.amber }}> · se abre aparte</span>}</div>
+              <div style={{ display:"flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:2 }}><Icon n={TIPO_LECCION[l.tipo]?.ic||"note"} s={12}/>{TIPO_LECCION[l.tipo]?.label}{((l.tipo==="video" && l.url && !urlVideoEmbebible(l.url)) || (l.tipo==="presentacion" && l.url && !presentacionEmbebible(l.url))) && <span style={{ color:C.amber }}> · se abre aparte</span>}</div>
             </div>
             <BotonIcono ic="up" title="Subir" onClick={()=>intercambiarOrden("capacitacion_lecciones", l, lecs[i-1], setLecciones)} disabled={i===0}/>
             <BotonIcono ic="down" title="Bajar" onClick={()=>intercambiarOrden("capacitacion_lecciones", l, lecs[i+1], setLecciones)} disabled={i===lecs.length-1}/>

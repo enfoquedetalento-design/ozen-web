@@ -17,13 +17,13 @@ create table if not exists capacitacion_cursos (
   updated_at      timestamptz not null default now()
 );
 
--- 2) Lecciones de cada curso (video por link, PDF subido o texto)
+-- 2) Lecciones de cada curso (presentación o video por link, PDF subido o texto)
 create table if not exists capacitacion_lecciones (
   id          uuid primary key default gen_random_uuid(),
   curso_id    uuid not null references capacitacion_cursos(id) on delete cascade,
   orden       int  not null default 0,
   titulo      text not null,
-  tipo        text not null check (tipo in ('video','pdf','texto')),
+  tipo        text not null check (tipo in ('video','pdf','texto','presentacion')),
   url         text,           -- link del video, o URL pública del PDF subido
   pdf_path    text,           -- ruta del PDF dentro del espacio capacitacion-pdfs
   contenido   text,           -- texto de la lección (o nota que acompaña al video/PDF)

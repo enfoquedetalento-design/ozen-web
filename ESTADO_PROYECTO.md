@@ -567,6 +567,11 @@ fusionar a `main`).
 - Lecciones vistas e intentos solo se agregan (la base no deja editarlos ni borrarlos).
   Un curso con avance no se puede eliminar, solo archivar. `usuario_id` se guarda como
   texto sin relación a `usuarios`, para que borrar un usuario nunca toque este historial.
+- **Lecciones tipo "Presentación" (7 oct 2026)**: se pega el link de Canva, Google
+  Slides, PowerPoint en línea (código de "Insertar") o un .pptx en Google Drive, y la app
+  muestra solo las diapositivas, con botón de pantalla completa. Requiere el SQL
+  `sql/capacitaciones_02_presentaciones.sql` (ya incluido en `sql/capacitaciones.sql`
+  para cuando se corra en la base real).
 - En las pestañas "Mis cursos" y "Administrar cursos" el cierre por inactividad es de 2
   horas (antes, a los 5 min se cerraba la sesión en medio de un video).
 - Limitación conocida: como el login no usa Supabase Auth, alguien con conocimientos
