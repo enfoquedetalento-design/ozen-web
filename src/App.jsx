@@ -8661,7 +8661,12 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   // recolección declaró haberse llevado de "hoy" (valor_hoy), y nunca se vuelve a tocar después.
   const efectivoAnteriores = ultimaRecoleccion ? (()=>{
     const valorHoyRecolectado = Number(ultimaRecoleccion.valor_hoy||0);
-    const sobranteDelDiaDeLaRecoleccion = Math.max(0, efectivoDelDia(ultimaRecoleccion.fecha) - valorHoyRecolectado);
+    // Si la recolección fue HOY, ese "sobrante" es justo el efectivo de hoy que sigue pendiente
+    // (efectivoHoyPendiente, más abajo) — contarlo también acá lo sumaba dos veces y duplicaba el
+    // efectivo (Jardín Plaza, 6 oct: recogió $753.000 y después vendió $819.000 en efectivo, y la
+    // apertura mostraba $1.638.000 en vez de $819.000). Solo cuenta como "día anterior" si la
+    // recolección fue de un día que ya pasó.
+    const sobranteDelDiaDeLaRecoleccion = ultimaRecoleccion.fecha < todayStr ? Math.max(0, efectivoDelDia(ultimaRecoleccion.fecha) - valorHoyRecolectado) : 0;
     let acumulado = sobranteDelDiaDeLaRecoleccion;
     let cursor = sumarDias(ultimaRecoleccion.fecha, 1);
     let guard = 0;
