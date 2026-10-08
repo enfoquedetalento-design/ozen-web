@@ -9594,15 +9594,15 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
 // ── APP SHELL ──────────────────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 // ── MÓDULO: Inducciones y capacitaciones ─────────────────────────────────────
-// Cursos con lecciones en orden (video por link, PDF subido o texto) y un quiz de opción múltiple
-// al final. Tablas: capacitacion_cursos, capacitacion_lecciones, capacitacion_preguntas,
-// capacitacion_lecciones_vistas, capacitacion_intentos (ver sql/capacitaciones.sql).
+// Cursos con lecciones en orden (presentación, video por link, PDF subido o texto). Cada lección
+// puede tener su propio quiz y el curso puede tener además un quiz final. Tablas:
+// capacitacion_cursos, capacitacion_lecciones, capacitacion_preguntas,
+// capacitacion_lecciones_vistas, capacitacion_intentos (ver sql/capacitaciones*.sql).
 // - Toman cursos: asesores y admins (no visualizador ni cuentas de tienda).
 // - Crean/editan cursos: master y admin_turnos.
 // - Ven el progreso de todos: master, admins y visualizador.
-// - El quiz se habilita cuando la persona ya vio todas las lecciones. Se aprueba con el % mínimo
-//   del curso; reintentos ilimitados. La fecha de finalización es la del PRIMER intento aprobado
-//   (un curso sin preguntas queda completado al ver todas sus lecciones).
+// - Preguntas de una o varias respuestas, con imagen y explicación opcionales. Se aprueba con el %
+//   mínimo del curso; reintentos ilimitados. Las lecciones se desbloquean en orden (configurable).
 // - Vistas e intentos solo se agregan, nunca se editan ni borran (así está también en la base).
 // ══════════════════════════════════════════════════════════════════════════════
 const puedeEditarCapacitacion = (user) => user.role==="master" || user.role==="admin_turnos";
@@ -9649,21 +9649,51 @@ const porOrden = (a,b) => (a.orden??0)-(b.orden??0) || (a.created_at||"").locale
 const fmtFechaCorta = (iso) => iso ? new Date(iso).toLocaleDateString("es-CO", { day:"numeric", month:"short", year:"numeric" }) : "—";
 
 // Todo lo que se necesita saber de UN curso para UNA persona.
+// - Cada lección puede tener su propio quiz (preguntas con leccion_id). Una lección queda
+//   COMPLETADA así: con quiz → el primer intento aprobado de ese quiz; sin quiz → cuando la persona
+//   la marca como vista.
+// - Si el curso está "en orden" (por defecto), cada lección se desbloquea al completar la anterior.
+// - Las preguntas sin leccion_id son el quiz FINAL del curso: se habilita al completar todas las
+//   lecciones. El curso queda completado cuando están todas las lecciones (y el quiz final, si hay);
+//   la fecha de finalización es la del último paso que se completó.
+const correctasDe = (p) => p.tipo==="multiple" ? (Array.isArray(p.respuestas_correctas) ? p.respuestas_correctas : []) : [p.respuesta_correcta];
 const estadoCursoUsuario = (curso, lecciones, preguntas, vistas, intentos, userId) => {
   const uid = String(userId);
   const lecs = lecciones.filter(l=>l.curso_id===curso.id).sort(porOrden);
-  const pregs = preguntas.filter(p=>p.curso_id===curso.id).sort(porOrden);
+  const pregsCurso = preguntas.filter(p=>p.curso_id===curso.id).sort(porOrden);
+  const pregs = pregsCurso.filter(p=>!p.leccion_id);
   const misVistas = vistas.filter(v=>v.usuario_id===uid && v.curso_id===curso.id);
   const vistasPorLeccion = {}; misVistas.forEach(v=>{ vistasPorLeccion[v.leccion_id]=v; });
-  const vistasCount = lecs.filter(l=>vistasPorLeccion[l.id]).length;
   const misIntentos = intentos.filter(i=>i.usuario_id===uid && i.curso_id===curso.id).sort((a,b)=>(a.created_at||"").localeCompare(b.created_at||""));
-  const primerAprobado = misIntentos.find(i=>i.aprobado);
-  const mejorPuntaje = misIntentos.length ? Math.max(...misIntentos.map(i=>i.puntaje)) : null;
+  const enOrden = curso.en_orden!==false;
+  let anterioresCompletas = true;
+  const infoLecs = lecs.map(l => {
+    const pregsL = pregsCurso.filter(p=>p.leccion_id===l.id);
+    const intL = misIntentos.filter(i=>i.leccion_id===l.id);
+    const aprobado = intL.find(i=>i.aprobado);
+    const vista = vistasPorLeccion[l.id] || null;
+    const completadaEn = pregsL.length ? (aprobado?.created_at || null) : (vista?.created_at || null);
+    const desbloqueada = !enOrden || anterioresCompletas;
+    anterioresCompletas = anterioresCompletas && !!completadaEn;
+    return { l, pregs:pregsL, intentos:intL, mejor: intL.length ? Math.max(...intL.map(i=>i.puntaje)) : null, vista, completadaEn, desbloqueada };
+  });
+  const lecsCompletas = infoLecs.filter(x=>x.completadaEn).length;
+  const todasLecs = lecsCompletas===lecs.length;
+  const intFinal = misIntentos.filter(i=>!i.leccion_id);
+  const primerAprobado = intFinal.find(i=>i.aprobado);
+  const mejorPuntaje = intFinal.length ? Math.max(...intFinal.map(i=>i.puntaje)) : null;
   let completadoEn = null;
-  if(pregs.length>0) completadoEn = primerAprobado?.created_at || null;
-  else if(lecs.length>0 && vistasCount===lecs.length) completadoEn = lecs.map(l=>vistasPorLeccion[l.id].created_at).sort().slice(-1)[0];
-  const estado = completadoEn ? "completado" : (vistasCount>0 || misIntentos.length>0) ? "en_curso" : "sin_empezar";
-  return { lecs, pregs, vistasPorLeccion, vistasCount, intentos:misIntentos, mejorPuntaje, completadoEn, estado, quizHabilitado: vistasCount===lecs.length };
+  if((lecs.length || pregs.length) && todasLecs && (pregs.length===0 || primerAprobado))
+    completadoEn = [...infoLecs.map(x=>x.completadaEn), primerAprobado?.created_at].filter(Boolean).sort().slice(-1)[0] || null;
+  const estado = completadoEn ? "completado" : (misVistas.length>0 || misIntentos.length>0) ? "en_curso" : "sin_empezar";
+  const totalPasos = lecs.length + (pregs.length ? 1 : 0);
+  const pasosHechos = lecsCompletas + (pregs.length && primerAprobado ? 1 : 0);
+  return { lecs, infoLecs, pregs, lecsCompletas, intentos:intFinal, todosIntentos:misIntentos, mejorPuntaje, completadoEn, estado, quizHabilitado: todasLecs, pct: totalPasos ? pasosHechos*100/totalPasos : 0 };
+};
+// Cuántas personas completaron un curso (entre quienes tienen algún avance en él).
+const personasQueCompletaron = (curso, lecciones, preguntas, vistas, intentos) => {
+  const ids = new Set([...vistas.filter(v=>v.curso_id===curso.id).map(v=>v.usuario_id), ...intentos.filter(i=>i.curso_id===curso.id).map(i=>i.usuario_id)]);
+  return [...ids].filter(id=>estadoCursoUsuario(curso, lecciones, preguntas, vistas, intentos, id).completadoEn).length;
 };
 const ESTADO_CURSO = { completado:{ label:"Completado", color:C.green }, en_curso:{ label:"En curso", color:C.amber }, sin_empezar:{ label:"Sin empezar", color:C.textMuted } };
 // Un curso se le muestra a quien lo toma solo si está activo y tiene algo adentro.
@@ -9734,37 +9764,53 @@ function LeccionContenido({ leccion, isMobile }) {
   );
 }
 
-// ── Quiz: preguntas y opciones en orden aleatorio en cada intento ──
-function QuizCurso({ user, curso, preguntas, setIntentos, onCerrar }) {
-  const [orden] = useState(() => barajar(preguntas).map(p => ({ p, opciones: barajar(p.opciones.map((texto, idx) => ({ texto, idx }))) })));
-  const [elegidas, setElegidas] = useState({}); // pregunta_id → índice ORIGINAL de la opción
+// ── Quiz (de una lección o el final del curso): preguntas y opciones en orden aleatorio en cada
+// intento. Tipos: "unica" (una respuesta) y "multiple" (varias respuestas: hay que marcar
+// exactamente las correctas para que cuente, igual que en Google Forms). Puede tener imagen.
+function QuizCurso({ user, curso, leccion, preguntas, setIntentos, onCerrar }) {
+  const [orden] = useState(() => barajar(preguntas).map(p => ({ p, opciones: barajar((p.opciones||[]).map((texto, idx) => ({ texto, idx }))) })));
+  const [elegidas, setElegidas] = useState({}); // pregunta_id → [índices ORIGINALES elegidos]
   const [guardando, setGuardando] = useState(false);
   const [resultado, setResultado] = useState(null);
-  const respondidas = orden.filter(o => elegidas[o.p.id]!==undefined).length;
+  const minimo = curso.puntaje_minimo ?? 80;
+  const respondidas = orden.filter(o => (elegidas[o.p.id]||[]).length>0).length;
+  const elegir = (p, idx) => setElegidas(prev => {
+    const act = prev[p.id] || [];
+    if(p.tipo!=="multiple") return { ...prev, [p.id]:[idx] };
+    return { ...prev, [p.id]: act.includes(idx) ? act.filter(x=>x!==idx) : [...act, idx] };
+  });
 
   const enviar = async () => {
     if(respondidas<orden.length || guardando) return;
     setGuardando(true);
-    const respuestas = orden.map(({ p, opciones }) => ({ pregunta_id:p.id, enunciado:p.enunciado, opciones:opciones.map(o=>o.texto), elegida:opciones.findIndex(o=>o.idx===elegidas[p.id]), correcta:opciones.findIndex(o=>o.idx===p.respuesta_correcta), acierto: elegidas[p.id]===p.respuesta_correcta }));
+    const respuestas = orden.map(({ p, opciones }) => {
+      const el = elegidas[p.id] || [], ok = correctasDe(p);
+      const acierto = el.length===ok.length && el.every(x=>ok.includes(x));
+      return { pregunta_id:p.id, enunciado:p.enunciado, tipo:p.tipo||"unica", imagen_url:p.imagen_url||null, explicacion:p.explicacion||null, opciones:opciones.map(o=>o.texto),
+        elegidas:opciones.map((o,j)=>el.includes(o.idx)?j:-1).filter(j=>j>=0), correctas:opciones.map((o,j)=>ok.includes(o.idx)?j:-1).filter(j=>j>=0), acierto };
+    });
     const aciertos = respuestas.filter(r=>r.acierto).length;
     const puntaje = Math.round(aciertos*100/respuestas.length);
-    const aprobado = puntaje >= (curso.puntaje_minimo ?? 80);
-    const { data, error } = await supabase.from("capacitacion_intentos").insert({ usuario_id:String(user.id), usuario_nombre:user.name, curso_id:curso.id, puntaje, aprobado, respuestas }).select().single();
+    const aprobado = puntaje >= minimo;
+    const { data, error } = await supabase.from("capacitacion_intentos").insert({ usuario_id:String(user.id), usuario_nombre:user.name, curso_id:curso.id, leccion_id:leccion?.id||null, puntaje, aprobado, respuestas }).select().single();
     setGuardando(false);
     if(error || !data){ sonidoError(); alert("No se pudo guardar el resultado. Revisa tu conexión e inténtalo de nuevo."); return; }
     setIntentos(prev=>[...prev, data]);
     if(aprobado) sonidoTareaCumplida();
     setResultado({ puntaje, aprobado, aciertos, total:respuestas.length, respuestas });
+    window.scrollTo?.(0,0);
   };
+
+  const imagenPregunta = (url) => url && <img src={url} alt="" style={{ display:"block", maxWidth:"100%", maxHeight:260, borderRadius:10, border:`1px solid ${C.border}`, marginBottom:12, background:"#fff" }}/>;
 
   if(resultado) return (
     <div>
       <Card glow style={{ textAlign:"center", marginBottom:16 }}>
         <div style={{ width:56, height:56, borderRadius:"50%", margin:"0 auto 12px", display:"grid", placeItems:"center", background:resultado.aprobado?C.greenDim:C.redDim, color:resultado.aprobado?C.green:C.red }}><Icon n={resultado.aprobado?"check":"x"} s={26} sw={2.2}/></div>
         <div style={{ fontFamily:font.mono, fontSize:34, fontWeight:700, color:resultado.aprobado?C.green:C.red, lineHeight:1 }}>{resultado.puntaje}%</div>
-        <div style={{ fontFamily:font.body, fontSize:15, fontWeight:700, color:C.text, marginTop:8 }}>{resultado.aprobado ? "¡Aprobaste el curso!" : "Esta vez no alcanzó"}</div>
-        <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:4 }}>{resultado.aciertos} de {resultado.total} correctas · se aprueba con {curso.puntaje_minimo ?? 80}%{!resultado.aprobado && " — puedes repasar e intentarlo de nuevo cuando quieras"}</div>
-        <div style={{ marginTop:14, display:"flex", justifyContent:"center" }}><Btn onClick={onCerrar}>{resultado.aprobado ? "Listo" : "Volver al curso"}</Btn></div>
+        <div style={{ fontFamily:font.body, fontSize:15, fontWeight:700, color:C.text, marginTop:8 }}>{resultado.aprobado ? (leccion ? "¡Aprobaste esta lección!" : "¡Aprobaste el curso!") : "Esta vez no alcanzó"}</div>
+        <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:4 }}>{resultado.aciertos} de {resultado.total} correctas · se aprueba con {minimo}%{!resultado.aprobado && " — repasa la lección e inténtalo de nuevo cuando quieras"}</div>
+        <div style={{ marginTop:14, display:"flex", justifyContent:"center" }}><Btn onClick={onCerrar}>{resultado.aprobado ? "Continuar" : "Volver al curso"}</Btn></div>
       </Card>
       <TituloSeccion>Revisión de respuestas</TituloSeccion>
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -9772,15 +9818,19 @@ function QuizCurso({ user, curso, preguntas, setIntentos, onCerrar }) {
           <Card key={r.pregunta_id} p="16px">
             <div style={{ display:"flex", gap:10, alignItems:"flex-start", marginBottom:10 }}>
               <span style={{ color:r.acierto?C.green:C.red, marginTop:1 }}><Icon n={r.acierto?"check":"x"} s={17} sw={2.2}/></span>
-              <div style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.text, lineHeight:1.45 }}>{i+1}. {r.enunciado}</div>
+              <div style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.text, lineHeight:1.45 }}>{i+1}. {r.enunciado}{r.tipo==="multiple" && <span style={{ fontWeight:400, color:C.textMuted }}> (varias respuestas)</span>}</div>
             </div>
-            <div style={{ display:"flex", flexDirection:"column", gap:6, paddingLeft:27 }}>
-              {r.opciones.map((op,j)=>{ const esCorrecta=j===r.correcta, esElegida=j===r.elegida; const col = esCorrecta?C.green:esElegida?C.red:null; return (
-                <div key={j} style={{ fontFamily:font.body, fontSize:13, color:col||C.textSub, padding:"7px 10px", borderRadius:8, background:esCorrecta?C.greenDim:esElegida?C.redDim:"transparent", border:`1px solid ${col?`${col}44`:C.border}`, display:"flex", justifyContent:"space-between", gap:10 }}>
-                  <span>{op}</span>
-                  {(esCorrecta||esElegida) && <span style={{ fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>{esCorrecta?(esElegida?"Tu respuesta · correcta":"Correcta"):"Tu respuesta"}</span>}
-                </div>
-              ); })}
+            <div style={{ paddingLeft:27 }}>
+              {imagenPregunta(r.imagen_url)}
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {r.opciones.map((op,j)=>{ const esCorrecta=r.correctas.includes(j), esElegida=r.elegidas.includes(j); const col = esCorrecta?C.green:esElegida?C.red:null; return (
+                  <div key={j} style={{ fontFamily:font.body, fontSize:13, color:col||C.textSub, padding:"7px 10px", borderRadius:8, background:esCorrecta?C.greenDim:esElegida?C.redDim:"transparent", border:`1px solid ${col?`${col}44`:C.border}`, display:"flex", justifyContent:"space-between", gap:10 }}>
+                    <span>{op}</span>
+                    {(esCorrecta||esElegida) && <span style={{ fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>{esCorrecta?(esElegida?"Tu respuesta · correcta":"Correcta"):"Tu respuesta"}</span>}
+                  </div>
+                ); })}
+              </div>
+              {r.explicacion && <div style={{ marginTop:10, padding:"9px 12px", borderRadius:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, fontFamily:font.body, fontSize:12.5, color:C.textSub, lineHeight:1.5 }}><b style={{ color:C.text }}>Explicación: </b>{r.explicacion}</div>}
             </div>
           </Card>
         ))}
@@ -9791,36 +9841,66 @@ function QuizCurso({ user, curso, preguntas, setIntentos, onCerrar }) {
   return (
     <div>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:14 }}>
-        <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>{respondidas} de {orden.length} respondidas · se aprueba con {curso.puntaje_minimo ?? 80}%</div>
+        <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>{respondidas} de {orden.length} respondidas · se aprueba con {minimo}%</div>
         <Btn onClick={onCerrar} variant="ghost" sm>Cancelar</Btn>
       </div>
       <div style={{ marginBottom:16 }}><BarraProgreso pct={orden.length?respondidas*100/orden.length:0}/></div>
       <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-        {orden.map(({ p, opciones }, i)=>(
+        {orden.map(({ p, opciones }, i)=>{ const multiple = p.tipo==="multiple"; const sel = elegidas[p.id]||[]; return (
           <Card key={p.id} p="16px">
-            <div style={{ fontFamily:font.body, fontSize:14.5, fontWeight:600, color:C.text, marginBottom:12, lineHeight:1.45 }}>{i+1}. {p.enunciado}</div>
+            <div style={{ fontFamily:font.body, fontSize:14.5, fontWeight:600, color:C.text, marginBottom:multiple?4:12, lineHeight:1.45 }}>{i+1}. {p.enunciado}</div>
+            {multiple && <div style={{ fontFamily:font.body, fontSize:12, color:C.gold, marginBottom:12 }}>Marca todas las respuestas correctas</div>}
+            {imagenPregunta(p.imagen_url)}
             <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-              {opciones.map(o=>{ const on=elegidas[p.id]===o.idx; return (
-                <button key={o.idx} onClick={()=>setElegidas(prev=>({ ...prev, [p.id]:o.idx }))} style={{ display:"flex", alignItems:"center", gap:10, textAlign:"left", width:"100%", padding:"10px 12px", borderRadius:10, cursor:"pointer", fontFamily:font.body, fontSize:13.5, color:C.text, background:on?C.blueDim:C.surfaceAlt, border:`1px solid ${on?C.gold:C.border}`, transition:"all .15s" }}>
-                  <span style={{ width:16, height:16, borderRadius:"50%", flexShrink:0, border:`2px solid ${on?C.gold:C.border}`, background:on?C.gold:"transparent", boxShadow:on?`inset 0 0 0 2.5px ${C.surface}`:"none" }}/>
+              {opciones.map(o=>{ const on=sel.includes(o.idx); return (
+                <button key={o.idx} onClick={()=>elegir(p, o.idx)} style={{ display:"flex", alignItems:"center", gap:10, textAlign:"left", width:"100%", padding:"10px 12px", borderRadius:10, cursor:"pointer", fontFamily:font.body, fontSize:13.5, color:C.text, background:on?C.blueDim:C.surfaceAlt, border:`1px solid ${on?C.gold:C.border}`, transition:"all .15s" }}>
+                  {multiple
+                    ? <span style={{ width:17, height:17, borderRadius:5, flexShrink:0, border:`2px solid ${on?C.gold:C.border}`, background:on?C.gold:"transparent", color:"#fff", display:"grid", placeItems:"center" }}>{on && <Icon n="check" s={11} sw={3}/>}</span>
+                    : <span style={{ width:16, height:16, borderRadius:"50%", flexShrink:0, border:`2px solid ${on?C.gold:C.border}`, background:on?C.gold:"transparent", boxShadow:on?`inset 0 0 0 2.5px ${C.surface}`:"none" }}/>}
                   {o.texto}
                 </button>
               ); })}
             </div>
           </Card>
-        ))}
+        ); })}
       </div>
       <div style={{ marginTop:18 }}><Btn onClick={enviar} disabled={respondidas<orden.length || guardando} full>{guardando ? "Guardando..." : respondidas<orden.length ? `Responde todas las preguntas (${orden.length-respondidas} pendientes)` : "Enviar respuestas"}</Btn></div>
     </div>
   );
 }
 
+// Caja del quiz (de una lección o el final), con su estado y el botón para presentarlo.
+function CajaQuiz({ titulo, pregs, intentos, completadaEn, habilitado, textoBloqueado, minimo, onPresentar, isMobile, glow }) {
+  const mejor = intentos.length ? Math.max(...intentos.map(i=>i.puntaje)) : null;
+  return (
+    <Card glow={glow} p="16px">
+      <div style={{ display:"flex", alignItems:isMobile?"flex-start":"center", flexDirection:isMobile?"column":"row", gap:14 }}>
+        <div style={{ width:42, height:42, borderRadius:12, flexShrink:0, display:"grid", placeItems:"center", background:completadaEn?C.greenDim:habilitado?C.blueDim:C.surfaceHover, color:completadaEn?C.green:habilitado?C.gold:C.textMuted }}><Icon n={completadaEn?"check":habilitado?"flag":"lock"} s={20}/></div>
+        <div style={{ flex:1 }}>
+          <div style={{ fontFamily:font.body, fontSize:14.5, fontWeight:700, color:C.text }}>{titulo} · {pregs.length} pregunta{pregs.length===1?"":"s"}</div>
+          <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginTop:3, lineHeight:1.45 }}>
+            {completadaEn ? `Aprobado el ${fmtFechaCorta(completadaEn)}. Puedes volver a presentarlo para repasar; tu fecha de aprobación no cambia.`
+              : habilitado ? (intentos.length ? `Llevas ${intentos.length} intento${intentos.length===1?"":"s"} (mejor puntaje: ${mejor}%). Se aprueba con ${minimo}%; puedes intentarlo las veces que necesites.` : `Se aprueba con ${minimo}%. Puedes intentarlo las veces que necesites.`)
+              : textoBloqueado}
+          </div>
+        </div>
+        {habilitado && <Btn onClick={onPresentar} variant={completadaEn?"ghost":"primary"} full={isMobile}>{completadaEn?"Repasar quiz":intentos.length?"Intentar de nuevo":"Presentar quiz"}</Btn>}
+      </div>
+      {intentos.length>0 && (
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:14, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
+          {intentos.map((it,i)=><Badge key={it.id} sm color={it.aprobado?C.green:C.textMuted} title={fmtFechaHora(it.created_at)}>Intento {i+1}: {it.puntaje}%</Badge>)}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ── Detalle de un curso para quien lo toma ──
 function CursoDetalle({ user, curso, lecciones, preguntas, vistas, setVistas, intentos, setIntentos, onVolver, isMobile }) {
   const est = estadoCursoUsuario(curso, lecciones, preguntas, vistas, intentos, user.id);
-  const primeraPendiente = est.lecs.find(l=>!est.vistasPorLeccion[l.id]);
-  const [abierta, setAbierta] = useState(() => primeraPendiente?.id || null);
-  const [enQuiz, setEnQuiz] = useState(false);
+  const minimo = curso.puntaje_minimo ?? 80;
+  const [abierta, setAbierta] = useState(() => est.infoLecs.find(x=>x.desbloqueada && !x.completadaEn)?.l.id || null);
+  const [enQuiz, setEnQuiz] = useState(null); // null | { leccion } (leccion null = quiz final)
   const [marcando, setMarcando] = useState(null);
 
   const marcarVista = async (leccion) => {
@@ -9830,49 +9910,63 @@ function CursoDetalle({ user, curso, lecciones, preguntas, vistas, setVistas, in
     setMarcando(null);
     if(error && error.code!=="23505"){ sonidoError(); alert("No se pudo marcar la lección. Revisa tu conexión e inténtalo de nuevo."); return; }
     if(data) setVistas(prev=>[...prev, data]);
-    // Se abre sola la siguiente lección pendiente.
-    const siguiente = est.lecs.find(l=>l.id!==leccion.id && !est.vistasPorLeccion[l.id]);
-    setAbierta(siguiente?.id || null);
+    const idx = est.infoLecs.findIndex(x=>x.l.id===leccion.id);
+    setAbierta(est.infoLecs[idx+1]?.l.id || null);
+  };
+  const cerrarQuiz = () => {
+    // Al volver de un quiz de lección, se abre la siguiente lección pendiente (si ya se desbloqueó).
+    const ahora = estadoCursoUsuario(curso, lecciones, preguntas, vistas, intentos, user.id);
+    const sig = ahora.infoLecs.find(x=>x.desbloqueada && !x.completadaEn);
+    if(sig) setAbierta(sig.l.id);
+    setEnQuiz(null);
   };
 
-  if(enQuiz) return (
-    <div style={{ maxWidth:760, margin:"0 auto" }}>
-      <PageHeader title={`Quiz · ${curso.titulo}`} subtitle="Elige una respuesta por pregunta"/>
-      <QuizCurso user={user} curso={curso} preguntas={est.pregs} setIntentos={setIntentos} onCerrar={()=>setEnQuiz(false)}/>
-    </div>
-  );
+  if(enQuiz) {
+    const pregsQuiz = enQuiz.leccion ? est.infoLecs.find(x=>x.l.id===enQuiz.leccion.id)?.pregs || [] : est.pregs;
+    return (
+      <div style={{ maxWidth:760, margin:"0 auto" }}>
+        <PageHeader title={enQuiz.leccion ? `Quiz · ${enQuiz.leccion.titulo}` : `Quiz final · ${curso.titulo}`} subtitle="Responde todas las preguntas"/>
+        <QuizCurso user={user} curso={curso} leccion={enQuiz.leccion} preguntas={pregsQuiz} setIntentos={setIntentos} onCerrar={cerrarQuiz}/>
+      </div>
+    );
+  }
 
-  const pct = est.lecs.length ? est.vistasCount*100/est.lecs.length : 0;
   return (
     <div style={{ maxWidth:860, margin:"0 auto" }}>
       <button onClick={onVolver} style={{ display:"inline-flex", alignItems:"center", gap:6, border:"none", background:"none", padding:0, marginBottom:14, cursor:"pointer", fontFamily:font.body, fontSize:13, fontWeight:600, color:C.gold }}><Icon n="right" s={15} style={{ transform:"rotate(180deg)" }}/>Mis cursos</button>
       <PageHeader title={curso.titulo} subtitle={curso.descripcion} action={<Badge color={ESTADO_CURSO[est.estado].color}>{ESTADO_CURSO[est.estado].label}</Badge>}/>
       {est.lecs.length>0 && (
         <Card p="14px 16px" style={{ marginBottom:4 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginBottom:8 }}>
-            <span>{est.vistasCount} de {est.lecs.length} lecciones vistas</span>
+          <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:6, fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginBottom:8 }}>
+            <span>{est.lecsCompletas} de {est.lecs.length} lecciones completadas</span>
             {est.completadoEn && <span style={{ color:C.green, fontWeight:600 }}>Completado el {fmtFechaCorta(est.completadoEn)}</span>}
           </div>
-          <BarraProgreso pct={pct} color={est.completadoEn?C.green:C.gold}/>
+          <BarraProgreso pct={est.pct} color={est.completadoEn?C.green:C.gold}/>
         </Card>
       )}
 
       {est.lecs.length>0 && <TituloSeccion>Lecciones</TituloSeccion>}
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-        {est.lecs.map((l,i)=>{ const vista=est.vistasPorLeccion[l.id]; const open=abierta===l.id; return (
-          <Card key={l.id} p="0" glow={open} style={{ overflow:"hidden" }}>
-            <button onClick={()=>setAbierta(open?null:l.id)} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"14px 16px", border:"none", background:"none", cursor:"pointer", textAlign:"left", fontFamily:font.body }}>
-              <span style={{ width:30, height:30, borderRadius:"50%", flexShrink:0, display:"grid", placeItems:"center", fontSize:13, fontWeight:700, background:vista?C.greenDim:C.surfaceHover, color:vista?C.green:C.goldDark }}>{vista ? <Icon n="check" s={16} sw={2.2}/> : i+1}</span>
+        {est.infoLecs.map((x,i)=>{ const { l } = x; const open=abierta===l.id && x.desbloqueada; const bloqueada=!x.desbloqueada; return (
+          <Card key={l.id} p="0" glow={open} style={{ overflow:"hidden", opacity:bloqueada?0.62:1 }}>
+            <button onClick={()=>!bloqueada && setAbierta(open?null:l.id)} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"14px 16px", border:"none", background:"none", cursor:bloqueada?"not-allowed":"pointer", textAlign:"left", fontFamily:font.body }}>
+              <span style={{ width:30, height:30, borderRadius:"50%", flexShrink:0, display:"grid", placeItems:"center", fontSize:13, fontWeight:700, background:x.completadaEn?C.greenDim:C.surfaceHover, color:x.completadaEn?C.green:bloqueada?C.textMuted:C.goldDark }}>{x.completadaEn ? <Icon n="check" s={16} sw={2.2}/> : bloqueada ? <Icon n="lock" s={14}/> : i+1}</span>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontSize:14.5, fontWeight:600, color:C.text }}>{l.titulo}</div>
-                <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:C.textMuted, marginTop:3 }}><Icon n={TIPO_LECCION[l.tipo]?.ic||"note"} s={13}/>{TIPO_LECCION[l.tipo]?.label||l.tipo}{vista && ` · vista el ${fmtFechaCorta(vista.created_at)}`}</div>
+                <div style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:6, fontSize:12, color:C.textMuted, marginTop:3 }}>
+                  <Icon n={TIPO_LECCION[l.tipo]?.ic||"note"} s={13}/>{TIPO_LECCION[l.tipo]?.label||l.tipo}
+                  {x.pregs.length>0 && <span>· quiz de {x.pregs.length} pregunta{x.pregs.length===1?"":"s"}</span>}
+                  {x.completadaEn ? <span style={{ color:C.green }}>· completada el {fmtFechaCorta(x.completadaEn)}</span> : bloqueada && <span>· se abre al completar la lección anterior</span>}
+                </div>
               </div>
-              <Icon n="down" s={17} style={{ color:C.textMuted, transform:open?"rotate(180deg)":"none", transition:"transform .25s ease" }}/>
+              {!bloqueada && <Icon n="down" s={17} style={{ color:C.textMuted, transform:open?"rotate(180deg)":"none", transition:"transform .25s ease" }}/>}
             </button>
             <Collapse open={open}>
               <div style={{ padding:"4px 16px 16px", borderTop:`1px solid ${C.border}` }}>
                 <div style={{ paddingTop:14 }}><LeccionContenido leccion={l} isMobile={isMobile}/></div>
-                {!vista && <div style={{ marginTop:16 }}><Btn onClick={()=>marcarVista(l)} disabled={marcando===l.id} variant="success" full={isMobile}><Icon n="check" s={15}/>{marcando===l.id?"Guardando...":"Marcar como vista"}</Btn></div>}
+                {x.pregs.length>0
+                  ? <div style={{ marginTop:16 }}><CajaQuiz titulo="Quiz de la lección" pregs={x.pregs} intentos={x.intentos} completadaEn={x.completadaEn} habilitado minimo={minimo} onPresentar={()=>setEnQuiz({ leccion:l })} isMobile={isMobile} glow={!x.completadaEn}/></div>
+                  : !x.vista && <div style={{ marginTop:16 }}><Btn onClick={()=>marcarVista(l)} disabled={marcando===l.id} variant="success" full={isMobile}><Icon n="check" s={15}/>{marcando===l.id?"Guardando...":"Marcar como vista"}</Btn></div>}
               </div>
             </Collapse>
           </Card>
@@ -9882,25 +9976,9 @@ function CursoDetalle({ user, curso, lecciones, preguntas, vistas, setVistas, in
       {est.pregs.length>0 && (
         <>
           <TituloSeccion>Quiz final</TituloSeccion>
-          <Card glow={est.quizHabilitado && !est.completadoEn}>
-            <div style={{ display:"flex", alignItems:isMobile?"flex-start":"center", flexDirection:isMobile?"column":"row", gap:14 }}>
-              <div style={{ width:44, height:44, borderRadius:12, flexShrink:0, display:"grid", placeItems:"center", background:est.completadoEn?C.greenDim:est.quizHabilitado?C.blueDim:C.surfaceHover, color:est.completadoEn?C.green:est.quizHabilitado?C.gold:C.textMuted }}><Icon n={est.completadoEn?"check":est.quizHabilitado?"flag":"lock"} s={21}/></div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontFamily:font.body, fontSize:14.5, fontWeight:700, color:C.text }}>{est.pregs.length} pregunta{est.pregs.length===1?"":"s"} · se aprueba con {curso.puntaje_minimo ?? 80}%</div>
-                <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginTop:3, lineHeight:1.45 }}>
-                  {est.completadoEn ? `Aprobado el ${fmtFechaCorta(est.completadoEn)}. Puedes volver a presentarlo para repasar; tu fecha de aprobación no cambia.`
-                    : est.quizHabilitado ? (est.intentos.length ? `Llevas ${est.intentos.length} intento${est.intentos.length===1?"":"s"} (mejor puntaje: ${est.mejorPuntaje}%). Puedes intentarlo las veces que necesites.` : "Ya viste todas las lecciones: el quiz está listo.")
-                    : `Se habilita cuando marques todas las lecciones como vistas (te falta${est.lecs.length-est.vistasCount===1?"":"n"} ${est.lecs.length-est.vistasCount}).`}
-                </div>
-              </div>
-              {est.quizHabilitado && <Btn onClick={()=>setEnQuiz(true)} variant={est.completadoEn?"ghost":"primary"} full={isMobile}>{est.completadoEn?"Repasar quiz":est.intentos.length?"Intentar de nuevo":"Presentar quiz"}</Btn>}
-            </div>
-            {est.intentos.length>0 && (
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:14, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
-                {est.intentos.map((it,i)=><Badge key={it.id} sm color={it.aprobado?C.green:C.textMuted} title={fmtFechaHora(it.created_at)}>Intento {i+1}: {it.puntaje}%</Badge>)}
-              </div>
-            )}
-          </Card>
+          <CajaQuiz titulo="Quiz final del curso" pregs={est.pregs} intentos={est.intentos} completadaEn={est.intentos.find(i=>i.aprobado)?.created_at} habilitado={est.quizHabilitado} minimo={minimo}
+            textoBloqueado={`Se habilita cuando completes todas las lecciones (te falta${est.lecs.length-est.lecsCompletas===1?"":"n"} ${est.lecs.length-est.lecsCompletas}).`}
+            onPresentar={()=>setEnQuiz({ leccion:null })} isMobile={isMobile} glow={est.quizHabilitado && !est.completadoEn}/>
         </>
       )}
     </div>
@@ -9926,7 +10004,7 @@ function CapacitacionMisCursosScreen({ user, cursos, lecciones, preguntas, vista
       <PageHeader title="Mis cursos" subtitle={lista.length ? `${completados} de ${lista.length} completado${lista.length===1?"":"s"}` : "Inducciones y capacitaciones"}/>
       {lista.length===0 && <VacioCapacitacion>Todavía no hay cursos publicados.</VacioCapacitacion>}
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill, minmax(300px, 1fr))", gap:14 }}>
-        {estados.map(({ c, est })=>{ const e=ESTADO_CURSO[est.estado]; const pct = est.lecs.length ? est.vistasCount*100/est.lecs.length : (est.completadoEn?100:0); return (
+        {estados.map(({ c, est })=>{ const e=ESTADO_CURSO[est.estado]; const conQuiz = est.infoLecs.filter(x=>x.pregs.length).length; return (
           <button key={c.id} onClick={()=>setCursoId(c.id)} className="ozen-curso-card" style={{ textAlign:"left", cursor:"pointer", background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:18, display:"flex", flexDirection:"column", gap:12, fontFamily:font.body }}>
             <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
               <div className="ozen-curso-icon" style={{ width:42, height:42, borderRadius:12, flexShrink:0, display:"grid", placeItems:"center", background:C.surfaceHover, color:C.goldDark }}><Icon n="book" s={20}/></div>
@@ -9935,8 +10013,8 @@ function CapacitacionMisCursosScreen({ user, cursos, lecciones, preguntas, vista
                 {c.descripcion && <div style={{ fontSize:12.5, color:C.textMuted, marginTop:4, lineHeight:1.45, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{c.descripcion}</div>}
               </div>
             </div>
-            <div style={{ fontSize:12, color:C.textMuted }}>{est.lecs.length} lección{est.lecs.length===1?"":"es"}{est.pregs.length>0 && ` · quiz de ${est.pregs.length} pregunta${est.pregs.length===1?"":"s"}`}</div>
-            <BarraProgreso pct={pct} color={est.completadoEn?C.green:C.gold}/>
+            <div style={{ fontSize:12, color:C.textMuted }}>{est.lecs.length} lección{est.lecs.length===1?"":"es"}{conQuiz>0 && ` · ${conQuiz} con quiz`}{est.pregs.length>0 && ` · quiz final de ${est.pregs.length} pregunta${est.pregs.length===1?"":"s"}`}</div>
+            <BarraProgreso pct={est.pct} color={est.completadoEn?C.green:C.gold}/>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
               <Badge sm color={e.color}>{e.label}</Badge>
               <span style={{ fontSize:12, color:est.completadoEn?C.green:C.gold, fontWeight:600, display:"inline-flex", alignItems:"center", gap:4 }}>{est.completadoEn ? fmtFechaCorta(est.completadoEn) : <>{est.estado==="sin_empezar"?"Empezar":"Continuar"}<Icon n="right" s={14}/></>}</span>
@@ -9944,6 +10022,21 @@ function CapacitacionMisCursosScreen({ user, cursos, lecciones, preguntas, vista
           </button>
         ); })}
       </div>
+    </div>
+  );
+}
+
+// Fila de puntos con el avance por lección (y el quiz final): verde = completada, ámbar = empezada.
+function PuntosAvance({ est }) {
+  const punto = (key, contenido, estado, title) => {
+    const col = estado==="ok" ? C.green : estado==="empezada" ? C.amber : C.textMuted;
+    return <span key={key} title={title} style={{ width:22, height:22, borderRadius:"50%", display:"inline-grid", placeItems:"center", fontFamily:font.body, fontSize:10, fontWeight:700, color:estado==="nada"?C.textMuted:col, background:estado==="nada"?"transparent":`${col}22`, border:`1px solid ${estado==="nada"?C.border:`${col}66`}` }}>{estado==="ok" ? <Icon n="check" s={11} sw={2.6}/> : contenido}</span>;
+  };
+  return (
+    <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+      {est.infoLecs.map((x,i)=>punto(x.l.id, i+1, x.completadaEn?"ok":(x.vista||x.intentos.length)?"empezada":"nada",
+        `${i+1}. ${x.l.titulo}${x.completadaEn?` — completada el ${fmtFechaCorta(x.completadaEn)}`:x.intentos.length?` — ${x.intentos.length} intento(s), mejor ${x.mejor}%`:""}`))}
+      {est.pregs.length>0 && punto("final", "F", est.intentos.some(i=>i.aprobado)?"ok":est.intentos.length?"empezada":"nada", `Quiz final${est.mejorPuntaje!=null?` — mejor ${est.mejorPuntaje}%`:""}`)}
     </div>
   );
 }
@@ -9963,12 +10056,10 @@ function CapacitacionProgresoScreen({ users, cursos, lecciones, preguntas, vista
 
   const celda = (u, c) => {
     const est = estadoCursoUsuario(c, lecciones, preguntas, vistas, intentos, u.id);
-    if(est.completadoEn) return <Badge sm color={C.green} title={est.mejorPuntaje!=null?`Mejor puntaje: ${est.mejorPuntaje}%`:undefined}>✓ {fmtFechaCorta(est.completadoEn)}</Badge>;
-    if(est.estado==="en_curso") return <Badge sm color={C.amber} title={est.intentos.length?`${est.intentos.length} intento(s), mejor: ${est.mejorPuntaje}%`:undefined}>{est.lecs.length ? `${est.vistasCount}/${est.lecs.length}` : "En curso"}{est.intentos.length>0 && ` · ${est.mejorPuntaje}%`}</Badge>;
+    if(est.completadoEn) return <Badge sm color={C.green}>✓ {fmtFechaCorta(est.completadoEn)}</Badge>;
+    if(est.estado==="en_curso") return <Badge sm color={C.amber}>{est.lecs.length ? `${est.lecsCompletas}/${est.lecs.length} lecciones` : "En curso"}</Badge>;
     return <span style={{ color:C.textMuted }}>—</span>;
   };
-
-  // Resumen por curso: cuántos lo completaron.
   const resumen = lista.map(c=>({ c, completos: personas.filter(u=>estadoCursoUsuario(c, lecciones, preguntas, vistas, intentos, u.id).completadoEn).length }));
 
   return (
@@ -10012,8 +10103,8 @@ function CapacitacionProgresoScreen({ users, cursos, lecciones, preguntas, vista
       ) : (
         <Card p="0" style={{ overflow:"hidden" }}>
           <div style={{ overflowX:"auto" }}>
-            <table style={{ borderCollapse:"collapse", width:"100%", minWidth:680 }}>
-              <thead><tr>{["Persona","Estado","Lecciones vistas","Intentos","Mejor puntaje","Completado"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+            <table style={{ borderCollapse:"collapse", width:"100%", minWidth:720 }}>
+              <thead><tr>{["Persona","Estado","Avance por lección","Intentos de quiz","Completado"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
               <tbody>
                 {personas.map(u=>({ u, est:estadoCursoUsuario(curso, lecciones, preguntas, vistas, intentos, u.id) }))
                   .sort((a,b)=>["en_curso","sin_empezar","completado"].indexOf(a.est.estado)-["en_curso","sin_empezar","completado"].indexOf(b.est.estado))
@@ -10021,9 +10112,8 @@ function CapacitacionProgresoScreen({ users, cursos, lecciones, preguntas, vista
                   <tr key={u.id}>
                     <td style={{ ...td, fontWeight:600 }}>{u.name}<div style={{ fontSize:11, color:C.textMuted, fontWeight:400 }}>{ROLE_LABEL[u.role]||"Asesor"}</div></td>
                     <td style={td}><Badge sm color={ESTADO_CURSO[est.estado].color}>{ESTADO_CURSO[est.estado].label}</Badge></td>
-                    <td style={{ ...td, fontFamily:font.mono }}>{est.lecs.length ? `${est.vistasCount}/${est.lecs.length}` : "—"}</td>
-                    <td style={{ ...td, fontFamily:font.mono }}>{est.pregs.length ? est.intentos.length : "—"}</td>
-                    <td style={{ ...td, fontFamily:font.mono, color:est.mejorPuntaje==null?C.textMuted:est.mejorPuntaje>=(curso.puntaje_minimo??80)?C.green:C.red }}>{est.mejorPuntaje==null ? "—" : `${est.mejorPuntaje}%`}</td>
+                    <td style={td}><PuntosAvance est={est}/></td>
+                    <td style={{ ...td, fontFamily:font.mono }}>{est.todosIntentos.length || "—"}</td>
                     <td style={td}>{est.completadoEn ? fmtFechaHora(est.completadoEn) : "—"}</td>
                   </tr>
                 ))}
@@ -10036,7 +10126,6 @@ function CapacitacionProgresoScreen({ users, cursos, lecciones, preguntas, vista
     </div>
   );
 }
-
 // ── Formularios de administración ──
 function FormLeccion({ curso, leccion, onGuardado, onCancelar }) {
   const [f, setF] = useState({ titulo:leccion?.titulo||"", tipo:leccion?.tipo||"presentacion", url:(leccion?.tipo==="video"||leccion?.tipo==="presentacion")?(leccion?.url||""):"", contenido:leccion?.contenido||"" });
@@ -10123,49 +10212,83 @@ function FormLeccion({ curso, leccion, onGuardado, onCancelar }) {
   );
 }
 
-function FormPregunta({ curso, pregunta, onGuardado, onCancelar }) {
+const BUCKET_IMAGENES_CAPACITACION = "capacitacion-imagenes";
+const MAX_IMAGEN_MB = 5;
+function FormPregunta({ curso, leccionId, pregunta, onGuardado, onCancelar }) {
   const [enunciado, setEnunciado] = useState(pregunta?.enunciado||"");
+  const [tipo, setTipo] = useState(pregunta?.tipo||"unica");
   const [opciones, setOpciones] = useState(pregunta?.opciones?.length ? [...pregunta.opciones] : ["","","",""]);
-  const [correcta, setCorrecta] = useState(pregunta?.respuesta_correcta ?? null);
+  const [correctas, setCorrectas] = useState(pregunta ? correctasDe(pregunta) : []);
+  const [explicacion, setExplicacion] = useState(pregunta?.explicacion||"");
+  const [imagen, setImagen] = useState(pregunta?.imagen_url ? { url:pregunta.imagen_url, path:pregunta.imagen_path||null } : null);
+  const [archivo, setArchivo] = useState(null);
+  const [previaArchivo, setPreviaArchivo] = useState(null);
   const [guardando, setGuardando] = useState(false);
+  const vistaPrevia = previaArchivo || imagen?.url;
 
+  const marcar = (i) => setCorrectas(prev => tipo==="multiple" ? (prev.includes(i) ? prev.filter(x=>x!==i) : [...prev, i]) : [i]);
+  const cambiarTipo = (t) => { setTipo(t); if(t==="unica") setCorrectas(prev=>prev.slice(0,1)); };
   const quitarOpcion = (i) => {
     setOpciones(prev=>prev.filter((_,j)=>j!==i));
-    setCorrecta(c => c===null ? null : c===i ? null : c>i ? c-1 : c);
+    setCorrectas(prev=>prev.filter(c=>c!==i).map(c=>c>i?c-1:c));
   };
   const guardar = async () => {
     if(!enunciado.trim()) return alert("Escribe la pregunta.");
     const llenas = opciones.map((o,i)=>({ o:o.trim(), i })).filter(x=>x.o);
     if(llenas.length<2) return alert("La pregunta necesita al menos 2 opciones.");
-    if(correcta===null || !opciones[correcta]?.trim()) return alert("Marca cuál es la opción correcta.");
-    const limpias = llenas.map(x=>x.o);
-    const idxCorrecta = llenas.findIndex(x=>x.i===correcta);
+    const nuevasCorrectas = llenas.map((x,j)=>correctas.includes(x.i)?j:-1).filter(j=>j>=0);
+    if(nuevasCorrectas.length===0) return alert(tipo==="multiple" ? "Marca cuáles son las opciones correctas." : "Marca cuál es la opción correcta.");
     setGuardando(true);
-    const fila = { enunciado:enunciado.trim(), opciones:limpias, respuesta_correcta:idxCorrecta };
+    let imagen_url = imagen?.url || null, imagen_path = imagen?.path || null;
+    const pathViejo = pregunta?.imagen_path || null;
+    if(archivo){
+      const ext = (archivo.name.split(".").pop()||"jpg").toLowerCase().replace(/[^a-z0-9]/g,"");
+      const ruta = `${curso.id}/${Date.now()}.${ext}`;
+      const { error:errUp } = await supabase.storage.from(BUCKET_IMAGENES_CAPACITACION).upload(ruta, archivo, { contentType:archivo.type||"image/jpeg" });
+      if(errUp){ setGuardando(false); return alert("No se pudo subir la imagen. Revisa que pese menos de 5 MB y que el SQL del módulo ya se haya corrido en Supabase."); }
+      imagen_url = supabase.storage.from(BUCKET_IMAGENES_CAPACITACION).getPublicUrl(ruta).data.publicUrl;
+      imagen_path = ruta;
+    }
+    const fila = { enunciado:enunciado.trim(), tipo, opciones:llenas.map(x=>x.o), respuesta_correcta:nuevasCorrectas[0], respuestas_correctas: tipo==="multiple" ? nuevasCorrectas : null, explicacion:explicacion.trim()||null, imagen_url, imagen_path };
     const { data, error } = pregunta
       ? await supabase.from("capacitacion_preguntas").update(fila).eq("id", pregunta.id).select().single()
-      : await supabase.from("capacitacion_preguntas").insert({ ...fila, curso_id:curso.id, orden:Date.now()%2000000000 }).select().single();
+      : await supabase.from("capacitacion_preguntas").insert({ ...fila, curso_id:curso.id, leccion_id:leccionId||null, orden:Date.now()%2000000000 }).select().single();
     setGuardando(false);
     if(error || !data) return alert("No se pudo guardar la pregunta. Revisa que el SQL del módulo ya se haya corrido en Supabase.");
+    if(pathViejo && pathViejo!==data.imagen_path) supabase.storage.from(BUCKET_IMAGENES_CAPACITACION).remove([pathViejo]);
     onGuardado(data);
   };
+  const etiqueta = { fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.07em" };
 
   return (
     <Card glow style={{ marginBottom:10 }}>
       <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.goldLight, marginBottom:12 }}>{pregunta ? "Editar pregunta" : "Nueva pregunta"}</div>
       <Field label="Pregunta" value={enunciado} onChange={setEnunciado} multiline rows={2} placeholder="Ej: ¿Cuál es el primer paso al recibir a un cliente en tienda?"/>
-      <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.07em" }}>Opciones — marca la correcta</div>
+      <Field label="Tipo de pregunta" value={tipo} onChange={cambiarTipo} options={[{ value:"unica", label:"Una sola respuesta correcta" },{ value:"multiple", label:"Varias respuestas correctas (hay que marcarlas todas)" }]}/>
+      <div style={{ marginBottom:14 }}>
+        <div style={etiqueta}>Imagen (opcional, máx. {MAX_IMAGEN_MB} MB)</div>
+        {vistaPrevia && <img src={vistaPrevia} alt="" style={{ display:"block", maxWidth:"100%", maxHeight:160, borderRadius:8, border:`1px solid ${C.border}`, marginBottom:8 }}/>}
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+          <label style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"7px 12px", border:`1px dashed ${C.borderGold}`, borderRadius:8, background:C.surfaceAlt, cursor:"pointer", fontFamily:font.body, fontSize:12.5, color:C.textSub }}>
+            <Icon n="camera" s={15} style={{ color:C.gold }}/>{vistaPrevia ? "Cambiar imagen" : "Agregar imagen"}
+            <input type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }} onChange={e=>{ const a=e.target.files?.[0]; if(!a) return; if(a.size>MAX_IMAGEN_MB*1024*1024){ alert(`La imagen pesa ${(a.size/1024/1024).toFixed(1)} MB. El máximo es ${MAX_IMAGEN_MB} MB.`); return; } setArchivo(a); setPreviaArchivo(URL.createObjectURL(a)); }}/>
+          </label>
+          {vistaPrevia && <Btn onClick={()=>{ setArchivo(null); setPreviaArchivo(null); setImagen(null); }} variant="ghost" sm>Quitar imagen</Btn>}
+        </div>
+      </div>
+      <div style={etiqueta}>Opciones — {tipo==="multiple" ? "marca todas las correctas" : "marca la correcta"}</div>
       <div style={{ display:"flex", flexDirection:"column", gap:7, marginBottom:10 }}>
-        {opciones.map((o,i)=>{ const on=correcta===i; return (
+        {opciones.map((o,i)=>{ const on=correctas.includes(i); return (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <button onClick={()=>setCorrecta(i)} title="Marcar como correcta" style={{ width:30, height:30, flexShrink:0, borderRadius:"50%", border:`1.5px solid ${on?C.green:C.border}`, background:on?C.greenDim:"transparent", color:on?C.green:C.textMuted, display:"grid", placeItems:"center", cursor:"pointer" }}><Icon n="check" s={15} sw={on?2.4:1.7}/></button>
+            <button onClick={()=>marcar(i)} title="Marcar como correcta" style={{ width:30, height:30, flexShrink:0, borderRadius:tipo==="multiple"?8:"50%", border:`1.5px solid ${on?C.green:C.border}`, background:on?C.greenDim:"transparent", color:on?C.green:C.textMuted, display:"grid", placeItems:"center", cursor:"pointer" }}><Icon n="check" s={15} sw={on?2.4:1.7}/></button>
             <input value={o} onChange={e=>{ const v=e.target.value; setOpciones(prev=>prev.map((x,j)=>j===i?v:x)); }} placeholder={`Opción ${i+1}`} style={{ flex:1, minWidth:0, background:C.surfaceAlt, border:`1px solid ${on?`${C.green}66`:C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none" }}/>
             {opciones.length>2 && <button onClick={()=>quitarOpcion(i)} title="Quitar opción" style={{ border:"none", background:"none", color:C.textMuted, cursor:"pointer", padding:4 }}><Icon n="x" s={15}/></button>}
           </div>
         ); })}
       </div>
-      {opciones.length<6 && <div style={{ marginBottom:14 }}><Btn onClick={()=>setOpciones(prev=>[...prev,""])} variant="ghost" sm><Icon n="plus" s={13}/>Agregar opción</Btn></div>}
-      <div style={{ display:"flex", gap:8 }}><Btn onClick={guardar} disabled={guardando} full>{guardando?"Guardando...":"Guardar pregunta"}</Btn><Btn onClick={onCancelar} variant="ghost" full>Cancelar</Btn></div>
+      {opciones.length<16 && <div style={{ marginBottom:14 }}><Btn onClick={()=>setOpciones(prev=>[...prev,""])} variant="ghost" sm><Icon n="plus" s={13}/>Agregar opción</Btn></div>}
+      <Field label="Explicación (opcional — se muestra al revisar las respuestas)" value={explicacion} onChange={setExplicacion} multiline rows={2} placeholder="Ej: Las respuestas A, C y E mantienen la venta activa porque..."/>
+      <div style={{ display:"flex", gap:8 }}><Btn onClick={guardar} disabled={guardando} full>{guardando?(archivo?"Subiendo imagen...":"Guardando..."):"Guardar pregunta"}</Btn><Btn onClick={onCancelar} variant="ghost" full>Cancelar</Btn></div>
     </Card>
   );
 }
@@ -10188,24 +10311,26 @@ const intercambiarOrden = async (tabla, a, b, setFilas) => {
 
 // ── Editor de UN curso ──
 function EditorCurso({ curso, setCursos, lecciones, setLecciones, preguntas, setPreguntas, vistas, intentos, onVolver, isMobile }) {
-  const [f, setF] = useState({ titulo:curso.titulo||"", descripcion:curso.descripcion||"", puntaje_minimo:String(curso.puntaje_minimo ?? 80) });
+  const [f, setF] = useState({ titulo:curso.titulo||"", descripcion:curso.descripcion||"", puntaje_minimo:String(curso.puntaje_minimo ?? 80), en_orden:curso.en_orden!==false });
   const [guardandoDatos, setGuardandoDatos] = useState(false);
   const [editLeccion, setEditLeccion] = useState(null);   // null | "nueva" | id
   const [editPregunta, setEditPregunta] = useState(null); // null | "nueva" | id
+  const [quizDe, setQuizDe] = useState("");               // "" = quiz final del curso, o el id de una lección
   const lecs = lecciones.filter(l=>l.curso_id===curso.id).sort(porOrden);
-  const pregs = preguntas.filter(p=>p.curso_id===curso.id).sort(porOrden);
+  const pregsCurso = preguntas.filter(p=>p.curso_id===curso.id);
+  const pregs = pregsCurso.filter(p=>(p.leccion_id||"")===quizDe).sort(porOrden);
   const tieneAvance = vistas.some(v=>v.curso_id===curso.id) || intentos.some(i=>i.curso_id===curso.id);
-  const personasCompletaron = new Set(intentos.filter(i=>i.curso_id===curso.id && i.aprobado).map(i=>i.usuario_id)).size;
-  const cambiosPendientes = f.titulo!==(curso.titulo||"") || f.descripcion!==(curso.descripcion||"") || f.puntaje_minimo!==String(curso.puntaje_minimo ?? 80);
+  const completaron = personasQueCompletaron(curso, lecciones, preguntas, vistas, intentos);
+  const cambiosPendientes = f.titulo!==(curso.titulo||"") || f.descripcion!==(curso.descripcion||"") || f.puntaje_minimo!==String(curso.puntaje_minimo ?? 80) || f.en_orden!==(curso.en_orden!==false);
 
   const guardarDatos = async () => {
     const pm = parseInt(f.puntaje_minimo, 10);
     if(!f.titulo.trim()) return alert("El curso necesita un título.");
     if(!(pm>=1 && pm<=100)) return alert("El puntaje mínimo debe ser un número entre 1 y 100.");
     setGuardandoDatos(true);
-    const { data, error } = await supabase.from("capacitacion_cursos").update({ titulo:f.titulo.trim(), descripcion:f.descripcion.trim()||null, puntaje_minimo:pm, updated_at:new Date().toISOString() }).eq("id", curso.id).select().single();
+    const { data, error } = await supabase.from("capacitacion_cursos").update({ titulo:f.titulo.trim(), descripcion:f.descripcion.trim()||null, puntaje_minimo:pm, en_orden:f.en_orden, updated_at:new Date().toISOString() }).eq("id", curso.id).select().single();
     setGuardandoDatos(false);
-    if(error || !data) return alert("No se pudieron guardar los cambios.");
+    if(error || !data) return alert("No se pudieron guardar los cambios. Revisa que el SQL más reciente del módulo ya se haya corrido en Supabase.");
     setCursos(prev=>prev.map(c=>c.id===data.id?data:c));
   };
   const cambiarActivo = async () => {
@@ -10217,41 +10342,55 @@ function EditorCurso({ curso, setCursos, lecciones, setLecciones, preguntas, set
   const eliminarCurso = async () => {
     if(tieneAvance) return alert("Este curso ya tiene avance de alguien (lecciones vistas o intentos de quiz). Para no perder ese historial no se puede eliminar — usa \"Archivar\" en su lugar.");
     if(!window.confirm(`¿Eliminar el curso "${curso.titulo}" con todas sus lecciones y preguntas? Esto no se puede deshacer.`)) return;
-    const paths = lecs.map(l=>l.pdf_path).filter(Boolean);
+    const paths = lecs.map(l=>l.pdf_path).filter(Boolean), imgs = pregsCurso.map(p=>p.imagen_path).filter(Boolean);
     const { error } = await supabase.from("capacitacion_cursos").delete().eq("id", curso.id);
     if(error) return alert("No se pudo eliminar el curso.");
     if(paths.length) supabase.storage.from(BUCKET_CAPACITACION).remove(paths);
+    if(imgs.length) supabase.storage.from(BUCKET_IMAGENES_CAPACITACION).remove(imgs);
     setLecciones(prev=>prev.filter(l=>l.curso_id!==curso.id));
     setPreguntas(prev=>prev.filter(p=>p.curso_id!==curso.id));
     setCursos(prev=>prev.filter(c=>c.id!==curso.id));
     onVolver();
   };
   const eliminarLeccion = async (l) => {
+    if(intentos.some(i=>i.leccion_id===l.id)) return alert("Alguien ya presentó el quiz de esta lección. Para no perder ese historial no se puede eliminar. Si ya no aplica, archiva el curso y crea uno nuevo, o edita la lección.");
     const cuantas = vistas.filter(v=>v.leccion_id===l.id).length;
-    if(!window.confirm(`¿Eliminar la lección "${l.titulo}"?${cuantas?` ${cuantas} persona(s) ya la habían marcado como vista; esas marcas se borran con la lección.`:""} Esto no se puede deshacer.`)) return;
+    const nPreg = pregsCurso.filter(p=>p.leccion_id===l.id).length;
+    if(!window.confirm(`¿Eliminar la lección "${l.titulo}"?${nPreg?` Se borran también las ${nPreg} preguntas de su quiz.`:""}${cuantas?` ${cuantas} persona(s) ya la habían marcado como vista; esas marcas se borran con la lección.`:""} Esto no se puede deshacer.`)) return;
+    const imgs = pregsCurso.filter(p=>p.leccion_id===l.id).map(p=>p.imagen_path).filter(Boolean);
     const { error } = await supabase.from("capacitacion_lecciones").delete().eq("id", l.id);
     if(error) return alert("No se pudo eliminar la lección.");
     if(l.pdf_path) supabase.storage.from(BUCKET_CAPACITACION).remove([l.pdf_path]);
+    if(imgs.length) supabase.storage.from(BUCKET_IMAGENES_CAPACITACION).remove(imgs);
     setLecciones(prev=>prev.filter(x=>x.id!==l.id));
+    setPreguntas(prev=>prev.filter(p=>p.leccion_id!==l.id));
+    if(quizDe===l.id) setQuizDe("");
   };
   const eliminarPregunta = async (p) => {
     if(!window.confirm("¿Eliminar esta pregunta? Los intentos que ya se presentaron conservan su copia de la pregunta.")) return;
     const { error } = await supabase.from("capacitacion_preguntas").delete().eq("id", p.id);
     if(error) return alert("No se pudo eliminar la pregunta.");
+    if(p.imagen_path) supabase.storage.from(BUCKET_IMAGENES_CAPACITACION).remove([p.imagen_path]);
     setPreguntas(prev=>prev.filter(x=>x.id!==p.id));
   };
   const guardadoLeccion = (data) => { setLecciones(prev=>prev.some(x=>x.id===data.id)?prev.map(x=>x.id===data.id?data:x):[...prev,data]); setEditLeccion(null); };
   const guardadoPregunta = (data) => { setPreguntas(prev=>prev.some(x=>x.id===data.id)?prev.map(x=>x.id===data.id?data:x):[...prev,data]); setEditPregunta(null); };
+  const leccionDelQuiz = lecs.find(l=>l.id===quizDe);
+  const idxDelQuiz = lecs.findIndex(l=>l.id===quizDe);
 
   return (
     <div style={{ maxWidth:860, margin:"0 auto" }}>
       <button onClick={onVolver} style={{ display:"inline-flex", alignItems:"center", gap:6, border:"none", background:"none", padding:0, marginBottom:14, cursor:"pointer", fontFamily:font.body, fontSize:13, fontWeight:600, color:C.gold }}><Icon n="right" s={15} style={{ transform:"rotate(180deg)" }}/>Todos los cursos</button>
-      <PageHeader title={curso.titulo} subtitle={`${lecs.length} lección${lecs.length===1?"":"es"} · ${pregs.length} pregunta${pregs.length===1?"":"s"} · ${personasCompletaron} persona${personasCompletaron===1?"":"s"} aprobaron el quiz`} action={curso.activo===false ? <Badge color={C.textMuted}>Archivado</Badge> : <Badge color={C.green}>Publicado</Badge>}/>
+      <PageHeader title={curso.titulo} subtitle={`${lecs.length} lección${lecs.length===1?"":"es"} · ${pregsCurso.length} pregunta${pregsCurso.length===1?"":"s"} · ${completaron} persona${completaron===1?"":"s"} lo completaron`} action={curso.activo===false ? <Badge color={C.textMuted}>Archivado</Badge> : <Badge color={C.green}>Publicado</Badge>}/>
 
       <Card>
         <Field label="Título del curso" value={f.titulo} onChange={v=>setF(p=>({ ...p, titulo:v }))}/>
         <Field label="Descripción (opcional)" value={f.descripcion} onChange={v=>setF(p=>({ ...p, descripcion:v }))} multiline rows={2} placeholder="De qué se trata y a quién va dirigido"/>
-        <div style={{ maxWidth:260 }}><Field label="Puntaje mínimo para aprobar (%)" type="number" value={f.puntaje_minimo} onChange={v=>setF(p=>({ ...p, puntaje_minimo:v }))}/></div>
+        <div style={{ maxWidth:260 }}><Field label="Puntaje mínimo para aprobar cada quiz (%)" type="number" value={f.puntaje_minimo} onChange={v=>setF(p=>({ ...p, puntaje_minimo:v }))}/></div>
+        <label style={{ display:"flex", alignItems:"flex-start", gap:9, fontFamily:font.body, fontSize:13, color:C.text, marginBottom:16, cursor:"pointer" }}>
+          <input type="checkbox" checked={f.en_orden} onChange={e=>setF(p=>({ ...p, en_orden:e.target.checked }))} style={{ marginTop:2 }}/>
+          <span>Las lecciones se desbloquean en orden<span style={{ display:"block", fontSize:11.5, color:C.textMuted, marginTop:2 }}>Cada lección se abre cuando se completa la anterior (aprobando su quiz, o marcándola como vista si no tiene quiz).</span></span>
+        </label>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
           <Btn onClick={guardarDatos} disabled={!cambiosPendientes || guardandoDatos} sm>{guardandoDatos?"Guardando...":"Guardar cambios"}</Btn>
           <div style={{ flex:1 }}/>
@@ -10263,34 +10402,42 @@ function EditorCurso({ curso, setCursos, lecciones, setLecciones, preguntas, set
       <TituloSeccion extra={editLeccion===null && <Btn onClick={()=>setEditLeccion("nueva")} sm><Icon n="plus" s={13}/>Lección</Btn>}>Lecciones</TituloSeccion>
       {editLeccion==="nueva" && <FormLeccion curso={curso} onGuardado={guardadoLeccion} onCancelar={()=>setEditLeccion(null)}/>}
       <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        {lecs.map((l,i)=> editLeccion===l.id ? <FormLeccion key={l.id} curso={curso} leccion={l} onGuardado={guardadoLeccion} onCancelar={()=>setEditLeccion(null)}/> : (
-          <Card key={l.id} p="12px 14px" style={{ display:"flex", alignItems:"center", gap:10 }}>
+        {lecs.map((l,i)=>{ const nq = pregsCurso.filter(p=>p.leccion_id===l.id).length; return editLeccion===l.id ? <FormLeccion key={l.id} curso={curso} leccion={l} onGuardado={guardadoLeccion} onCancelar={()=>setEditLeccion(null)}/> : (
+          <Card key={l.id} p="12px 14px" style={{ display:"flex", alignItems:"center", gap:10, flexWrap:isMobile?"wrap":"nowrap" }}>
             <span style={{ width:28, height:28, borderRadius:"50%", flexShrink:0, display:"grid", placeItems:"center", fontFamily:font.body, fontSize:12.5, fontWeight:700, background:C.surfaceHover, color:C.goldDark }}>{i+1}</span>
-            <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ flex:1, minWidth:isMobile?"60%":0 }}>
               <div style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:isMobile?"normal":"nowrap" }}>{l.titulo}</div>
-              <div style={{ display:"flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:2 }}><Icon n={TIPO_LECCION[l.tipo]?.ic||"note"} s={12}/>{TIPO_LECCION[l.tipo]?.label}{((l.tipo==="video" && l.url && !urlVideoEmbebible(l.url)) || (l.tipo==="presentacion" && l.url && !presentacionEmbebible(l.url))) && <span style={{ color:C.amber }}> · se abre aparte</span>}</div>
+              <div style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:5, fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:2 }}><Icon n={TIPO_LECCION[l.tipo]?.ic||"note"} s={12}/>{TIPO_LECCION[l.tipo]?.label}{((l.tipo==="video" && l.url && !urlVideoEmbebible(l.url)) || (l.tipo==="presentacion" && l.url && !presentacionEmbebible(l.url))) && <span style={{ color:C.amber }}> · se abre aparte</span>}<span>· {nq ? `quiz de ${nq} pregunta${nq===1?"":"s"}` : "sin quiz (se completa al marcarla como vista)"}</span></div>
             </div>
+            <Btn onClick={()=>{ setQuizDe(l.id); setEditPregunta(null); }} variant="ghost" sm>Quiz</Btn>
             <BotonIcono ic="up" title="Subir" onClick={()=>intercambiarOrden("capacitacion_lecciones", l, lecs[i-1], setLecciones)} disabled={i===0}/>
             <BotonIcono ic="down" title="Bajar" onClick={()=>intercambiarOrden("capacitacion_lecciones", l, lecs[i+1], setLecciones)} disabled={i===lecs.length-1}/>
             <BotonIcono ic="pen" title="Editar" onClick={()=>setEditLeccion(l.id)}/>
             <BotonIcono ic="x" title="Eliminar" color={C.red} onClick={()=>eliminarLeccion(l)}/>
           </Card>
-        ))}
+        ); })}
         {lecs.length===0 && editLeccion!=="nueva" && <VacioCapacitacion>Sin lecciones todavía.</VacioCapacitacion>}
       </div>
 
-      <TituloSeccion extra={editPregunta===null && <Btn onClick={()=>setEditPregunta("nueva")} sm><Icon n="plus" s={13}/>Pregunta</Btn>}>Quiz final</TituloSeccion>
-      {pregs.length===0 && editPregunta!=="nueva" && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginBottom:10 }}>Sin preguntas: el curso queda completado cuando la persona marca todas las lecciones como vistas.</div>}
-      {editPregunta==="nueva" && <FormPregunta curso={curso} onGuardado={guardadoPregunta} onCancelar={()=>setEditPregunta(null)}/>}
+      <TituloSeccion extra={editPregunta===null && <Btn onClick={()=>setEditPregunta("nueva")} sm><Icon n="plus" s={13}/>Pregunta</Btn>}>Preguntas</TituloSeccion>
+      <div style={{ maxWidth:420 }}>
+        <Field label="Quiz que estás editando" value={quizDe} onChange={v=>{ setQuizDe(v); setEditPregunta(null); }} options={[{ value:"", label:"Quiz final del curso" }, ...lecs.map((l,i)=>({ value:l.id, label:`Lección ${i+1}: ${l.titulo}` }))]}/>
+      </div>
+      {pregs.length===0 && editPregunta!=="nueva" && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginBottom:10 }}>
+        {leccionDelQuiz ? `La lección ${idxDelQuiz+1} no tiene quiz: se completa cuando la persona la marca como vista.` : "Sin quiz final: el curso queda completado al completar todas las lecciones."}
+      </div>}
+      {editPregunta==="nueva" && <FormPregunta curso={curso} leccionId={quizDe||null} onGuardado={guardadoPregunta} onCancelar={()=>setEditPregunta(null)}/>}
       <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        {pregs.map((p,i)=> editPregunta===p.id ? <FormPregunta key={p.id} curso={curso} pregunta={p} onGuardado={guardadoPregunta} onCancelar={()=>setEditPregunta(null)}/> : (
+        {pregs.map((p,i)=>{ const ok = correctasDe(p); return editPregunta===p.id ? <FormPregunta key={p.id} curso={curso} leccionId={quizDe||null} pregunta={p} onGuardado={guardadoPregunta} onCancelar={()=>setEditPregunta(null)}/> : (
           <Card key={p.id} p="12px 14px">
             <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
+              {p.imagen_url && <img src={p.imagen_url} alt="" style={{ width:54, height:54, objectFit:"cover", borderRadius:8, border:`1px solid ${C.border}`, flexShrink:0 }}/>}
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.text, lineHeight:1.4 }}>{i+1}. {p.enunciado}</div>
+                <div style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.text, lineHeight:1.4 }}>{i+1}. {p.enunciado}{p.tipo==="multiple" && <span style={{ fontWeight:400, fontSize:12, color:C.gold }}> · varias respuestas</span>}</div>
                 <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:8 }}>
-                  {(p.opciones||[]).map((o,j)=><span key={j} style={{ fontFamily:font.body, fontSize:12, padding:"3px 9px", borderRadius:99, border:`1px solid ${j===p.respuesta_correcta?`${C.green}55`:C.border}`, background:j===p.respuesta_correcta?C.greenDim:"transparent", color:j===p.respuesta_correcta?C.green:C.textSub, fontWeight:j===p.respuesta_correcta?600:400 }}>{j===p.respuesta_correcta && "✓ "}{o}</span>)}
+                  {(p.opciones||[]).map((o,j)=>{ const bien = ok.includes(j); return <span key={j} style={{ fontFamily:font.body, fontSize:12, padding:"3px 9px", borderRadius:99, border:`1px solid ${bien?`${C.green}55`:C.border}`, background:bien?C.greenDim:"transparent", color:bien?C.green:C.textSub, fontWeight:bien?600:400 }}>{bien && "✓ "}{o}</span>; })}
                 </div>
+                {p.explicacion && <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:6 }}>Explicación: {p.explicacion}</div>}
               </div>
               <div style={{ display:"flex", gap:6, flexWrap:isMobile?"wrap":"nowrap", justifyContent:"flex-end" }}>
                 <BotonIcono ic="up" title="Subir" onClick={()=>intercambiarOrden("capacitacion_preguntas", p, pregs[i-1], setPreguntas)} disabled={i===0}/>
@@ -10300,12 +10447,11 @@ function EditorCurso({ curso, setCursos, lecciones, setLecciones, preguntas, set
               </div>
             </div>
           </Card>
-        ))}
+        ); })}
       </div>
     </div>
   );
 }
-
 // ── SCREEN: Administrar cursos (master y admin_turnos) ──
 function CapacitacionAdminScreen({ cursos, setCursos, lecciones, setLecciones, preguntas, setPreguntas, vistas, intentos, isMobile }) {
   const [cursoId, setCursoId] = useState(null);
@@ -10328,13 +10474,13 @@ function CapacitacionAdminScreen({ cursos, setCursos, lecciones, setLecciones, p
 
   const filaCurso = (c, i, lista) => {
     const nl = lecciones.filter(l=>l.curso_id===c.id).length, np = preguntas.filter(p=>p.curso_id===c.id).length;
-    const aprobados = new Set(intentos.filter(x=>x.curso_id===c.id && x.aprobado).map(x=>x.usuario_id)).size;
+    const aprobados = personasQueCompletaron(c, lecciones, preguntas, vistas, intentos);
     return (
       <Card key={c.id} p="14px 16px" style={{ display:"flex", alignItems:"center", gap:12 }}>
         <div style={{ width:40, height:40, borderRadius:11, flexShrink:0, display:"grid", placeItems:"center", background:C.surfaceHover, color:c.activo===false?C.textMuted:C.goldDark }}><Icon n="book" s={19}/></div>
         <button onClick={()=>setCursoId(c.id)} style={{ flex:1, minWidth:0, textAlign:"left", border:"none", background:"none", padding:0, cursor:"pointer", fontFamily:font.body }}>
           <div style={{ fontSize:14.5, fontWeight:700, color:c.activo===false?C.textMuted:C.goldDark }}>{c.titulo}</div>
-          <div style={{ fontSize:12, color:C.textMuted, marginTop:3 }}>{nl} lección{nl===1?"":"es"} · {np} pregunta{np===1?"":"s"}{np>0 && ` · ${aprobados} aprobado${aprobados===1?"":"s"}`}{nl===0 && np===0 && " · vacío (no se muestra al equipo)"}</div>
+          <div style={{ fontSize:12, color:C.textMuted, marginTop:3 }}>{nl} lección{nl===1?"":"es"} · {np} pregunta{np===1?"":"s"}{(nl>0||np>0) && ` · ${aprobados} lo completaron`}{nl===0 && np===0 && " · vacío (no se muestra al equipo)"}</div>
         </button>
         {c.activo!==false && <BotonIcono ic="up" title="Subir" onClick={()=>intercambiarOrden("capacitacion_cursos", c, lista[i-1], setCursos)} disabled={i===0}/>}
         {c.activo!==false && <BotonIcono ic="down" title="Bajar" onClick={()=>intercambiarOrden("capacitacion_cursos", c, lista[i+1], setCursos)} disabled={i===lista.length-1}/>}
@@ -10345,7 +10491,7 @@ function CapacitacionAdminScreen({ cursos, setCursos, lecciones, setLecciones, p
 
   return (
     <div style={{ maxWidth:860, margin:"0 auto" }}>
-      <PageHeader title="Administrar cursos" subtitle="Crea cursos, sus lecciones y el quiz final" action={!nuevo && <Btn onClick={()=>setNuevo({ titulo:"", descripcion:"" })} sm><Icon n="plus" s={13}/>Nuevo curso</Btn>}/>
+      <PageHeader title="Administrar cursos" subtitle="Crea cursos, sus lecciones y sus quizzes" action={!nuevo && <Btn onClick={()=>setNuevo({ titulo:"", descripcion:"" })} sm><Icon n="plus" s={13}/>Nuevo curso</Btn>}/>
       {nuevo && (
         <Card glow style={{ marginBottom:16 }}>
           <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.goldLight, marginBottom:12 }}>Nuevo curso</div>
