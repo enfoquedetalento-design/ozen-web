@@ -578,6 +578,18 @@ fusionar a `main`).
   técnicos podría ver las respuestas correctas desde el navegador (igual que hoy puede
   leer cualquier tabla). Solución de fondo: migrar el login a Supabase Auth (proyecto aparte).
 
+- **Quiz por lección (8 oct 2026)**: cada lección puede tener su propio quiz; con
+  "en orden" activo, la siguiente lección se desbloquea al aprobar el quiz (80%) o, si la
+  lección no tiene preguntas, al marcarla como vista. Preguntas de una o de varias
+  respuestas correctas (todas o nada), con imagen (Storage `capacitacion-imagenes`) y
+  explicación opcional. SQL: `sql/capacitaciones_03_quiz_por_leccion.sql`.
+- **Curso "Inducción Asesor Comercial"**: `sql/capacitaciones_04_curso_induccion.sql`
+  crea el curso, 8 lecciones (Presentación, sin link) y las 66 preguntas de la evaluación
+  #1 del Forms. Las 14 fotos de tejidos están en `public/capacitacion/tejidos/`. Las 8
+  presentaciones (diseño "Momento presente") se entregaron como .pptx para subir a
+  Google Drive y pegar el link en cada lección. Pendiente: contenido de la lección 3
+  (Siigo, la arma Felipe), quiz de la lección 4, evaluaciones 2 a 5 del Forms.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
