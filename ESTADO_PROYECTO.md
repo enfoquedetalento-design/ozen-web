@@ -547,6 +547,57 @@ update usuarios set password_updated_at = now() where password_updated_at is nul
   sincronizados. Cualquier cambio nuevo debe seguir el mismo proceso: primero
   `staging`, probar, y solo después fusionar a `main`.
 
+## Módulo "Inducciones y capacitaciones" (29 sep 2026) — en `staging`, sin probar
+
+**Estado**: código listo en `staging` (`src/App.jsx`) + SQL en `sql/capacitaciones.sql`.
+Pendiente: correr el SQL en Supabase de PRÁCTICA, probar, y después (SQL en la real +
+fusionar a `main`).
+
+- **Área nueva "Capacitación"** (en celular dice "Cursos") para admins, y pestaña
+  "Capacitación" para asesores.
+- **Cursos → lecciones en orden** (video por link de YouTube/Drive, PDF subido al
+  Storage `capacitacion-pdfs`, o texto) → **quiz final** de opción múltiple.
+- El quiz se habilita cuando la persona marcó todas las lecciones como vistas. Se
+  aprueba con el % mínimo del curso (por defecto 80). Reintentos ilimitados; preguntas y
+  opciones salen en orden aleatorio en cada intento; al terminar ve puntaje + correcciones.
+- **Fecha de finalización** = primer intento aprobado. Curso sin preguntas = completado al
+  ver todas las lecciones.
+- **Permisos**: toman cursos asesores y admins (no visualizador ni cuentas de tienda);
+  crean/editan cursos master y admin_turnos; ven "Progreso" todos los admins y visualizador.
+- Lecciones vistas e intentos solo se agregan (la base no deja editarlos ni borrarlos).
+  Un curso con avance no se puede eliminar, solo archivar. `usuario_id` se guarda como
+  texto sin relación a `usuarios`, para que borrar un usuario nunca toque este historial.
+- **Lecciones tipo "Presentación" (7 oct 2026)**: se pega el link de Canva, Google
+  Slides, PowerPoint en línea (código de "Insertar") o un .pptx en Google Drive, y la app
+  muestra solo las diapositivas, con botón de pantalla completa. Requiere el SQL
+  `sql/capacitaciones_02_presentaciones.sql` (ya incluido en `sql/capacitaciones.sql`
+  para cuando se corra en la base real).
+- En las pestañas "Mis cursos" y "Administrar cursos" el cierre por inactividad es de 2
+  horas (antes, a los 5 min se cerraba la sesión en medio de un video).
+- Limitación conocida: como el login no usa Supabase Auth, alguien con conocimientos
+  técnicos podría ver las respuestas correctas desde el navegador (igual que hoy puede
+  leer cualquier tabla). Solución de fondo: migrar el login a Supabase Auth (proyecto aparte).
+
+- **Quiz por lección (8 oct 2026)**: cada lección puede tener su propio quiz; con
+  "en orden" activo, la siguiente lección se desbloquea al aprobar el quiz (80%) o, si la
+  lección no tiene preguntas, al marcarla como vista. Preguntas de una o de varias
+  respuestas correctas (todas o nada), con imagen (Storage `capacitacion-imagenes`) y
+  explicación opcional. SQL: `sql/capacitaciones_03_quiz_por_leccion.sql`.
+- **Curso "Inducción Asesor Comercial"**: `sql/capacitaciones_04_curso_induccion.sql`
+  crea el curso, 8 lecciones (Presentación, sin link) y las 66 preguntas de la evaluación
+  #1 del Forms. Las 14 fotos de tejidos están en `public/capacitacion/tejidos/`. Las 8
+  presentaciones (diseño "Momento presente") se entregaron como .pptx para subir a
+  Google Drive y pegar el link en cada lección. Pendiente: contenido de la lección 3
+  (Siigo, la arma Felipe), quiz de la lección 4, evaluaciones 2 a 5 del Forms.
+
+- **Escuela OZEN y navegación (8 oct 2026)**: el módulo se llama "Escuela OZEN" (en celular,
+  "Escuela"); internamente el área sigue siendo `capacitacion`. Todos los admins (master,
+  admin, admin finanzas, admin turnos) pueden administrar cursos; el visualizador solo ve
+  el progreso. Los asesores ahora también ven la pantalla de módulos al entrar
+  (Asistencia y Escuela OZEN) y el selector de áreas arriba. "Firmar documento" dejó de ser
+  módulo/pestaña: se abre desde el menú de la cuenta (la inicial, arriba a la derecha),
+  para todos menos las cuentas de tienda.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
