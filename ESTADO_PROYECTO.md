@@ -590,6 +590,14 @@ fusionar a `main`).
   Google Drive y pegar el link en cada lección. Pendiente: contenido de la lección 3
   (Siigo, la arma Felipe), quiz de la lección 4, evaluaciones 2 a 5 del Forms.
 
+- **Escuela OZEN y navegación (8 oct 2026)**: el módulo se llama "Escuela OZEN" (en celular,
+  "Escuela"); internamente el área sigue siendo `capacitacion`. Todos los admins (master,
+  admin, admin finanzas, admin turnos) pueden administrar cursos; el visualizador solo ve
+  el progreso. Los asesores ahora también ven la pantalla de módulos al entrar
+  (Asistencia y Escuela OZEN) y el selector de áreas arriba. "Firmar documento" dejó de ser
+  módulo/pestaña: se abre desde el menú de la cuenta (la inicial, arriba a la derecha),
+  para todos menos las cuentas de tienda.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
