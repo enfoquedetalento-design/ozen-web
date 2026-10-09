@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useLayoutEffect, createContext, useContext, Fragment } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, createContext, useContext, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "./supabase";
 import { activarNotificacionesPush, notificacionesSoportadas, pushActivo, requiereInstalarEnIOS } from "./push";
@@ -7148,6 +7148,667 @@ const primerNombreNorm = (n) => (n||"").trim().split(/\s+/)[0].normalize("NFD").
 const thMet = { padding:"0 10px 10px", fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap" };
 const tdMet = { padding:"11px 10px", borderBottom:`1px solid ${C.border}` };
 
+// ── CONSULTAS (motor de preguntas sobre las ventas) ──────────────────────────────
+// Pedido de Santiago: un "generador de información" dentro de Métricas donde se arma una pregunta
+// como una frase ("Quiero ver Ventas sin servicios por Asesor y Tienda en Este mes … comparado con
+// Mes pasado") y la app responde con totales, gráfico y tabla. Los números salen con LAS MISMAS
+// reglas que el resto de Métricas (ver VentasMetricasScreen) para que nunca den distinto:
+//   · Ventas sin servicios = renglones "producto" netos (valor − descuento), menos el recorte de
+//     facturas corregidas hacia arriba + notas crédito en su fecha + flexipagos el día que se
+//     terminan de pagar (valor completo).
+//   · Servicios = lo pagado por arreglo / marcación / grabado.
+//   · Ingreso total = sin servicios + servicios + abonos de flexipagos que siguen abiertos.
+//   · # ventas = facturas creadas (incluye flexipago) en su fecha.
+// Todo se baja primero a "hechos" pequeños (una fila por pedazo de plata con su fecha, hora, tienda,
+// asesor, tipo y medio) y después se agrupa como se pida. Así agregar una medida o un "por" nuevo
+// es una línea, no otra pantalla.
+const CONS_DIAS_SEMANA = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+const CONS_DIAS_CORTO = ["L","M","M","J","V","S","D"];
+const CONS_PALETA = ["#265D7F","#C9822B","#3fa15e","#9b59b6","#e0433e","#3d7ee0","#8a6d5a","#16a085","#d35400","#7f8c8d"];
+const CONS_MEDIDAS = [
+  { value:"sin", label:"Ventas sin servicios", corto:"Ventas sin servicios" },
+  { value:"ingreso", label:"Ingreso total", corto:"Ingreso total" },
+  { value:"servicios", label:"Servicios", corto:"Servicios" },
+  { value:"count", label:"# de ventas", corto:"# de ventas" },
+  { value:"ticket", label:"Ticket promedio", corto:"Ticket promedio" },
+  { value:"descuento", label:"Descuentos dados", corto:"Descuentos" },
+];
+const CONS_GRUPOS = [
+  { value:"asesor", label:"Asesor" },
+  { value:"tienda", label:"Tienda" },
+  { value:"dia", label:"Día" },
+  { value:"semana", label:"Semana" },
+  { value:"mes", label:"Mes" },
+  { value:"dow", label:"Día de la semana" },
+  { value:"hora", label:"Hora" },
+  { value:"tipo", label:"Tipo" },
+  { value:"medio", label:"Medio de pago" },
+];
+const CONS_PERIODOS = [
+  { value:"hoy", label:"Hoy" },
+  { value:"ayer", label:"Ayer" },
+  { value:"semana", label:"Esta semana" },
+  { value:"semana_pasada", label:"Semana pasada" },
+  { value:"mes", label:"Este mes" },
+  { value:"mes_pasado", label:"Mes pasado" },
+  { value:"30", label:"Últimos 30 días" },
+  { value:"90", label:"Últimos 3 meses" },
+  { value:"anio", label:"Este año" },
+  { value:"custom", label:"Personalizado" },
+];
+const CONS_COMPARAR = [
+  { value:"anterior", label:"Periodo anterior" },
+  { value:"mes", label:"Mes pasado" },
+  { value:"anio", label:"Año pasado" },
+  { value:"", label:"Nada" },
+];
+const CONS_TIPOS = [
+  { value:"producto", label:"Venta" },
+  { value:"arreglo", label:"Arreglo" },
+  { value:"marcacion", label:"Marcación" },
+  { value:"grabado", label:"Grabado" },
+  { value:"flexipago", label:"Flexipago" },
+];
+const CONS_MEDIOS = [...VENTAS_MEDIOS_PAGO.map(m=>({ value:m.value, label:m.value==="tarjeta"?"Tarjeta":m.label })), { value:"nota", label:"Nota crédito" }];
+const CONS_PRESETS = [
+  { id:"p1", nombre:"Ventas por asesor y tienda · este mes", q:{ medida:"sin", g1:"asesor", g2:"tienda", periodo:"mes", comparar:"mes" } },
+  { id:"p2", nombre:"¿A qué hora se vende más?", q:{ medida:"sin", g1:"hora", g2:"", periodo:"30", comparar:"" } },
+  { id:"p3", nombre:"Día de la semana por tienda", q:{ medida:"sin", g1:"tienda", g2:"dow", periodo:"90", comparar:"" } },
+  { id:"p4", nombre:"Medios de pago vs mes pasado", q:{ medida:"ingreso", g1:"medio", g2:"", periodo:"mes", comparar:"mes" } },
+];
+const CONS_Q_INICIAL = { medida:"sin", g1:"asesor", g2:"", periodo:"mes", desde:"", hasta:"", comparar:"mes", tiendas:[], asesor:"", tipos:[], medios:[], equipoJunto:true };
+const CONS_LS = "ozen-consultas-guardadas";
+
+const consFecha = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const consParse = (s) => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); };
+const consSumarDias = (s, n) => { const d = consParse(s); d.setDate(d.getDate()+n); return consFecha(d); };
+const consLunes = (s) => { const d = consParse(s); const dow = (d.getDay()+6)%7; d.setDate(d.getDate()-dow); return consFecha(d); };
+const consDiasEntre = (a, b) => Math.round((consParse(b)-consParse(a))/86400000);
+// Corre una fecha N meses sin pasarse del último día del mes destino (31 oct − 1 mes = 30 sept).
+const consMoverMes = (s, n) => {
+  const [y,m,d] = s.split("-").map(Number);
+  const dest = new Date(y, m-1+n, 1);
+  const ultimo = new Date(dest.getFullYear(), dest.getMonth()+1, 0).getDate();
+  return consFecha(new Date(dest.getFullYear(), dest.getMonth(), Math.min(d, ultimo)));
+};
+const consRango = (q, hoyS) => {
+  const h = consParse(hoyS);
+  switch(q.periodo){
+    case "hoy": return [hoyS, hoyS];
+    case "ayer": { const a = consSumarDias(hoyS,-1); return [a,a]; }
+    case "semana": return [consLunes(hoyS), hoyS];
+    case "semana_pasada": { const l = consSumarDias(consLunes(hoyS),-7); return [l, consSumarDias(l,6)]; }
+    case "mes": return [consFecha(new Date(h.getFullYear(), h.getMonth(), 1)), hoyS];
+    case "mes_pasado": return [consFecha(new Date(h.getFullYear(), h.getMonth()-1, 1)), consFecha(new Date(h.getFullYear(), h.getMonth(), 0))];
+    case "30": return [consSumarDias(hoyS,-29), hoyS];
+    case "90": return [consSumarDias(hoyS,-89), hoyS];
+    case "anio": return [`${h.getFullYear()}-01-01`, hoyS];
+    case "custom": {
+      const a = q.desde || hoyS, b = q.hasta || hoyS;
+      return a<=b ? [a,b] : [b,a];
+    }
+    default: return [hoyS, hoyS];
+  }
+};
+const consRangoComparar = (q, [a,b]) => {
+  if(!q.comparar) return null;
+  if(q.comparar==="anterior"){
+    // "Mes pasado" completo se compara con el mes completo anterior, no con N días corridos.
+    if(q.periodo==="mes_pasado") return [consMoverMes(a,-1), consFecha(new Date(consParse(a).getFullYear(), consParse(a).getMonth(), 0))];
+    const n = consDiasEntre(a,b)+1; return [consSumarDias(a,-n), consSumarDias(a,-1)];
+  }
+  if(q.comparar==="mes") return [consMoverMes(a,-1), consMoverMes(b,-1)];
+  if(q.comparar==="anio") return [consMoverMes(a,-12), consMoverMes(b,-12)];
+  return null;
+};
+const consTextoRango = ([a,b]) => {
+  const fa = consParse(a), fb = consParse(b);
+  const mes = (d) => MESES_NOMBRE[d.getMonth()].slice(0,3).toLowerCase();
+  if(a===b) return `${fa.getDate()} ${mes(fa)}${fa.getFullYear()!==toColombiaDate().getFullYear()?` ${fa.getFullYear()}`:""}`;
+  const anio = fa.getFullYear()!==fb.getFullYear() || fb.getFullYear()!==toColombiaDate().getFullYear() ? ` ${fb.getFullYear()}` : "";
+  if(fa.getMonth()===fb.getMonth() && fa.getFullYear()===fb.getFullYear()) return `${fa.getDate()} al ${fb.getDate()} ${mes(fb)}${anio}`;
+  return `${fa.getDate()} ${mes(fa)} al ${fb.getDate()} ${mes(fb)}${anio}`;
+};
+const consHora = (iso) => { if(!iso) return null; const d = toColombiaDate(new Date(iso)); return isNaN(d) ? null : d.getHours(); };
+
+// Baja ventas/renglones/abonos/notas crédito a hechos { fecha, hora, tiendaId, vendedorId, tipo,
+// medio, sin, servicios, ingreso, descuento, cuenta, ventaId }.
+const construirHechosVentas = (ventas, ventasItems, ventasAbonos, ventasAjustes) => {
+  const H = [];
+  const ventaById = {}; ventas.forEach(v=>{ ventaById[v.id]=v; });
+  const itemsPorVenta = {}; ventasItems.forEach(i=>{ (itemsPorVenta[i.venta_id] = itemsPorVenta[i.venta_id] || []).push(i); });
+  const recorte = {};
+  ventas.forEach(v=>{
+    if(v.es_flexipago) return;
+    const orig = Number(v.valor_original ?? v.total), act = Number(v.total);
+    if(act>orig) recorte[v.id] = act-orig;
+  });
+  const repartirPagos = (pagos, medioDefecto) => {
+    const ps = (pagos||[]).filter(p=>Number(p.valor||0)>0);
+    const tot = ps.reduce((s,p)=>s+Number(p.valor),0);
+    if(!ps.length || tot<=0) return [{ medio:medioDefecto||"efectivo", parte:1 }];
+    return ps.map(p=>({ medio:p.medio_pago||medioDefecto||"efectivo", parte:Number(p.valor)/tot }));
+  };
+  const base = (v, fecha, iso) => ({ fecha, hora:consHora(iso), tiendaId:v.tienda_id, vendedorId:v.vendedor_id, ventaId:v.id });
+
+  ventas.forEach(v=>{
+    if(!v.fecha) return;
+    const items = itemsPorVenta[v.id] || [];
+    // Conteo de la factura (una vez), con el tipo y medio principal para que los filtros apliquen.
+    const tipoPpal = v.es_flexipago ? "flexipago" : (items.find(i=>i.tipo==="producto") ? "producto" : (items[0]?.tipo || "producto"));
+    const itemPpal = items.find(i=>i.tipo===tipoPpal) || items[0];
+    const medioPpal = (itemPpal?.pagos||[]).find(p=>Number(p.valor||0)>0)?.medio_pago || itemPpal?.medio_pago || "efectivo";
+    H.push({ ...base(v, v.fecha, v.created_at), tipo:tipoPpal, medio:medioPpal, sin:0, servicios:0, ingreso:0, descuento:0, cuenta:1 });
+    if(v.es_flexipago) return;
+    const productos = items.filter(i=>i.tipo==="producto");
+    const neto = productos.reduce((s,i)=>s+Number(i.valor)-Number(i.descuento||0),0);
+    const factor = neto>0 ? (neto-Math.min(recorte[v.id]||0, neto))/neto : 0;
+    productos.forEach(i=>{
+      const n = (Number(i.valor)-Number(i.descuento||0))*factor;
+      repartirPagos(i.pagos, i.medio_pago).forEach(({medio,parte})=>{
+        H.push({ ...base(v, v.fecha, v.created_at), tipo:"producto", medio, sin:n*parte, servicios:0, ingreso:n*parte, descuento:Number(i.descuento||0)*parte, cuenta:0 });
+      });
+    });
+    items.filter(i=>i.tipo==="arreglo"||i.tipo==="marcacion"||i.tipo==="grabado").forEach(i=>{
+      const pagos = (i.pagos||[]).filter(p=>Number(p.valor||0)>0);
+      pagos.forEach(p=>{
+        H.push({ ...base(v, v.fecha, v.created_at), tipo:i.tipo, medio:p.medio_pago||"efectivo", sin:0, servicios:Number(p.valor), ingreso:Number(p.valor), descuento:0, cuenta:0 });
+      });
+      if(Number(i.descuento||0)>0) H.push({ ...base(v, v.fecha, v.created_at), tipo:i.tipo, medio:(pagos[0]?.medio_pago||"efectivo"), sin:0, servicios:0, ingreso:0, descuento:Number(i.descuento), cuenta:0 });
+    });
+  });
+
+  // Notas crédito / correcciones hacia arriba: cuentan el día de la corrección.
+  ventasAjustes.forEach(aj=>{
+    if(aj.es_correccion_error || !aj.fecha) return;
+    const v = ventaById[aj.venta_id]; if(!v) return;
+    const d = Number(aj.diferencia||0);
+    H.push({ ...base(v, aj.fecha, aj.created_at), tipo:"producto", medio:"nota", sin:d, servicios:0, ingreso:d, descuento:0, cuenta:0 });
+  });
+
+  // Flexipagos: venta completa el día que se termina de pagar; los abonos de los que siguen
+  // abiertos solo suman a Ingreso total.
+  const cierres = calcularCierresFlexipago(ventas, ventasItems, ventasAbonos);
+  const cerrados = new Set(cierres.map(c=>c.ventaId));
+  const abonosPorVenta = {}; ventasAbonos.forEach(ab=>{ (abonosPorVenta[ab.venta_id] = abonosPorVenta[ab.venta_id] || []).push(ab); });
+  cierres.forEach(c=>{
+    const v = ventaById[c.ventaId]; if(!v || !c.fechaCierre) return;
+    const abonos = abonosPorVenta[v.id] || [];
+    const tot = abonos.reduce((s,ab)=>s+Number(ab.valor||0),0);
+    const porMedio = {};
+    abonos.forEach(ab=>mediosDeAbono(ab).forEach(p=>{ const m = p.medio_pago||"efectivo"; porMedio[m]=(porMedio[m]||0)+Number(p.valor||0); }));
+    const ultimo = abonos.filter(ab=>ab.fecha===c.fechaCierre).sort((a,b)=>String(b.created_at||"").localeCompare(String(a.created_at||"")))[0];
+    const descFlex = (itemsPorVenta[v.id]||[]).filter(i=>i.tipo==="flexipago").reduce((s,i)=>s+Number(i.descuento||0),0);
+    const entradas = Object.entries(porMedio).filter(([,x])=>x>0);
+    (entradas.length ? entradas : [["efectivo", tot||1]]).forEach(([medio, x])=>{
+      const parte = tot>0 ? x/tot : 1;
+      H.push({ ...base(v, c.fechaCierre, ultimo?.created_at), tipo:"flexipago", medio, sin:c.valorNeto*parte, servicios:0, ingreso:c.valorNeto*parte, descuento:descFlex*parte, cuenta:0 });
+    });
+  });
+  ventasAbonos.forEach(ab=>{
+    const v = ventaById[ab.venta_id];
+    if(!v || !v.es_flexipago || cerrados.has(v.id) || !ab.fecha) return;
+    mediosDeAbono(ab).forEach(p=>{
+      const x = Number(p.valor||0); if(x<=0) return;
+      H.push({ ...base(v, ab.fecha, ab.created_at), tipo:"flexipago", medio:p.medio_pago||"efectivo", sin:0, servicios:0, ingreso:x, descuento:0, cuenta:0 });
+    });
+  });
+  return H;
+};
+
+// Selector "palabra en azul" de la frase — un <select> nativo vestido (en celular abre la ruedita
+// del sistema, que es lo más cómodo con el dedo).
+const ConsPick = ({ value, onChange, options, nota, punto, grande=true, ariaLabel }) => {
+  const sel = options.find(o=>o.value===value);
+  return (
+    <span style={{ position:"relative", display:"inline-flex", alignItems:"center", gap:6, height:grande?38:32, padding:grande?"0 30px 0 12px":"0 26px 0 10px", borderRadius:10, border:"1.5px solid rgba(38,93,127,0.35)", background:"#fff", color:C.goldDark, fontFamily:font.body, fontWeight:700, fontSize:grande?15.5:13, verticalAlign:"middle", margin:"3px 3px", whiteSpace:"nowrap", maxWidth:"100%" }}>
+      {punto && <span style={{ width:8, height:8, borderRadius:"50%", background:punto, flexShrink:0 }}/>}
+      <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{sel?.label ?? "—"}</span>
+      {nota && <small style={{ fontSize:11, color:C.textMuted, fontWeight:400 }}>{nota}</small>}
+      <span style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", color:C.gold, pointerEvents:"none" }}><Icon n="down" s={13} sw={2.2}/></span>
+      <select aria-label={ariaLabel} value={value} onChange={e=>onChange(e.target.value)} style={{ position:"absolute", inset:0, opacity:0, cursor:"pointer", width:"100%", height:"100%", fontSize:16 }}>
+        {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </span>
+  );
+};
+const ConsChip = ({ on, onClick, children, color }) => (
+  <button onClick={onClick} style={{ display:"inline-flex", alignItems:"center", gap:6, height:30, padding:"0 11px", borderRadius:8, border:`1px solid ${on?(color||C.gold):C.border}`, background:on?hexToRgba(color||C.gold,0.1):C.surfaceAlt, color:on?C.goldDark:C.textMuted, fontWeight:on?600:400, fontFamily:font.body, fontSize:12.5, cursor:"pointer", whiteSpace:"nowrap" }}>{children}</button>
+);
+const ConsDelta = ({ act, prev, inverso, sufijo }) => {
+  if(prev===null || prev===undefined) return null;
+  if(!prev){ return act ? <span style={{ color:C.textMuted, fontWeight:600 }}>nuevo{sufijo?` ${sufijo}`:""}</span> : <span style={{ color:C.textMuted }}>—</span>; }
+  const p = Math.round((act-prev)/Math.abs(prev)*1000)/10;
+  const sube = p>=0;
+  const bueno = inverso ? !sube : sube;
+  return <span style={{ color:p===0?C.textMuted:(bueno?C.green:C.red), fontWeight:700, whiteSpace:"nowrap" }}>{p===0?"=":(sube?"▲":"▼")} {Math.abs(p).toLocaleString("es-CO",{ minimumFractionDigits:1, maximumFractionDigits:1 })} %{sufijo?` ${sufijo}`:""}</span>;
+};
+
+function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, isMobile }) {
+  const hoyS = todayStr;
+  const [q, setQ] = useState(CONS_Q_INICIAL);
+  const [activa, setActiva] = useState("");
+  const [masFiltros, setMasFiltros] = useState(false);
+  const [guardadas, setGuardadas] = useState(()=>{ try { return JSON.parse(localStorage.getItem(CONS_LS)||"[]"); } catch { return []; } });
+  const [nombrando, setNombrando] = useState(null); // texto del nombre al guardar
+  const [graficaForzada, setGraficaForzada] = useState(""); // "", "barras", "columnas", "mapa"
+  const set = (k, v) => { setQ(prev=>({ ...prev, [k]:v })); setActiva(""); };
+  const toggleLista = (k, v) => { setQ(prev=>({ ...prev, [k]: prev[k].includes(v) ? prev[k].filter(x=>x!==v) : [...prev[k], v] })); setActiva(""); };
+  const persistir = (lista) => { setGuardadas(lista); try { localStorage.setItem(CONS_LS, JSON.stringify(lista)); } catch { /* sin almacenamiento: queda solo en esta sesión */ } };
+
+  const hechos = useMemo(()=>construirHechosVentas(ventas, ventasItems, ventasAbonos, ventasAjustes), [ventas, ventasItems, ventasAbonos, ventasAjustes]);
+  const tiendas = tiendasVenta(stores);
+  const userById = useMemo(()=>{ const m = {}; users.forEach(u=>{ m[u.id]=u; }); return m; }, [users]);
+  const asesoresOpc = users.filter(esVendedorPosible).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const enEquipoAdmin = (u) => u && ROLES_ADMIN_VENDEDOR.includes(u.role) && !FUERA_DE_EQUIPO_ADMIN.includes(primerNombreNorm(u.name));
+
+  const rango = consRango(q, hoyS);
+  const rangoPrev = consRangoComparar(q, rango);
+
+  const pasaFiltros = (h) => {
+    if(q.tiendas.length && !q.tiendas.includes(h.tiendaId)) return false;
+    if(q.asesor && h.vendedorId!==q.asesor) return false;
+    if(q.tipos.length && !q.tipos.includes(h.tipo)) return false;
+    if(q.medios.length && !q.medios.includes(h.medio)) return false;
+    return true;
+  };
+
+  // Clave + etiqueta + orden de cada "por".
+  const dim = (g, h) => {
+    switch(g){
+      case "asesor": {
+        const u = userById[h.vendedorId];
+        if(q.equipoJunto && !q.asesor && enEquipoAdmin(u)) return { k:"__equipo__", l:"Equipo admin" };
+        return { k:h.vendedorId||"—", l:u?.name || "Sin asesor" };
+      }
+      case "tienda": { const t = stores[h.tiendaId]; return { k:h.tiendaId||"—", l:t?nombreTiendaCorto(t):"—", color:t?colorTienda(t):undefined }; }
+      case "dia": { const d = consParse(h.fecha); return { k:h.fecha, l:`${CONS_DIAS_SEMANA[(d.getDay()+6)%7].slice(0,3)} ${d.getDate()} ${MESES_NOMBRE[d.getMonth()].slice(0,3).toLowerCase()}`, o:h.fecha }; }
+      case "semana": { const l = consLunes(h.fecha); const d = consParse(l); return { k:l, l:`Sem. del ${d.getDate()} ${MESES_NOMBRE[d.getMonth()].slice(0,3).toLowerCase()}`, o:l }; }
+      case "mes": { const k = h.fecha.slice(0,7); return { k, l:`${MESES_NOMBRE[Number(k.slice(5))-1]} ${k.slice(0,4)}`, o:k }; }
+      case "dow": { const i = (consParse(h.fecha).getDay()+6)%7; return { k:String(i), l:CONS_DIAS_SEMANA[i], o:String(i) }; }
+      case "hora": { if(h.hora===null) return { k:"—", l:"Sin hora", o:"99" }; return { k:String(h.hora), l:`${h.hora}:00`, o:String(h.hora).padStart(2,"0") }; }
+      case "tipo": { const t = CONS_TIPOS.find(x=>x.value===h.tipo); return { k:h.tipo, l:t?.label||h.tipo, o:String(CONS_TIPOS.indexOf(t)) }; }
+      case "medio": { const m = CONS_MEDIOS.find(x=>x.value===h.medio); return { k:h.medio, l:m?.label||h.medio||"—", o:String(CONS_MEDIOS.indexOf(m)) }; }
+      default: return { k:"total", l:"Total" };
+    }
+  };
+  const esTiempo = (g) => ["dia","semana","mes","dow","hora"].includes(g);
+
+  // Acumulador: suma por medida y cuenta facturas distintas.
+  const nuevoAcc = () => ({ sin:0, ingreso:0, servicios:0, descuento:0, ventas:new Set() });
+  const sumar = (acc, h) => { acc.sin+=h.sin; acc.ingreso+=h.ingreso; acc.servicios+=h.servicios; acc.descuento+=h.descuento; if(h.cuenta) acc.ventas.add(h.ventaId); };
+  const valor = (acc, medida=q.medida) => {
+    if(!acc) return 0;
+    if(medida==="count") return acc.ventas.size;
+    if(medida==="ticket") return acc.ventas.size ? acc.sin/acc.ventas.size : 0;
+    return acc[medida];
+  };
+
+  const calcular = (r) => {
+    if(!r) return null;
+    const [a,b] = r;
+    const total = nuevoAcc(); const filas = {}; const cols = {}; const celdas = {};
+    hechos.forEach(h=>{
+      if(h.fecha<a || h.fecha>b || !pasaFiltros(h)) return;
+      sumar(total, h);
+      const d1 = dim(q.g1, h);
+      if(!filas[d1.k]) filas[d1.k] = { ...d1, acc:nuevoAcc() };
+      sumar(filas[d1.k].acc, h);
+      if(q.g2){
+        const d2 = dim(q.g2, h);
+        if(!cols[d2.k]) cols[d2.k] = { ...d2, acc:nuevoAcc() };
+        sumar(cols[d2.k].acc, h);
+        const ck = `${d1.k}|${d2.k}`;
+        if(!celdas[ck]) celdas[ck] = nuevoAcc();
+        sumar(celdas[ck], h);
+      }
+    });
+    return { total, filas, cols, celdas };
+  };
+  const res = calcular(rango);
+  const prev = calcular(rangoPrev);
+
+  // Filas: en los "por" de tiempo van en orden de calendario (y el día de la semana / hora
+  // completos aunque estén en cero, para que se vea el hueco); en los demás, de mayor a menor.
+  let filas = Object.values(res.filas);
+  if(q.g1==="dow"){ filas = CONS_DIAS_SEMANA.map((l,i)=>res.filas[String(i)] || { k:String(i), l, o:String(i), acc:nuevoAcc() }); }
+  else if(q.g1==="hora" && filas.length){
+    const hs = filas.filter(f=>f.k!=="—").map(f=>Number(f.k));
+    const min = Math.min(...hs), max = Math.max(...hs);
+    const completas = []; for(let x=min; x<=max; x++) completas.push(res.filas[String(x)] || { k:String(x), l:`${x}:00`, o:String(x).padStart(2,"0"), acc:nuevoAcc() });
+    filas = [...completas, ...(res.filas["—"]?[res.filas["—"]]:[])];
+  }
+  else if(q.g1==="tienda"){ filas = [...filas].sort((a,b)=>valor(b.acc)-valor(a.acc)); }
+  else if(esTiempo(q.g1)) filas = [...filas].sort((a,b)=>String(a.o).localeCompare(String(b.o)));
+  else filas = [...filas].sort((a,b)=>valor(b.acc)-valor(a.acc));
+  let cols = Object.values(res.cols);
+  if(q.g2==="dow") cols = CONS_DIAS_SEMANA.map((l,i)=>res.cols[String(i)] || { k:String(i), l, o:String(i), acc:nuevoAcc() });
+  else if(esTiempo(q.g2)) cols = cols.sort((a,b)=>String(a.o).localeCompare(String(b.o)));
+  else if(q.g2==="tienda") cols = cols.sort((a,b)=>{ const ia = tiendas.findIndex(t=>t.id===a.k), ib = tiendas.findIndex(t=>t.id===b.k); return (ia<0?99:ia)-(ib<0?99:ib); });
+  else cols = cols.sort((a,b)=>valor(b.acc)-valor(a.acc));
+  const colorCol = (c, i) => c.color || CONS_PALETA[i % CONS_PALETA.length];
+
+  const fmtMedida = (n, medida=q.medida) => medida==="count" ? Math.round(n).toLocaleString("es-CO") : fmtCOP(n);
+  const medidaLbl = CONS_MEDIDAS.find(m=>m.value===q.medida)?.label;
+  const grupoLbl = (g) => CONS_GRUPOS.find(x=>x.value===g)?.label.toLowerCase();
+  const tituloResultado = `${medidaLbl} por ${grupoLbl(q.g1)}${q.g2?` y ${grupoLbl(q.g2)}`:""}`;
+  const compLbl = q.comparar==="mes" ? "mes pasado" : q.comparar==="anio" ? "año pasado" : "periodo anterior";
+
+  // Tipo de gráfico: mapa de calor cuando se cruza con día de la semana u hora; columnas para un
+  // "por" de tiempo solo; barras (apiladas si hay segundo grupo) para todo lo demás.
+  const graficaAuto = q.g2 && (q.g1==="dow"||q.g1==="hora"||q.g2==="dow"||q.g2==="hora") ? "mapa" : (esTiempo(q.g1) && !q.g2 ? "columnas" : "barras");
+  const grafica = graficaForzada || graficaAuto;
+  const apilar = q.g2 && q.medida!=="ticket";
+
+  const aplicar = (nq, id) => { setQ({ ...CONS_Q_INICIAL, ...nq }); setActiva(id); setGraficaForzada(""); };
+  const guardar = () => {
+    const nombre = (nombrando||"").trim(); if(!nombre) return;
+    const id = `g${Date.now()}`;
+    persistir([...guardadas, { id, nombre, q }]); setActiva(id); setNombrando(null);
+  };
+  const borrarGuardada = (id) => { persistir(guardadas.filter(g=>g.id!==id)); if(activa===id) setActiva(""); };
+
+  const descargar = () => {
+    const sep = ";";
+    const esc = (s) => { const t = String(s ?? ""); return /[;"\n]/.test(t) ? `"${t.replace(/"/g,'""')}"` : t; };
+    const num = (n) => q.medida==="count" ? String(Math.round(n)) : String(Math.round(n));
+    const enc = [CONS_GRUPOS.find(x=>x.value===q.g1)?.label, ...(q.g2?cols.map(c=>c.l):[]), "Total", ...(prev?[`Total ${compLbl}`,"Variación %"]:[])];
+    const lineas = [`${tituloResultado} · ${consTextoRango(rango)}`, enc.map(esc).join(sep)];
+    filas.forEach(f=>{
+      const t = valor(f.acc), p = prev ? valor(prev.filas[f.k]?.acc) : null;
+      lineas.push([f.l, ...(q.g2?cols.map(c=>{ const ce = res.celdas[`${f.k}|${c.k}`]; return ce?num(valor(ce)):""; }):[]), num(t), ...(prev?[num(p), p?String(Math.round((t-p)/Math.abs(p)*1000)/10).replace(".",","):""]:[])].map(esc).join(sep));
+    });
+    const T = valor(res.total), P = prev ? valor(prev.total) : null;
+    lineas.push(["Total", ...(q.g2?cols.map(c=>num(valor(c.acc))):[]), num(T), ...(prev?[num(P), P?String(Math.round((T-P)/Math.abs(P)*1000)/10).replace(".",","):""]:[])].map(esc).join(sep));
+    const blob = new Blob(["﻿"+lineas.join("\r\n")], { type:"text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `consulta-${tituloResultado.toLowerCase().replace(/[^a-z0-9áéíóúñ]+/gi,"-")}-${rango[0]}_${rango[1]}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  };
+
+  // ── KPIs ──
+  const kpiMedidas = [q.medida, ...["sin","count","ticket","descuento"].filter(m=>m!==q.medida)].slice(0,4);
+  const kpiTxt = (m) => CONS_MEDIDAS.find(x=>x.value===m)?.label;
+
+  // ── Piezas de UI ──
+  const texto = { fontFamily:font.body, fontSize:isMobile?15:18, color:C.textSub, lineHeight:isMobile?2.1:2.4 };
+  const tiendaFiltroTxt = q.tiendas.length===0 ? "Todas las tiendas" : q.tiendas.length===1 ? nombreTiendaCorto(stores[q.tiendas[0]]) : `${q.tiendas.length} tiendas`;
+  const filtrosActivos = [q.asesor?1:0, q.tipos.length?1:0, q.medios.length?1:0].reduce((a,b)=>a+b,0);
+  const grupos2 = [{ value:"", label:"— nada más" }, ...CONS_GRUPOS.filter(g=>g.value!==q.g1)];
+
+  const maxFila = Math.max(1, ...filas.map(f=>valor(f.acc)), ...(prev ? filas.map(f=>valor(prev.filas[f.k]?.acc)) : []));
+  const sinDatos = filas.length===0 || filas.every(f=>valor(f.acc)===0);
+
+  const atajo = (id, nombre, nq, borrable) => (
+    <span key={id} style={{ display:"inline-flex", alignItems:"center", height:32, borderRadius:99, border:`1px solid ${activa===id?C.goldDark:C.border}`, background:activa===id?C.goldDark:"#fff", color:activa===id?C.tinta:C.textSub, fontFamily:font.body, fontSize:12.5, fontWeight:600, whiteSpace:"nowrap", flex:"0 0 auto" }}>
+      <button onClick={()=>aplicar(nq, id)} style={{ all:"unset", cursor:"pointer", padding:borrable?"0 6px 0 12px":"0 12px", display:"inline-flex", alignItems:"center", gap:6, height:"100%" }}>★ {nombre}</button>
+      {borrable && <button aria-label={`Borrar ${nombre}`} onClick={()=>borrarGuardada(id)} style={{ all:"unset", cursor:"pointer", padding:"0 10px 0 4px", opacity:0.6, display:"inline-flex", alignItems:"center", height:"100%" }}><Icon n="x" s={12} sw={2.2}/></button>}
+    </span>
+  );
+
+  const Barras = () => (
+    <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(120px,190px) 1fr auto", columnGap:14, rowGap:isMobile?12:10, alignItems:"center" }}>
+      {filas.map(f=>{
+        const v = valor(f.acc); const p = prev ? valor(prev.filas[f.k]?.acc) : null;
+        const ancho = `${Math.max(0, v/maxFila*100)}%`;
+        const barra = (
+          <div style={{ position:"relative", paddingBottom:prev?6:0 }}>
+            <div style={{ display:"flex", height:isMobile?12:20, width:ancho, borderRadius:5, overflow:"hidden", background:apilar?"transparent":(f.color||C.gold), gap:apilar?2:0, minWidth:v>0?3:0 }}>
+              {apilar && cols.map((c,i)=>{ const ce = res.celdas[`${f.k}|${c.k}`]; const cv = valor(ce); if(cv<=0) return null; return <div key={c.k} title={`${c.l}: ${fmtMedida(cv)}`} style={{ flex:`${cv} 0 0`, background:colorCol(c,i) }}/>; })}
+            </div>
+            {prev && <div title={`${compLbl}: ${fmtMedida(p)}`} style={{ position:"absolute", left:0, bottom:0, height:3, borderRadius:2, width:`${Math.max(0,(p||0)/maxFila*100)}%`, background:"rgba(26,59,82,0.22)" }}/>}
+          </div>
+        );
+        return isMobile ? (
+          <div key={f.k}>
+            <div style={{ display:"flex", justifyContent:"space-between", gap:8, marginBottom:5 }}>
+              <span style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, display:"inline-flex", alignItems:"center", gap:6 }}>{f.color && <PuntoTienda color={f.color} size={7}/>}{f.l}</span>
+              <span style={{ fontFamily:font.mono, fontSize:12.5, color:C.text }}>{fmtMedida(v)}</span>
+            </div>
+            {barra}
+          </div>
+        ) : (
+          <Fragment key={f.k}>
+            <div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:C.text, display:"flex", alignItems:"center", gap:7, minWidth:0 }}>{f.color && <PuntoTienda color={f.color} size={8}/>}<span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.l}</span></div>
+            {barra}
+            <div style={{ fontFamily:font.mono, fontSize:13, color:C.text, textAlign:"right", minWidth:110 }}>{fmtMedida(v)}</div>
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+
+  const Columnas = () => {
+    const altoMax = isMobile ? 130 : 170;
+    const anguloso = filas.length > (isMobile?10:20);
+    const mejor = filas.reduce((m,f)=>valor(f.acc)>valor(m?.acc)?f:m, null);
+    return (
+      <div style={{ overflowX:"auto" }} className="ozen-sin-barra">
+        <div style={{ display:"flex", alignItems:"flex-end", gap:anguloso?3:8, height:altoMax+40, minWidth:anguloso?filas.length*(isMobile?16:22):undefined, paddingTop:8 }}>
+          {filas.map(f=>{
+            const v = valor(f.acc); const p = prev ? valor(prev.filas[f.k]?.acc) : null;
+            const h = Math.max(v>0?3:0, v/maxFila*altoMax);
+            const hp = p ? p/maxFila*altoMax : 0;
+            const etiqueta = q.g1==="dow" ? (isMobile?CONS_DIAS_CORTO[Number(f.k)]:f.l.slice(0,3)) : q.g1==="hora" ? (f.k==="—"?"?":`${f.k}h`) : q.g1==="dia" ? String(consParse(f.k).getDate()) : q.g1==="mes" ? MESES_NOMBRE[Number(f.k.slice(5))-1].slice(0,3) : f.l.replace("Sem. del ","");
+            return (
+              <div key={f.k} title={`${f.l}: ${fmtMedida(v)}${prev?` · ${compLbl}: ${fmtMedida(p)}`:""}`} style={{ flex:"1 1 0", minWidth:anguloso?(isMobile?13:18):0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"flex-end", height:"100%" }}>
+                <div style={{ position:"relative", width:"100%", maxWidth:46, height:altoMax, display:"flex", alignItems:"flex-end" }}>
+                  {prev && hp>0 && <div style={{ position:"absolute", left:0, right:0, bottom:0, height:hp, border:"1.5px dashed rgba(26,59,82,0.3)", borderRadius:"6px 6px 0 0" }}/>}
+                  <div style={{ position:"relative", width:"100%", height:h, background:f===mejor?C.goldDark:C.gold, borderRadius:"6px 6px 0 0" }}/>
+                </div>
+                <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:6, whiteSpace:"nowrap" }}>{etiqueta}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const Mapa = () => {
+    // Filas = el grupo que NO es de tiempo (si los dos son de tiempo, el primero).
+    const filasSonG1 = !((q.g1==="dow"||q.g1==="hora") && !(q.g2==="dow"||q.g2==="hora"));
+    const ejeF = filasSonG1 ? filas : cols, ejeC = filasSonG1 ? cols : filas;
+    const celda = (fk, ck) => res.celdas[filasSonG1 ? `${fk}|${ck}` : `${ck}|${fk}`];
+    let max = 0; ejeF.forEach(f=>ejeC.forEach(c=>{ max = Math.max(max, valor(celda(f.k,c.k))); }));
+    const corto = (c) => (q.g1==="dow"||q.g2==="dow") && c.k.length===1 && CONS_DIAS_SEMANA[Number(c.k)]===c.l ? (isMobile?CONS_DIAS_CORTO[Number(c.k)]:c.l.slice(0,3)) : c.l.replace(":00","h");
+    return (
+      <div style={{ overflowX:"auto" }} className="ozen-sin-barra">
+        <div style={{ display:"grid", gridTemplateColumns:`${isMobile?"100px":"130px"} repeat(${ejeC.length}, minmax(${isMobile?30:40}px, 1fr))`, gap:4, minWidth:isMobile?undefined:ejeC.length*44+140 }}>
+          <div/>
+          {ejeC.map(c=><div key={c.k} style={{ fontFamily:font.body, fontSize:11, fontWeight:700, color:C.textSub, textAlign:"center", paddingBottom:2 }}>{corto(c)}</div>)}
+          {ejeF.map(f=>(
+            <Fragment key={f.k}>
+              <div style={{ fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.text, display:"flex", alignItems:"center", gap:6, minWidth:0, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis" }}>{f.color && <PuntoTienda color={f.color} size={7}/>}{f.l}</div>
+              {ejeC.map(c=>{
+                const v = valor(celda(f.k,c.k)); const r = max>0 ? v/max : 0;
+                return <div key={c.k} title={`${f.l} · ${c.l}: ${fmtMedida(v)}`} style={{ height:isMobile?28:32, borderRadius:7, background:v>0?`rgba(38,93,127,${0.12+r*0.88})`:C.surfaceAlt, border:v>0?"none":`1px solid ${C.border}` }}/>;
+              })}
+            </Fragment>
+          ))}
+        </div>
+        <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:10 }}>Más oscuro = más {q.medida==="count"?"ventas":"plata"}. Pasa el dedo o el mouse por una celda para ver el valor; el detalle completo está en la tabla.</div>
+      </div>
+    );
+  };
+
+  const tdN = { ...tdMet, fontFamily:font.mono, fontSize:12.5, textAlign:"right", whiteSpace:"nowrap", color:C.text };
+  const thN = { ...thMet, textAlign:"right" };
+
+  return (
+    <div>
+      {/* Pregunta */}
+      <Card style={{ marginBottom:16 }} p={isMobile?"14px":"20px 22px"}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+          <div style={{ width:34, height:34, borderRadius:10, background:C.surfaceHover, color:C.gold, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="search" s={18}/></div>
+          <div style={{ fontFamily:font.body, fontSize:16.5, fontWeight:700, color:C.text }}>Consultas</div>
+          {!isMobile && <div style={{ marginLeft:"auto", fontFamily:font.body, fontSize:12, color:C.textMuted }}>Arma tu pregunta tocando las palabras en azul</div>}
+        </div>
+        <div className="ozen-sin-barra" style={{ display:"flex", gap:8, flexWrap:isMobile?"nowrap":"wrap", overflowX:isMobile?"auto":"visible", margin:"14px 0 0", paddingBottom:2 }}>
+          {CONS_PRESETS.map(p=>atajo(p.id, p.nombre, p.q, false))}
+          {guardadas.map(g=>atajo(g.id, g.nombre, g.q, true))}
+          {nombrando===null
+            ? <button onClick={()=>setNombrando("")} style={{ flex:"0 0 auto", height:32, padding:"0 12px", borderRadius:99, border:`1px dashed ${C.gold}`, background:"transparent", color:C.gold, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>+ Guardar esta consulta</button>
+            : <span style={{ display:"inline-flex", gap:6, alignItems:"center", flex:"0 0 auto" }}>
+                <input autoFocus value={nombrando} onChange={e=>setNombrando(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") guardar(); if(e.key==="Escape") setNombrando(null); }} placeholder="Nombre de la consulta" style={{ height:32, padding:"0 12px", borderRadius:99, border:`1px solid ${C.gold}`, fontFamily:font.body, fontSize:13, outline:"none", width:200, color:C.text, background:"#fff" }}/>
+                <Btn sm onClick={guardar} disabled={!nombrando.trim()}>Guardar</Btn>
+                <Btn sm variant="ghost" onClick={()=>setNombrando(null)}>Cancelar</Btn>
+              </span>}
+        </div>
+
+        <div style={{ ...texto, margin:"14px 0 4px" }}>
+          {isMobile?"Ver":"Quiero ver"} <ConsPick ariaLabel="Qué medir" grande={!isMobile} value={q.medida} onChange={v=>set("medida",v)} options={CONS_MEDIDAS}/>
+          {" "}por <ConsPick ariaLabel="Agrupar por" grande={!isMobile} value={q.g1} onChange={v=>{ setQ(prev=>({ ...prev, g1:v, g2:prev.g2===v?"":prev.g2 })); setActiva(""); setGraficaForzada(""); }} options={CONS_GRUPOS}/>
+          {" "}y <ConsPick ariaLabel="Cruzar con" grande={!isMobile} value={q.g2} onChange={v=>{ set("g2",v); setGraficaForzada(""); }} options={grupos2}/>
+          {" "}en <ConsPick ariaLabel="Periodo" grande={!isMobile} value={q.periodo} onChange={v=>{ if(v==="custom" && !q.desde){ setQ(prev=>({ ...prev, periodo:v, desde:rango[0], hasta:rango[1] })); setActiva(""); } else set("periodo",v); }} options={CONS_PERIODOS} nota={q.periodo!=="hoy"&&q.periodo!=="ayer"&&!isMobile?`· ${consTextoRango(rango)}`:null}/>
+          {q.periodo==="custom" && (
+            <span style={{ display:"inline-flex", alignItems:"center", gap:6, margin:"3px", verticalAlign:"middle", fontSize:14 }}>
+              <input type="date" value={q.desde} max={hoyS} onChange={e=>set("desde",e.target.value)} style={{ height:36, borderRadius:10, border:"1.5px solid rgba(38,93,127,0.35)", padding:"0 8px", fontFamily:font.body, fontSize:14, color:C.goldDark, background:"#fff" }}/>
+              a
+              <input type="date" value={q.hasta} max={hoyS} onChange={e=>set("hasta",e.target.value)} style={{ height:36, borderRadius:10, border:"1.5px solid rgba(38,93,127,0.35)", padding:"0 8px", fontFamily:font.body, fontSize:14, color:C.goldDark, background:"#fff" }}/>
+            </span>
+          )}
+          {" "}de <ConsPick ariaLabel="Tienda" grande={!isMobile} value={q.tiendas.length===1?q.tiendas[0]:(q.tiendas.length?"__varias__":"")} onChange={v=>set("tiendas", v?[v]:[])} punto={q.tiendas.length===1?colorTienda(stores[q.tiendas[0]]):C.goldDark}
+            options={[{ value:"", label:"Todas las tiendas" }, ...tiendas.map(t=>({ value:t.id, label:nombreTiendaCorto(t) })), ...(q.tiendas.length>1?[{ value:"__varias__", label:tiendaFiltroTxt }]:[])]}/>
+          {" "}{isMobile?"vs":"comparado con"} <ConsPick ariaLabel="Comparar con" grande={!isMobile} value={q.comparar} onChange={v=>set("comparar",v)} options={CONS_COMPARAR}/>
+        </div>
+
+        <div style={{ borderTop:`1px dashed ${C.border}`, paddingTop:12, marginTop:6 }}>
+          <button onClick={()=>setMasFiltros(x=>!x)} style={{ all:"unset", cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:13, color:C.gold, fontWeight:600 }}>
+            Más filtros{filtrosActivos>0 && <span style={{ background:C.goldDark, color:C.tinta, borderRadius:99, fontSize:11, padding:"1px 7px" }}>{filtrosActivos}</span>}
+            <Icon n={masFiltros?"up":"down"} s={13} sw={2.2}/>
+          </button>
+          {!masFiltros && (
+            <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginLeft:10 }}>
+              {[q.asesor?`Asesor: ${userById[q.asesor]?.name||"—"}`:null, q.tipos.length?`Tipo: ${q.tipos.map(t=>CONS_TIPOS.find(x=>x.value===t)?.label).join(", ")}`:null, q.medios.length?`Medio: ${q.medios.map(t=>CONS_MEDIOS.find(x=>x.value===t)?.label).join(", ")}`:null, q.equipoJunto?"Equipo admin junto":null].filter(Boolean).join(" · ")}
+            </span>
+          )}
+          {masFiltros && (
+            <div style={{ display:"grid", gap:12, marginTop:12 }}>
+              <div>
+                <div style={{ ...thMet, border:"none", padding:"0 0 6px" }}>Tiendas</div>
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                  <ConsChip on={q.tiendas.length===0} onClick={()=>set("tiendas",[])}>Todas</ConsChip>
+                  {tiendas.map(t=><ConsChip key={t.id} on={q.tiendas.includes(t.id)} color={colorTienda(t)} onClick={()=>toggleLista("tiendas", t.id)}><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)}</ConsChip>)}
+                </div>
+              </div>
+              <div>
+                <div style={{ ...thMet, border:"none", padding:"0 0 6px" }}>Asesor</div>
+                <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+                  <ConsPick grande={false} ariaLabel="Asesor" value={q.asesor} onChange={v=>set("asesor",v)} options={[{ value:"", label:"Todos los asesores" }, ...asesoresOpc.map(a=>({ value:a.id, label:a.name }))]}/>
+                  <ConsChip on={q.equipoJunto} onClick={()=>set("equipoJunto", !q.equipoJunto)}>{q.equipoJunto?<Icon n="check" s={13} sw={2.4}/>:null}Equipo admin junto</ConsChip>
+                </div>
+              </div>
+              <div>
+                <div style={{ ...thMet, border:"none", padding:"0 0 6px" }}>Tipo</div>
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                  <ConsChip on={q.tipos.length===0} onClick={()=>set("tipos",[])}>Todos</ConsChip>
+                  {CONS_TIPOS.map(t=><ConsChip key={t.value} on={q.tipos.includes(t.value)} onClick={()=>toggleLista("tipos", t.value)}>{t.label}</ConsChip>)}
+                </div>
+              </div>
+              <div>
+                <div style={{ ...thMet, border:"none", padding:"0 0 6px" }}>Medio de pago</div>
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                  <ConsChip on={q.medios.length===0} onClick={()=>set("medios",[])}>Todos</ConsChip>
+                  {CONS_MEDIOS.map(t=><ConsChip key={t.value} on={q.medios.includes(t.value)} onClick={()=>toggleLista("medios", t.value)}>{t.label}</ConsChip>)}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* KPIs */}
+      <div className="ozen-sin-barra" style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(4, 200px)":"repeat(4, 1fr)", overflowX:isMobile?"auto":"visible", gap:12, marginBottom:16 }}>
+        {kpiMedidas.map(m=>{
+          const v = valor(res.total, m); const p = prev ? valor(prev.total, m) : null;
+          return (
+            <div key={m} style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 16px" }}>
+              <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:600 }}>{kpiTxt(m)}</div>
+              <div style={{ fontFamily:font.mono, fontSize:isMobile?19:22, fontWeight:600, color:C.text, marginTop:8 }}>{fmtMedida(v, m)}</div>
+              {prev && <div style={{ fontFamily:font.body, fontSize:12, marginTop:5 }}><ConsDelta act={v} prev={p} inverso={m==="descuento"} sufijo={`vs ${compLbl}`}/></div>}
+              {prev && <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, marginTop:3 }}>antes {fmtMedida(p, m)}</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Resultado */}
+      <Card p={isMobile?"14px":"20px 22px"}>
+        <div style={{ display:"flex", alignItems:"flex-start", gap:12, flexWrap:"wrap", marginBottom:8 }}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>{tituloResultado}</div>
+            <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{consTextoRango(rango)}{prev?` · comparado con ${consTextoRango(rangoPrev)}`:""}{q.tiendas.length?` · ${q.tiendas.map(id=>nombreTiendaCorto(stores[id])).join(", ")}`:""}</div>
+          </div>
+          {prev && grafica!=="mapa" && !isMobile && <div style={{ marginLeft:"auto", fontFamily:font.body, fontSize:12, color:C.textMuted, display:"flex", alignItems:"center", gap:6 }}>{grafica==="barras"?<span style={{ width:22, height:3, borderRadius:2, background:"rgba(26,59,82,0.22)" }}/>:<span style={{ width:12, height:12, border:"1.5px dashed rgba(26,59,82,0.35)", borderRadius:3 }}/>}{compLbl[0].toUpperCase()+compLbl.slice(1)}</div>}
+        </div>
+        {apilar && grafica==="barras" && (
+          <div style={{ display:"flex", gap:14, flexWrap:"wrap", fontFamily:font.body, fontSize:12, color:C.textSub, margin:"4px 0 14px" }}>
+            {cols.map((c,i)=><span key={c.k} style={{ display:"inline-flex", alignItems:"center", gap:6 }}><span style={{ width:10, height:10, borderRadius:3, background:colorCol(c,i) }}/>{c.l}</span>)}
+          </div>
+        )}
+
+        {sinDatos ? (
+          <div style={{ padding:"36px 0", textAlign:"center", fontFamily:font.body, fontSize:14, color:C.textMuted }}>No hay {q.medida==="count"?"ventas":"movimientos"} con esos filtros en {consTextoRango(rango)}.</div>
+        ) : (
+          <div style={{ margin:"10px 0 18px" }}>
+            {grafica==="mapa" ? Mapa() : grafica==="columnas" ? Columnas() : Barras()}
+          </div>
+        )}
+
+        {!sinDatos && (
+          <div style={{ overflowX:"auto", margin:isMobile?"0 -14px":"0", padding:isMobile?"0 14px":0 }}>
+            <table style={{ width:"100%", borderCollapse:"separate", borderSpacing:0, minWidth:q.g2 ? Math.max(isMobile?520:0, 260+cols.length*120) : undefined }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thMet, textAlign:"left", position:"sticky", left:0, background:C.surface }}>{CONS_GRUPOS.find(x=>x.value===q.g1)?.label}</th>
+                  {q.g2 && cols.map(c=><th key={c.k} style={thN}>{c.l}</th>)}
+                  <th style={thN}>{q.g2?"Total":medidaLbl}</th>
+                  {prev && <th style={thN}>vs {compLbl}</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {filas.map(f=>{
+                  const t = valor(f.acc); const p = prev ? valor(prev.filas[f.k]?.acc) : null;
+                  return (
+                    <tr key={f.k}>
+                      <td style={{ ...tdMet, fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, whiteSpace:"nowrap", position:"sticky", left:0, background:C.surface }}><span style={{ display:"inline-flex", alignItems:"center", gap:6 }}>{f.color && <PuntoTienda color={f.color} size={7}/>}{f.l}</span></td>
+                      {q.g2 && cols.map(c=>{ const ce = res.celdas[`${f.k}|${c.k}`]; const v = valor(ce); return <td key={c.k} style={{ ...tdN, color:v?C.text:C.textMuted }}>{v?fmtMedida(v):"—"}</td>; })}
+                      <td style={{ ...tdN, fontWeight:q.g2?600:400 }}>{fmtMedida(t)}</td>
+                      {prev && <td style={{ ...tdN, fontFamily:font.body, fontSize:12.5 }} title={`${compLbl}: ${fmtMedida(p)}`}><ConsDelta act={t} prev={p} inverso={q.medida==="descuento"}/></td>}
+                    </tr>
+                  );
+                })}
+                <tr>
+                  <td style={{ ...tdMet, borderBottom:"none", fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, position:"sticky", left:0, background:C.surface }}>Total</td>
+                  {q.g2 && cols.map(c=><td key={c.k} style={{ ...tdN, borderBottom:"none", fontWeight:600 }}>{fmtMedida(valor(c.acc))}</td>)}
+                  <td style={{ ...tdN, borderBottom:"none", fontWeight:700 }}>{fmtMedida(valor(res.total))}</td>
+                  {prev && <td style={{ ...tdN, borderBottom:"none", fontFamily:font.body, fontSize:12.5 }}><ConsDelta act={valor(res.total)} prev={valor(prev.total)} inverso={q.medida==="descuento"}/></td>}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end", flexWrap:"wrap", marginTop:16 }}>
+          {!sinDatos && <Btn sm variant="ghost" onClick={descargar}>⬇ Descargar Excel</Btn>}
+          {nombrando===null && <Btn sm variant="ghost" onClick={()=>{ setNombrando(""); window.scrollTo({ top:0, behavior:"smooth" }); }}>★ Guardar consulta</Btn>}
+          {!sinDatos && (
+            <span style={{ position:"relative", display:"inline-flex" }}>
+              <Btn sm onClick={()=>{}}>Cambiar gráfico <Icon n="down" s={12} sw={2.4}/></Btn>
+              <select aria-label="Tipo de gráfico" value={grafica} onChange={e=>setGraficaForzada(e.target.value===graficaAuto?"":e.target.value)} style={{ position:"absolute", inset:0, opacity:0, cursor:"pointer", fontSize:16 }}>
+                <option value="barras">Barras</option>
+                <option value="columnas">Columnas</option>
+                {q.g2 && <option value="mapa">Mapa de calor</option>}
+              </select>
+            </span>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile, turnosAsignaciones, turnosGlobales }) {
   const hoy = toColombiaDate();
   const [anio, setAnio] = useState(hoy.getFullYear());
@@ -7161,6 +7822,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const [metaDiaAbierto, setMetaDiaAbierto] = useState(null); // tiendaId con la lista de días desplegada
   const [guardandoDetalle, setGuardandoDetalle] = useState(null);
   const [asesorExpandido, setAsesorExpandido] = useState(null);
+  // "Resumen" (lo de siempre) o "Consultas" (motor de preguntas, solo administración).
+  const [vistaMet, setVistaMet] = useState("resumen");
 
   // Orden de la tabla "Ventas por asesor": por defecto de mayor a menor venta; se cambia tocando
   // el título de una columna (tocar de nuevo invierte el orden).
@@ -7587,11 +8250,28 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const ajustesHoyCap = ventasAjustes.filter(aj=>aj.fecha===todayStr && !aj.es_correccion_error && ventaByIdGlobal[aj.venta_id] && (!tiendaSel || ventaByIdGlobal[aj.venta_id].tienda_id===tiendaSel));
   const ingresosHoy = sumaProductoConRecorte(itemsHoyProductoCap) + cierresHoyCap.reduce((a,c)=>a+c.valorNeto,0) + ajustesHoyCap.reduce((a,aj)=>a+Number(aj.diferencia||0),0);
 
+  const puedeConsultas = esAdmin && !vistaAsesor;
+  const selectorVistaMet = puedeConsultas && (
+    <div style={{ display:"inline-flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, marginBottom:16 }}>
+      {[["resumen","Resumen","chart"],["consultas","Consultas","search"]].map(([k,l,ic])=>(
+        <button key={k} onClick={()=>setVistaMet(k)} style={{ display:"inline-flex", alignItems:"center", gap:7, border:"none", cursor:"pointer", borderRadius:99, padding:"8px 16px", fontFamily:font.body, fontSize:13, fontWeight:600, background:vistaMet===k?C.goldDark:"transparent", color:vistaMet===k?C.tinta:C.textSub }}><Icon n={ic} s={15}/>{l}</button>
+      ))}
+    </div>
+  );
+  if(puedeConsultas && vistaMet==="consultas") return (
+    <div>
+      <PageHeader title="Métricas" subtitle="Consultas · arma cualquier pregunta sobre las ventas"/>
+      {selectorVistaMet}
+      <ConsultasVentas stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} isMobile={isMobile}/>
+    </div>
+  );
+
   return (
     <div>
       <PageHeader title="Métricas" subtitle={tiendaSel ? `${stores[tiendaSel]?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`}
         action={<MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaSel} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>}
       />
+      {selectorVistaMet}
 
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12, flexWrap:"wrap" }}>
