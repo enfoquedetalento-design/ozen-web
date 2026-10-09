@@ -9719,7 +9719,9 @@ const TituloSeccion = ({ children, extra }) => (
 
 // Visor de presentación: muestra solo las diapositivas, con botón de pantalla completa. En iPhone
 // el navegador no deja poner un recuadro en pantalla completa, así que ahí se abre en otra pestaña.
-function VisorPresentacion({ leccion, isMobile }) {
+// Sin "Abrir en otra pestaña" ni el nombre del proveedor (pedido de Santiago, 8 oct 2026): la
+// presentación se ve solo dentro de la app.
+function VisorPresentacion({ leccion }) {
   const caja = useRef(null);
   const emb = presentacionEmbebible(leccion.url);
   const linkAparte = emb?.proveedor==="Canva" ? emb.src.replace("?embed","") : extraerLinkPresentacion(leccion.url);
@@ -9738,8 +9740,6 @@ function VisorPresentacion({ leccion, isMobile }) {
       </div>
       <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
         {puedePantallaCompleta && <Btn onClick={pantallaCompleta} variant="ghost" sm><Icon n="expand" s={14}/>Pantalla completa</Btn>}
-        <a href={linkAparte} target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none" }}><Btn variant="ghost" sm><Icon n="slides" s={14}/>{isMobile?"Abrir aparte":"Abrir en otra pestaña"}</Btn></a>
-        <span style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>{emb.proveedor}</span>
       </div>
     </div>
   );

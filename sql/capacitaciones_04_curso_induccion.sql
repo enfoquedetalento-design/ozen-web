@@ -16,7 +16,7 @@ begin
   end if;
 
   insert into capacitacion_cursos (titulo, descripcion, orden, puntaje_minimo, activo, en_orden)
-  values ('Inducción Asesor Comercial', 'Inducción para asesores comerciales de OZEN: 8 lecciones en orden. Cada quiz se aprueba con 80% para desbloquear la siguiente lección.', 0, 80, true, true)
+  values ('Inducción Asesor Comercial', 'Inducción para asesores comerciales de OZEN: 8 lecciones que se pueden hacer en cualquier orden. Cada quiz se aprueba con 80%.', 0, 80, true, false)
   returning id into v_curso;
 
 
