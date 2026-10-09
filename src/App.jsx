@@ -849,14 +849,18 @@ const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id
 // Usuarios (control total de contraseñas) ya no va en esta lista de pestañas — es solo para
 // master, y se abre aparte con un ícono discreto en el pie del menú (ver Sidebar/MobileHeader).
 const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
-const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Turnos" },{ id:"mis_cursos",icon:"📚",label:"Capacitación" },{ id:"firmar",icon:"✍️",label:"Firmar documento" }];
+// Asesor: desde el 8 oct 2026 también elige módulo al entrar (Asistencia o Escuela OZEN), igual que
+// los admins. "Firmar documento" ya no es pestaña ni módulo: es una herramienta del menú de la cuenta.
+const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Turnos" }];
 const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar venta" },{ id:"lista",icon:"📋",label:"Lista de ventas" },{ id:"metricas",icon:"📊",label:"Métricas" },{ id:"caja",icon:"💰",label:"Caja" }];
-const ADMIN_TABS_FIRMAS     = [{ id:"firmar",icon:"✍️",label:"Firmar documento" }];
-// Capacitación: "Mis cursos" para quien toma cursos (no visualizador), "Progreso" para todos los
-// admins y "Administrar cursos" solo para master y admin_turnos (ver el módulo más abajo).
+// Escuela OZEN (área "capacitacion"): "Mis cursos" para quien toma cursos (no visualizador),
+// "Progreso" para admins y visualizador, y "Administrar cursos" para todos los admins.
 const ADMIN_TABS_CAPACITACION = [{ id:"mis_cursos",icon:"📚",label:"Mis cursos" },{ id:"progreso",icon:"📊",label:"Progreso" },{ id:"cursos_admin",icon:"🛠️",label:"Administrar cursos" }];
-const tabsCapacitacion = (user) => ADMIN_TABS_CAPACITACION.filter(t => t.id==="mis_cursos" ? tomaCapacitaciones(user) : t.id==="cursos_admin" ? puedeEditarCapacitacion(user) : true);
+const tabsCapacitacion = (user) => ADMIN_TABS_CAPACITACION.filter(t => t.id==="mis_cursos" ? tomaCapacitaciones(user) : t.id==="cursos_admin" ? puedeEditarCapacitacion(user) : puedeUsarAreas(user));
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas" || user.role==="admin_turnos";
+// Quién ve la pantalla de módulos al entrar y el selector de áreas arriba: los admins (puedeUsarAreas)
+// y los asesores (solo Asistencia y Escuela OZEN). La cuenta de tienda no: va directo a Ventas.
+const eligeModulo = (user) => puedeUsarAreas(user) || user.role==="advisor";
 // Quién puede elegir el área "Ventas" desde el selector. Admin y Visualizador entran en modo
 // solo lectura (ver ventasSoloLectura); master y admin_finanzas entran completo.
 const puedeUsarVentasArea = (user) => user.role==="master" || user.role==="admin_finanzas" || user.role==="admin" || user.role==="visualizador" || user.role==="admin_turnos";
@@ -908,8 +912,8 @@ const puedeAsignarMetas = (user) => user.role==="master" || user.role==="admin_f
 const puedeHacerRecoleccion = (user) => user.role==="master" || user.role==="admin_finanzas" || user.role==="tienda";
 // Qué pestañas le corresponden a cada quien, según su rol y el área elegida
 const tabsPara = (user, area) => !puedeUsarAreas(user)
-  ? (esCuentaTienda(user) ? [...ADMIN_TABS_VENTAS, { id:"turnos", icon:"📅", label:"Turnos" }] : ADVISOR_TABS)
-  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? (puedeVerRegistrar(user) ? ADMIN_TABS_VENTAS : ADMIN_TABS_VENTAS.filter(t=>t.id!=="registrar")) : area==="firmas" ? ADMIN_TABS_FIRMAS : area==="capacitacion" ? tabsCapacitacion(user) : ADMIN_TABS_ASISTENCIA);
+  ? (esCuentaTienda(user) ? [...ADMIN_TABS_VENTAS, { id:"turnos", icon:"📅", label:"Turnos" }] : area==="capacitacion" ? tabsCapacitacion(user) : ADVISOR_TABS)
+  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? (puedeVerRegistrar(user) ? ADMIN_TABS_VENTAS : ADMIN_TABS_VENTAS.filter(t=>t.id!=="registrar")) : area==="capacitacion" ? tabsCapacitacion(user) : ADMIN_TABS_ASISTENCIA);
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -930,12 +934,11 @@ const AREAS_NAV = [
   { id:"ventas", label:"Ventas", ic:"receipt" },
   { id:"asistencia", label:"Asistencia", ic:"clock" },
   { id:"junta", label:"La Junta", ic:"users" },
-  { id:"firmas", label:"Firmas", ic:"pen" },
-  // En celular el selector de áreas es una sola fila de botones iguales: "Capacitación" no cabe,
-  // así que ahí se muestra el nombre corto.
-  { id:"capacitacion", label:"Capacitación", corto:"Cursos", ic:"book" },
+  // Escuela OZEN: internamente el área se sigue llamando "capacitacion". En celular el selector de
+  // áreas es una fila de botones: ahí se muestra el nombre corto.
+  { id:"capacitacion", label:"Escuela OZEN", corto:"Escuela", ic:"book" },
 ];
-const areasPara = (user) => AREAS_NAV.filter(a => a.id!=="ventas" || puedeUsarVentasArea(user));
+const areasPara = (user) => AREAS_NAV.filter(a => user.role==="advisor" ? (a.id==="asistencia" || a.id==="capacitacion") : (a.id!=="ventas" || puedeUsarVentasArea(user)));
 // "OZEN Unicentro" → "Unicentro": en la barra y en las etiquetas el prefijo de marca sobra.
 const nombreTiendaCorto = (s) => (s?.name || "").replace(/^OZEN\s+/i, "") || "—";
 const colorTienda = (s) => s?.color || "#6b7280";
@@ -1036,7 +1039,7 @@ function SelectorArea({ user, area, onChooseArea, compact }) {
   );
 }
 
-function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, onActivarNotificaciones }) {
+function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   const [abierto, setAbierto] = useState(false);
   const cerrarY = (fn) => () => { setAbierto(false); fn(); };
   const nombre = esCuentaTienda(user) ? user.name : user.name.split(" ")[0];
@@ -1048,6 +1051,7 @@ function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, o
           <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{nombre}</div>
           <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginTop:2 }}>{ROLE_LABEL[user.role] || "Asesor"}</div>
         </div>
+        {!esCuentaTienda(user) && <MenuItem ic={<Icon n="pen" s={16}/>} onClick={cerrarY(onAbrirFirmas)}>Firmar documento</MenuItem>}
         {esAdminFinanzas(user) && <MenuItem ic={<Icon n="store" s={16}/>} onClick={cerrarY(onAbrirAccesoTiendas)}>Acceso tiendas</MenuItem>}
         {puedeGestionarTurnos(user) && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <MenuItem ic={<Icon n="bell" s={16}/>} onClick={cerrarY(onActivarNotificaciones)}>Activar notificaciones</MenuItem>}
         {user.role!=="master" && !esCuentaTienda(user) && <MenuItem ic={<Icon n="key" s={16}/>} onClick={cerrarY(onCambiarPassword)}>Mi contraseña</MenuItem>}
@@ -1083,15 +1087,15 @@ const BotonRefrescar = ({ onRefresh, refreshing }) => (
   </button>
 );
 
-function BarraSuperior({ user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
+function BarraSuperior({ user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   return (
     <div style={{ height:62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", padding:"0 24px", gap:26, flexShrink:0, position:"relative", zIndex:20 }}>
       <MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios}/>
-      {puedeUsarAreas(user) && <SelectorArea user={user} area={area} onChooseArea={onChooseArea}/>}
+      {eligeModulo(user) && <SelectorArea user={user} area={area} onChooseArea={onChooseArea}/>}
       <div style={{ flex:1 }}/>
       {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija}/>}
       <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
-      <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones}/>
+      <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones} onAbrirFirmas={onAbrirFirmas}/>
     </div>
   );
 }
@@ -1123,7 +1127,7 @@ function BarraPestanas({ tabs, tab, setTab, derecha }) {
 // Franja de 3 px con el color de la tienda activa — dice "dónde estás" en toda el área de Ventas.
 const FranjaTienda = ({ color }) => <div style={{ height:3, background:color, transition:"background-color .35s ease", flexShrink:0 }}/>;
 
-function BarraSuperiorMovil({ extra, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones }) {
+function BarraSuperiorMovil({ extra, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   return (
     <div style={{ background:"#fff", borderBottom:`1px solid ${C.border}`, padding:"10px 14px", paddingTop:"calc(10px + env(safe-area-inset-top, 0px))", flexShrink:0, position:"relative", zIndex:20 }}>
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -1131,9 +1135,9 @@ function BarraSuperiorMovil({ extra, user, area, onChooseArea, stores, tiendaId,
         <div style={{ flex:1 }}/>
         {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija} compact/>}
         <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
-        <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones}/>
+        <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones} onAbrirFirmas={onAbrirFirmas}/>
       </div>
-      {puedeUsarAreas(user) && <div style={{ marginTop:10 }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/></div>}
+      {eligeModulo(user) && <div style={{ marginTop:10 }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/></div>}
       {extra && <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>{extra}</div>}
     </div>
   );
@@ -4022,10 +4026,9 @@ function AreaSelector({ user, onChoose, onLogout }) {
   // solo color de acento (Base) — antes cada módulo tenía un color propio fuera de la paleta.
   const modulos = [
     { id:"ventas", icon:<Icon n="receipt" s={24}/>, titulo:"Ventas", desc:ventasSoloLectura(user) ? "Solo para ver — no se puede registrar ni corregir nada" : "Registro de ventas, caja, metas y métricas por tienda", accent:C.gold, mostrar:puedeUsarVentasArea(user) },
-    { id:"asistencia", icon:<Icon n="clock" s={24}/>, titulo:"Registro de Asistencia", desc:"Panel, registros, turnos, asesores, tiendas e informes", accent:C.gold, mostrar:true },
-    { id:"junta", icon:<Icon n="users" s={24}/>, titulo:"La Junta Administrativa", desc:"Equipo, seguimiento semanal y guion de la reunión", accent:C.gold, mostrar:true },
-    { id:"firmas", icon:<Icon n="pen" s={24}/>, titulo:"Firmar Documentos", desc:"Sube un PDF, ubica tu firma y descárgalo — nada queda guardado", accent:C.gold, mostrar:true },
-    { id:"capacitacion", icon:<Icon n="book" s={24}/>, titulo:"Inducciones y Capacitaciones", desc:user.role==="visualizador" ? "Progreso del equipo en cada curso" : "Cursos con videos, PDFs y quiz — y el progreso de cada persona", accent:C.gold, mostrar:true },
+    { id:"asistencia", icon:<Icon n="clock" s={24}/>, titulo:"Registro de Asistencia", desc:user.role==="advisor" ? "Marca tu asistencia, revisa tu historial y tus turnos" : "Panel, registros, turnos, asesores, tiendas e informes", accent:C.gold, mostrar:true },
+    { id:"junta", icon:<Icon n="users" s={24}/>, titulo:"La Junta Administrativa", desc:"Equipo, seguimiento semanal y guion de la reunión", accent:C.gold, mostrar:puedeUsarAreas(user) },
+    { id:"capacitacion", icon:<Icon n="book" s={24}/>, titulo:"Escuela OZEN", desc:user.role==="visualizador" ? "Progreso del equipo en cada curso" : user.role==="advisor" ? "Tus cursos de inducción y capacitación, con sus quizzes" : "Cursos de inducción y capacitación — y el progreso de cada persona", accent:C.gold, mostrar:true },
   ].filter(m=>m.mostrar);
   const isMobile = useIsMobile();
   const horaCol = toColombiaDate().getHours();
@@ -9605,7 +9608,9 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
 //   mínimo del curso; reintentos ilimitados. Las lecciones se desbloquean en orden (configurable).
 // - Vistas e intentos solo se agregan, nunca se editan ni borran (así está también en la base).
 // ══════════════════════════════════════════════════════════════════════════════
-const puedeEditarCapacitacion = (user) => user.role==="master" || user.role==="admin_turnos";
+// Crean y editan cursos todos los admins (pedido de Santiago, 8 oct 2026: cualquier líder). El
+// visualizador solo mira el progreso.
+const puedeEditarCapacitacion = (user) => ROLES_ADMIN_VENDEDOR.includes(user.role);
 const tomaCapacitaciones = (user) => user.role!=="visualizador" && user.role!=="tienda";
 const BUCKET_CAPACITACION = "capacitacion-pdfs";
 const MAX_PDF_MB = 50;
@@ -10001,7 +10006,7 @@ function CapacitacionMisCursosScreen({ user, cursos, lecciones, preguntas, vista
         .ozen-curso-icon { transition:background .2s ease, color .2s ease; }
         .ozen-curso-card:hover .ozen-curso-icon { background:${C.goldDark} !important; color:${C.tinta} !important; }
       `}</style>
-      <PageHeader title="Mis cursos" subtitle={lista.length ? `${completados} de ${lista.length} completado${lista.length===1?"":"s"}` : "Inducciones y capacitaciones"}/>
+      <PageHeader title="Mis cursos" subtitle={lista.length ? `${completados} de ${lista.length} completado${lista.length===1?"":"s"}` : "Escuela OZEN"}/>
       {lista.length===0 && <VacioCapacitacion>Todavía no hay cursos publicados.</VacioCapacitacion>}
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill, minmax(300px, 1fr))", gap:14 }}>
         {estados.map(({ c, est })=>{ const e=ESTADO_CURSO[est.estado]; const conQuiz = est.infoLecs.filter(x=>x.pregs.length).length; return (
@@ -10535,6 +10540,8 @@ export default function App() {
   const [capCursos,setCapCursos]=useState([]),[capLecciones,setCapLecciones]=useState([]),[capPreguntas,setCapPreguntas]=useState([]),[capVistas,setCapVistas]=useState([]),[capIntentos,setCapIntentos]=useState([]);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
+  // Firmar documento: herramienta que se abre desde el menú de la cuenta, encima de cualquier módulo.
+  const [mostrarFirmas,setMostrarFirmas]=useState(false);
   const [mostrarAccesoTiendas,setMostrarAccesoTiendas]=useState(false);
   const isMobile=useIsMobile();
   // Tienda activa de TODA el área de Ventas (Propuesta A): se elige una sola vez en la barra
@@ -10701,9 +10708,9 @@ export default function App() {
   // Al iniciar sesión se refresca todo del servidor en segundo plano (sin bloquear la entrada) —
   // en un dispositivo compartido donde una cuenta entra justo después de que otra salió, sin esto
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
-  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":puedeUsarAreas(u)?null:"checkin");sonidoBienvenida();refreshAll();};
-  const logout=()=>{setUser(null);setArea(null);setTab(null);};
-  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?(ventasSoloLectura(user)?"metricas":"registrar"):a==="firmas"?"firmar":a==="capacitacion"?(tomaCapacitaciones(user)?"mis_cursos":"progreso"):"dashboard");};
+  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll();};
+  const logout=()=>{setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);};
+  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?(ventasSoloLectura(user)?"metricas":"registrar"):a==="capacitacion"?(tomaCapacitaciones(user)?"mis_cursos":"progreso"):user.role==="advisor"?"checkin":"dashboard");};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
@@ -10810,7 +10817,7 @@ export default function App() {
     </div>
   );
 
-  if(puedeUsarAreas(user) && !area) return <AreaSelector user={user} onChoose={chooseArea} onLogout={logout}/>;
+  if(eligeModulo(user) && !area) return <AreaSelector user={user} onChoose={chooseArea} onLogout={logout}/>;
 
   // Si todavía no se ha elegido tienda (o la elegida ya no vende), se toma la primera que vende.
   const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : (tiendasVenta(stores)[0]?.id || ""));
@@ -10828,8 +10835,6 @@ export default function App() {
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
         if(tab==="caja")      return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
-      } else if(area==="firmas"){
-        if(tab==="firmar")   return <FirmarDocumentoScreen/>;
       } else if(area==="capacitacion"){
         if(tab==="mis_cursos" && tomaCapacitaciones(user)) return <CapacitacionMisCursosScreen {...propsCapacitacion}/>;
         if(tab==="progreso")     return <CapacitacionProgresoScreen users={users} {...propsCapacitacion}/>;
@@ -10854,7 +10859,6 @@ export default function App() {
       if(tab==="history")  return <HistoryScreen user={user} records={records} stores={stores} onRecordUpdated={onRecordUpdatedAdmin} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
       if(tab==="schedule") return <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={turnosAsignaciones}/>;
       if(tab==="mis_cursos") return <CapacitacionMisCursosScreen {...propsCapacitacion}/>;
-      if(tab==="firmar")   return <FirmarDocumentoScreen/>;
     }
     return null;
   };
@@ -10959,6 +10963,15 @@ export default function App() {
     </div>
   );
 
+  const modalFirmas = mostrarFirmas && (
+    <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}} className="ozen-pane-anim-modulo">
+      <div style={{maxWidth:900,margin:"0 auto"}}>
+        <Btn onClick={()=>setMostrarFirmas(false)} variant="ghost" sm style={{marginBottom:14}}>← Volver</Btn>
+        <FirmarDocumentoScreen/>
+      </div>
+    </div>
+  );
+
   const modalAccesoTiendas = mostrarAccesoTiendas && (
     <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}} className="ozen-pane-anim-modulo">
       <div style={{maxWidth:900,margin:"0 auto"}}>
@@ -10972,7 +10985,7 @@ export default function App() {
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
   const mostrarTienda = esAreaVentas && (tab==="registrar" || tab==="caja");
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
-  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:logout, onRefresh:refreshAll, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones };
+  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:logout, onRefresh:refreshAll, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
   const panel = <div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div>;
 
   if(isMobile) return (
@@ -10986,6 +10999,7 @@ export default function App() {
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
+        {modalFirmas}
         {bannerActualizacion}
       </div>
     </ReadOnlyContext.Provider>
@@ -11002,6 +11016,7 @@ export default function App() {
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
+        {modalFirmas}
         {bannerActualizacion}
       </div>
     </ReadOnlyContext.Provider>
