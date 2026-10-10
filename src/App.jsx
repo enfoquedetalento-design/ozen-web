@@ -4687,21 +4687,29 @@ const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItem
     const its = ventasItems.filter(i=>i.venta_id===v.id);
     const tipos = [...new Set(its.map(i=>i.tipo))];
     const medios = [...new Set(its.flatMap(i=>(i.pagos||[]).map(p=>p.medio_pago)))].map(medioCortoLabel);
-    const abonado = (ventasAbonos||[]).filter(a=>a.venta_id===v.id).reduce((t,a)=>t+Number(a.valor||0),0);
     const original = Number(v.valor_original ?? v.total ?? 0);
     const tipoPrincipal = v.es_flexipago ? "flexipago" : (tipos.includes("producto") ? "producto" : tipos[0]);
+    // Flexipago (pedido de Santiago): el registro del día en que se abrió muestra en Total SOLO la
+    // plata que entró ese día (el separado); los días siguientes salen como registros de abono con
+    // lo que entró cada día, y el día que se completa sale el valor completo del Flexipago.
+    const abonosDia = v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id && a.fecha===v.fecha) : [];
+    const abonadoDia = abonosDia.reduce((t,a)=>t+Number(a.valor||0),0);
+    const abonadoHastaDia = v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id && a.fecha && a.fecha<=v.fecha).reduce((t,a)=>t+Number(a.valor||0),0) : 0;
+    const valorFlex = v.es_flexipago ? its.filter(i=>i.tipo==="flexipago").reduce((t,i)=>t+Number(i.valor||0)-Number(i.descuento||0),0) : 0;
+    const flexCompletoDia = v.es_flexipago && valorFlex>0 && abonadoHastaDia>=valorFlex;
     return { key:`v-${v.id}`, fecha:v.fecha, orden:`${v.fecha||""} ${v.created_at||""}`, hora:horaCol(v.created_at), tiendaId:v.tienda_id, asesor:v.vendedor_nombre||"—", cliente:v.cliente_nombre||"", documento:v.cliente_documento||"",
-      tipo: v.es_flexipago ? "Flexipago" : tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta", colorTipo:colorDeTipoVenta(tipoPrincipal),
-      medios: v.es_flexipago ? (abonado>0?"Abonos":"Pago diferido") : (medios.join(" + ")||"—"), factura:v.numero_factura||"—",
-      total: v.es_flexipago && abonado<original ? abonado : original,
-      subTotal: v.es_flexipago && abonado<original ? `de ${fmtCOP(original)}` : null,
+      tipo: v.es_flexipago ? (flexCompletoDia ? "Flexipago · completado" : "Flexipago · separado") : tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta", colorTipo:colorDeTipoVenta(tipoPrincipal),
+      medios: v.es_flexipago ? ([...new Set(abonosDia.flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))].map(medioCortoLabel).join(" + ") || "Sin abono") : (medios.join(" + ")||"—"), factura:v.numero_factura||"—",
+      total: v.es_flexipago ? (flexCompletoDia ? (valorFlex||original) : abonadoDia) : original,
       detalle: ()=> <VentaCard sinEncabezado venta={v} {...props}/> };
   }),
   ...abonosLista.map(({venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy})=>({
     key:`a-${venta.id}-${abonos[0]?.fecha}`, fecha:abonos[0]?.fecha||venta.fecha, orden:`${abonos[0]?.fecha||""} ${abonos[0]?.created_at||""}`, hora:horaCol(abonos[0]?.created_at), tiendaId:venta.tienda_id, asesor:venta.vendedor_nombre||"—", cliente:venta.cliente_nombre||"", documento:venta.cliente_documento||"",
     tipo: completa ? "Flexipago · completado" : "Flexipago · abono", colorTipo:colorDeTipoVenta("flexipago"), medios:mediosHoy.map(medioCortoLabel).join(" + ")||"—",
     factura:venta.numero_factura||"—", total: completa ? valorFlex : totalHoy,
-    detalle: ()=> <AbonoFlexipagoCard soloDetalle venta={venta} abonos={abonos} valorFlex={valorFlex} antes={antes} totalHoy={totalHoy} completa={completa} mediosHoy={mediosHoy}/> })),
+    // Mismo detalle completo que el registro del día en que se abrió el Flexipago (cliente, abonos,
+    // barra de saldado, imprimir…) — así cada día del Flexipago se ve igual al abrirlo.
+    detalle: ()=> <VentaCard sinEncabezado venta={venta} {...props}/> })),
   ...notasLista.map(({venta, ajuste})=>{
     const its = ventasItems.filter(i=>i.venta_id===ajuste.venta_id && i.es_original===false && i.fecha_item===ajuste.fecha);
     const medios = [...new Set(its.flatMap(i=>(i.pagos||[]).map(p=>p.medio_pago)))].map(medioCortoLabel);
@@ -6832,9 +6840,9 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     .sort((a,b)=> (b.ajuste.fecha||"").localeCompare(a.ajuste.fecha||""));
 
   // Abonos de Flexipago que entraron un día distinto al de la venta — el dinero se recibió ese día
-  // aunque la factura se haya creado antes. Se agrupan por venta y por día. En "Todo" no se arman
-  // (sería todo el historial de abonos de cada Flexipago repetido en la lista).
-  const quiereAbonos = rango && (!f.tipos.length || f.tipos.includes("flexipago")) && !soloDeVentas && !f.mas.includes("sinFactura") && !f.mas.includes("conNota");
+  // aunque la factura se haya creado antes. Se agrupan por venta y por día. También en "Todo": cada día
+  // del Flexipago tiene su propio registro (pedido de Santiago).
+  const quiereAbonos = (!f.tipos.length || f.tipos.includes("flexipago")) && !soloDeVentas && !f.mas.includes("sinFactura") && !f.mas.includes("conNota");
   const abonosFiltrados = (() => {
     if(!quiereAbonos) return [];
     const grupos = {};
