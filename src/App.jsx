@@ -4691,68 +4691,106 @@ const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItem
     const abonado = (ventasAbonos||[]).filter(a=>a.venta_id===v.id).reduce((t,a)=>t+Number(a.valor||0),0);
     const original = Number(v.valor_original ?? v.total ?? 0);
     const tipoPrincipal = v.es_flexipago ? "flexipago" : (tipos.includes("producto") ? "producto" : tipos[0]);
-    return { key:`v-${v.id}`, fecha:v.fecha, orden:`${v.fecha||""} ${v.created_at||""}`, hora:horaCol(v.created_at), tiendaId:v.tienda_id, asesor:v.vendedor_nombre||"—", cliente:v.cliente_nombre||"",
+    return { key:`v-${v.id}`, fecha:v.fecha, orden:`${v.fecha||""} ${v.created_at||""}`, hora:horaCol(v.created_at), tiendaId:v.tienda_id, asesor:v.vendedor_nombre||"—", cliente:v.cliente_nombre||"", documento:v.cliente_documento||"",
       tipo: v.es_flexipago ? "Flexipago" : tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta", colorTipo:colorDeTipoVenta(tipoPrincipal),
       medios: v.es_flexipago ? (abonado>0?"Abonos":"Pago diferido") : (medios.join(" + ")||"—"), factura:v.numero_factura||"—",
       total: v.es_flexipago && abonado<original ? abonado : original,
+      subTotal: v.es_flexipago && abonado<original ? `de ${fmtCOP(original)}` : null,
       detalle: ()=> <VentaCard sinEncabezado venta={v} {...props}/> };
   }),
   ...abonosLista.map(({venta, abonos, valorFlex, antes, totalHoy, completa, mediosHoy})=>({
-    key:`a-${venta.id}-${abonos[0]?.fecha}`, fecha:abonos[0]?.fecha||venta.fecha, orden:`${abonos[0]?.fecha||""} ${abonos[0]?.created_at||""}`, hora:horaCol(abonos[0]?.created_at), tiendaId:venta.tienda_id, asesor:venta.vendedor_nombre||"—", cliente:venta.cliente_nombre||"",
+    key:`a-${venta.id}-${abonos[0]?.fecha}`, fecha:abonos[0]?.fecha||venta.fecha, orden:`${abonos[0]?.fecha||""} ${abonos[0]?.created_at||""}`, hora:horaCol(abonos[0]?.created_at), tiendaId:venta.tienda_id, asesor:venta.vendedor_nombre||"—", cliente:venta.cliente_nombre||"", documento:venta.cliente_documento||"",
     tipo: completa ? "Flexipago · completado" : "Flexipago · abono", colorTipo:colorDeTipoVenta("flexipago"), medios:mediosHoy.map(medioCortoLabel).join(" + ")||"—",
     factura:venta.numero_factura||"—", total: completa ? valorFlex : totalHoy,
     detalle: ()=> <AbonoFlexipagoCard soloDetalle venta={venta} abonos={abonos} valorFlex={valorFlex} antes={antes} totalHoy={totalHoy} completa={completa} mediosHoy={mediosHoy}/> })),
   ...notasLista.map(({venta, ajuste})=>{
     const its = ventasItems.filter(i=>i.venta_id===ajuste.venta_id && i.es_original===false && i.fecha_item===ajuste.fecha);
     const medios = [...new Set(its.flatMap(i=>(i.pagos||[]).map(p=>p.medio_pago)))].map(medioCortoLabel);
-    return { key:`n-${ajuste.id}`, fecha:ajuste.fecha, orden:`${ajuste.fecha||""} ${ajuste.created_at||""}`, hora:horaCol(ajuste.created_at), tiendaId:venta.tienda_id, asesor:venta.vendedor_nombre||"—", cliente:venta.cliente_nombre||"",
+    return { key:`n-${ajuste.id}`, fecha:ajuste.fecha, orden:`${ajuste.fecha||""} ${ajuste.created_at||""}`, hora:horaCol(ajuste.created_at), tiendaId:venta.tienda_id, asesor:venta.vendedor_nombre||"—", cliente:venta.cliente_nombre||"", documento:venta.cliente_documento||"",
       tipo:"Nota crédito", colorTipo:colorDeTipoVenta("nota"), medios:medios.join(" + ")||"—", factura:ajuste.numero_factura||venta.numero_factura||"—", total:Number(ajuste.diferencia||0), negativo:Number(ajuste.diferencia||0)<0,
       detalle: ()=> <NotaCreditoCard soloDetalle ajuste={ajuste} venta={venta} ventasItems={ventasItems}/> };
   }),
 ].sort((a,b)=> String(b.orden).localeCompare(String(a.orden)));
 
-function TablaVentas({ filas, stores, isMobile, conFecha, conTienda, vacio, limiteInicial=60 }) {
+// Resalta en amarillo la parte del texto que coincide con la búsqueda (sin importar tildes ni
+// mayúsculas) — así en Lista de ventas se ve de una por qué apareció cada fila.
+const sinTildes = (t) => String(t||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+const Resaltar = ({ texto, q }) => {
+  const t = String(texto||"");
+  const qq = sinTildes(q).trim();
+  if(!qq || !t) return t;
+  const i = sinTildes(t).indexOf(qq);
+  if(i<0) return t;
+  return <>{t.slice(0,i)}<mark style={{ background:"#fde9a8", color:"inherit", borderRadius:3, padding:"0 1px" }}>{t.slice(i,i+qq.length)}</mark>{t.slice(i+qq.length)}</>;
+};
+const fechaLargaDia = (f) => { if(!f) return "—"; const d = new Date(f+"T12:00:00"); const txt = d.toLocaleDateString("es-CO",{ weekday:"long", day:"numeric", month:"long" }).replace(",",""); return txt.charAt(0).toUpperCase()+txt.slice(1); };
+
+// agruparPorDia: mete una franja por día (con el total y # de filas de ESE día completo, no solo
+// de lo que alcanza a verse) y la primera columna pasa a ser solo la hora. conCliente: columna
+// propia de Cliente (nombre + cédula) en vez de ir debajo del asesor. resaltar: texto buscado.
+function TablaVentas({ filas, stores, isMobile, conFecha, conTienda, vacio, limiteInicial=60, agruparPorDia, conCliente, resaltar }) {
   const [abierta, setAbierta] = useState(null);
   const [limite, setLimite] = useState(limiteInicial);
-  const cols = [ conFecha ? "82px" : "64px", ...(conTienda?["minmax(110px,.9fr)"]:[]), "minmax(120px,1.3fr)", "minmax(110px,1.1fr)", "minmax(100px,1.1fr)", "minmax(80px,.8fr)", "118px", "22px" ];
+  const mostrarFecha = conFecha && !agruparPorDia;
+  const cols = [ mostrarFecha ? "82px" : "64px", ...(conTienda?["minmax(110px,.9fr)"]:[]), ...(conCliente?["minmax(140px,1.4fr)"]:[]), "minmax(120px,1.3fr)", "minmax(110px,1.1fr)", "minmax(100px,1.1fr)", "minmax(80px,.8fr)", "118px", "22px" ];
   const grid = { display:"grid", gridTemplateColumns:cols.join(" "), gap:14, alignItems:"center" };
   const th = { fontFamily:font.body, fontSize:11, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:600 };
   const visibles = filas.slice(0, limite);
+  const porDia = {};
+  if(agruparPorDia) filas.forEach(f=>{ const k = f.fecha||""; porDia[k] = porDia[k] || { n:0, total:0 }; porDia[k].n += 1; porDia[k].total += Number(f.total||0); });
   return (
     <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
       {!isMobile && (
         <div style={{ ...grid, padding:"11px 16px", borderBottom:`1px solid ${C.border}` }}>
-          <span style={th}>{conFecha?"Fecha":"Hora"}</span>{conTienda && <span style={th}>Tienda</span>}
+          <span style={th}>{mostrarFecha?"Fecha":"Hora"}</span>{conTienda && <span style={th}>Tienda</span>}{conCliente && <span style={th}>Cliente</span>}
           {["Asesor","Tipo","Medios","Factura"].map(h=><span key={h} style={th}>{h}</span>)}
           <span style={{ ...th, textAlign:"right" }}>Total</span><span/>
         </div>
       )}
-      {visibles.map((f,idx)=>{ const abiertaEsta = abierta===f.key; const tienda = stores[f.tiendaId]; return (
-        <div key={f.key} style={{ borderBottom: idx<visibles.length-1 ? `1px solid ${C.border}` : "none" }}>
+      {visibles.map((f,idx)=>{ const abiertaEsta = abierta===f.key; const tienda = stores[f.tiendaId];
+        const nuevoDia = agruparPorDia && (idx===0 || visibles[idx-1].fecha!==f.fecha);
+        const dia = porDia[f.fecha||""];
+        return (
+        <Fragment key={f.key}>
+        {nuevoDia && (
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, padding:isMobile?"9px 14px":"9px 16px", background:C.surfaceAlt, borderBottom:`1px solid ${C.border}`, borderTop: idx>0 ? `1px solid ${C.border}` : "none", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.textSub }}>
+            <span>{fechaLargaDia(f.fecha)} <span style={{ fontWeight:400, color:C.textMuted }}>· {dia.n} {dia.n===1?"registro":"registros"}</span></span>
+            <span style={{ fontFamily:font.mono, fontWeight:600, color:C.text }}>{fmtCOP(dia.total)}</span>
+          </div>
+        )}
+        <div style={{ borderBottom: idx<visibles.length-1 && !(agruparPorDia && visibles[idx+1].fecha!==f.fecha) ? `1px solid ${C.border}` : "none" }}>
           <button onClick={()=>setAbierta(abiertaEsta?null:f.key)} className="ozen-fila-venta" style={{ ...(isMobile?{ display:"grid", gridTemplateColumns:"54px 1fr auto", gap:10, alignItems:"center" }:grid), width:"100%", padding:isMobile?"12px 14px":"13px 16px", border:"none", background:abiertaEsta?C.surfaceHover:"transparent", cursor:"pointer", textAlign:"left", fontFamily:font.body, fontSize:13.5, color:C.text }}>
-            <span style={{ fontFamily:font.mono, fontSize:12.5, lineHeight:1.3 }}>{conFecha ? <>{fechaCorta(f.fecha)}<span style={{ display:"block", fontSize:11, color:C.textMuted }}>{f.hora}</span></> : f.hora}</span>
+            <span style={{ fontFamily:font.mono, fontSize:12.5, lineHeight:1.3 }}>{mostrarFecha ? <>{fechaCorta(f.fecha)}<span style={{ display:"block", fontSize:11, color:C.textMuted }}>{f.hora}</span></> : f.hora}</span>
             {isMobile ? (
               <span style={{ minWidth:0 }}>
-                <span style={{ display:"flex", alignItems:"center", gap:6, fontWeight:600, overflow:"hidden", whiteSpace:"nowrap" }}>{conTienda && tienda && <PuntoTienda color={colorTienda(tienda)} size={7}/>}<span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{f.asesor}</span></span>
+                <span style={{ display:"flex", alignItems:"center", gap:6, fontWeight:600, overflow:"hidden", whiteSpace:"nowrap" }}>{conTienda && tienda && <PuntoTienda color={colorTienda(tienda)} size={7}/>}<span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{conCliente && f.cliente ? <Resaltar texto={f.cliente} q={resaltar}/> : <Resaltar texto={f.asesor} q={resaltar}/>}</span></span>
+                {conCliente && f.cliente && <span style={{ display:"block", fontSize:11.5, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginTop:1 }}><Resaltar texto={f.asesor} q={resaltar}/>{f.factura!=="—"?<> · <Resaltar texto={f.factura} q={resaltar}/></>:null}</span>}
                 <span style={{ display:"flex", alignItems:"center", gap:6, marginTop:3, fontSize:12, color:C.textMuted, flexWrap:"wrap" }}><PildoraTipo t={f.tipo} c={f.colorTipo}/>{f.medios}</span>
               </span>
             ) : (
               <>
                 {conTienda && <span>{tienda ? <EtiquetaTienda store={tienda} sm/> : "—"}</span>}
+                {conCliente && (
+                  <span style={{ minWidth:0, overflow:"hidden" }}>
+                    {f.cliente ? <span style={{ display:"block", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}><Resaltar texto={f.cliente} q={resaltar}/></span> : <span style={{ color:C.textMuted }}>—</span>}
+                    {f.documento && <span style={{ display:"block", fontSize:11.5, color:C.textMuted, fontFamily:font.mono, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}><Resaltar texto={f.documento} q={resaltar}/></span>}
+                  </span>
+                )}
                 <span style={{ minWidth:0, overflow:"hidden" }}>
-                  <span style={{ display:"block", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.asesor}</span>
-                  {f.cliente && <span style={{ display:"block", fontSize:11.5, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.cliente}</span>}
+                  <span style={{ display:"block", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}><Resaltar texto={f.asesor} q={resaltar}/></span>
+                  {!conCliente && f.cliente && <span style={{ display:"block", fontSize:11.5, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.cliente}</span>}
                 </span>
                 <span><PildoraTipo t={f.tipo} c={f.colorTipo}/></span>
                 <span style={{ color:C.textSub }}>{f.medios}</span>
-                <span style={{ fontFamily:font.mono, fontSize:12.5, color:f.factura==="—"?C.textMuted:C.text }}>{f.factura}</span>
+                <span style={{ fontFamily:font.mono, fontSize:12.5, color:f.factura==="—"?C.textMuted:C.text }}><Resaltar texto={f.factura} q={resaltar}/></span>
               </>
             )}
-            <span style={{ fontFamily:font.mono, fontWeight:700, textAlign:"right", color:f.negativo?C.amber:C.text }}>{fmtCOP(f.total)}</span>
+            <span style={{ fontFamily:font.mono, fontWeight:700, textAlign:"right", color:f.negativo?C.amber:C.text }}>{fmtCOP(f.total)}{f.subTotal && <span style={{ display:"block", fontSize:11, fontWeight:500, color:C.amber }}>{f.subTotal}</span>}</span>
             {!isMobile && <span style={{ color:C.textMuted, display:"grid", justifyContent:"end", transition:"transform .25s ease", transform:abiertaEsta?"rotate(90deg)":"none" }}><Icon n="right" s={15}/></span>}
           </button>
           {abiertaEsta && <div className="ozen-recibo-linea" style={{ padding:"4px 12px 12px", background:C.surfaceHover }}>{f.detalle()}</div>}
         </div>
+        </Fragment>
       ); })}
       {filas.length===0 && <div style={{ textAlign:"center", padding:30, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>{vacio}</div>}
       {filas.length>limite && (
@@ -6642,114 +6680,372 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
 }
 
 
+// ── Lista de ventas: buscar y filtrar ─────────────────────────────────────────
+// Rediseño pedido por Santiago (el menú anterior eran 3 listas, un campo de fecha de un solo día
+// y un botón suelto de Flexipago): buscador grande que encuentra por cliente, cédula, factura,
+// asesor, N.º de autorización y valor; fechas rápidas + rango; fichas que abren una listita de
+// opciones (varias a la vez); línea "Filtrando:" con cada filtro quitable; resumen que responde a
+// los filtros; tabla agrupada por día. En celular: buscador + botón "Filtros" que abre una hoja.
+const LV_PERIODOS = [
+  { value:"hoy", label:"Hoy" }, { value:"ayer", label:"Ayer" }, { value:"semana", label:"Esta semana" },
+  { value:"mes", label:"Este mes" }, { value:"mes_pasado", label:"Mes pasado" }, { value:"todo", label:"Todo" }, { value:"rango", label:"Rango" },
+];
+const LV_TIPOS = [
+  { value:"producto", label:"Venta" }, { value:"arreglo", label:"Arreglo" }, { value:"marcacion", label:"Marcación" },
+  { value:"grabado", label:"Grabado" }, { value:"flexipago", label:"Flexipago" }, { value:"nota", label:"Nota crédito" },
+];
+const LV_MAS = [
+  { value:"descuento", label:"Con descuento" },
+  { value:"sinFactura", label:"Sin N.º de factura" },
+  { value:"conNota", label:"Con nota crédito" },
+  { value:"servicio", label:"Con servicio (arreglo, marcación, grabado)" },
+];
+const LV_FILTROS_VACIOS = { periodo:"mes", desde:"", hasta:"", tiendas:[], asesores:[], tipos:[], flexEstado:"", medios:[], mas:[] };
+
+const lvRango = (f) => {
+  const hoyS = todayStr;
+  switch(f.periodo){
+    case "hoy": return [hoyS, hoyS];
+    case "ayer": { const a = consSumarDias(hoyS,-1); return [a,a]; }
+    case "semana": return [consLunes(hoyS), hoyS];
+    case "mes": return [hoyS.slice(0,8)+"01", hoyS];
+    case "mes_pasado": { const d = consParse(hoyS); return [consFecha(new Date(d.getFullYear(), d.getMonth()-1, 1)), consFecha(new Date(d.getFullYear(), d.getMonth(), 0))]; }
+    case "rango": { const a = f.desde||f.hasta||hoyS, b = f.hasta||f.desde||hoyS; return a<=b ? [a,b] : [b,a]; }
+    default: return null; // todo
+  }
+};
+
+const LvCheck = ({ on }) => (
+  <span style={{ width:17, height:17, borderRadius:5, border:`1.5px solid ${on?C.gold:"rgba(38,93,127,0.45)"}`, background:on?C.gold:"#fff", display:"grid", placeItems:"center", color:"#fff", flexShrink:0 }}>{on && <Icon n="check" s={12} sw={3}/>}</span>
+);
+const LvOpcion = ({ on, onClick, children, extra }) => (
+  <button onClick={onClick} style={{ all:"unset", boxSizing:"border-box", width:"100%", display:"flex", alignItems:"center", gap:10, padding:"8px 8px", borderRadius:8, cursor:"pointer", background:on?C.surfaceHover:"transparent", fontFamily:font.body, fontSize:13.5, fontWeight:on?700:400, color:C.text }}>
+    <LvCheck on={on}/><span style={{ display:"inline-flex", alignItems:"center", gap:7, minWidth:0 }}>{children}</span>{extra && <span style={{ marginLeft:"auto", fontSize:11.5, color:C.textMuted }}>{extra}</span>}
+  </button>
+);
+const LvTituloSec = ({ children, style }) => <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, margin:"0 0 6px 8px", ...style }}>{children}</div>;
+const lvChipEstilo = (on) => ({ display:"inline-flex", alignItems:"center", gap:7, height:34, padding:"0 13px", borderRadius:10, border:`1px solid ${on?C.gold:C.border}`, background:on?"rgba(38,93,127,0.08)":"#fff", fontFamily:font.body, fontSize:13, fontWeight:600, color:on?C.goldDark:C.textSub, whiteSpace:"nowrap", cursor:"pointer", flex:"0 0 auto" });
+const LvNum = ({ n }) => n>0 ? <span style={{ background:C.goldDark, color:C.tinta, borderRadius:99, fontSize:11, padding:"1px 7px", lineHeight:"16px" }}>{n}</span> : null;
+
+// Ficha con listita desplegable (se cierra tocando afuera o con Esc).
+function LvFicha({ label, n, icono, children, ancho=250 }) {
+  const [abierta, setAbierta] = useState(false);
+  const ref = useRef(null);
+  useEffect(()=>{
+    if(!abierta) return;
+    const fuera = (e) => { if(ref.current && !ref.current.contains(e.target)) setAbierta(false); };
+    const esc = (e) => { if(e.key==="Escape") setAbierta(false); };
+    document.addEventListener("mousedown", fuera); document.addEventListener("touchstart", fuera); document.addEventListener("keydown", esc);
+    return ()=>{ document.removeEventListener("mousedown", fuera); document.removeEventListener("touchstart", fuera); document.removeEventListener("keydown", esc); };
+  }, [abierta]);
+  return (
+    <span ref={ref} style={{ position:"relative", display:"inline-flex" }}>
+      <button onClick={()=>setAbierta(a=>!a)} style={lvChipEstilo(n>0 || abierta)}>{icono}{label}<LvNum n={n}/><Icon n="down" s={12} sw={2.2} style={{ opacity:0.6, transform:abierta?"rotate(180deg)":"none", transition:"transform .2s" }}/></button>
+      {abierta && (
+        <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:30, width:ancho, maxHeight:380, overflowY:"auto", background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, boxShadow:"0 14px 40px rgba(26,59,82,0.16)", padding:12 }}>
+          {children}
+        </div>
+      )}
+    </span>
+  );
+}
+
 function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, metas, esAdmin, soloLectura }) {
   const isMobile = useIsMobile();
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
-  const [filtroTienda, setFiltroTienda] = useState("");
-  const [filtroFecha, setFiltroFecha] = useState("");
-  const [filtroVendedor, setFiltroVendedor] = useState("");
-  const [filtroFlexipago, setFiltroFlexipago] = useState(false);
+  const [f, setF] = useState(LV_FILTROS_VACIOS);
   const [busqueda, setBusqueda] = useState("");
-  const asesores = users.filter(u=>u.role==="advisor" || ROLES_ADMIN_VENDEDOR.includes(u.role));
+  const [hojaAbierta, setHojaAbierta] = useState(false);
+  const setFil = (k, v) => setF(prev=>({ ...prev, [k]:v }));
+  const toggle = (k, v) => setF(prev=>({ ...prev, [k]: prev[k].includes(v) ? prev[k].filter(x=>x!==v) : [...prev[k], v] }));
+  const asesores = users.filter(u=>u.role==="advisor" || ROLES_ADMIN_VENDEDOR.includes(u.role)).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const tiendas = tiendasVenta(stores);
+  const rango = lvRango(f);
+  const enRango = (fecha) => !rango || (fecha && fecha>=rango[0] && fecha<=rango[1]);
 
-  const ventasFiltradas = ventas
-    .filter(v => (!tiendaFija || v.tienda_id===tiendaFija))
-    .filter(v => (!filtroTienda || v.tienda_id===filtroTienda))
-    .filter(v => (!filtroFecha || v.fecha===filtroFecha))
-    .filter(v => (!filtroVendedor || v.vendedor_id===filtroVendedor))
-    .filter(v => (!filtroFlexipago || v.es_flexipago))
-    .filter(v => {
-      const q = busqueda.trim().toLowerCase();
-      if(!q) return true;
-      return (v.cliente_nombre||"").toLowerCase().includes(q) || (v.cliente_documento||"").toLowerCase().includes(q) || (v.numero_factura||"").toLowerCase().includes(q);
-    })
-    .sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||"") || (b.created_at||"").localeCompare(a.created_at||""));
+  // Índices para no recorrer todos los renglones/abonos por cada venta.
+  const idx = useMemo(()=>{
+    const items = {}; ventasItems.forEach(i=>{ (items[i.venta_id] = items[i.venta_id] || []).push(i); });
+    const abonos = {}; (ventasAbonos||[]).forEach(a=>{ (abonos[a.venta_id] = abonos[a.venta_id] || []).push(a); });
+    const conNota = new Set((ajustes||[]).filter(a=>!a.es_correccion_error).map(a=>a.venta_id));
+    const userNombre = {}; users.forEach(u=>{ userNombre[u.id] = u.name; });
+    return { items, abonos, conNota, userNombre };
+  }, [ventasItems, ventasAbonos, ajustes, users]);
 
-  // Notacrédito: un registro aparte por cada excedente aplicado (copia de los datos de la factura
-  // original, pero con el valor del excedente y en su fecha REAL) — para que quede visible en la
-  // lista que hubo una Notacrédito, respetando los mismos filtros de arriba (fecha filtra por la
-  // fecha real del ajuste, no por la fecha de la factura original).
-  const notaCreditosFiltradas = (ajustes||[])
-    .filter(aj => !aj.es_correccion_error)
-    .map(aj => ({ ajuste:aj, venta: ventas.find(v=>v.id===aj.venta_id) }))
-    .filter(({venta}) => !!venta)
-    .filter(({venta}) => (!tiendaFija || venta.tienda_id===tiendaFija))
-    .filter(({venta}) => (!filtroTienda || venta.tienda_id===filtroTienda))
-    .filter(({ajuste}) => (!filtroFecha || ajuste.fecha===filtroFecha))
-    .filter(({venta}) => (!filtroVendedor || venta.vendedor_id===filtroVendedor))
-    .filter(() => !filtroFlexipago)
-    .filter(({venta}) => {
-      const q = busqueda.trim().toLowerCase();
-      if(!q) return true;
-      return (venta.cliente_nombre||"").toLowerCase().includes(q) || (venta.cliente_documento||"").toLowerCase().includes(q) || (venta.numero_factura||"").toLowerCase().includes(q);
+  const valorFlexDe = (v) => (idx.items[v.id]||[]).filter(i=>i.tipo==="flexipago").reduce((s,i)=>s+Number(i.valor||0)-Number(i.descuento||0),0);
+  const abonadoDe = (v) => (idx.abonos[v.id]||[]).reduce((s,a)=>s+Number(a.valor||0),0);
+  const flexCompleto = (v) => { const vf = valorFlexDe(v); return vf>0 && abonadoDe(v)>=vf; };
+  const mediosDeVenta = (v) => v.es_flexipago
+    ? new Set((idx.abonos[v.id]||[]).flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))
+    : new Set((idx.items[v.id]||[]).flatMap(i=>(i.pagos||[]).map(p=>p.medio_pago)));
+
+  // Búsqueda: cliente, cédula, factura, asesor, N.º de autorización y valor (con o sin puntos).
+  const q = sinTildes(busqueda).trim();
+  const qNum = busqueda.replace(/\D/g,"");
+  const coincide = (v, extraFactura, valores=[]) => {
+    if(!q) return true;
+    const textos = [v.cliente_nombre, v.cliente_documento, v.numero_factura, extraFactura, v.vendedor_nombre, idx.userNombre[v.vendedor_id]];
+    if(textos.some(t=>t && sinTildes(t).includes(q))) return true;
+    const its = idx.items[v.id]||[];
+    if(its.some(i=>(i.pagos||[]).some(p=>p.numero_autorizacion && sinTildes(p.numero_autorizacion).includes(q)))) return true;
+    if((idx.abonos[v.id]||[]).some(a=>mediosDeAbono(a).some(p=>p.numero_autorizacion && sinTildes(p.numero_autorizacion).includes(q)))) return true;
+    if(qNum.length>=4){
+      const nums = [v.total, v.valor_original, ...valores, ...its.map(i=>i.valor)].filter(x=>x!==null && x!==undefined).map(x=>String(Math.round(Number(x))));
+      if(nums.some(n=>n===qNum || (qNum.length>=5 && n.includes(qNum)))) return true;
+    }
+    return false;
+  };
+  const pasaTiendaAsesor = (v) => (!tiendaFija || v.tienda_id===tiendaFija) && (!f.tiendas.length || f.tiendas.includes(v.tienda_id)) && (!f.asesores.length || f.asesores.includes(v.vendedor_id));
+  const tiposVenta = f.tipos.filter(t=>t!=="nota");
+  const quiereNotas = !f.tipos.length || f.tipos.includes("nota");
+  const quiereVentas = !f.tipos.length || tiposVenta.length>0;
+  const soloDeVentas = f.mas.some(m=>m==="descuento"||m==="servicio"); // filtros que solo aplican a facturas
+
+  const ventasFiltradas = !quiereVentas ? [] : ventas.filter(v=>{
+    if(!enRango(v.fecha) || !pasaTiendaAsesor(v)) return false;
+    const its = idx.items[v.id]||[];
+    if(tiposVenta.length){
+      const tipos = new Set(v.es_flexipago ? ["flexipago"] : its.map(i=>i.tipo));
+      if(!tiposVenta.some(t=>tipos.has(t))) return false;
+    }
+    if(v.es_flexipago && f.flexEstado){ const c = flexCompleto(v); if(f.flexEstado==="abierto" ? c : !c) return false; }
+    if(f.medios.length){ const ms = mediosDeVenta(v); if(!f.medios.some(m=>ms.has(m))) return false; }
+    if(f.mas.includes("descuento") && !(Number(v.descuento_total||0)>0 || its.some(i=>Number(i.descuento||0)>0))) return false;
+    if(f.mas.includes("sinFactura") && v.numero_factura) return false;
+    if(f.mas.includes("conNota") && !idx.conNota.has(v.id)) return false;
+    if(f.mas.includes("servicio") && !its.some(i=>["arreglo","marcacion","grabado"].includes(i.tipo))) return false;
+    return coincide(v);
+  }).sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||"") || (b.created_at||"").localeCompare(a.created_at||""));
+
+  // Notas crédito: un registro aparte por cada excedente, en su fecha REAL.
+  const ventaById = useMemo(()=>{ const m = {}; ventas.forEach(v=>{ m[v.id]=v; }); return m; }, [ventas]);
+  const notaCreditosFiltradas = (!quiereNotas || soloDeVentas) ? [] : (ajustes||[])
+    .filter(aj => !aj.es_correccion_error && enRango(aj.fecha))
+    .map(aj => ({ ajuste:aj, venta: ventaById[aj.venta_id] }))
+    .filter(({venta}) => !!venta && pasaTiendaAsesor(venta))
+    .filter(({ajuste}) => !f.mas.includes("sinFactura") || !(ajuste.numero_factura))
+    .filter(({ajuste}) => {
+      if(!f.medios.length) return true;
+      const its = (idx.items[ajuste.venta_id]||[]).filter(i=>i.es_original===false && i.fecha_item===ajuste.fecha);
+      return its.some(i=>(i.pagos||[]).some(p=>f.medios.includes(p.medio_pago)));
     })
+    .filter(({venta, ajuste}) => coincide(venta, ajuste.numero_factura, [ajuste.diferencia]))
     .sort((a,b)=> (b.ajuste.fecha||"").localeCompare(a.ajuste.fecha||""));
 
-  // Abonos de Flexipago que entraron un día distinto al de la venta original — mismo caso que ya
-  // se resolvía en "Ventas de hoy" (VentasRegistrarScreen): el dinero se recibió ese día aunque la
-  // factura se haya creado antes. Solo se arma esta lista cuando hay un filtro de fecha activo, para
-  // no inundar la vista general (sin filtro) con abonos de todo el historial de cada Flexipago.
+  // Abonos de Flexipago que entraron un día distinto al de la venta — el dinero se recibió ese día
+  // aunque la factura se haya creado antes. Se agrupan por venta y por día. En "Todo" no se arman
+  // (sería todo el historial de abonos de cada Flexipago repetido en la lista).
+  const quiereAbonos = rango && (!f.tipos.length || f.tipos.includes("flexipago")) && !soloDeVentas && !f.mas.includes("sinFactura") && !f.mas.includes("conNota");
   const abonosFiltrados = (() => {
-    if(!filtroFecha) return [];
+    if(!quiereAbonos) return [];
     const grupos = {};
-    (ventasAbonos||[]).filter(a=>a.fecha===filtroFecha).forEach(a=>{
-      const venta = ventas.find(v=>v.id===a.venta_id);
-      if(!venta || venta.fecha===filtroFecha) return; // mismo día que la venta: ya sale en la fila normal
-      if(tiendaFija && venta.tienda_id!==tiendaFija) return;
-      if(filtroTienda && venta.tienda_id!==filtroTienda) return;
-      if(filtroVendedor && venta.vendedor_id!==filtroVendedor) return;
-      const q = busqueda.trim().toLowerCase();
-      if(q && !((venta.cliente_nombre||"").toLowerCase().includes(q) || (venta.cliente_documento||"").toLowerCase().includes(q) || (venta.numero_factura||"").toLowerCase().includes(q))) return;
-      if(!grupos[venta.id]) grupos[venta.id] = { venta, abonos:[] };
-      grupos[venta.id].abonos.push(a);
+    (ventasAbonos||[]).forEach(a=>{
+      if(!enRango(a.fecha)) return;
+      const venta = ventaById[a.venta_id];
+      if(!venta || venta.fecha===a.fecha) return; // mismo día que la venta: ya sale en la fila normal
+      if(!pasaTiendaAsesor(venta)) return;
+      if(f.medios.length && !mediosDeAbono(a).some(p=>f.medios.includes(p.medio_pago))) return;
+      if(!coincide(venta, null, [a.valor])) return;
+      const k = `${venta.id}|${a.fecha}`;
+      if(!grupos[k]) grupos[k] = { venta, abonos:[] };
+      grupos[k].abonos.push(a);
     });
-    // Mismos campos que abonosHoyTienda en VentasRegistrarScreen (valorFlex/antes/completa/...) —
-    // así AbonoFlexipagoCard se ve y calcula IGUAL en los dos lados, sin importar si se completó
-    // "hoy" o un día que se está mirando después en Lista de ventas.
+    // Mismos campos que abonosHoyTienda en VentasRegistrarScreen — AbonoFlexipagoCard se ve igual.
     return Object.values(grupos).map(({venta, abonos})=>{
-      const valorFlex = ventasItems.filter(i=>i.venta_id===venta.id && i.tipo==="flexipago").reduce((s,i)=>s+Number(i.valor||0)-Number(i.descuento||0),0);
-      const todasDeEstaVenta = (ventasAbonos||[]).filter(ab=>ab.venta_id===venta.id).sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
+      const valorFlex = valorFlexDe(venta);
+      const todasDeEstaVenta = [...(idx.abonos[venta.id]||[])].sort((p,q2)=> new Date(p.created_at||p.fecha) - new Date(q2.created_at||q2.fecha) || String(p.id).localeCompare(String(q2.id)));
       const idsFiltrados = new Set(abonos.map(a=>a.id));
       const primerIdxFiltrado = todasDeEstaVenta.findIndex(ab=>idsFiltrados.has(ab.id));
       const antes = todasDeEstaVenta.slice(0,primerIdxFiltrado).reduce((s,ab)=>s+Number(ab.valor||0),0);
-      const abonosOrdenados = [...abonos].sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
+      const abonosOrdenados = [...abonos].sort((p,q2)=> new Date(p.created_at||p.fecha) - new Date(q2.created_at||q2.fecha) || String(p.id).localeCompare(String(q2.id)));
       const totalHoy = abonosOrdenados.reduce((s,a)=>s+Number(a.valor||0),0);
       const completa = valorFlex>0 && (antes + totalHoy) >= valorFlex;
       const mediosHoy = [...new Set(abonosOrdenados.flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))];
       return { venta, abonos:abonosOrdenados, valorFlex, antes, totalHoy, completa, mediosHoy };
-    });
+    }).filter(g=>!f.flexEstado || (f.flexEstado==="completo" ? g.completa : !g.completa));
   })();
+
+  const filas = construirFilasVentas({ ventasLista:ventasFiltradas, abonosLista:abonosFiltrados, notasLista:notaCreditosFiltradas, ventasItems, ventasAbonos,
+    props:{ stores, user, esAdmin, soloLectura, isMobile, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes } });
+
+  // ── Resumen ──
+  const sumaLista = filas.reduce((s,x)=>s+Number(x.total||0),0);
+  const sumaNotas = notaCreditosFiltradas.reduce((s,n)=>s+Number(n.ajuste.diferencia||0),0);
+  const flexEnLista = ventasFiltradas.filter(v=>v.es_flexipago);
+  const porCobrar = flexEnLista.reduce((s,v)=>s+Math.max(0, valorFlexDe(v)-abonadoDe(v)),0);
+  const abonadoFlex = flexEnLista.reduce((s,v)=>s+Math.min(abonadoDe(v), valorFlexDe(v)),0);
+
+  // ── Filtros activos (línea "Filtrando:") ──
+  const nombreTipo = (t) => LV_TIPOS.find(x=>x.value===t)?.label;
+  const textoRango = rango ? consTextoRango(rango) : "";
+  const activos = [
+    ...(busqueda.trim() ? [{ k:"q", t:`“${busqueda.trim()}”`, quitar:()=>setBusqueda("") }] : []),
+    { k:"periodo", t: f.periodo==="todo" ? "Todas las fechas" : `${f.periodo==="rango" ? "Del" : LV_PERIODOS.find(p=>p.value===f.periodo)?.label+" ·"} ${textoRango}`, quitar: f.periodo==="mes" ? null : ()=>setF(prev=>({ ...prev, periodo:"mes", desde:"", hasta:"" })) },
+    ...(f.tiendas.length ? [{ k:"tiendas", t:f.tiendas.map(id=>nombreTiendaCorto(stores[id])).join(", "), quitar:()=>setFil("tiendas",[]) }] : []),
+    ...(f.asesores.length ? [{ k:"asesores", t:f.asesores.length>2 ? `${f.asesores.length} asesores` : f.asesores.map(id=>(idx.userNombre[id]||"").split(" ")[0]).join(", "), quitar:()=>setFil("asesores",[]) }] : []),
+    ...(f.tipos.length ? [{ k:"tipos", t:f.tipos.map(t=>t==="flexipago"&&f.flexEstado ? `Flexipago ${f.flexEstado==="abierto"?"abiertos":"completados"}` : nombreTipo(t)).join(", "), quitar:()=>setF(prev=>({ ...prev, tipos:[], flexEstado:"" })) }] : []),
+    ...(!f.tipos.length && f.flexEstado ? [{ k:"flex", t:`Flexipago ${f.flexEstado==="abierto"?"abiertos":"completados"}`, quitar:()=>setFil("flexEstado","") }] : []),
+    ...(f.medios.length ? [{ k:"medios", t:f.medios.map(medioCortoLabel).join(", "), quitar:()=>setFil("medios",[]) }] : []),
+    ...f.mas.map(m=>({ k:`mas-${m}`, t:LV_MAS.find(x=>x.value===m)?.label.replace(/ \(.*\)/,""), quitar:()=>toggle("mas", m) })),
+  ];
+  const nFiltros = f.tiendas.length + f.asesores.length + f.tipos.length + (f.flexEstado?1:0) + f.medios.length + f.mas.length;
+  const hayAlgo = busqueda.trim() || nFiltros>0 || f.periodo!=="mes";
+  const limpiarTodo = () => { setF(LV_FILTROS_VACIOS); setBusqueda(""); };
+
+  // ── Piezas ──
+  const buscador = (
+    <div style={{ display:"flex", alignItems:"center", gap:12, height:isMobile?46:52, padding:"0 14px 0 16px", borderRadius:14, border:"1.5px solid rgba(38,93,127,0.35)", background:"#fff" }}>
+      <span style={{ color:C.gold }}><Icon n="search" s={isMobile?18:20} sw={2}/></span>
+      <input value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder={isMobile ? "Cliente, cédula, factura…" : "Buscar por cliente, cédula, N.º de factura, asesor, autorización o valor"}
+        style={{ flex:1, minWidth:0, border:"none", outline:"none", background:"transparent", fontFamily:font.body, fontSize:16, fontWeight:600, color:C.text }}/>
+      {busqueda && <button aria-label="Borrar búsqueda" onClick={()=>setBusqueda("")} style={{ all:"unset", cursor:"pointer", width:26, height:26, borderRadius:7, border:`1px solid ${C.border}`, background:C.surfaceAlt, display:"grid", placeItems:"center", color:C.textMuted }}><Icon n="x" s={12} sw={2.2}/></button>}
+    </div>
+  );
+  const rangoInputs = f.periodo==="rango" && (
+    <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:13, color:C.textSub, flexWrap:"wrap" }}>
+      <input type="date" value={f.desde} max={todayStr} onChange={e=>setFil("desde",e.target.value)} style={{ height:34, borderRadius:10, border:`1px solid ${C.border}`, padding:"0 8px", fontFamily:font.body, fontSize:14, color:C.text, background:"#fff" }}/>
+      a
+      <input type="date" value={f.hasta} max={todayStr} onChange={e=>setFil("hasta",e.target.value)} style={{ height:34, borderRadius:10, border:`1px solid ${C.border}`, padding:"0 8px", fontFamily:font.body, fontSize:14, color:C.text, background:"#fff" }}/>
+    </span>
+  );
+  const elegirPeriodo = (p) => setF(prev=>({ ...prev, periodo:p, ...(p==="rango" && !prev.desde ? { desde:(lvRango(prev)||[todayStr])[0], hasta:(lvRango(prev)||[todayStr,todayStr])[1] } : {}) }));
+  const segmentoFechas = (
+    <div className="ozen-sin-barra" style={{ display:"inline-flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, maxWidth:"100%", overflowX:"auto" }}>
+      {LV_PERIODOS.map(p=>(
+        <button key={p.value} onClick={()=>elegirPeriodo(p.value)} style={{ border:"none", cursor:"pointer", borderRadius:99, padding:"7px 14px", fontFamily:font.body, fontSize:13, fontWeight:600, whiteSpace:"nowrap", background:f.periodo===p.value?C.goldDark:"transparent", color:f.periodo===p.value?C.tinta:C.textSub, display:"inline-flex", alignItems:"center", gap:6 }}>{p.value==="rango" && <Icon n="cal" s={13}/>}{p.label}{p.value==="rango"?"…":""}</button>
+      ))}
+    </div>
+  );
+  const opcionesTienda = tiendas.map(t=><LvOpcion key={t.id} on={f.tiendas.includes(t.id)} onClick={()=>toggle("tiendas", t.id)}><PuntoTienda color={colorTienda(t)} size={8}/>{nombreTiendaCorto(t)}</LvOpcion>);
+  const opcionesAsesor = asesores.map(a=><LvOpcion key={a.id} on={f.asesores.includes(a.id)} onClick={()=>toggle("asesores", a.id)}>{a.name}</LvOpcion>);
+  const opcionesTipo = LV_TIPOS.map(t=><LvOpcion key={t.value} on={f.tipos.includes(t.value)} onClick={()=>toggle("tipos", t.value)}>{t.label}</LvOpcion>);
+  const estadoFlex = (
+    <div style={{ display:"flex", gap:6, flexWrap:"wrap", padding:"0 6px" }}>
+      {[["abierto","Abiertos"],["completo","Completados"]].map(([k,l])=>(
+        <button key={k} onClick={()=>setFil("flexEstado", f.flexEstado===k?"":k)} style={{ ...lvChipEstilo(f.flexEstado===k), height:30 }}>{l}</button>
+      ))}
+    </div>
+  );
+  const opcionesMedio = VENTAS_MEDIOS_PAGO.map(m=><LvOpcion key={m.value} on={f.medios.includes(m.value)} onClick={()=>toggle("medios", m.value)}>{medioCortoLabel(m.value)}</LvOpcion>);
+  const opcionesMas = LV_MAS.map(m=><LvOpcion key={m.value} on={f.mas.includes(m.value)} onClick={()=>toggle("mas", m.value)}>{m.label}</LvOpcion>);
+  const puntosTiendas = f.tiendas.length>0 && <span style={{ display:"inline-flex" }}>{f.tiendas.slice(0,3).map((id,i)=><span key={id} style={{ marginLeft:i?-3:0, display:"inline-flex" }}><PuntoTienda color={colorTienda(stores[id])} size={8}/></span>)}</span>;
+
+  const lineaActivos = (
+    <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+      <span style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginRight:2 }}>Filtrando:</span>
+      {activos.map(a=>(
+        <span key={a.k} style={{ display:"inline-flex", alignItems:"center", gap:6, height:28, padding:a.quitar?"0 5px 0 11px":"0 11px", borderRadius:99, background:C.goldDark, color:C.tinta, fontFamily:font.body, fontSize:12, fontWeight:600, maxWidth:"100%" }}>
+          <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.t}</span>
+          {a.quitar && <button aria-label={`Quitar ${a.t}`} onClick={a.quitar} style={{ all:"unset", cursor:"pointer", width:18, height:18, borderRadius:"50%", background:"rgba(229,213,204,0.18)", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="x" s={10} sw={2.6}/></button>}
+        </span>
+      ))}
+      {hayAlgo && <button onClick={limpiarTodo} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:12.5, color:C.gold, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3, marginLeft:4 }}>Limpiar todo</button>}
+    </div>
+  );
+
+  const resumenCeldas = [
+    { t:"Ventas", v:ventasFiltradas.length.toLocaleString("es-CO"), s: abonosFiltrados.length ? `+ ${abonosFiltrados.length} ${abonosFiltrados.length===1?"abono":"abonos"} de flexipago` : "facturas que cumplen" },
+    { t:"Suma de la lista", v:fmtCOP(sumaLista), s:"lo que ves abajo" },
+    ...(flexEnLista.length ? [{ t:"Flexipago", v:fmtCOP(abonadoFlex), s:`abonado · falta ${fmtCOP(porCobrar)} por cobrar` }] : []),
+    { t:"Notas crédito", v:notaCreditosFiltradas.length.toLocaleString("es-CO"), s: notaCreditosFiltradas.length ? fmtCOP(sumaNotas) : "—" },
+  ];
+  const resumen = isMobile ? (
+    <div style={{ borderTop:`1px solid ${C.border}`, padding:"12px 14px" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:10 }}>
+        <span style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:700 }}>{ventasFiltradas.length.toLocaleString("es-CO")} ventas{abonosFiltrados.length?` + ${abonosFiltrados.length} ${abonosFiltrados.length===1?"abono":"abonos"}`:""}</span>
+        <span style={{ fontFamily:font.mono, fontSize:18, fontWeight:600, color:C.text }}>{fmtCOP(sumaLista)}</span>
+      </div>
+      {(flexEnLista.length>0 || notaCreditosFiltradas.length>0) && (
+        <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:5, lineHeight:1.5 }}>
+          {flexEnLista.length>0 && <>Flexipago: abonado {fmtCOP(abonadoFlex)} · falta {fmtCOP(porCobrar)}</>}
+          {flexEnLista.length>0 && notaCreditosFiltradas.length>0 && <br/>}
+          {notaCreditosFiltradas.length>0 && <>{notaCreditosFiltradas.length} {notaCreditosFiltradas.length===1?"nota crédito":"notas crédito"} · {fmtCOP(sumaNotas)}</>}
+        </div>
+      )}
+    </div>
+  ) : (
+    <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${resumenCeldas.length}, 1fr)`, borderTop:`1px solid ${C.border}` }}>
+      {resumenCeldas.map((c,i)=>(
+        <div key={c.t} style={{ padding:isMobile?"12px 14px":"14px 20px", borderRight: (isMobile ? i%2===0 : i<resumenCeldas.length-1) ? `1px solid ${C.border}` : "none", borderTop: isMobile && i>=2 ? `1px solid ${C.border}` : "none", minWidth:0 }}>
+          <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:600 }}>{c.t}</div>
+          <div style={{ fontFamily:font.mono, fontSize:isMobile?16:19, fontWeight:600, color:C.text, marginTop:6 }}>{c.v}</div>
+          <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:3 }}>{c.s}</div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const seccionHoja = (titulo, contenido) => (
+    <div style={{ marginTop:16 }}>
+      <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, marginBottom:8 }}>{titulo}</div>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>{contenido}</div>
+    </div>
+  );
+  const chipHoja = (on, onClick, contenido, key) => <button key={key} onClick={onClick} style={lvChipEstilo(on)}>{contenido}</button>;
 
   return (
     <div>
-      <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}${abonosFiltrados.length>0?` · ${abonosFiltrados.length} abonos Flexipago`:""}`}
-        action={<MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaFija||filtroTienda} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ajustes} metas={metas} isMobile={isMobile}/>}
+      <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length.toLocaleString("es-CO")} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}${abonosFiltrados.length>0?` · ${abonosFiltrados.length} ${abonosFiltrados.length===1?"abono":"abonos"} Flexipago`:""}`}
+        action={<MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaFija||(f.tiendas.length===1?f.tiendas[0]:"")} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ajustes} metas={metas} isMobile={isMobile}/>}
       />
-      <Card style={{ marginBottom:16 }} p="12px">
-        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-          <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"end" }}>
-            {!tiendaFija && (
-              <div style={{ minWidth:140, flex:1 }}><Field label="Tienda" value={filtroTienda} onChange={setFiltroTienda} options={[{value:"",label:"Todas"},...tiendasVenta(stores).map(s=>({value:s.id,label:s.name}))]}/></div>
-            )}
-            <div style={{ minWidth:140, flex:1 }}><Field label="Vendedor" value={filtroVendedor} onChange={setFiltroVendedor} options={[{value:"",label:"Todos"},...asesores.map(a=>({value:a.id,label:a.name}))]}/></div>
-            <div style={{ minWidth:130, flex:1 }}><Field label="Fecha" type="date" value={filtroFecha} onChange={setFiltroFecha}/></div>
-          </div>
-          <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"end" }}>
-            <div style={{ minWidth:200, flex:2 }}><Field label="Buscar" value={busqueda} onChange={setBusqueda} placeholder="Nombre, cédula o N.º factura"/></div>
-            <div style={{ marginBottom:14 }}>
-              <Btn variant={filtroFlexipago?"primary":"ghost"} sm onClick={()=>setFiltroFlexipago(f=>!f)}>📦 Flexipago</Btn>
+
+      <Card style={{ marginBottom:14, overflow:"visible" }} p="0">
+        <div style={{ padding:isMobile?"14px 14px 12px":"18px 20px 14px" }}>
+          {buscador}
+          {isMobile ? (
+            <div className="ozen-sin-barra" style={{ display:"flex", gap:8, marginTop:10, overflowX:"auto" }}>
+              <button onClick={()=>setHojaAbierta(true)} style={lvChipEstilo(nFiltros>0)}><Icon n="list" s={14}/>Filtros<LvNum n={nFiltros}/></button>
+              {LV_PERIODOS.filter(p=>p.value!=="rango").map(p=>(
+                <button key={p.value} onClick={()=>elegirPeriodo(p.value)} style={lvChipEstilo(f.periodo===p.value)}>{p.label}</button>
+              ))}
+              <button onClick={()=>elegirPeriodo("rango")} style={lvChipEstilo(f.periodo==="rango")}><Icon n="cal" s={13}/>Rango</button>
             </div>
-            {(filtroTienda||filtroFecha||filtroVendedor||filtroFlexipago||busqueda) && <div style={{ marginBottom:14 }}><Btn onClick={()=>{setFiltroTienda("");setFiltroFecha("");setFiltroVendedor("");setFiltroFlexipago(false);setBusqueda("");}} variant="ghost" sm>Limpiar filtros</Btn></div>}
-          </div>
+          ) : (
+            <div style={{ display:"flex", gap:14, flexWrap:"wrap", alignItems:"center", marginTop:14 }}>
+              {segmentoFechas}
+              {rangoInputs}
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+                {!tiendaFija && <LvFicha label="Tienda" n={f.tiendas.length} icono={puntosTiendas}><LvTituloSec>Tienda</LvTituloSec>{opcionesTienda}</LvFicha>}
+                <LvFicha label="Asesor" n={f.asesores.length} ancho={270}><LvTituloSec>Asesor</LvTituloSec>{opcionesAsesor}</LvFicha>
+                <LvFicha label="Tipo" n={f.tipos.length + (f.flexEstado?1:0)}>
+                  <LvTituloSec>Tipo</LvTituloSec>{opcionesTipo}
+                  <div style={{ borderTop:`1px solid ${C.border}`, margin:"8px 0 8px" }}/>
+                  <LvTituloSec>Flexipago</LvTituloSec>{estadoFlex}
+                </LvFicha>
+                <LvFicha label="Medio de pago" n={f.medios.length}><LvTituloSec>Medio de pago</LvTituloSec>{opcionesMedio}</LvFicha>
+                <LvFicha label="Más" n={f.mas.length} ancho={290}><LvTituloSec>Más</LvTituloSec>{opcionesMas}</LvFicha>
+              </div>
+            </div>
+          )}
+          {isMobile && f.periodo==="rango" && <div style={{ marginTop:10 }}>{rangoInputs}</div>}
+          <div style={{ marginTop:12 }}>{lineaActivos}</div>
         </div>
+        {resumen}
       </Card>
 
-      {/* Propuesta A: misma tabla que "Ventas de hoy" — fecha, tienda, asesor, tipo, medios,
-          factura y total; al tocar una fila se despliega el detalle con sus acciones. */}
-      <TablaVentas key={`${filtroTienda}|${filtroFecha}|${filtroVendedor}|${filtroFlexipago}|${busqueda}`} stores={stores} isMobile={isMobile} conFecha conTienda={!tiendaFija && !filtroTienda}
-        vacio="No hay ventas con estos filtros."
-        filas={construirFilasVentas({ ventasLista:ventasFiltradas, abonosLista:abonosFiltrados, notasLista:notaCreditosFiltradas, ventasItems, ventasAbonos,
-          props:{ stores, user, esAdmin, soloLectura, isMobile, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes } })}/>
+      <TablaVentas key={`${JSON.stringify(f)}|${busqueda}`} stores={stores} isMobile={isMobile} conFecha agruparPorDia conCliente resaltar={busqueda} conTienda={!tiendaFija && f.tiendas.length!==1}
+        vacio={busqueda.trim() ? `No hay nada que coincida con “${busqueda.trim()}”${rango?` en ${textoRango}`:""}. Prueba con “Todo” en las fechas.` : "No hay ventas con estos filtros."}
+        filas={filas}/>
+
+      {/* Celular: hoja de filtros desde abajo */}
+      {isMobile && hojaAbierta && createPortal(
+        <div onClick={()=>setHojaAbierta(false)} style={{ position:"fixed", inset:0, zIndex:1000, background:"rgba(26,59,82,0.35)", display:"flex", alignItems:"flex-end" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxHeight:"86vh", overflowY:"auto", background:"#fff", borderRadius:"22px 22px 0 0", padding:"10px 18px calc(18px + env(safe-area-inset-bottom))", boxShadow:"0 -10px 30px rgba(26,59,82,0.15)", boxSizing:"border-box" }}>
+            <div style={{ width:40, height:5, borderRadius:9, background:"#d9cdc4", margin:"0 auto 12px" }}/>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <b style={{ fontFamily:font.body, fontSize:17, color:C.text }}>Filtros</b>
+              <button onClick={limpiarTodo} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:13, color:C.gold, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3 }}>Limpiar</button>
+            </div>
+            {seccionHoja("Fecha", <>{LV_PERIODOS.map(p=>chipHoja(f.periodo===p.value, ()=>elegirPeriodo(p.value), p.label, p.value))}{f.periodo==="rango" && <div style={{ width:"100%" }}>{rangoInputs}</div>}</>)}
+            {!tiendaFija && seccionHoja("Tienda", tiendas.map(t=>chipHoja(f.tiendas.includes(t.id), ()=>toggle("tiendas", t.id), <><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)}</>, t.id)))}
+            {seccionHoja("Asesor", asesores.map(a=>chipHoja(f.asesores.includes(a.id), ()=>toggle("asesores", a.id), a.name.split(" ").slice(0,2).join(" "), a.id)))}
+            {seccionHoja("Tipo", LV_TIPOS.map(t=>chipHoja(f.tipos.includes(t.value), ()=>toggle("tipos", t.value), t.label, t.value)))}
+            {seccionHoja("Flexipago", [["abierto","Abiertos"],["completo","Completados"]].map(([k,l])=>chipHoja(f.flexEstado===k, ()=>setFil("flexEstado", f.flexEstado===k?"":k), l, k)))}
+            {seccionHoja("Medio de pago", VENTAS_MEDIOS_PAGO.map(m=>chipHoja(f.medios.includes(m.value), ()=>toggle("medios", m.value), medioCortoLabel(m.value), m.value)))}
+            {seccionHoja("Más", LV_MAS.map(m=>chipHoja(f.mas.includes(m.value), ()=>toggle("mas", m.value), m.label.replace(/ \(.*\)/,""), m.value)))}
+            <button onClick={()=>setHojaAbierta(false)} style={{ width:"100%", height:48, marginTop:20, border:"none", borderRadius:12, background:C.goldDark, color:C.tinta, fontFamily:font.body, fontSize:15, fontWeight:700, cursor:"pointer" }}>Ver {filas.length.toLocaleString("es-CO")} {filas.length===1?"registro":"registros"}</button>
+          </div>
+        </div>, document.body)}
     </div>
   );
 }
@@ -8250,7 +8546,9 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const ajustesHoyCap = ventasAjustes.filter(aj=>aj.fecha===todayStr && !aj.es_correccion_error && ventaByIdGlobal[aj.venta_id] && (!tiendaSel || ventaByIdGlobal[aj.venta_id].tienda_id===tiendaSel));
   const ingresosHoy = sumaProductoConRecorte(itemsHoyProductoCap) + cierresHoyCap.reduce((a,c)=>a+c.valorNeto,0) + ajustesHoyCap.reduce((a,aj)=>a+Number(aj.diferencia||0),0);
 
-  const puedeConsultas = esAdmin && !vistaAsesor;
+  // Consultas: cualquier admin (master, admin, admin_finanzas, admin_turnos) y visualizador — es
+  // solo lectura, no toca datos. Cuentas de tienda y asesores no la ven.
+  const puedeConsultas = puedeUsarAreas(user) && !vistaAsesor;
   const selectorVistaMet = puedeConsultas && (
     <div style={{ display:"inline-flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, marginBottom:16 }}>
       {[["resumen","Resumen","chart"],["consultas","Consultas","search"]].map(([k,l,ic])=>(
