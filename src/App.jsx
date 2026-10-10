@@ -3871,6 +3871,19 @@ function LoginScreen({ onLogin }) {
   const [documento,setDocumento]=useState(""),[pass,setPass]=useState(""),[err,setErr]=useState(""),[loading,setLoading]=useState(false);
   const docRef=useRef(null), passRef=useRef(null);
 
+  // Barra de arriba del celular (hora, batería) en el MISMO azul de la franja del login, sólido —
+  // con el color blanco de la app (theme-color #ffffff) Safari la difuminaba de blanco a azul.
+  // Al salir del login (ya adentro) se devuelve el blanco de siempre.
+  useEffect(()=>{
+    const meta = document.querySelector('meta[name="theme-color"]');
+    const antesMeta = meta ? meta.getAttribute("content") : null;
+    const html = document.documentElement;
+    const antesFondo = html.style.backgroundColor;
+    if(meta) meta.setAttribute("content", C.goldDark);
+    html.style.backgroundColor = C.goldDark;
+    return ()=>{ if(meta && antesMeta!==null) meta.setAttribute("content", antesMeta); html.style.backgroundColor = antesFondo; };
+  }, []);
+
   // Solo acepta cambios que vengan de escritura real de teclado (letra por letra o
   // borrar). Si el cambio viene de pegar, arrastrar texto, o de que el navegador
   // autocompletó el campo solo, se ignora y se revierte al valor anterior.
