@@ -3828,8 +3828,8 @@ const DecoracionHalloweenLogin = ({ isMobile }) => (
       <circle cx="50" cy="50" r="40" fill={C.tinta}/>
       <circle cx="66" cy="40" r="36" fill={C.goldDark}/>
     </svg>
-    <Murcielago w={isMobile?26:38} color={C.tinta} style={{ position:"absolute", left:isMobile?92:160, top:isMobile?48:92, opacity:0.45, transform:"rotate(-8deg)" }}/>
-    <Murcielago w={isMobile?18:26} color={C.tinta} style={{ position:"absolute", left:isMobile?126:214, top:isMobile?28:60, opacity:0.32, transform:"rotate(10deg)" }}/>
+    <Murcielago w={isMobile?26:38} color={C.tinta} style={{ position:"absolute", left:isMobile?92:160, top:isMobile?"calc(48px + env(safe-area-inset-top, 0px) * 1.55)":92, opacity:0.45, transform:"rotate(-8deg)" }}/>
+    <Murcielago w={isMobile?18:26} color={C.tinta} style={{ position:"absolute", left:isMobile?126:214, top:isMobile?"calc(28px + env(safe-area-inset-top, 0px) * 1.55)":60, opacity:0.32, transform:"rotate(10deg)" }}/>
     <Murcielago w={isMobile?14:20} color={C.tinta} style={{ position:"absolute", right:isMobile?40:70, bottom:isMobile?40:110, opacity:0.25, transform:"rotate(-14deg)" }}/>
   </div>
 );
