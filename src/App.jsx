@@ -3865,23 +3865,29 @@ const VueloMurcielagos = () => {
 };
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
+// Tope sólido detrás de la barra del celular (hora, batería). En iPhone (Safari / app en la
+// pantalla de inicio) la zona de arriba se veía difuminada: Safari mezclaba el color de la app con
+// lo que quedaba debajo y hasta desenfocaba el logo. Una franja FIJA y sólida pegada arriba, del
+// alto exacto de esa zona (safe-area-inset-top), hace que Safari use ese color plano para la barra
+// en vez del difuminado. También ajusta theme-color y el fondo de <html> al mismo color.
+// Login: azul de la franja; dentro de la app: blanco de la barra superior.
+function TopeEstado({ color }) {
+  useEffect(()=>{
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if(meta) meta.setAttribute("content", color);
+    document.documentElement.style.backgroundColor = color;
+  }, [color]);
+  return createPortal(
+    <div aria-hidden="true" style={{ position:"fixed", top:0, left:0, right:0, height:"env(safe-area-inset-top, 0px)", background:color, zIndex:2147483000, pointerEvents:"none" }}/>,
+    document.body
+  );
+}
+
 function LoginScreen({ onLogin }) {
   const isMobile = useIsMobile();
   const [documento,setDocumento]=useState(""),[pass,setPass]=useState(""),[err,setErr]=useState(""),[loading,setLoading]=useState(false);
   const docRef=useRef(null), passRef=useRef(null);
 
-  // Barra de arriba del celular (hora, batería) en el MISMO azul de la franja del login, sólido —
-  // con el color blanco de la app (theme-color #ffffff) Safari la difuminaba de blanco a azul.
-  // Al salir del login (ya adentro) se devuelve el blanco de siempre.
-  useEffect(()=>{
-    const meta = document.querySelector('meta[name="theme-color"]');
-    const antesMeta = meta ? meta.getAttribute("content") : null;
-    const html = document.documentElement;
-    const antesFondo = html.style.backgroundColor;
-    if(meta) meta.setAttribute("content", C.goldDark);
-    html.style.backgroundColor = C.goldDark;
-    return ()=>{ if(meta && antesMeta!==null) meta.setAttribute("content", antesMeta); html.style.backgroundColor = antesFondo; };
-  }, []);
 
   // Solo acepta cambios que vengan de escritura real de teclado (letra por letra o
   // borrar). Si el cambio viene de pegar, arrastrar texto, o de que el navegador
@@ -3965,6 +3971,7 @@ function LoginScreen({ onLogin }) {
   );
   return (
     <div style={{ minHeight:"100vh", background:C.dark, display:isMobile?"block":"grid", gridTemplateColumns:"minmax(380px, 46%) 1fr" }}>
+      <TopeEstado color={isMobile ? C.goldDark : "#ffffff"}/>
       <style>{`
         @keyframes ozenNoAutofill { from {} to {} }
         input.ozen-anti-autofill:-webkit-autofill { animation-name: ozenNoAutofill; }
@@ -4052,6 +4059,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
   // cambia de módulo desde el selector de áreas de la barra superior.
   return (
     <div style={{ minHeight:"100vh", background:C.dark, fontFamily:font.body, display:"flex", flexDirection:"column" }}>
+      <TopeEstado color="#ffffff"/>
       <style>{`
         @keyframes ozenPopIn { from { opacity:0; transform:translateY(16px) scale(0.96); } to { opacity:1; transform:translateY(0) scale(1); } }
         .ozen-modulo-card { animation:ozenPopIn .5s cubic-bezier(.34,1.4,.64,1) both; transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
@@ -11991,6 +11999,7 @@ export default function App() {
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden",fontFamily:font.body}}>
         {globalAnimStyles}
+        <TopeEstado color="#ffffff"/>
         <BarraSuperiorMovil {...propsBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
         {mostrarTienda && <FranjaTienda color={colorTiendaActiva}/>}
         <main style={{flex:1,overflowY:"auto",padding:16}}>{panel}</main>
@@ -12008,6 +12017,7 @@ export default function App() {
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
         {globalAnimStyles}
+        <TopeEstado color="#ffffff"/>
         <BarraSuperior {...propsBarra}/>
         <BarraPestanas tabs={tabsVisibles} tab={tab} setTab={setTab} derecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
         {mostrarTienda && <FranjaTienda color={colorTiendaActiva}/>}
