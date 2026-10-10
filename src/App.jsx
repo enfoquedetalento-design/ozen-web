@@ -1129,7 +1129,7 @@ const FranjaTienda = ({ color }) => <div style={{ height:3, background:color, tr
 
 function BarraSuperiorMovil({ extra, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   return (
-    <div style={{ background:"#fff", borderBottom:`1px solid ${C.border}`, padding:"10px 14px", paddingTop:"calc(10px + env(safe-area-inset-top, 0px))", flexShrink:0, position:"relative", zIndex:20 }}>
+    <div style={{ background:"#fff", borderBottom:`1px solid ${C.border}`, padding:"10px 14px", paddingTop:"calc(10px + env(safe-area-inset-top, 0px) * 1.55)", flexShrink:0, position:"relative", zIndex:20 }}>
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         <MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios} compact/>
         <div style={{ flex:1 }}/>
@@ -3823,7 +3823,7 @@ const Murcielago = ({ w=34, color="currentColor", style }) => (
 // Luna creciente + tres murciélagos, muy tenues, sobre el panel Sombra del ingreso.
 const DecoracionHalloweenLogin = ({ isMobile }) => (
   <div aria-hidden="true" style={{ position:"absolute", inset:0, pointerEvents:"none" }}>
-    <svg width={isMobile?54:90} height={isMobile?54:90} viewBox="0 0 100 100" style={{ position:"absolute", left:isMobile?22:48, top:isMobile?"calc(22px + env(safe-area-inset-top, 0px))":46, opacity:0.5 }}>
+    <svg width={isMobile?54:90} height={isMobile?54:90} viewBox="0 0 100 100" style={{ position:"absolute", left:isMobile?22:48, top:isMobile?"calc(22px + env(safe-area-inset-top, 0px) * 1.55)":46, opacity:0.5 }}>
       <circle cx="50" cy="50" r="40" fill={C.tinta}/>
       <circle cx="66" cy="40" r="36" fill={C.goldDark}/>
     </svg>
@@ -3871,6 +3871,10 @@ const VueloMurcielagos = () => {
 // alto exacto de esa zona (safe-area-inset-top), hace que Safari use ese color plano para la barra
 // en vez del difuminado. También ajusta theme-color y el fondo de <html> al mismo color.
 // Login: azul de la franja; dentro de la app: blanco de la barra superior.
+// Ojo (iOS 26): el iPhone igual pone un difuminado que baja un poco MÁS que la zona de la hora; no
+// se puede quitar, así que las barras de arriba dejan ese espacio de más (safe-area × 1.55) para que
+// el logo y los botones empiecen justo debajo del difuminado y no se vean borrosos. En computador y
+// Android safe-area-inset-top es 0, así que no cambia nada ahí.
 function TopeEstado({ color }) {
   useEffect(()=>{
     const meta = document.querySelector('meta[name="theme-color"]');
@@ -3878,7 +3882,7 @@ function TopeEstado({ color }) {
     document.documentElement.style.backgroundColor = color;
   }, [color]);
   return createPortal(
-    <div aria-hidden="true" style={{ position:"fixed", top:0, left:0, right:0, height:"env(safe-area-inset-top, 0px)", background:color, zIndex:2147483000, pointerEvents:"none" }}/>,
+    <div aria-hidden="true" style={{ position:"fixed", top:0, left:0, right:0, height:"calc(env(safe-area-inset-top, 0px) * 1.55)", background:color, zIndex:2147483000, pointerEvents:"none" }}/>,
     document.body
   );
 }
@@ -3957,7 +3961,7 @@ function LoginScreen({ onLogin }) {
   const etiqueta = { fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:7, textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:600 };
   const iconoCampo = { position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:C.textMuted, pointerEvents:"none" };
   const panelMarca = (
-    <div style={{ position:"relative", overflow:"hidden", background:C.goldDark, color:C.tinta, display:"flex", flexDirection:"column", alignItems:"center", padding:isMobile?"calc(40px + env(safe-area-inset-top, 0px)) 24px 64px":"48px 56px", minHeight:isMobile?220:"100vh", boxSizing:"border-box", ...(isMobile?{ borderRadius:"0 0 28px 28px" }:{}) }}>
+    <div style={{ position:"relative", overflow:"hidden", background:C.goldDark, color:C.tinta, display:"flex", flexDirection:"column", alignItems:"center", padding:isMobile?"calc(40px + env(safe-area-inset-top, 0px) * 1.55) 24px 64px":"48px 56px", minHeight:isMobile?220:"100vh", boxSizing:"border-box", ...(isMobile?{ borderRadius:"0 0 28px 28px" }:{}) }}>
       {/* Anillos decorativos — eco del círculo del logo. */}
       <span style={{ position:"absolute", right:isMobile?-90:-160, top:isMobile?-90:-140, width:isMobile?260:520, height:isMobile?260:520, borderRadius:"50%", border:"1px solid rgba(229,213,204,0.12)" }}/>
       <span style={{ position:"absolute", right:isMobile?-40:-60, top:isMobile?-40:-40, width:isMobile?160:320, height:isMobile?160:320, borderRadius:"50%", border:"1px solid rgba(229,213,204,0.08)" }}/>
@@ -4070,7 +4074,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
         .ozen-modulo-icon { transition:transform .2s ease, background .2s ease, color .2s ease; }
         .ozen-modulo-card:hover .ozen-modulo-icon { transform:scale(1.06) rotate(-3deg); background:${C.goldDark} !important; color:${C.tinta} !important; }
       `}</style>
-      <div style={{ height:isMobile?"calc(56px + env(safe-area-inset-top, 0px))":62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", padding:isMobile?"0 14px":"0 24px", paddingTop:isMobile?"env(safe-area-inset-top, 0px)":0, boxSizing:"border-box", gap:12, flexShrink:0 }}>
+      <div style={{ height:isMobile?"calc(56px + env(safe-area-inset-top, 0px) * 1.55)":62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", padding:isMobile?"0 14px":"0 24px", paddingTop:isMobile?"calc(env(safe-area-inset-top, 0px) * 1.55)":0, boxSizing:"border-box", gap:12, flexShrink:0 }}>
         <MarcaOzen user={{ role:"" }} onAbrirUsuarios={()=>{}} compact={isMobile}/>
         <div style={{ flex:1 }}/>
         <span style={{ fontSize:13, color:C.textSub, display:isMobile?"none":"inline" }}>{user.name}</span>
