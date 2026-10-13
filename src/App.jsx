@@ -7397,24 +7397,25 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
 // Estado del cumplimiento con TEXTO + ícono (no solo color). Se compara contra lo que DEBERÍA
 // llevar a hoy (pedido de Santiago: al 13 de octubre un 68 % salía "Bajo" aunque iba muy bien):
 //   esperado = % del mes que ya pasó (día de hoy ÷ días del mes; en meses cerrados, 100 %).
-//   100 % o más            → Cumplió   (verde, con chulo)
-//   desde el esperado      → Adelantado (verde)
-//   85 % del esperado o más → En camino (amarillo)  — ej. esperado 42 % → de 36 % a 41 %
-//   menos que eso          → Bajo      (rojo)       — ej. esperado 42 % → de 0 % a 35 %
+//   100 % o más            → 🏆 Cumplió (verde)
+//   desde el esperado      → ☀️ Alto    (verde)
+//   85 % del esperado o más → ⛅ Medio   (amarillo)  — ej. esperado 42 % → de 36 % a 41 %
+//   menos que eso          → 🌧️ Bajo    (rojo)      — ej. esperado 42 % → de 0 % a 35 %
+// Íconos de clima elegidos por Santiago (más visual y amigable para los asesores).
 const estadoCumplimiento = (idc, esperado=100) => {
   const e = Math.max(0, Math.min(100, Number(esperado ?? 100)));
-  if(idc>=100) return ["Cumplió", C.green, C.greenDim, "check"];
-  if(e===0) return ["Sin empezar", C.textMuted, C.surfaceAlt, null]; // mes que todavía no empieza
-  if(e<100 && idc>=e) return ["Adelantado", C.green, C.greenDim, null];
-  if(idc>=e*0.85) return ["En camino", C.amber, C.amberDim, null];
-  return ["Bajo", C.red, C.redDim, null];
+  if(idc>=100) return ["Cumplió", C.green, C.greenDim, "🏆"];
+  if(e===0) return ["Sin empezar", C.textMuted, C.surfaceAlt, "🌙"]; // mes que todavía no empieza
+  if(e<100 && idc>=e) return ["Alto", C.green, C.greenDim, "☀️"];
+  if(idc>=e*0.85) return ["Medio", C.amber, C.amberDim, "⛅"];
+  return ["Bajo", C.red, C.redDim, "🌧️"];
 };
 const EstadoIDC = ({ idc, conValor, esperado }) => {
   if(idc===null || idc===undefined) return <span style={{ color:C.textMuted }}>—</span>;
   const [txt, col, bg, ic] = estadoCumplimiento(idc, esperado);
   return (
     <span title={esperado!==undefined && esperado<100 ? `A hoy debería llevar ${String(esperado).replace(".",",")} %` : undefined} style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:col, background:bg }}>
-      {ic ? <Icon n={ic} s={12} sw={2.4}/> : txt!=="Bajo" ? <span style={{ width:6, height:6, borderRadius:"50%", background:col }}/> : <span style={{ fontSize:9 }}>▼</span>}
+      <span style={{ fontSize:13, lineHeight:1 }}>{ic}</span>
       {conValor ? `${idc}%` : txt}
     </span>
   );
@@ -8181,7 +8182,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const esMesActual = anio===hoy.getFullYear() && mesIdx===hoy.getMonth();
   const diasTotalesMes = diasDelMes(anio, mesIdx);
   const diasRestantes = esMesActual ? (diasTotalesMes - hoy.getDate() + 1) : 0;
-  // Cuánto del mes ya pasó (para la etiqueta Adelantado / En camino / Bajo — ver estadoCumplimiento).
+  // Cuánto del mes ya pasó (para la etiqueta Alto / Medio / Bajo — ver estadoCumplimiento).
   const esperadoMesPct = esMesActual ? Math.round(hoy.getDate()/diasTotalesMes*1000)/10 : (new Date(anio, mesIdx, 1) > hoy ? 0 : 100);
 
   const irMesAnterior = () => { if(mesIdx===0){ setMesIdx(11); setAnio(a=>a-1); } else setMesIdx(m=>m-1); };
