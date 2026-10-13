@@ -7393,14 +7393,27 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
 };
 
 // ── Métricas (Propuesta A) ──────────────────────────────────────────────────
-// Estado del cumplimiento con TEXTO + ícono (no solo color), con los mismos cortes del semáforo
-// de siempre (colorSemaforoIDC): 100 % o más = Cumplió, 70–99 % = En camino, menos de 70 % = Bajo.
-const EstadoIDC = ({ idc, conValor }) => {
+// Estado del cumplimiento con TEXTO + ícono (no solo color). Se compara contra lo que DEBERÍA
+// llevar a hoy (pedido de Santiago: al 13 de octubre un 68 % salía "Bajo" aunque iba muy bien):
+//   esperado = % del mes que ya pasó (día de hoy ÷ días del mes; en meses cerrados, 100 %).
+//   100 % o más            → Cumplió   (verde, con chulo)
+//   desde el esperado      → Adelantado (verde)
+//   85 % del esperado o más → En camino (amarillo)  — ej. esperado 42 % → de 36 % a 41 %
+//   menos que eso          → Bajo      (rojo)       — ej. esperado 42 % → de 0 % a 35 %
+const estadoCumplimiento = (idc, esperado=100) => {
+  const e = Math.max(0, Math.min(100, Number(esperado ?? 100)));
+  if(idc>=100) return ["Cumplió", C.green, C.greenDim, "check"];
+  if(e===0) return ["Sin empezar", C.textMuted, C.surfaceAlt, null]; // mes que todavía no empieza
+  if(e<100 && idc>=e) return ["Adelantado", C.green, C.greenDim, null];
+  if(idc>=e*0.85) return ["En camino", C.amber, C.amberDim, null];
+  return ["Bajo", C.red, C.redDim, null];
+};
+const EstadoIDC = ({ idc, conValor, esperado }) => {
   if(idc===null || idc===undefined) return <span style={{ color:C.textMuted }}>—</span>;
-  const [txt, col, bg, ic] = idc>=100 ? ["Cumplió", C.green, C.greenDim, "check"] : idc>=70 ? ["En camino", C.amber, C.amberDim, null] : ["Bajo", C.red, C.redDim, null];
+  const [txt, col, bg, ic] = estadoCumplimiento(idc, esperado);
   return (
-    <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:col, background:bg }}>
-      {ic ? <Icon n={ic} s={12} sw={2.4}/> : idc>=70 ? <span style={{ width:6, height:6, borderRadius:"50%", background:col }}/> : <span style={{ fontSize:9 }}>▼</span>}
+    <span title={esperado!==undefined && esperado<100 ? `A hoy debería llevar ${String(esperado).replace(".",",")} %` : undefined} style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:col, background:bg }}>
+      {ic ? <Icon n={ic} s={12} sw={2.4}/> : txt!=="Bajo" ? <span style={{ width:6, height:6, borderRadius:"50%", background:col }}/> : <span style={{ fontSize:9 }}>▼</span>}
       {conValor ? `${idc}%` : txt}
     </span>
   );
@@ -8167,6 +8180,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const esMesActual = anio===hoy.getFullYear() && mesIdx===hoy.getMonth();
   const diasTotalesMes = diasDelMes(anio, mesIdx);
   const diasRestantes = esMesActual ? (diasTotalesMes - hoy.getDate() + 1) : 0;
+  // Cuánto del mes ya pasó (para la etiqueta Adelantado / En camino / Bajo — ver estadoCumplimiento).
+  const esperadoMesPct = esMesActual ? Math.round(hoy.getDate()/diasTotalesMes*1000)/10 : (new Date(anio, mesIdx, 1) > hoy ? 0 : 100);
 
   const irMesAnterior = () => { if(mesIdx===0){ setMesIdx(11); setAnio(a=>a-1); } else setMesIdx(m=>m-1); };
   const irMesSiguiente = () => { if(mesIdx===11){ setMesIdx(0); setAnio(a=>a+1); } else setMesIdx(m=>m+1); };
@@ -8672,7 +8687,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                   {esMesActual && d.esperado!=null && d.idc<100 ? (d.idc>=d.esperado
                     ? <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.green, background:C.greenDim }}><Icon n="check" s={12} sw={2.4}/>Al día</span>
                     : <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.red, background:C.redDim }}><span style={{ fontSize:9 }}>▼</span>Atrasada</span>
-                  ) : <EstadoIDC idc={d.idc}/>}
+                  ) : <EstadoIDC idc={d.idc} esperado={esperadoMesPct}/>}
                 </div>
                 <div style={{ margin:"14px 0 6px" }}><BarraConMeta idc={d.idc} escala={esc} color={col||C.gold} etiqueta esperado={esMesActual?d.esperado:null}/></div>
                 {esMesActual && d.esperado!=null && (() => { const dif = Math.round((d.idc - d.esperado)*10)/10; return (
@@ -8740,12 +8755,12 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                 <div key={d.asesor.id} style={{ padding:"11px 2px", borderBottom:borde }}>
                   <div style={{ display:"flex", alignItems:"center", gap:10 }}>{numero}<div style={{ flex:1, minWidth:0 }}>{nombre}</div>{pct}</div>
                   <div style={{ margin:"9px 0 7px 36px" }}><BarraConMeta idc={d.idc} escala={esc} color={C.gold} alto={8}/></div>
-                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginLeft:36 }}>{plata}<EstadoIDC idc={d.idc}/></div>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginLeft:36 }}>{plata}<EstadoIDC idc={d.idc} esperado={esperadoMesPct}/></div>
                 </div>
               ) : (
                 <div key={d.asesor.id} style={{ display:"grid", gridTemplateColumns:"34px minmax(150px,220px) 1fr 64px 330px", alignItems:"center", gap:14, padding:"11px 4px", borderBottom:borde }}>
                   {numero}{nombre}<BarraConMeta idc={d.idc} escala={esc} color={C.gold} alto={8}/>{pct}
-                  <span style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:8 }}>{plata}<EstadoIDC idc={d.idc}/></span>
+                  <span style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:8 }}>{plata}<EstadoIDC idc={d.idc} esperado={esperadoMesPct}/></span>
                 </div>
               );
             })}
@@ -8775,7 +8790,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                       <td style={tdMet}><b>{d.asesor.name}</b><div style={{ height:5, width:isMobile?110:150, background:C.surfaceHover, borderRadius:9, marginTop:6 }}><div style={{ height:"100%", width:`${d.sinServicios/maxVenta*100}%`, background:C.gold, borderRadius:9 }}/></div></td>
                       <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:d.sinServicios>0?C.text:C.textMuted }}>{fmtCOP(d.sinServicios)}</td>
                       <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{d.meta>0?fmtCOP(d.meta):"—"}</td>
-                      <td style={{ ...tdMet, textAlign:"right" }}><EstadoIDC idc={d.idc} conValor/></td>
+                      <td style={{ ...tdMet, textAlign:"right" }}><EstadoIDC idc={d.idc} conValor esperado={esperadoMesPct}/></td>
                       <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{d.mda===null?"—":fmtCOP(d.mda)}</td>
                     </tr>
                   ))}
@@ -8786,7 +8801,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                     <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}` }}>Total</td>
                     <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right", fontFamily:font.mono }}>{fmtCOP(totVenta)}</td>
                     <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right", fontFamily:font.mono }}>{totMeta>0?fmtCOP(totMeta):"—"}</td>
-                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right" }}><EstadoIDC idc={totIdc} conValor/></td>
+                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right" }}><EstadoIDC idc={totIdc} conValor esperado={esperadoMesPct}/></td>
                     <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}` }}/>
                   </tr></tfoot>
                 )}
