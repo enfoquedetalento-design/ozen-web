@@ -1465,6 +1465,7 @@ function UsuariosScreen({ users, setUsers, stores }) {
     // hayan asignado en la malla, y su meta personal de ventas si tenía.
     await supabase.from("registros").delete().eq("user_id", id);
     await supabase.from("turnos_asignaciones").delete().eq("asesor_id", id);
+    await supabase.from("turnos_borrador").delete().eq("asesor_id", id);
     await supabase.from("ventas_metas_asesor").delete().eq("vendedor_id", id);
     const { error } = await supabase.from("usuarios").delete().eq("id", id);
     if (error) { alert(`No se pudo eliminar: ${error.message}`); return; }
@@ -1707,8 +1708,10 @@ function TurnosEspecialesScreen({ turnosGlobales, setTurnosGlobales }) {
   const addGlobal=async()=>{ if(!newNombre.trim())return; const id=newNombre.trim().toLowerCase().replace(/\s+/g,"_").replace(/[^a-z0-9_]/g,""); if(!id||turnosGlobales.some(t=>t.id===id))return; const{data,error}=await supabase.from("turnos_globales").insert({id,nombre:newNombre.trim(),color:newColor}).select().single(); if(!error&&data){setTurnosGlobales(prev=>[...prev,data]);setNewNombre("");setNewColor("#9ca3af");setShowForm(false);} else if(error){ alert(`No se pudo crear el código: ${error.message}`); } };
   const saveEdit=async(id)=>{ if(!editVal.nombre.trim())return; const{data,error}=await supabase.from("turnos_globales").update({nombre:editVal.nombre.trim(),color:editVal.color||"#9ca3af"}).eq("id",id).select().single(); if(!error&&data){setTurnosGlobales(prev=>prev.map(t=>t.id===id?data:t));setEditing(null);} else if(error){ alert(`No se pudo guardar: ${error.message}`); } };
   const deleteGlobal=async(id)=>{
-    const { count } = await supabase.from("turnos_asignaciones").select("id",{ count:"exact", head:true }).eq("turno_global_id",id);
-    if(count>0){ alert(`Este código está asignado en ${count} día(s) de la rejilla. Quítalo de esas asignaciones antes de eliminarlo.`); return; }
+    const { count: countPub } = await supabase.from("turnos_asignaciones").select("id",{ count:"exact", head:true }).eq("turno_global_id",id);
+    const { count: countBor } = await supabase.from("turnos_borrador").select("id",{ count:"exact", head:true }).eq("turno_global_id",id);
+    const count = (countPub||0) + (countBor||0);
+    if(count>0){ alert(`Este código está asignado en ${count} día(s) de la rejilla (publicada o en el borrador). Quítalo de esas asignaciones antes de eliminarlo.`); return; }
     if(!window.confirm("¿Eliminar este código? Esto no se puede deshacer.")) return;
     await supabase.from("turnos_globales").delete().eq("id",id); setTurnosGlobales(prev=>prev.filter(t=>t.id!==id));
   };
@@ -2045,7 +2048,7 @@ function ModalHorarioCustom({ info, turnosHorarios, onGuardar, onCerrar }) {
 }
 
 // ── Turnos: rejilla mensual (asesores en columnas, días en filas) ─────────────
-function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnosHorarios, editable, onCambiarCelda, onGuardarCustom, onMoverAsesor }) {
+function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnosHorarios, editable, onCambiarCelda, onGuardarCustom, onMoverAsesor, cambiadas }) {
   // Lo más compacto posible en ancho y alto (pedido de Santiago) — Día angosto (solo cabe el
   // número + 2 letras del día), columnas de asesor más ceñidas al nombre, menos padding en filas.
   const colWidth = Math.max(52, ...advisors.map(a=>primerNombre(a.name).length*7.5+(editable?34:14)), 52);
@@ -2085,7 +2088,7 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
                 const asig = asigMap.get(`${a.id}|${fecha}`);
                 const turno = resolverTurno(asig, stores, turnosGlobales);
                 return (
-                  <td key={a.id} style={{ borderBottom:`1px solid ${C.border}`, borderLeft:`1px solid ${C.border}`, padding:2 }}>
+                  <td key={a.id} style={{ borderBottom:`1px solid ${C.border}`, borderLeft:`1px solid ${C.border}`, padding:2, ...(cambiadas?.has(`${a.id}|${fecha}`) ? { outline:`2px solid ${C.amber}`, outlineOffset:-2 } : {}) }} title={cambiadas?.has(`${a.id}|${fecha}`) ? "Cambio sin publicar" : undefined}>
                     {editable ? (
                       <div style={{ display:"flex", alignItems:"center", gap:2 }}>
                         <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ flex:1, minWidth:0, minHeight:24, borderRadius:6, boxSizing:"border-box", border:`1px solid ${turno?hexToRgba(oscurecerColor(turno.color,30),0.55):C.border}`, background:turno?`linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,18)})`:C.surfaceAlt, color:turno?colorTextoContraste(turno.color):C.textMuted, fontFamily:font.body, fontSize:10.5, fontWeight:turno?700:400, padding:"2px 1px", cursor:"pointer", outline:"none", boxShadow:turno?"0 1px 3px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.22)":"none", textShadow:turno&&colorTextoContraste(turno.color)==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none", transition:"transform .12s ease, box-shadow .12s ease" }}>
@@ -2255,11 +2258,114 @@ function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asigna
 }
 
 // ── SCREEN: Turnos · Borrador (antes "Editar") ─────────────────────────────────
-function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHorarios, asignaciones, setAsignaciones }) {
+// Borrador de verdad: lo que se edita aquí vive en `turnos_borrador` (una copia aparte) y NADIE
+// más lo ve — ni la rejilla "Turnos", ni la marcación/puntualidad, ni las metas — hasta que se
+// pulsa "Publicar <mes>", que recién ahí actualiza `turnos_asignaciones` (lo oficial). La primera
+// vez que se abre un mes, el borrador arranca como copia exacta de lo publicado (se registra en
+// `turnos_borrador_meses` para no volver a copiarlo). Ver sql/turnos_borrador.sql.
+const CAMPOS_TURNO = ["turno_global_id","tienda_id","shift","entrada_custom","salida_custom","nota_custom"];
+const copiaParaBorrador = (a) => ({ asesor_id:a.asesor_id, fecha:a.fecha, turno_global_id:a.turno_global_id||null, tienda_id:a.tienda_id||null, shift:a.shift||null, entrada_custom:a.entrada_custom||null, salida_custom:a.salida_custom||null, nota_custom:a.nota_custom||null });
+const turnoIgual = (x, y) => CAMPOS_TURNO.every(c => (x[c]||null) === (y[c]||null));
+function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHorarios, asignaciones, setAsignaciones, userName }) {
   const { anio, mes, prev, next } = useMesSeleccionado();
   const advisors = advisorsOrdenTurnos(users);
   const dias = fechasDelMesTurnos(anio, mes);
-  const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
+  const mesKey = `${anio}-${String(mes+1).padStart(2,"0")}`;
+  const [borrador,setBorrador]=useState([]);
+  const [cargandoBorrador,setCargandoBorrador]=useState(true);
+  const [publicando,setPublicando]=useState(false);
+  const cargasRef = useRef({}); // evita copiar dos veces el mismo mes si el efecto corre doble
+  const publicadasMes = asignaciones.filter(a=>a.fecha && a.fecha.slice(0,7)===mesKey);
+  const publicadasRef = useRef(publicadasMes); publicadasRef.current = publicadasMes;
+  const primerDia = dias[0], ultimoDia = dias[dias.length-1];
+
+  const cargarBorrador = async (clave, pDesde, pHasta) => {
+    const { data: meta, error: errMeta } = await supabase.from("turnos_borrador_meses").select("mes").eq("mes", clave).maybeSingle();
+    if(errMeta) throw errMeta;
+    if(!meta){
+      // Primera vez que se abre este mes: limpiar cualquier copia a medias de un intento anterior
+      // y arrancar el borrador como copia exacta de lo publicado.
+      const { error: errDel } = await supabase.from("turnos_borrador").delete().gte("fecha", pDesde).lte("fecha", pHasta);
+      if(errDel) throw errDel;
+      const copias = publicadasRef.current.map(copiaParaBorrador);
+      for(let i=0;i<copias.length;i+=200){
+        const { error } = await supabase.from("turnos_borrador").insert(copias.slice(i,i+200));
+        if(error) throw error;
+      }
+      const { error: errMes } = await supabase.from("turnos_borrador_meses").insert({ mes:clave });
+      if(errMes) throw errMes;
+    }
+    const { data, error } = await supabase.from("turnos_borrador").select("*").gte("fecha", pDesde).lte("fecha", pHasta);
+    if(error) throw error;
+    return data||[];
+  };
+  useEffect(()=>{
+    let cancelado = false;
+    setCargandoBorrador(true);
+    const clave = mesKey;
+    if(!cargasRef.current[clave]) cargasRef.current[clave] = cargarBorrador(clave, primerDia, ultimoDia);
+    cargasRef.current[clave].then(rows=>{ if(!cancelado){ setBorrador(rows); setCargandoBorrador(false); } })
+      .catch(err=>{ delete cargasRef.current[clave]; if(!cancelado){ setBorrador([]); setCargandoBorrador(false); alert(`No se pudo cargar el borrador de ${MESES_LARGO[mes]}: ${err.message||"error desconocido"}`); } });
+    return ()=>{ cancelado = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesKey]);
+
+  const asigMap = new Map(borrador.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
+  // Diferencias entre el borrador y lo publicado de este mes.
+  const pubMap = new Map(publicadasMes.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
+  const nuevos = [], modificados = [], quitados = [];
+  borrador.forEach(b=>{ const p = pubMap.get(`${b.asesor_id}|${b.fecha}`); if(!p) nuevos.push(b); else if(!turnoIgual(b,p)) modificados.push({ b, p }); });
+  publicadasMes.forEach(p=>{ if(!asigMap.has(`${p.asesor_id}|${p.fecha}`)) quitados.push(p); });
+  const totalCambios = nuevos.length + modificados.length + quitados.length;
+  const cambiadas = new Set([...nuevos.map(b=>`${b.asesor_id}|${b.fecha}`), ...modificados.map(m=>`${m.b.asesor_id}|${m.b.fecha}`), ...quitados.map(p=>`${p.asesor_id}|${p.fecha}`)]);
+
+  const publicar = async () => {
+    if(totalCambios===0) return;
+    if(!window.confirm(`¿Publicar el borrador de ${MESES_LARGO[mes]} ${anio}?\n\nA partir de ahora todos verán estos turnos (${nuevos.length} nuevos, ${modificados.length} modificados, ${quitados.length} quitados).`)) return;
+    setPublicando(true);
+    try {
+      if(quitados.length){
+        const { error } = await supabase.from("turnos_asignaciones").delete().in("id", quitados.map(p=>p.id));
+        if(error) throw error;
+        const ids = new Set(quitados.map(p=>p.id));
+        setAsignaciones(prev=>prev.filter(a=>!ids.has(a.id)));
+      }
+      for(const { b, p } of modificados){
+        const { data, error } = await supabase.from("turnos_asignaciones").update(copiaParaBorrador(b)).eq("id", p.id).select().single();
+        if(error) throw error;
+        setAsignaciones(prev=>prev.map(a=>a.id===data.id?data:a));
+      }
+      if(nuevos.length){
+        const { data, error } = await supabase.from("turnos_asignaciones").insert(nuevos.map(copiaParaBorrador)).select();
+        if(error) throw error;
+        setAsignaciones(prev=>[...prev, ...(data||[])]);
+      }
+      await supabase.from("turnos_borrador_meses").update({ publicado_en:new Date().toISOString(), publicado_por:userName||null }).eq("mes", mesKey);
+    } catch(err){
+      alert(`No se pudo publicar completo: ${err.message||"error desconocido"}. Lo que alcanzó a publicarse ya es visible; el borrador sigue intacto, así que puedes volver a pulsar "Publicar".`);
+    }
+    setPublicando(false);
+  };
+  const descartar = async () => {
+    if(totalCambios===0) return;
+    if(!window.confirm(`¿Descartar los ${totalCambios} cambios sin publicar de ${MESES_LARGO[mes]} ${anio}?\n\nEl borrador vuelve a ser igual a lo publicado. Esto no se puede deshacer.`)) return;
+    setPublicando(true);
+    try {
+      const { error: errDel } = await supabase.from("turnos_borrador").delete().gte("fecha", primerDia).lte("fecha", ultimoDia);
+      if(errDel) throw errDel;
+      const copias = publicadasMes.map(copiaParaBorrador);
+      let nuevas = [];
+      for(let i=0;i<copias.length;i+=200){
+        const { data, error } = await supabase.from("turnos_borrador").insert(copias.slice(i,i+200)).select();
+        if(error) throw error;
+        nuevas = nuevas.concat(data||[]);
+      }
+      setBorrador(nuevas);
+    } catch(err){
+      alert(`No se pudo descartar: ${err.message||"error desconocido"}`);
+    }
+    setPublicando(false);
+  };
   // Mover una columna a la izq/der (dirección -1/1) — reindexa TODOS los visibles a un orden
   // secuencial (por si nunca se habían movido a mano) e intercambia los dos que cambian de lugar.
   // Optimista en pantalla; si falla el guardado en algún registro no revierte solo (poco probable
@@ -2282,43 +2388,55 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
   const onCambiarCelda = async (asesorId, fecha, valor) => {
     const existing = asigMap.get(`${asesorId}|${fecha}`);
     if(!valor){
-      if(existing){ const{error}=await supabase.from("turnos_asignaciones").delete().eq("id",existing.id); if(error){ alert(`No se pudo borrar: ${error.message}`); return; } setAsignaciones(prev=>prev.filter(a=>a.id!==existing.id)); }
+      if(existing){ const{error}=await supabase.from("turnos_borrador").delete().eq("id",existing.id); if(error){ alert(`No se pudo borrar: ${error.message}`); return; } setBorrador(prev=>prev.filter(a=>a.id!==existing.id)); }
       return;
     }
     let payload;
     if(valor.startsWith("g:")) payload={ asesor_id:asesorId, fecha, turno_global_id:valor.slice(2), tienda_id:null, shift:null };
     else { const [sid,encShift]=valor.slice(2).split("|"); payload={ asesor_id:asesorId, fecha, tienda_id:sid, shift:decodeURIComponent(encShift||""), turno_global_id:null }; }
     if(existing){
-      const{data,error}=await supabase.from("turnos_asignaciones").update(payload).eq("id",existing.id).select().single();
-      if(!error&&data) setAsignaciones(prev=>prev.map(a=>a.id===data.id?data:a));
+      const{data,error}=await supabase.from("turnos_borrador").update(payload).eq("id",existing.id).select().single();
+      if(!error&&data) setBorrador(prev=>prev.map(a=>a.id===data.id?data:a));
       else if(error) alert(`No se pudo guardar el turno: ${error.message}`);
     } else {
-      const{data,error}=await supabase.from("turnos_asignaciones").insert(payload).select().single();
-      if(!error&&data) setAsignaciones(prev=>[...prev,data]);
+      const{data,error}=await supabase.from("turnos_borrador").insert(payload).select().single();
+      if(!error&&data) setBorrador(prev=>[...prev,data]);
       else if(error) alert(`No se pudo guardar el turno: ${error.message}`);
     }
   };
   const onGuardarCustom = async (asesorId, fecha, entradaCustom, salidaCustom, notaCustom) => {
     const existing = asigMap.get(`${asesorId}|${fecha}`);
     if(!existing) return;
-    const{data,error}=await supabase.from("turnos_asignaciones").update({ entrada_custom:entradaCustom||null, salida_custom:salidaCustom||null, nota_custom:notaCustom||null }).eq("id",existing.id).select().single();
-    if(!error&&data) setAsignaciones(prev=>prev.map(a=>a.id===data.id?data:a));
+    const{data,error}=await supabase.from("turnos_borrador").update({ entrada_custom:entradaCustom||null, salida_custom:salidaCustom||null, nota_custom:notaCustom||null }).eq("id",existing.id).select().single();
+    if(!error&&data) setBorrador(prev=>prev.map(a=>a.id===data.id?data:a));
     else if(error) alert(`No se pudo guardar: ${error.message}`);
   };
   return (
     <div>
-      <PageHeader title="Borrador de turnos" subtitle="Los cambios se guardan al instante"/>
+      <PageHeader title="Borrador de turnos" subtitle="Los cambios se guardan en el borrador — nadie los ve hasta que publiques el mes"/>
       <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios}/>
       <GestionAsesoresActivosTurnos users={users} setUsers={setUsers}/>
       <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
+      <Card p="10px 14px" style={{ marginBottom:12, ...(totalCambios>0 ? { border:`1px solid ${C.amber}` } : {}) }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+          <div style={{ flex:1, minWidth:200, fontFamily:font.body, fontSize:12.5, color:C.text }}>
+            {cargandoBorrador ? "Cargando borrador..." : totalCambios===0
+              ? <>✅ El borrador de <b>{MESES_LARGO[mes]}</b> es igual a lo publicado.</>
+              : <>📝 <b>{totalCambios} cambio{totalCambios===1?"":"s"} sin publicar</b> en {MESES_LARGO[mes]} <span style={{ color:C.textMuted }}>({nuevos.length} nuevos · {modificados.length} modificados · {quitados.length} quitados) — marcados en ámbar en la rejilla. Los demás todavía ven la versión anterior.</span></>}
+          </div>
+          {!cargandoBorrador && totalCambios>0 && <Btn onClick={descartar} variant="ghost" sm disabled={publicando}>Descartar cambios</Btn>}
+          {!cargandoBorrador && <Btn onClick={publicar} sm disabled={publicando || totalCambios===0}>{publicando ? "Publicando..." : `📣 Publicar ${MESES_LARGO[mes]}`}</Btn>}
+        </div>
+      </Card>
       {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay personas activas en la malla. Actívalas arriba, en "Personas activas en la malla".</div> :
-        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom} onMoverAsesor={moverAsesor}/>}
+        cargandoBorrador ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>Cargando borrador de {MESES_LARGO[mes]}...</div> :
+        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom} onMoverAsesor={moverAsesor} cambiadas={cambiadas}/>}
     </div>
   );
 }
 
 // ── SCREEN: Turnos (contenedor con sub-pestañas Ver / Editar / Administrar) ────
-function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, turnosHorarios, setTurnosHorarios, puedeGestionar, onSubChange }) {
+function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, turnosHorarios, setTurnosHorarios, puedeGestionar, onSubChange, userName }) {
   const [sub,setSub]=useState("ver");
   // Avisa hacia arriba en qué sub-pestaña está (App la usa para alargar el cierre de sesión por
   // inactividad mientras se edita el Borrador o Administrar, que puede tomar rato).
@@ -2340,7 +2458,7 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
       </div>
       <div key={sub} className="ozen-pane-anim-tab">
         {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones}/>}
-        {sub==="editar"      && puedeGestionar && <TurnosEditarScreen users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} setAsignaciones={setAsignaciones}/>}
+        {sub==="editar"      && puedeGestionar && <TurnosEditarScreen users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} setAsignaciones={setAsignaciones} userName={userName}/>}
         {sub==="administrar" && puedeGestionar && <TurnosAdminScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
       </div>
     </div>
@@ -12150,7 +12268,7 @@ export default function App() {
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones} user={user} onRecordDeleted={onRecordDeletedAdmin} onRecordUpdated={onRecordUpdatedAdmin}/>;
-        if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={puedeGestionarTurnos(user)} onSubChange={setTurnosSub}/>;
+        if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={puedeGestionarTurnos(user)} onSubChange={setTurnosSub} userName={user.name}/>;
         if(tab==="mi_asistencia") return <MiAsistenciaScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} onRecordUpdated={onRecordUpdatedAdmin} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
