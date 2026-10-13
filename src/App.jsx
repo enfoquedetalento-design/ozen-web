@@ -7551,10 +7551,10 @@ const CONS_TIPOS = [
 ];
 const CONS_MEDIOS = [...VENTAS_MEDIOS_PAGO.map(m=>({ value:m.value, label:m.value==="tarjeta"?"Tarjeta":m.label })), { value:"nota", label:"Nota crédito" }];
 const CONS_PRESETS = [
-  { id:"p1", nombre:"Ventas por asesor y tienda · este mes", q:{ medida:"sin", g1:"asesor", g2:"tienda", periodo:"mes", comparar:"mes" } },
-  { id:"p2", nombre:"¿A qué hora se vende más?", q:{ medida:"sin", g1:"hora", g2:"", periodo:"30", comparar:"" } },
-  { id:"p3", nombre:"Día de la semana por tienda", q:{ medida:"sin", g1:"tienda", g2:"dow", periodo:"90", comparar:"" } },
-  { id:"p4", nombre:"Medios de pago vs mes pasado", q:{ medida:"ingreso", g1:"medio", g2:"", periodo:"mes", comparar:"mes" } },
+  { id:"p1", nombre:"Ventas por asesor y tienda · este mes", corto:"Asesor y tienda", q:{ medida:"sin", g1:"asesor", g2:"tienda", periodo:"mes", comparar:"mes" } },
+  { id:"p2", nombre:"¿A qué hora se vende más?", corto:"¿A qué hora?", q:{ medida:"sin", g1:"hora", g2:"", periodo:"30", comparar:"" } },
+  { id:"p3", nombre:"Día de la semana por tienda", corto:"Día de la semana", q:{ medida:"sin", g1:"tienda", g2:"dow", periodo:"90", comparar:"" } },
+  { id:"p4", nombre:"Medios de pago vs mes pasado", corto:"Medios de pago", q:{ medida:"ingreso", g1:"medio", g2:"", periodo:"mes", comparar:"mes" } },
 ];
 const CONS_Q_INICIAL = { medida:"sin", g1:"asesor", g2:"", periodo:"mes", desde:"", hasta:"", comparar:"mes", tiendas:[], asesor:"", tipos:[], medios:[], equipoJunto:true };
 const CONS_LS = "ozen-consultas-guardadas";
@@ -7724,6 +7724,69 @@ const ConsDelta = ({ act, prev, inverso, sufijo }) => {
   return <span style={{ color:p===0?C.textMuted:(bueno?C.green:C.red), fontWeight:700, whiteSpace:"nowrap" }}>{p===0?"=":(sube?"▲":"▼")} {Math.abs(p).toLocaleString("es-CO",{ minimumFractionDigits:1, maximumFractionDigits:1 })} %{sufijo?` ${sufijo}`:""}</span>;
 };
 
+// ── Consultas: menú en casillas (pedido de Santiago: la frase se veía desordenada) ──────────────
+// Barra tipo buscador con casillas fijas: Qué ver · Agrupado por · Cuándo · Dónde · Comparar con ·
+// Filtros. Cada casilla abre su listita (no la rueda del sistema). En celular se apilan.
+const CONS_ICONO_MEDIDA = { sin:"💰", ingreso:"🧾", servicios:"🛠️", count:"#️⃣", ticket:"🎟️", descuento:"🏷️" };
+const CONS_ICONO_GRUPO = { asesor:"👤", tienda:"🏬", dia:"📅", semana:"🗓️", mes:"📆", dow:"📊", hora:"🕐", tipo:"🏷️", medio:"💳" };
+// Tipos de gráfico del selector (los que no aplican a la pregunta se ven apagados).
+const CONS_GRAFICOS = [
+  { v:"barras", l:"Barras" }, { v:"columnas", l:"Columnas" }, { v:"barras100", l:"Barras 100 %" },
+  { v:"linea", l:"Línea" }, { v:"area", l:"Área" }, { v:"dona", l:"Dona" },
+  { v:"mapa", l:"Mapa de calor" }, { v:"podio", l:"Podio" }, { v:"tabla", l:"Solo tabla" },
+];
+const ConsIconoGrafico = ({ v }) => {
+  const b = C.gold;
+  const svg = (hijos) => <svg width="40" height="26" viewBox="0 0 44 30" aria-hidden="true">{hijos}</svg>;
+  if(v==="barras") return svg(<><rect x="2" y="3" width="34" height="6" rx="2" fill={b}/><rect x="2" y="12" width="26" height="6" rx="2" fill={b}/><rect x="2" y="21" width="16" height="6" rx="2" fill={b}/></>);
+  if(v==="columnas") return svg(<><rect x="4" y="12" width="7" height="16" rx="2" fill={b}/><rect x="15" y="5" width="7" height="23" rx="2" fill={b}/><rect x="26" y="16" width="7" height="12" rx="2" fill={b}/><rect x="37" y="9" width="5" height="19" rx="2" fill={b}/></>);
+  if(v==="barras100") return svg(<><rect x="2" y="3" width="14" height="6" fill="#e0433e"/><rect x="16" y="3" width="10" height="6" fill="#3fa15e"/><rect x="26" y="3" width="16" height="6" fill="#3d7ee0"/><rect x="2" y="12" width="20" height="6" fill="#e0433e"/><rect x="22" y="12" width="8" height="6" fill="#3fa15e"/><rect x="30" y="12" width="12" height="6" fill="#3d7ee0"/><rect x="2" y="21" width="8" height="6" fill="#e0433e"/><rect x="10" y="21" width="22" height="6" fill="#3fa15e"/><rect x="32" y="21" width="10" height="6" fill="#3d7ee0"/></>);
+  if(v==="linea") return svg(<><polyline points="2,26 10,22 18,24 26,18 34,20 42,15" fill="none" stroke="#c9b8aa" strokeWidth="2" strokeDasharray="3 2"/><polyline points="2,24 10,16 18,19 26,8 34,12 42,4" fill="none" stroke={b} strokeWidth="2.5" strokeLinejoin="round"/></>);
+  if(v==="area") return svg(<><path d="M2 24 L10 16 L18 19 L26 8 L34 12 L42 4 L42 28 L2 28Z" fill="rgba(38,93,127,.25)"/><polyline points="2,24 10,16 18,19 26,8 34,12 42,4" fill="none" stroke={b} strokeWidth="2"/></>);
+  if(v==="dona") return svg(<><circle cx="22" cy="15" r="11" fill="none" stroke="#e0433e" strokeWidth="7" strokeDasharray="25 70"/><circle cx="22" cy="15" r="11" fill="none" stroke="#3fa15e" strokeWidth="7" strokeDasharray="18 70" strokeDashoffset="-25"/><circle cx="22" cy="15" r="11" fill="none" stroke="#3d7ee0" strokeWidth="7" strokeDasharray="16 70" strokeDashoffset="-43"/><circle cx="22" cy="15" r="11" fill="none" stroke="#9b59b6" strokeWidth="7" strokeDasharray="10 70" strokeDashoffset="-59"/></>);
+  if(v==="mapa") return svg(<g fill={b}>{[[2,2,.3],[12,2,.6],[22,2,.9],[32,2,.5],[2,11,.7],[12,11,.2],[22,11,.5],[32,11,1],[2,20,.4],[12,20,.8],[22,20,.3],[32,20,.6]].map(([x,y,o],i)=><rect key={i} x={x} y={y} width="9" height="7" rx="2" opacity={o}/>)}</g>);
+  if(v==="podio") return svg(<><rect x="16" y="6" width="12" height="22" rx="2" fill={b}/><rect x="3" y="13" width="12" height="15" rx="2" fill={b} opacity=".6"/><rect x="29" y="17" width="12" height="11" rx="2" fill={b} opacity=".35"/></>);
+  return svg(<><rect x="2" y="2" width="40" height="26" rx="4" fill="none" stroke={b} strokeWidth="1.5"/><line x1="2" y1="10" x2="42" y2="10" stroke={b}/><line x1="2" y1="19" x2="42" y2="19" stroke={b} opacity=".4"/><line x1="18" y1="2" x2="18" y2="28" stroke={b} opacity=".4"/></>);
+};
+// Casilla de la barra: rótulo pequeño + valor; al tocarla abre su listita debajo.
+function ConsSlot({ k, icono, valor, nota, children, ancho=290, isMobile, radio, alinearDerecha, borde=true }) {
+  const [abierto, setAbierto] = useState(false);
+  const ref = useRef(null);
+  useEffect(()=>{
+    if(!abierto) return;
+    const fuera = (e) => { if(ref.current && !ref.current.contains(e.target)) setAbierto(false); };
+    const esc = (e) => { if(e.key==="Escape") setAbierto(false); };
+    document.addEventListener("mousedown", fuera); document.addEventListener("touchstart", fuera); document.addEventListener("keydown", esc);
+    return ()=>{ document.removeEventListener("mousedown", fuera); document.removeEventListener("touchstart", fuera); document.removeEventListener("keydown", esc); };
+  }, [abierto]);
+  const cerrar = () => setAbierto(false);
+  return (
+    <div ref={ref} style={{ position:"relative", minWidth:0, ...(borde ? (isMobile ? { borderBottom:`1px solid ${C.border}` } : { borderRight:`1px solid ${C.border}` }) : {}) }}>
+      <button onClick={()=>setAbierto(a=>!a)} style={{ all:"unset", boxSizing:"border-box", width:"100%", height:"100%", cursor:"pointer", padding:isMobile?"10px 14px":"12px 16px", background:abierto?C.surfaceHover:"transparent", borderRadius:radio, display:isMobile?"flex":"block", alignItems:"center", gap:10 }}>
+        <div style={{ fontFamily:font.body, fontSize:10, letterSpacing:"0.13em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap", ...(isMobile?{ width:118, flexShrink:0 }:{}) }}><span style={{ fontSize:12, letterSpacing:0 }}>{icono}</span>{k}</div>
+        <div style={{ fontFamily:font.body, fontSize:isMobile?14.5:15, fontWeight:700, color:C.goldDark, marginTop:isMobile?0:5, display:"flex", alignItems:"center", gap:7, minWidth:0, flex:1 }}>
+          <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"inline-flex", alignItems:"center", gap:6 }}>{valor}</span>
+          {nota && <small style={{ fontWeight:400, color:C.textMuted, fontSize:11.5, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{nota}</small>}
+          <span style={{ marginLeft:"auto", color:C.gold, flexShrink:0, display:"inline-flex", transform:abierto?"rotate(180deg)":"none", transition:"transform .2s" }}><Icon n="down" s={13} sw={2.2}/></span>
+        </div>
+      </button>
+      {abierto && (
+        <div style={{ position:"absolute", top:"calc(100% + 6px)", ...(isMobile ? { left:8, right:8 } : alinearDerecha ? { right:0, width:ancho } : { left:0, width:ancho }), zIndex:40, maxHeight:420, overflowY:"auto", background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, boxShadow:"0 18px 44px rgba(26,59,82,0.18)", padding:10 }}>
+          {typeof children==="function" ? children(cerrar) : children}
+        </div>
+      )}
+    </div>
+  );
+}
+const ConsOpcion = ({ on, onClick, icono, children, check }) => (
+  <button onClick={onClick} style={{ all:"unset", boxSizing:"border-box", width:"100%", display:"flex", alignItems:"center", gap:10, padding:"8px 9px", borderRadius:9, cursor:"pointer", background:on?C.surfaceHover:"transparent", fontFamily:font.body, fontSize:13.5, fontWeight:on?700:400, color:C.text }}>
+    {check ? <LvCheck on={on}/> : icono!==undefined && <span style={{ width:28, height:28, borderRadius:8, background:on?"#fff":C.surfaceHover, display:"grid", placeItems:"center", fontSize:14, flexShrink:0 }}>{icono}</span>}
+    <span style={{ display:"inline-flex", alignItems:"center", gap:7, minWidth:0 }}>{children}</span>
+    {on && !check && <span style={{ marginLeft:"auto", color:C.gold }}><Icon n="check" s={14} sw={2.4}/></span>}
+  </button>
+);
+const ConsSec = ({ children, style }) => <div style={{ fontFamily:font.body, fontSize:10, letterSpacing:"0.13em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, margin:"4px 9px 6px", ...style }}>{children}</div>;
+
 function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, isMobile }) {
   const hoyS = todayStr;
   const [q, setQ] = useState(CONS_Q_INICIAL);
@@ -7807,6 +7870,17 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   };
   const res = calcular(rango);
   const prev = calcular(rangoPrev);
+  // Con qué grupo del periodo anterior se compara cada fila. En día / semana / mes se alinea por
+  // posición dentro del periodo (el 3 de oct con el 3 de sept, la 2.ª semana con la 2.ª semana…),
+  // en lo demás por la misma clave (mismo asesor, misma tienda, misma hora…).
+  const prevKey = (f) => {
+    if(!rangoPrev || f.k==="—") return f.k;
+    if(q.g1==="dia") return consSumarDias(rangoPrev[0], consDiasEntre(rango[0], f.k));
+    if(q.g1==="semana") return consSumarDias(consLunes(rangoPrev[0]), Math.round(consDiasEntre(consLunes(rango[0]), f.k)/7)*7);
+    if(q.g1==="mes"){ const [ya,ma] = rango[0].split("-").map(Number); const [yb,mb] = f.k.split("-").map(Number); return consMoverMes(rangoPrev[0], (yb-ya)*12+(mb-ma)).slice(0,7); }
+    return f.k;
+  };
+  const prevAcc = (f) => prev ? prev.filas[prevKey(f)]?.acc : null;
 
   // Filas: en los "por" de tiempo van en orden de calendario (y el día de la semana / hora
   // completos aunque estén en cero, para que se vea el hueco); en los demás, de mayor a menor.
@@ -7836,8 +7910,21 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
 
   // Tipo de gráfico: mapa de calor cuando se cruza con día de la semana u hora; columnas para un
   // "por" de tiempo solo; barras (apiladas si hay segundo grupo) para todo lo demás.
-  const graficaAuto = q.g2 && (q.g1==="dow"||q.g1==="hora"||q.g2==="dow"||q.g2==="hora") ? "mapa" : (esTiempo(q.g1) && !q.g2 ? "columnas" : "barras");
-  const grafica = graficaForzada || graficaAuto;
+  // Qué gráficos tienen sentido para esta pregunta (los demás se ven apagados en el selector).
+  const nGrupos = filas.filter(f=>valor(f.acc)>0).length;
+  const disponible = {
+    barras:true, columnas:true, tabla:true,
+    barras100: !!q.g2 && q.medida!=="ticket",
+    linea: esTiempo(q.g1) && filas.length>=2,
+    area: esTiempo(q.g1) && filas.length>=2,
+    dona: !esTiempo(q.g1) && nGrupos>=2 && q.medida!=="ticket",
+    mapa: !!q.g2,
+    podio: !esTiempo(q.g1) && nGrupos>=2,
+  };
+  const graficaAuto = q.g2 && (q.g1==="dow"||q.g1==="hora"||q.g2==="dow"||q.g2==="hora") ? "mapa"
+    : (["dia","semana","mes"].includes(q.g1) && !q.g2 && filas.length>=2) ? "linea"
+    : (esTiempo(q.g1) && !q.g2 ? "columnas" : "barras");
+  const grafica = graficaForzada && disponible[graficaForzada] ? graficaForzada : graficaAuto;
   const apilar = q.g2 && q.medida!=="ticket";
 
   const aplicar = (nq, id) => { setQ({ ...CONS_Q_INICIAL, ...nq }); setActiva(id); setGraficaForzada(""); };
@@ -7855,7 +7942,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
     const enc = [CONS_GRUPOS.find(x=>x.value===q.g1)?.label, ...(q.g2?cols.map(c=>c.l):[]), "Total", ...(prev?[`Total ${compLbl}`,"Variación %"]:[])];
     const lineas = [`${tituloResultado} · ${consTextoRango(rango)}`, enc.map(esc).join(sep)];
     filas.forEach(f=>{
-      const t = valor(f.acc), p = prev ? valor(prev.filas[f.k]?.acc) : null;
+      const t = valor(f.acc), p = prev ? valor(prevAcc(f)) : null;
       lineas.push([f.l, ...(q.g2?cols.map(c=>{ const ce = res.celdas[`${f.k}|${c.k}`]; return ce?num(valor(ce)):""; }):[]), num(t), ...(prev?[num(p), p?String(Math.round((t-p)/Math.abs(p)*1000)/10).replace(".",","):""]:[])].map(esc).join(sep));
     });
     const T = valor(res.total), P = prev ? valor(prev.total) : null;
@@ -7871,12 +7958,10 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   const kpiTxt = (m) => CONS_MEDIDAS.find(x=>x.value===m)?.label;
 
   // ── Piezas de UI ──
-  const texto = { fontFamily:font.body, fontSize:isMobile?15:18, color:C.textSub, lineHeight:isMobile?2.1:2.4 };
   const tiendaFiltroTxt = q.tiendas.length===0 ? "Todas las tiendas" : q.tiendas.length===1 ? nombreTiendaCorto(stores[q.tiendas[0]]) : `${q.tiendas.length} tiendas`;
   const filtrosActivos = [q.asesor?1:0, q.tipos.length?1:0, q.medios.length?1:0].reduce((a,b)=>a+b,0);
-  const grupos2 = [{ value:"", label:"— nada más" }, ...CONS_GRUPOS.filter(g=>g.value!==q.g1)];
 
-  const maxFila = Math.max(1, ...filas.map(f=>valor(f.acc)), ...(prev ? filas.map(f=>valor(prev.filas[f.k]?.acc)) : []));
+  const maxFila = Math.max(1, ...filas.map(f=>valor(f.acc)), ...(prev ? filas.map(f=>valor(prevAcc(f))) : []));
   const sinDatos = filas.length===0 || filas.every(f=>valor(f.acc)===0);
 
   const atajo = (id, nombre, nq, borrable) => (
@@ -7886,10 +7971,184 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
     </span>
   );
 
+  // ── Filtros activos y frase de la pregunta ──
+  const pillsFiltro = [
+    ...(q.asesor ? [{ k:"asesor", t:`Asesor: ${userById[q.asesor]?.name||"—"}`, quitar:()=>set("asesor","") }] : []),
+    ...(q.tipos.length ? [{ k:"tipos", t:`Tipo: ${q.tipos.map(t=>CONS_TIPOS.find(x=>x.value===t)?.label).join(", ")}`, quitar:()=>set("tipos",[]) }] : []),
+    ...(q.medios.length ? [{ k:"medios", t:`Medio: ${q.medios.map(t=>CONS_MEDIOS.find(x=>x.value===t)?.label).join(", ")}`, quitar:()=>set("medios",[]) }] : []),
+    ...(q.equipoJunto ? [{ k:"eq", t:"Equipo admin junto", quitar:()=>set("equipoJunto", false) }] : []),
+  ];
+  const fraseConsulta = `${medidaLbl} por ${grupoLbl(q.g1)}${q.g2?` y ${grupoLbl(q.g2)}`:""}, ${consTextoRango(rango)}, ${q.tiendas.length ? q.tiendas.map(id=>nombreTiendaCorto(stores[id])).join(", ") : "todas las tiendas"}${prev?`, vs ${compLbl}`:""}`;
+
+  // Paleta de cada grupo / serie (tiendas con su color propio).
+  const colorFila = (f, i) => f.color || CONS_PALETA[i % CONS_PALETA.length];
+  // Etiqueta corta para ejes de tiempo.
+  const etiquetaEje = (f) => q.g1==="dow" ? (isMobile?CONS_DIAS_CORTO[Number(f.k)]:f.l.slice(0,3)) : q.g1==="hora" ? (f.k==="—"?"?":`${f.k}h`) : q.g1==="dia" ? String(consParse(f.k).getDate()) : q.g1==="mes" ? MESES_NOMBRE[Number(f.k.slice(5))-1].slice(0,3) : f.l.replace("Sem. del ","");
+
+  // Línea / Área: tendencia en el tiempo. Con segundo grupo (y en Línea) dibuja una serie por cada
+  // uno; si hay comparación, la serie del periodo anterior va punteada.
+  const Linea = (conArea) => {
+    const H = isMobile ? 190 : 230, W = 1000;
+    const n = filas.length;
+    const multi = !conArea && q.g2 && q.medida!=="ticket";
+    const series = multi
+      ? cols.slice(0,6).map((c,i)=>({ nombre:c.l, color:colorCol(c,i), vals:filas.map(f=>valor(res.celdas[`${f.k}|${c.k}`])) }))
+      : [{ nombre:medidaLbl, color:C.gold, vals:filas.map(f=>valor(f.acc)) }];
+    const prevVals = prev && !multi ? filas.map(f=>valor(prevAcc(f))) : null;
+    const max = Math.max(1, ...series.flatMap(s=>s.vals), ...(prevVals||[]));
+    const x = (i) => n<=1 ? W/2 : i*(W/(n-1));
+    const y = (v) => H - 6 - (v/max)*(H-22);
+    const ruta = (vals) => vals.map((v,i)=>`${i?"L":"M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
+    const cada = Math.max(1, Math.ceil(n / (isMobile?7:14)));
+    return (
+      <div>
+        {multi && (
+          <div style={{ display:"flex", gap:14, flexWrap:"wrap", fontFamily:font.body, fontSize:12, color:C.textSub, marginBottom:10 }}>
+            {series.map(s=><span key={s.nombre} style={{ display:"inline-flex", alignItems:"center", gap:6 }}><span style={{ width:14, height:3, borderRadius:2, background:s.color }}/>{s.nombre}</span>)}
+          </div>
+        )}
+        <div style={{ display:"flex", gap:10 }}>
+          <div style={{ display:"flex", flexDirection:"column", justifyContent:"space-between", height:H, fontFamily:font.mono, fontSize:10.5, color:C.textMuted, textAlign:"right", paddingBottom:2, flexShrink:0 }}>
+            <span>{fmtMedida(max)}</span><span>{fmtMedida(max/2)}</span><span>{fmtMedida(0)}</span>
+          </div>
+          <div style={{ position:"relative", flex:1, minWidth:0 }}>
+            <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display:"block", overflow:"visible" }}>
+              {[0.5,1].map(t=><line key={t} x1="0" x2={W} y1={y(max*t)} y2={y(max*t)} stroke={C.border} strokeWidth="1" vectorEffect="non-scaling-stroke"/>)}
+              <line x1="0" x2={W} y1={y(0)} y2={y(0)} stroke={C.border} strokeWidth="1" vectorEffect="non-scaling-stroke"/>
+              {prevVals && <path d={ruta(prevVals)} fill="none" stroke="#c9b8aa" strokeWidth="2" strokeDasharray="6 5" vectorEffect="non-scaling-stroke"/>}
+              {series.map(s=>(
+                <g key={s.nombre}>
+                  {conArea && <path d={`${ruta(s.vals)} L${x(n-1)} ${y(0)} L${x(0)} ${y(0)} Z`} fill="rgba(38,93,127,0.14)"/>}
+                  <path d={ruta(s.vals)} fill="none" stroke={s.color} strokeWidth={multi?2.2:3} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke"/>
+                </g>
+              ))}
+            </svg>
+            {/* Zonas invisibles para ver el valor exacto al pasar el mouse / tocar */}
+            <div style={{ position:"absolute", inset:0, display:"flex" }}>
+              {filas.map((f,i)=>(
+                <div key={f.k} title={`${f.l}: ${series.map(s=>`${multi?s.nombre+" ":""}${fmtMedida(s.vals[i])}`).join(" · ")}${prevVals?` · ${compLbl}: ${fmtMedida(prevVals[i])}`:""}`} style={{ flex:1 }}/>
+              ))}
+            </div>
+            <div style={{ position:"relative", height:16, marginTop:6 }}>
+              {filas.map((f,i)=> (i%cada===0 || i===n-1) ? <span key={f.k} style={{ position:"absolute", left:`${n<=1?50:i/(n-1)*100}%`, transform:"translateX(-50%)", fontFamily:font.body, fontSize:10.5, color:C.textMuted, whiteSpace:"nowrap" }}>{etiquetaEje(f)}</span> : null)}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Dona: qué parte del total aporta cada grupo (máx. 7 + "Otros").
+  const Dona = () => {
+    const ordenadas = [...filas].map((f,i)=>({ f, v:valor(f.acc), c:colorFila(f,i) })).filter(d=>d.v>0).sort((a,b)=>b.v-a.v);
+    let partes = ordenadas.slice(0,7);
+    const resto = ordenadas.slice(7).reduce((s,d)=>s+d.v,0);
+    if(resto>0) partes = [...partes, { f:{ k:"__otros", l:"Otros" }, v:resto, c:"#b9aca1" }];
+    const total = partes.reduce((s,d)=>s+d.v,0) || 1;
+    let acum = 0;
+    const tam = isMobile ? 170 : 210;
+    return (
+      <div style={{ display:"flex", alignItems:"center", gap:isMobile?16:36, flexWrap:"wrap", justifyContent:isMobile?"center":"flex-start" }}>
+        <div style={{ position:"relative", width:tam, height:tam, flexShrink:0 }}>
+          <svg width={tam} height={tam} viewBox="0 0 42 42" style={{ transform:"rotate(-90deg)" }}>
+            <circle cx="21" cy="21" r="15.9155" fill="none" stroke={C.surfaceAlt} strokeWidth="6"/>
+            {partes.map(d=>{ const pct = d.v/total*100; const el = <circle key={d.f.k} cx="21" cy="21" r="15.9155" fill="none" stroke={d.c} strokeWidth="6" strokeDasharray={`${Math.max(0,pct-0.4)} ${100-Math.max(0,pct-0.4)}`} strokeDashoffset={-acum}><title>{`${d.f.l}: ${fmtMedida(d.v)} (${Math.round(pct)} %)`}</title></circle>; acum += pct; return el; })}
+          </svg>
+          <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", textAlign:"center", padding:"0 26px" }}>
+            <div style={{ fontFamily:font.mono, fontSize:isMobile?13:15, fontWeight:700, color:C.text, wordBreak:"break-all" }}>{fmtMedida(q.medida==="ticket"?valor(res.total):total)}</div>
+            <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>total</div>
+          </div>
+        </div>
+        <div style={{ display:"grid", gap:9, minWidth:isMobile?"100%":260 }}>
+          {partes.map(d=>(
+            <div key={d.f.k} style={{ display:"flex", alignItems:"center", gap:10, fontFamily:font.body, fontSize:13.5 }}>
+              <span style={{ width:10, height:10, borderRadius:3, background:d.c, flexShrink:0 }}/>
+              <span style={{ fontWeight:600, color:C.text, flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.f.l}</span>
+              <b style={{ color:C.text, minWidth:44, textAlign:"right" }}>{Math.round(d.v/total*100)} %</b>
+              <span style={{ fontFamily:font.mono, fontSize:12.5, color:C.textMuted, minWidth:isMobile?0:120, textAlign:"right" }}>{fmtMedida(d.v)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Barras 100 %: la mezcla de cada fila (ej. en qué tienda vende cada asesor), en proporción.
+  const Barras100 = () => (
+    <div>
+      <div style={{ display:"flex", gap:14, flexWrap:"wrap", fontFamily:font.body, fontSize:12, color:C.textSub, margin:"0 0 12px" }}>
+        {cols.map((c,i)=><span key={c.k} style={{ display:"inline-flex", alignItems:"center", gap:6 }}><span style={{ width:10, height:10, borderRadius:3, background:colorCol(c,i) }}/>{c.l}</span>)}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(120px,190px) 1fr", columnGap:14, rowGap:isMobile?10:12, alignItems:"center" }}>
+        {filas.map(f=>{
+          const tot = cols.reduce((s,c)=>s+valor(res.celdas[`${f.k}|${c.k}`]),0);
+          return (
+            <Fragment key={f.k}>
+              <div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:C.text, display:"flex", alignItems:"center", gap:7, minWidth:0 }}>{f.color && <PuntoTienda color={f.color} size={8}/>}<span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.l}</span></div>
+              <div style={{ display:"flex", height:isMobile?14:20, borderRadius:5, overflow:"hidden", background:C.surfaceAlt }}>
+                {tot>0 && cols.map((c,i)=>{ const v = valor(res.celdas[`${f.k}|${c.k}`]); if(v<=0) return null; const pct = v/tot*100; return (
+                  <div key={c.k} title={`${c.l}: ${fmtMedida(v)} (${Math.round(pct)} %)`} style={{ flex:`${v} 0 0`, background:colorCol(c,i), display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:10.5, fontWeight:700, color:"#fff", overflow:"hidden", whiteSpace:"nowrap" }}>{pct>=12 && !isMobile ? `${Math.round(pct)} %` : ""}</div>
+                ); })}
+              </div>
+            </Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // Podio: los 3 primeros con medalla, y debajo el resto en lista.
+  const Podio = () => {
+    const ord = [...filas].sort((a,b)=>valor(b.acc)-valor(a.acc));
+    const total = ord.reduce((s,f)=>s+valor(f.acc),0) || 1;
+    const top = ord.slice(0,3), resto = ord.slice(3, 10);
+    const medalla = ["🥇","🥈","🥉"];
+    const orden = isMobile ? [0,1,2] : [1,0,2];
+    const alto = [isMobile?0:150, isMobile?0:120, isMobile?0:100];
+    return (
+      <div>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":`repeat(${top.length}, 1fr)`, gap:12, alignItems:"end", maxWidth:720, margin:"0 auto" }}>
+          {orden.filter(i=>top[i]).map(i=>{ const f = top[i]; const v = valor(f.acc); return (
+            <div key={f.k} style={{ textAlign:"center", background:i===0?"rgba(38,93,127,0.08)":C.surfaceAlt, border:`1px solid ${i===0?C.gold:C.border}`, borderRadius:16, padding:isMobile?"12px 14px":"16px 12px", minHeight:alto[i], display:"flex", flexDirection:isMobile?"row":"column", alignItems:"center", justifyContent:isMobile?"flex-start":"flex-end", gap:isMobile?12:4 }}>
+              <div style={{ fontSize:isMobile?26:i===0?40:32, lineHeight:1 }}>{medalla[i]}</div>
+              <div style={{ fontFamily:font.body, fontSize:14.5, fontWeight:700, color:C.text, display:"flex", alignItems:"center", gap:6, justifyContent:"center", flex:isMobile?1:"none", textAlign:isMobile?"left":"center" }}>{f.color && <PuntoTienda color={f.color} size={8}/>}{f.l}</div>
+              <div style={{ textAlign:isMobile?"right":"center" }}>
+                <div style={{ fontFamily:font.mono, fontSize:isMobile?14:16, fontWeight:700, color:C.goldDark }}>{fmtMedida(v)}</div>
+                {q.medida!=="ticket" && <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>{Math.round(v/total*100)} % del total</div>}
+              </div>
+            </div>
+          ); })}
+        </div>
+        {resto.length>0 && (
+          <div style={{ maxWidth:720, margin:"14px auto 0", display:"grid", gap:6 }}>
+            {resto.map((f,i)=>(
+              <div key={f.k} style={{ display:"flex", alignItems:"center", gap:10, fontFamily:font.body, fontSize:13, padding:"6px 10px", borderRadius:9, background:C.surfaceAlt }}>
+                <span style={{ width:22, height:22, borderRadius:"50%", background:"#fff", display:"grid", placeItems:"center", fontSize:11, fontWeight:700, color:C.textMuted }}>{i+4}</span>
+                <span style={{ flex:1, fontWeight:600, color:C.text }}>{f.l}</span>
+                <span style={{ fontFamily:font.mono, color:C.text }}>{fmtMedida(valor(f.acc))}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const selectorGrafico = (
+    <div className="ozen-sin-barra" style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:2, margin:"6px 0 14px" }}>
+      {CONS_GRAFICOS.map(g=>{ const ok = disponible[g.v]; const on = grafica===g.v; return (
+        <button key={g.v} disabled={!ok} title={ok ? g.l : `${g.l}: no aplica para esta pregunta`} onClick={()=>setGraficaForzada(g.v===graficaAuto?"":g.v)}
+          style={{ flex:"0 0 auto", display:"flex", flexDirection:"column", alignItems:"center", gap:4, width:isMobile?76:84, padding:"8px 4px 6px", borderRadius:12, border:on?`1.5px solid ${C.gold}`:`1px solid ${C.border}`, background:on?"rgba(38,93,127,0.07)":"#fff", cursor:ok?"pointer":"not-allowed", opacity:ok?1:0.32, fontFamily:font.body, fontSize:11, fontWeight:on?700:600, color:on?C.goldDark:C.textSub }}>
+          <ConsIconoGrafico v={g.v}/>{g.l}
+        </button>
+      ); })}
+    </div>
+  );
+
   const Barras = () => (
     <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(120px,190px) 1fr auto", columnGap:14, rowGap:isMobile?12:10, alignItems:"center" }}>
       {filas.map(f=>{
-        const v = valor(f.acc); const p = prev ? valor(prev.filas[f.k]?.acc) : null;
+        const v = valor(f.acc); const p = prev ? valor(prevAcc(f)) : null;
         const ancho = `${Math.max(0, v/maxFila*100)}%`;
         const barra = (
           <div style={{ position:"relative", paddingBottom:prev?6:0 }}>
@@ -7926,7 +8185,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
       <div style={{ overflowX:"auto" }} className="ozen-sin-barra">
         <div style={{ display:"flex", alignItems:"flex-end", gap:anguloso?3:8, height:altoMax+40, minWidth:anguloso?filas.length*(isMobile?16:22):undefined, paddingTop:8 }}>
           {filas.map(f=>{
-            const v = valor(f.acc); const p = prev ? valor(prev.filas[f.k]?.acc) : null;
+            const v = valor(f.acc); const p = prev ? valor(prevAcc(f)) : null;
             const h = Math.max(v>0?3:0, v/maxFila*altoMax);
             const hp = p ? p/maxFila*altoMax : 0;
             const etiqueta = q.g1==="dow" ? (isMobile?CONS_DIAS_CORTO[Number(f.k)]:f.l.slice(0,3)) : q.g1==="hora" ? (f.k==="—"?"?":`${f.k}h`) : q.g1==="dia" ? String(consParse(f.k).getDate()) : q.g1==="mes" ? MESES_NOMBRE[Number(f.k.slice(5))-1].slice(0,3) : f.l.replace("Sem. del ","");
@@ -7977,84 +8236,108 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
 
   return (
     <div>
-      {/* Pregunta */}
-      <Card style={{ marginBottom:16 }} p={isMobile?"14px":"20px 22px"}>
-        <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+      {/* Pregunta — barra en casillas */}
+      <Card style={{ marginBottom:16, overflow:"visible" }} p={isMobile?"14px":"18px 22px"}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:isMobile?"wrap":"nowrap", marginBottom:14 }}>
           <div style={{ width:34, height:34, borderRadius:10, background:C.surfaceHover, color:C.gold, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="search" s={18}/></div>
-          <div style={{ fontFamily:font.body, fontSize:16.5, fontWeight:700, color:C.text }}>Consultas</div>
-          {!isMobile && <div style={{ marginLeft:"auto", fontFamily:font.body, fontSize:12, color:C.textMuted }}>Arma tu pregunta tocando las palabras en azul</div>}
-        </div>
-        <div className="ozen-sin-barra" style={{ display:"flex", gap:8, flexWrap:isMobile?"nowrap":"wrap", overflowX:isMobile?"auto":"visible", margin:"14px 0 0", paddingBottom:2 }}>
-          {CONS_PRESETS.map(p=>atajo(p.id, p.nombre, p.q, false))}
-          {guardadas.map(g=>atajo(g.id, g.nombre, g.q, true))}
-          {nombrando===null
-            ? <button onClick={()=>setNombrando("")} style={{ flex:"0 0 auto", height:32, padding:"0 12px", borderRadius:99, border:`1px dashed ${C.gold}`, background:"transparent", color:C.gold, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>+ Guardar esta consulta</button>
-            : <span style={{ display:"inline-flex", gap:6, alignItems:"center", flex:"0 0 auto" }}>
-                <input autoFocus value={nombrando} onChange={e=>setNombrando(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") guardar(); if(e.key==="Escape") setNombrando(null); }} placeholder="Nombre de la consulta" style={{ height:32, padding:"0 12px", borderRadius:99, border:`1px solid ${C.gold}`, fontFamily:font.body, fontSize:13, outline:"none", width:200, color:C.text, background:"#fff" }}/>
-                <Btn sm onClick={guardar} disabled={!nombrando.trim()}>Guardar</Btn>
-                <Btn sm variant="ghost" onClick={()=>setNombrando(null)}>Cancelar</Btn>
-              </span>}
-        </div>
-
-        <div style={{ ...texto, margin:"14px 0 4px" }}>
-          {isMobile?"Ver":"Quiero ver"} <ConsPick ariaLabel="Qué medir" grande={!isMobile} value={q.medida} onChange={v=>set("medida",v)} options={CONS_MEDIDAS}/>
-          {" "}por <ConsPick ariaLabel="Agrupar por" grande={!isMobile} value={q.g1} onChange={v=>{ setQ(prev=>({ ...prev, g1:v, g2:prev.g2===v?"":prev.g2 })); setActiva(""); setGraficaForzada(""); }} options={CONS_GRUPOS}/>
-          {" "}y <ConsPick ariaLabel="Cruzar con" grande={!isMobile} value={q.g2} onChange={v=>{ set("g2",v); setGraficaForzada(""); }} options={grupos2}/>
-          {" "}en <ConsPick ariaLabel="Periodo" grande={!isMobile} value={q.periodo} onChange={v=>{ if(v==="custom" && !q.desde){ setQ(prev=>({ ...prev, periodo:v, desde:rango[0], hasta:rango[1] })); setActiva(""); } else set("periodo",v); }} options={CONS_PERIODOS} nota={q.periodo!=="hoy"&&q.periodo!=="ayer"&&!isMobile?`· ${consTextoRango(rango)}`:null}/>
-          {q.periodo==="custom" && (
-            <span style={{ display:"inline-flex", alignItems:"center", gap:6, margin:"3px", verticalAlign:"middle", fontSize:14 }}>
-              <input type="date" value={q.desde} max={hoyS} onChange={e=>set("desde",e.target.value)} style={{ height:36, borderRadius:10, border:"1.5px solid rgba(38,93,127,0.35)", padding:"0 8px", fontFamily:font.body, fontSize:14, color:C.goldDark, background:"#fff" }}/>
-              a
-              <input type="date" value={q.hasta} max={hoyS} onChange={e=>set("hasta",e.target.value)} style={{ height:36, borderRadius:10, border:"1.5px solid rgba(38,93,127,0.35)", padding:"0 8px", fontFamily:font.body, fontSize:14, color:C.goldDark, background:"#fff" }}/>
-            </span>
-          )}
-          {" "}de <ConsPick ariaLabel="Tienda" grande={!isMobile} value={q.tiendas.length===1?q.tiendas[0]:(q.tiendas.length?"__varias__":"")} onChange={v=>set("tiendas", v?[v]:[])} punto={q.tiendas.length===1?colorTienda(stores[q.tiendas[0]]):C.goldDark}
-            options={[{ value:"", label:"Todas las tiendas" }, ...tiendas.map(t=>({ value:t.id, label:nombreTiendaCorto(t) })), ...(q.tiendas.length>1?[{ value:"__varias__", label:tiendaFiltroTxt }]:[])]}/>
-          {" "}{isMobile?"vs":"comparado con"} <ConsPick ariaLabel="Comparar con" grande={!isMobile} value={q.comparar} onChange={v=>set("comparar",v)} options={CONS_COMPARAR}/>
+          <div style={{ fontFamily:font.body, fontSize:16.5, fontWeight:700, color:C.text, flexShrink:0 }}>Consultas</div>
+          <div className="ozen-sin-barra" style={{ display:"flex", gap:8, alignItems:"center", marginLeft:isMobile?0:"auto", overflowX:"auto", width:isMobile?"100%":"auto", minWidth:0, paddingBottom:2 }}>
+            {!isMobile && <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, flexShrink:0 }}>Atajos:</span>}
+            {CONS_PRESETS.map(p=>atajo(p.id, p.corto||p.nombre, p.q, false))}
+            {guardadas.map(g=>atajo(g.id, g.nombre, g.q, true))}
+            {nombrando===null
+              ? <button onClick={()=>setNombrando("")} style={{ flex:"0 0 auto", height:30, padding:"0 12px", borderRadius:99, border:`1px dashed ${C.gold}`, background:"transparent", color:C.gold, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>+ Guardar</button>
+              : <span style={{ display:"inline-flex", gap:6, alignItems:"center", flex:"0 0 auto" }}>
+                  <input autoFocus value={nombrando} onChange={e=>setNombrando(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") guardar(); if(e.key==="Escape") setNombrando(null); }} placeholder="Nombre de la consulta" style={{ height:30, padding:"0 12px", borderRadius:99, border:`1px solid ${C.gold}`, fontFamily:font.body, fontSize:13, outline:"none", width:190, color:C.text, background:"#fff" }}/>
+                  <Btn sm onClick={guardar} disabled={!nombrando.trim()}>Guardar</Btn>
+                  <Btn sm variant="ghost" onClick={()=>setNombrando(null)}>Cancelar</Btn>
+                </span>}
+          </div>
         </div>
 
-        <div style={{ borderTop:`1px dashed ${C.border}`, paddingTop:12, marginTop:6 }}>
-          <button onClick={()=>setMasFiltros(x=>!x)} style={{ all:"unset", cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:13, color:C.gold, fontWeight:600 }}>
-            Más filtros{filtrosActivos>0 && <span style={{ background:C.goldDark, color:C.tinta, borderRadius:99, fontSize:11, padding:"1px 7px" }}>{filtrosActivos}</span>}
-            <Icon n={masFiltros?"up":"down"} s={13} sw={2.2}/>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1.35fr 1.35fr 1.3fr 1fr 1fr auto", border:"1.5px solid rgba(38,93,127,0.28)", borderRadius:16, background:"#fff", boxShadow:"0 10px 30px -18px rgba(26,59,82,0.35)" }}>
+          <ConsSlot k="Qué ver" icono="📊" isMobile={isMobile} radio={isMobile?"14px 14px 0 0":"14px 0 0 14px"} valor={medidaLbl}>
+            {(cerrar)=><>
+              <ConsSec>Qué quieres medir</ConsSec>
+              {CONS_MEDIDAS.map(m=><ConsOpcion key={m.value} on={q.medida===m.value} icono={CONS_ICONO_MEDIDA[m.value]} onClick={()=>{ set("medida", m.value); cerrar(); }}>{m.label}</ConsOpcion>)}
+            </>}
+          </ConsSlot>
+          <ConsSlot k="Agrupado por" icono="🧩" isMobile={isMobile} ancho={400} valor={<>{CONS_GRUPOS.find(x=>x.value===q.g1)?.label}</>} nota={q.g2 ? `+ ${CONS_GRUPOS.find(x=>x.value===q.g2)?.label}` : null}>
+            <ConsSec>Agrupar por</ConsSec>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr", gap:2 }}>
+            {CONS_GRUPOS.map(g=><ConsOpcion key={g.value} on={q.g1===g.value} icono={CONS_ICONO_GRUPO[g.value]} onClick={()=>{ setQ(prev=>({ ...prev, g1:g.value, g2:prev.g2===g.value?"":prev.g2 })); setActiva(""); setGraficaForzada(""); }}>{g.label}</ConsOpcion>)}
+            </div>
+            <ConsSec style={{ marginTop:12 }}>Y cruzar con (opcional)</ConsSec>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", padding:"0 6px 4px" }}>
+              <ConsChip on={!q.g2} onClick={()=>{ set("g2",""); setGraficaForzada(""); }}>Nada</ConsChip>
+              {CONS_GRUPOS.filter(g=>g.value!==q.g1).map(g=><ConsChip key={g.value} on={q.g2===g.value} onClick={()=>{ set("g2", g.value); setGraficaForzada(""); }}>{g.label}</ConsChip>)}
+            </div>
+          </ConsSlot>
+          <ConsSlot k="Cuándo" icono="📅" isMobile={isMobile} valor={CONS_PERIODOS.find(p=>p.value===q.periodo)?.label} nota={q.periodo!=="hoy" && q.periodo!=="ayer" ? consTextoRango(rango) : null}>
+            {(cerrar)=><>
+              <ConsSec>Periodo</ConsSec>
+              {CONS_PERIODOS.filter(p=>p.value!=="custom").map(p=><ConsOpcion key={p.value} on={q.periodo===p.value} onClick={()=>{ set("periodo", p.value); cerrar(); }}>{p.label}</ConsOpcion>)}
+              <ConsOpcion on={q.periodo==="custom"} onClick={()=>{ if(!q.desde){ setQ(prev=>({ ...prev, periodo:"custom", desde:rango[0], hasta:rango[1] })); setActiva(""); } else set("periodo","custom"); }}>Personalizado…</ConsOpcion>
+              {q.periodo==="custom" && (
+                <div style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 9px", fontFamily:font.body, fontSize:13, color:C.textSub }}>
+                  <input type="date" value={q.desde} max={hoyS} onChange={e=>set("desde",e.target.value)} style={{ height:34, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 6px", fontFamily:font.body, fontSize:13.5, color:C.text, background:"#fff", minWidth:0 }}/>
+                  a
+                  <input type="date" value={q.hasta} max={hoyS} onChange={e=>set("hasta",e.target.value)} style={{ height:34, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 6px", fontFamily:font.body, fontSize:13.5, color:C.text, background:"#fff", minWidth:0 }}/>
+                </div>
+              )}
+            </>}
+          </ConsSlot>
+          <ConsSlot k="Dónde" icono="🏬" isMobile={isMobile} ancho={240} valor={<><span style={{ width:8, height:8, borderRadius:"50%", background:q.tiendas.length===1?colorTienda(stores[q.tiendas[0]]):C.goldDark, flexShrink:0 }}/>{q.tiendas.length===0 ? "Todas" : tiendaFiltroTxt}</>}>
+            <ConsSec>Tiendas</ConsSec>
+            <ConsOpcion check on={q.tiendas.length===0} onClick={()=>set("tiendas",[])}>Todas las tiendas</ConsOpcion>
+            {tiendas.map(t=><ConsOpcion key={t.id} check on={q.tiendas.includes(t.id)} onClick={()=>toggleLista("tiendas", t.id)}><PuntoTienda color={colorTienda(t)} size={8}/>{nombreTiendaCorto(t)}</ConsOpcion>)}
+          </ConsSlot>
+          <ConsSlot k="Comparar con" icono="↔️" isMobile={isMobile} alinearDerecha ancho={240} valor={CONS_COMPARAR.find(c=>c.value===q.comparar)?.label} borde={!isMobile}>
+            {(cerrar)=><>
+              <ConsSec>Comparar con</ConsSec>
+              {CONS_COMPARAR.map(c=><ConsOpcion key={c.value||"nada"} on={q.comparar===c.value} onClick={()=>{ set("comparar", c.value); cerrar(); }}>{c.label}</ConsOpcion>)}
+            </>}
+          </ConsSlot>
+          <button onClick={()=>setMasFiltros(x=>!x)} style={{ border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8, padding:isMobile?"12px":"0 20px", background:masFiltros?C.gold:C.goldDark, color:C.tinta, fontFamily:font.body, fontSize:14, fontWeight:700, borderRadius:isMobile?"0 0 14px 14px":"0 14px 14px 0", whiteSpace:"nowrap" }}>
+            <Icon n="list" s={15}/>Filtros{filtrosActivos>0 && <span style={{ background:C.tinta, color:C.goldDark, borderRadius:99, fontSize:11, padding:"1px 7px" }}>{filtrosActivos}</span>}
           </button>
-          {!masFiltros && (
-            <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginLeft:10 }}>
-              {[q.asesor?`Asesor: ${userById[q.asesor]?.name||"—"}`:null, q.tipos.length?`Tipo: ${q.tipos.map(t=>CONS_TIPOS.find(x=>x.value===t)?.label).join(", ")}`:null, q.medios.length?`Medio: ${q.medios.map(t=>CONS_MEDIOS.find(x=>x.value===t)?.label).join(", ")}`:null, q.equipoJunto?"Equipo admin junto":null].filter(Boolean).join(" · ")}
-            </span>
-          )}
-          {masFiltros && (
-            <div style={{ display:"grid", gap:12, marginTop:12 }}>
-              <div>
-                <div style={{ ...thMet, border:"none", padding:"0 0 6px" }}>Tiendas</div>
-                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                  <ConsChip on={q.tiendas.length===0} onClick={()=>set("tiendas",[])}>Todas</ConsChip>
-                  {tiendas.map(t=><ConsChip key={t.id} on={q.tiendas.includes(t.id)} color={colorTienda(t)} onClick={()=>toggleLista("tiendas", t.id)}><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)}</ConsChip>)}
-                </div>
-              </div>
-              <div>
-                <div style={{ ...thMet, border:"none", padding:"0 0 6px" }}>Asesor</div>
-                <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
-                  <ConsPick grande={false} ariaLabel="Asesor" value={q.asesor} onChange={v=>set("asesor",v)} options={[{ value:"", label:"Todos los asesores" }, ...asesoresOpc.map(a=>({ value:a.id, label:a.name }))]}/>
-                  <ConsChip on={q.equipoJunto} onClick={()=>set("equipoJunto", !q.equipoJunto)}>{q.equipoJunto?<Icon n="check" s={13} sw={2.4}/>:null}Equipo admin junto</ConsChip>
-                </div>
-              </div>
-              <div>
-                <div style={{ ...thMet, border:"none", padding:"0 0 6px" }}>Tipo</div>
-                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                  <ConsChip on={q.tipos.length===0} onClick={()=>set("tipos",[])}>Todos</ConsChip>
-                  {CONS_TIPOS.map(t=><ConsChip key={t.value} on={q.tipos.includes(t.value)} onClick={()=>toggleLista("tipos", t.value)}>{t.label}</ConsChip>)}
-                </div>
-              </div>
-              <div>
-                <div style={{ ...thMet, border:"none", padding:"0 0 6px" }}>Medio de pago</div>
-                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                  <ConsChip on={q.medios.length===0} onClick={()=>set("medios",[])}>Todos</ConsChip>
-                  {CONS_MEDIOS.map(t=><ConsChip key={t.value} on={q.medios.includes(t.value)} onClick={()=>toggleLista("medios", t.value)}>{t.label}</ConsChip>)}
-                </div>
+        </div>
+
+        {masFiltros && (
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr", gap:16, marginTop:14, padding:"14px 16px", borderRadius:14, background:C.surfaceAlt, border:`1px solid ${C.border}` }}>
+            <div>
+              <div style={{ ...thMet, border:"none", padding:"0 0 8px" }}>Asesor</div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+                <ConsPick grande={false} ariaLabel="Asesor" value={q.asesor} onChange={v=>set("asesor",v)} options={[{ value:"", label:"Todos los asesores" }, ...asesoresOpc.map(a=>({ value:a.id, label:a.name }))]}/>
+                <ConsChip on={q.equipoJunto} onClick={()=>set("equipoJunto", !q.equipoJunto)}>{q.equipoJunto?<Icon n="check" s={13} sw={2.4}/>:null}Equipo admin junto</ConsChip>
               </div>
             </div>
-          )}
+            <div>
+              <div style={{ ...thMet, border:"none", padding:"0 0 8px" }}>Tipo</div>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                <ConsChip on={q.tipos.length===0} onClick={()=>set("tipos",[])}>Todos</ConsChip>
+                {CONS_TIPOS.map(t=><ConsChip key={t.value} on={q.tipos.includes(t.value)} onClick={()=>toggleLista("tipos", t.value)}>{t.label}</ConsChip>)}
+              </div>
+            </div>
+            <div>
+              <div style={{ ...thMet, border:"none", padding:"0 0 8px" }}>Medio de pago</div>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                <ConsChip on={q.medios.length===0} onClick={()=>set("medios",[])}>Todos</ConsChip>
+                {CONS_MEDIOS.map(t=><ConsChip key={t.value} on={q.medios.includes(t.value)} onClick={()=>toggleLista("medios", t.value)}>{t.label}</ConsChip>)}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display:"flex", gap:8, alignItems:"center", marginTop:12, flexWrap:"wrap" }}>
+          {pillsFiltro.length>0 && <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Filtrando:</span>}
+          {pillsFiltro.map(pf=>(
+            <span key={pf.k} style={{ display:"inline-flex", alignItems:"center", gap:6, height:28, padding:"0 5px 0 11px", borderRadius:9, background:C.surfaceAlt, border:`1px solid ${C.border}`, fontFamily:font.body, fontSize:12.5, color:C.textSub }}>
+              {pf.t}
+              <button aria-label={`Quitar ${pf.t}`} onClick={pf.quitar} style={{ all:"unset", cursor:"pointer", width:18, height:18, borderRadius:"50%", display:"grid", placeItems:"center", color:C.textMuted }}><Icon n="x" s={10} sw={2.6}/></button>
+            </span>
+          ))}
+          <span style={{ marginLeft:isMobile?0:"auto", fontFamily:font.body, fontSize:12.5, color:C.textMuted, lineHeight:1.5 }}>Se lee: <b style={{ color:C.text, fontWeight:700 }}>{fraseConsulta}</b></span>
         </div>
       </Card>
 
@@ -8080,7 +8363,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
             <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>{tituloResultado}</div>
             <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{consTextoRango(rango)}{prev?` · comparado con ${consTextoRango(rangoPrev)}`:""}{q.tiendas.length?` · ${q.tiendas.map(id=>nombreTiendaCorto(stores[id])).join(", ")}`:""}</div>
           </div>
-          {prev && grafica!=="mapa" && !isMobile && <div style={{ marginLeft:"auto", fontFamily:font.body, fontSize:12, color:C.textMuted, display:"flex", alignItems:"center", gap:6 }}>{grafica==="barras"?<span style={{ width:22, height:3, borderRadius:2, background:"rgba(26,59,82,0.22)" }}/>:<span style={{ width:12, height:12, border:"1.5px dashed rgba(26,59,82,0.35)", borderRadius:3 }}/>}{compLbl[0].toUpperCase()+compLbl.slice(1)}</div>}
+          {prev && ["barras","columnas","linea","area"].includes(grafica) && !(grafica==="linea" && q.g2 && q.medida!=="ticket") && !isMobile && <div style={{ marginLeft:"auto", fontFamily:font.body, fontSize:12, color:C.textMuted, display:"flex", alignItems:"center", gap:6 }}>{grafica==="barras"?<span style={{ width:22, height:3, borderRadius:2, background:"rgba(26,59,82,0.22)" }}/>:grafica!=="columnas"?<span style={{ width:22, height:0, borderTop:"2px dashed #c9b8aa" }}/>:<span style={{ width:12, height:12, border:"1.5px dashed rgba(26,59,82,0.35)", borderRadius:3 }}/>}{compLbl[0].toUpperCase()+compLbl.slice(1)}</div>}
         </div>
         {apilar && grafica==="barras" && (
           <div style={{ display:"flex", gap:14, flexWrap:"wrap", fontFamily:font.body, fontSize:12, color:C.textSub, margin:"4px 0 14px" }}>
@@ -8088,11 +8371,12 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
           </div>
         )}
 
+        {!sinDatos && selectorGrafico}
         {sinDatos ? (
           <div style={{ padding:"36px 0", textAlign:"center", fontFamily:font.body, fontSize:14, color:C.textMuted }}>No hay {q.medida==="count"?"ventas":"movimientos"} con esos filtros en {consTextoRango(rango)}.</div>
         ) : (
-          <div style={{ margin:"10px 0 18px" }}>
-            {grafica==="mapa" ? Mapa() : grafica==="columnas" ? Columnas() : Barras()}
+          grafica==="tabla" ? null : <div style={{ margin:"10px 0 18px" }}>
+            {grafica==="mapa" ? Mapa() : grafica==="columnas" ? Columnas() : grafica==="linea" ? Linea(false) : grafica==="area" ? Linea(true) : grafica==="dona" ? Dona() : grafica==="barras100" ? Barras100() : grafica==="podio" ? Podio() : grafica==="tabla" ? null : Barras()}
           </div>
         )}
 
@@ -8109,7 +8393,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
               </thead>
               <tbody>
                 {filas.map(f=>{
-                  const t = valor(f.acc); const p = prev ? valor(prev.filas[f.k]?.acc) : null;
+                  const t = valor(f.acc); const p = prev ? valor(prevAcc(f)) : null;
                   return (
                     <tr key={f.k}>
                       <td style={{ ...tdMet, fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, whiteSpace:"nowrap", position:"sticky", left:0, background:C.surface }}><span style={{ display:"inline-flex", alignItems:"center", gap:6 }}>{f.color && <PuntoTienda color={f.color} size={7}/>}{f.l}</span></td>
@@ -8133,16 +8417,6 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
         <div style={{ display:"flex", gap:8, justifyContent:"flex-end", flexWrap:"wrap", marginTop:16 }}>
           {!sinDatos && <Btn sm variant="ghost" onClick={descargar}>⬇ Descargar Excel</Btn>}
           {nombrando===null && <Btn sm variant="ghost" onClick={()=>{ setNombrando(""); window.scrollTo({ top:0, behavior:"smooth" }); }}>★ Guardar consulta</Btn>}
-          {!sinDatos && (
-            <span style={{ position:"relative", display:"inline-flex" }}>
-              <Btn sm onClick={()=>{}}>Cambiar gráfico <Icon n="down" s={12} sw={2.4}/></Btn>
-              <select aria-label="Tipo de gráfico" value={grafica} onChange={e=>setGraficaForzada(e.target.value===graficaAuto?"":e.target.value)} style={{ position:"absolute", inset:0, opacity:0, cursor:"pointer", fontSize:16 }}>
-                <option value="barras">Barras</option>
-                <option value="columnas">Columnas</option>
-                {q.g2 && <option value="mapa">Mapa de calor</option>}
-              </select>
-            </span>
-          )}
         </div>
       </Card>
     </div>
