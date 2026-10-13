@@ -7394,27 +7394,22 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
 };
 
 // ── Métricas (Propuesta A) ──────────────────────────────────────────────────
-// Estado del cumplimiento con TEXTO + ícono de clima (elegidos por Santiago). Escala de Santiago:
-// 0–49 % Bajo, 50–75 % Medio, 76–99 % Alto, 100 % o más Cumplió — pero aplicada al RITMO: qué tanto
-// lleva comparado con lo que DEBERÍA llevar a hoy (si no, a mitad de mes todos salían "Bajo").
-//   esperado = % del mes que ya pasó (día de hoy ÷ días del mes; meses cerrados = 100 %).
-//   ritmo    = cumplimiento ÷ esperado.  Ej. al 13 de oct (esperado 42 %): lleva 30 % → ritmo 71 % → Medio.
-//   🏆 Cumplió solo cuando de verdad llega al 100 % de la meta del MES (el que va adelantado pero aún
-//   no llega al 100 % sale ☀️ Alto). El último día esperado = 100 %, así que queda la escala tal cual.
-const estadoCumplimiento = (idc, esperado=100) => {
-  const e = Math.max(0, Math.min(100, Number(esperado ?? 100)));
-  if(idc>=100) return ["Cumplió", C.green, C.greenDim, "🏆"];
-  if(e===0) return ["Sin empezar", C.textMuted, C.surfaceAlt, "🌙"]; // mes que todavía no empieza
-  const ritmo = Math.round(idc / e * 100);
-  if(ritmo>=76) return ["Alto", C.green, C.greenDim, "☀️"];
-  if(ritmo>=50) return ["Medio", C.amber, C.amberDim, "⛅"];
+// Estado del cumplimiento con TEXTO + ícono de clima (elegidos por Santiago). Escala de Santiago
+// sobre el % de la META DEL MES de cada asesor (el mismo % que se ve en la fila):
+//   0–49 % 🌧️ Bajo · 50–75 % ⛅ Medio · 76–99 % ☀️ Alto · 100 % o más 🏆 Cumplió.
+// (Se probó compararlo contra lo que debería llevar a la fecha y Santiago prefirió la escala directa.)
+const estadoCumplimiento = (idc) => {
+  const v = Math.round(Number(idc)||0);
+  if(Number(idc)>=100) return ["Cumplió", C.green, C.greenDim, "🏆"];
+  if(v>=76) return ["Alto", C.green, C.greenDim, "☀️"];
+  if(v>=50) return ["Medio", C.amber, C.amberDim, "⛅"];
   return ["Bajo", C.red, C.redDim, "🌧️"];
 };
-const EstadoIDC = ({ idc, conValor, esperado }) => {
+const EstadoIDC = ({ idc, conValor }) => {
   if(idc===null || idc===undefined) return <span style={{ color:C.textMuted }}>—</span>;
-  const [txt, col, bg, ic] = estadoCumplimiento(idc, esperado);
+  const [txt, col, bg, ic] = estadoCumplimiento(idc);
   return (
-    <span title={esperado!==undefined && esperado>0 && esperado<100 ? `A hoy debería llevar ${String(esperado).replace(".",",")} % · va al ${Math.round(idc/esperado*100)} % de ese ritmo` : undefined} style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:col, background:bg }}>
+    <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:col, background:bg }}>
       <span style={{ fontSize:13, lineHeight:1 }}>{ic}</span>
       {conValor ? `${idc}%` : txt}
     </span>
@@ -8182,8 +8177,6 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const esMesActual = anio===hoy.getFullYear() && mesIdx===hoy.getMonth();
   const diasTotalesMes = diasDelMes(anio, mesIdx);
   const diasRestantes = esMesActual ? (diasTotalesMes - hoy.getDate() + 1) : 0;
-  // Cuánto del mes ya pasó (para la etiqueta Alto / Medio / Bajo — ver estadoCumplimiento).
-  const esperadoMesPct = esMesActual ? Math.round(hoy.getDate()/diasTotalesMes*1000)/10 : (new Date(anio, mesIdx, 1) > hoy ? 0 : 100);
 
   const irMesAnterior = () => { if(mesIdx===0){ setMesIdx(11); setAnio(a=>a-1); } else setMesIdx(m=>m-1); };
   const irMesSiguiente = () => { if(mesIdx===11){ setMesIdx(0); setAnio(a=>a+1); } else setMesIdx(m=>m+1); };
@@ -8689,7 +8682,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                   {esMesActual && d.esperado!=null && d.idc<100 ? (d.idc>=d.esperado
                     ? <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.green, background:C.greenDim }}><Icon n="check" s={12} sw={2.4}/>Al día</span>
                     : <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.red, background:C.redDim }}><span style={{ fontSize:9 }}>▼</span>Atrasada</span>
-                  ) : <EstadoIDC idc={d.idc} esperado={esperadoMesPct}/>}
+                  ) : <EstadoIDC idc={d.idc}/>}
                 </div>
                 <div style={{ margin:"14px 0 6px" }}><BarraConMeta idc={d.idc} escala={esc} color={col||C.gold} etiqueta esperado={esMesActual?d.esperado:null}/></div>
                 {esMesActual && d.esperado!=null && (() => { const dif = Math.round((d.idc - d.esperado)*10)/10; return (
@@ -8757,12 +8750,12 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                 <div key={d.asesor.id} style={{ padding:"11px 2px", borderBottom:borde }}>
                   <div style={{ display:"flex", alignItems:"center", gap:10 }}>{numero}<div style={{ flex:1, minWidth:0 }}>{nombre}</div>{pct}</div>
                   <div style={{ margin:"9px 0 7px 36px" }}><BarraConMeta idc={d.idc} escala={esc} color={C.gold} alto={8}/></div>
-                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginLeft:36 }}>{plata}<EstadoIDC idc={d.idc} esperado={esperadoMesPct}/></div>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginLeft:36 }}>{plata}<EstadoIDC idc={d.idc}/></div>
                 </div>
               ) : (
                 <div key={d.asesor.id} style={{ display:"grid", gridTemplateColumns:"34px minmax(150px,220px) 1fr 64px 330px", alignItems:"center", gap:14, padding:"11px 4px", borderBottom:borde }}>
                   {numero}{nombre}<BarraConMeta idc={d.idc} escala={esc} color={C.gold} alto={8}/>{pct}
-                  <span style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:8 }}>{plata}<EstadoIDC idc={d.idc} esperado={esperadoMesPct}/></span>
+                  <span style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:8 }}>{plata}<EstadoIDC idc={d.idc}/></span>
                 </div>
               );
             })}
@@ -8792,7 +8785,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                       <td style={tdMet}><b>{d.asesor.name}</b><div style={{ height:5, width:isMobile?110:150, background:C.surfaceHover, borderRadius:9, marginTop:6 }}><div style={{ height:"100%", width:`${d.sinServicios/maxVenta*100}%`, background:C.gold, borderRadius:9 }}/></div></td>
                       <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:d.sinServicios>0?C.text:C.textMuted }}>{fmtCOP(d.sinServicios)}</td>
                       <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{d.meta>0?fmtCOP(d.meta):"—"}</td>
-                      <td style={{ ...tdMet, textAlign:"right" }}><EstadoIDC idc={d.idc} conValor esperado={esperadoMesPct}/></td>
+                      <td style={{ ...tdMet, textAlign:"right" }}><EstadoIDC idc={d.idc} conValor/></td>
                       <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{d.mda===null?"—":fmtCOP(d.mda)}</td>
                     </tr>
                   ))}
@@ -8803,7 +8796,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                     <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}` }}>Total</td>
                     <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right", fontFamily:font.mono }}>{fmtCOP(totVenta)}</td>
                     <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right", fontFamily:font.mono }}>{totMeta>0?fmtCOP(totMeta):"—"}</td>
-                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right" }}><EstadoIDC idc={totIdc} conValor esperado={esperadoMesPct}/></td>
+                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right" }}><EstadoIDC idc={totIdc} conValor/></td>
                     <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}` }}/>
                   </tr></tfoot>
                 )}
