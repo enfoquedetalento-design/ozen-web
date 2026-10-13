@@ -7393,16 +7393,18 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
 };
 
 // ── Métricas (Propuesta A) ──────────────────────────────────────────────────
-// Estado del cumplimiento con TEXTO + ícono de clima (elegidos por Santiago). Escala de Santiago
-// sobre el % de la META DEL MES de cada asesor (el mismo % que se ve en la fila):
-//   0–49 % 🌧️ Bajo · 50–75 % ⛅ Medio · 76–99 % ☀️ Alto · 100 % o más 🏆 Cumplió.
-// (Se probó compararlo contra lo que debería llevar a la fecha y Santiago prefirió la escala directa.)
+// Estado del cumplimiento con TEXTO + ícono de clima. Escala definida por Santiago (5 franjas
+// iguales de 20 puntos + Cumplió) sobre el % de la META DEL MES de cada asesor (el % de la fila):
+//   0–19 ⛈️ Muy bajo (rojo) · 20–39 🌧️ Bajo (naranja) · 40–59 ⛅ Regular (amarillo)
+//   60–79 🌤️ Medio (verde claro) · 80–99 ☀️ Alto (verde) · 100 o más 🏆 Cumplió (verde, trofeo)
 const estadoCumplimiento = (idc) => {
   const v = Math.round(Number(idc)||0);
-  if(Number(idc)>=100) return ["Cumplió", C.green, C.greenDim, "🏆"];
-  if(v>=76) return ["Alto", C.green, C.greenDim, "☀️"];
-  if(v>=50) return ["Medio", C.amber, C.amberDim, "⛅"];
-  return ["Bajo", C.red, C.redDim, "🌧️"];
+  if(Number(idc)>=100) return ["Cumplió", C.green, "rgba(27,122,65,0.18)", "🏆"];
+  if(v>=80) return ["Alto", C.green, C.greenDim, "☀️"];
+  if(v>=60) return ["Medio", "#4E7F2A", "rgba(110,170,70,0.16)", "🌤️"];
+  if(v>=40) return ["Regular", "#8A6A00", "rgba(212,170,0,0.18)", "⛅"];
+  if(v>=20) return ["Bajo", "#B4501C", "rgba(214,110,40,0.14)", "🌧️"];
+  return ["Muy bajo", C.red, C.redDim, "⛈️"];
 };
 const EstadoIDC = ({ idc, conValor }) => {
   if(idc===null || idc===undefined) return <span style={{ color:C.textMuted }}>—</span>;
