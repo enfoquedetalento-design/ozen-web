@@ -7393,27 +7393,27 @@ const MetaHoyCompetencia = ({ stores, tiendaIdActual, fecha, ventas, ventasItems
 };
 
 // ── Métricas (Propuesta A) ──────────────────────────────────────────────────
-// Estado del cumplimiento con TEXTO + ícono (no solo color). Se compara contra lo que DEBERÍA
-// llevar a hoy (pedido de Santiago: al 13 de octubre un 68 % salía "Bajo" aunque iba muy bien):
-//   esperado = % del mes que ya pasó (día de hoy ÷ días del mes; en meses cerrados, 100 %).
-//   100 % o más            → 🏆 Cumplió (verde)
-//   desde el esperado      → ☀️ Alto    (verde)
-//   85 % del esperado o más → ⛅ Medio   (amarillo)  — ej. esperado 42 % → de 36 % a 41 %
-//   menos que eso          → 🌧️ Bajo    (rojo)      — ej. esperado 42 % → de 0 % a 35 %
-// Íconos de clima elegidos por Santiago (más visual y amigable para los asesores).
+// Estado del cumplimiento con TEXTO + ícono de clima (elegidos por Santiago). Escala de Santiago:
+// 0–49 % Bajo, 50–75 % Medio, 76–99 % Alto, 100 % o más Cumplió — pero aplicada al RITMO: qué tanto
+// lleva comparado con lo que DEBERÍA llevar a hoy (si no, a mitad de mes todos salían "Bajo").
+//   esperado = % del mes que ya pasó (día de hoy ÷ días del mes; meses cerrados = 100 %).
+//   ritmo    = cumplimiento ÷ esperado.  Ej. al 13 de oct (esperado 42 %): lleva 30 % → ritmo 71 % → Medio.
+//   🏆 Cumplió solo cuando de verdad llega al 100 % de la meta del MES (el que va adelantado pero aún
+//   no llega al 100 % sale ☀️ Alto). El último día esperado = 100 %, así que queda la escala tal cual.
 const estadoCumplimiento = (idc, esperado=100) => {
   const e = Math.max(0, Math.min(100, Number(esperado ?? 100)));
   if(idc>=100) return ["Cumplió", C.green, C.greenDim, "🏆"];
   if(e===0) return ["Sin empezar", C.textMuted, C.surfaceAlt, "🌙"]; // mes que todavía no empieza
-  if(e<100 && idc>=e) return ["Alto", C.green, C.greenDim, "☀️"];
-  if(idc>=e*0.85) return ["Medio", C.amber, C.amberDim, "⛅"];
+  const ritmo = Math.round(idc / e * 100);
+  if(ritmo>=76) return ["Alto", C.green, C.greenDim, "☀️"];
+  if(ritmo>=50) return ["Medio", C.amber, C.amberDim, "⛅"];
   return ["Bajo", C.red, C.redDim, "🌧️"];
 };
 const EstadoIDC = ({ idc, conValor, esperado }) => {
   if(idc===null || idc===undefined) return <span style={{ color:C.textMuted }}>—</span>;
   const [txt, col, bg, ic] = estadoCumplimiento(idc, esperado);
   return (
-    <span title={esperado!==undefined && esperado<100 ? `A hoy debería llevar ${String(esperado).replace(".",",")} %` : undefined} style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:col, background:bg }}>
+    <span title={esperado!==undefined && esperado>0 && esperado<100 ? `A hoy debería llevar ${String(esperado).replace(".",",")} % · va al ${Math.round(idc/esperado*100)} % de ese ritmo` : undefined} style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:col, background:bg }}>
       <span style={{ fontSize:13, lineHeight:1 }}>{ic}</span>
       {conValor ? `${idc}%` : txt}
     </span>
