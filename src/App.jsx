@@ -9083,6 +9083,15 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                   <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:8, flexWrap:"wrap", fontFamily:font.body, fontSize:12.5, color:C.textMuted, margin:"2px 0 8px" }}>
                     <span>Debería llevar <b style={{ fontFamily:font.mono, color:C.amber }}>{d.esperado}%</b></span>
                     <b style={{ color: dif>=0 ? C.green : C.red }}>{dif>=0 ? `▲ ${dif} pts adelante` : `▼ ${Math.abs(dif)} pts atrás`}</b>
+                    {/* En plata (pedido de Santiago): cuánto es esa diferencia, para que los asesores la
+                        piensen en ventas y no solo en puntos. Es vendido − lo que debería llevar a hoy. */}
+                    {(() => { const plata = Math.round(d.sinServicios - d.metaHastaHoy); return (
+                      <div style={{ width:"100%", marginTop:4, padding:"7px 10px", borderRadius:9, background: plata>=0 ? C.greenDim : C.redDim, color: plata>=0 ? C.green : C.red, fontWeight:600, fontSize:12.5 }}>
+                        {plata>=0
+                          ? <>Va <b style={{ fontFamily:font.mono }}>{fmtCOP(plata)}</b> adelante de lo esperado</>
+                          : <>Para ir al día le faltan <b style={{ fontFamily:font.mono }}>{fmtCOP(-plata)}</b></>}
+                      </div>
+                    ); })()}
                   </div>
                 ); })()}
                 <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}><span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(d.sinServicios)}</span> de <span style={{ fontFamily:font.mono }}>{fmtCOP(d.meta)}</span></div>
