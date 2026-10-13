@@ -8705,7 +8705,15 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
           tiendas" — pedido explícito de Santiago: ya no existe versión por tienda de ninguno de
           los dos, así que en la pestaña de una tienda específica simplemente no aparecen. */}
       {!tiendaSel && (<>
-      <SeccionVenta icon="trophy" titulo="Top asesores por cumplimiento" derecha="Todas las tiendas">
+      <SeccionVenta icon="trophy" titulo={<span style={{ display:"inline-flex", alignItems:"center", gap:7 }}>Top asesores por cumplimiento
+        <HoverTooltip label="ⓘ" labelStyle={{ fontSize:13, color:C.textMuted, fontWeight:400, textDecoration:"none" }} width={250}>
+          <div style={{ fontFamily:font.body, fontSize:12, color:C.text, lineHeight:1.5, fontWeight:400 }}>
+            <div style={{ marginBottom:6 }}>% vendido de su meta del mes:</div>
+            {[["⛈️","Muy bajo","0–19 %"],["🌧️","Bajo","20–39 %"],["⛅","Regular","40–59 %"],["🌤️","Medio","60–79 %"],["☀️","Alto","80–99 %"],["🏆","Cumplió","100 % o más"]].map(([ic,t,r])=>(
+              <div key={t} style={{ display:"flex", gap:8, alignItems:"center" }}><span style={{ width:18 }}>{ic}</span><b style={{ fontWeight:700, minWidth:62 }}>{t}</b><span style={{ color:C.textMuted }}>{r}</span></div>
+            ))}
+          </div>
+        </HoverTooltip></span>} derecha="Todas las tiendas">
         {rankingTodasTiendas.length>0 ? (() => { const esc = escalaCumplimiento(rankingTodasTiendas); return (
           <div>
             {rankingTodasTiendas.map((d,idx)=>{
