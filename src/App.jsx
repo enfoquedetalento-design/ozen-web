@@ -974,26 +974,13 @@ const MenuItem = ({ ic, children, onClick, color, activo, extra }) => (
   </button>
 );
 
-// Pantalla para elegir la tienda antes de Registrar venta / Caja (ya no se elige ninguna por
-// defecto). Todas las tiendas que venden, en el orden de Tiendas, del mismo tamaño y sin destacar
-// ninguna.
-function ElegirTiendaPantalla({ stores, onElegir, paraQue, isMobile }) {
-  const tiendas = tiendasVenta(stores);
-  return (
-    <div style={{ maxWidth:640, margin:isMobile?"20px auto":"48px auto", textAlign:"center" }}>
-      <div style={{ width:52, height:52, borderRadius:16, background:C.surfaceHover, color:C.gold, display:"grid", placeItems:"center", margin:"0 auto 14px" }}><Icon n="store" s={26}/></div>
-      <div style={{ fontFamily:font.body, fontSize:isMobile?20:23, fontWeight:700, color:C.text }}>¿Con qué tienda vas a trabajar?</div>
-      <div style={{ fontFamily:font.body, fontSize:13.5, color:C.textMuted, marginTop:6 }}>Elige la tienda para {paraQue}. Puedes cambiarla cuando quieras arriba.</div>
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${Math.min(tiendas.length,4)}, 1fr)`, gap:12, marginTop:24 }}>
-        {tiendas.map(t=>(
-          <button key={t.id} onClick={()=>onElegir(t.id)} className="ozen-modulo-card" style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10, padding:"20px 12px", borderRadius:16, border:`1px solid ${C.border}`, borderTop:`3px solid ${colorTienda(t)}`, background:"#fff", cursor:"pointer", fontFamily:font.body, fontSize:15, fontWeight:700, color:C.text, transition:"transform .15s, box-shadow .15s" }}>
-            <PuntoTienda color={colorTienda(t)} size={14}/>{nombreTiendaCorto(t)}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+// Registrar venta / Caja sin tienda elegida (ya no se elige ninguna por defecto — pedido de
+// Santiago): la pantalla queda sin datos y solo indica que se elige arriba, en el selector.
+const SinTiendaElegida = () => (
+  <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:8, fontFamily:font.body, fontSize:13, color:C.textMuted, padding:"6px 4px" }}>
+    Elige una tienda arriba para ver sus datos <Icon n="up" s={14} sw={2.2} style={{ color:C.gold }}/>
+  </div>
+);
 
 function SelectorTienda({ stores, tiendaId, setTiendaId, fija, compact }) {
   const [abierto, setAbierto] = useState(false);
@@ -6326,7 +6313,7 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
   // OJO: el valor por defecto debe salir de tiendasVenta() (las que sí venden), no de todas las
   // tiendas — si no, el dropdown solo MUESTRA tiendas válidas pero el valor de por debajo puede
   // quedar en una tienda excluida (ej. Ozen Oficina) sin que se note, y la venta se guarda mal.
-  const [tiendaIdLocal] = useState(tiendaFija || tiendasVenta(stores)[0]?.id || "");
+  const [tiendaIdLocal] = useState(tiendaFija || "");
   // Propuesta A: la tienda sale de la barra superior (compartida con Caja). Se deja el estado local
   // solo como respaldo si la pantalla se usa sin esa barra.
   const tiendaId = tiendaFija || tiendaActiva || tiendaIdLocal;
@@ -6605,6 +6592,7 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
 
   const resumenMedios = Object.entries(items.flatMap(it=>it.pagos).reduce((acc,p)=>{ acc[p.medio_pago]=(acc[p.medio_pago]||0)+Number(p.valor); return acc; },{}));
 
+  if(!tiendaId) return <SinTiendaElegida/>;
   return (
     <>
     {vueloBats>0 && <VueloMurcielagos key={vueloBats}/>}
@@ -9929,7 +9917,7 @@ const CajaCampoPick = ({ label, value, onChange, options, type="text", money, co
 function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, gastos, setGastos, aperturas, setAperturas, cierres, setCierres, recolecciones, setRecolecciones, solicitudesBorrado, setSolicitudesBorrado, puedeRecoleccion, soloLectura, isMobile, turnosAsignaciones, turnosHorarios, lideres }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const tiendasList = tiendasVenta(stores);
-  const [tiendaIdLocal] = useState(tiendaFija || tiendasList[0]?.id || "");
+  const [tiendaIdLocal] = useState(tiendaFija || "");
   const tiendaId = tiendaFija || tiendaActiva || tiendaIdLocal;
   // Color asignado a la tienda que se está viendo — se usa para pintar los cuadros de Caja.
   const tiendaColor = stores[tiendaId]?.color;
@@ -10579,6 +10567,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
     ...recoleccionesTienda.filter(r=>r.fecha===todayStr).map(r=>({ key:`r${r.id}`, ts:r.created_at, titulo:"Recolección", sub:`${tsHora(r.created_at)} · ${r.entrega_nombre||"—"} → ${r.recibe_nombre||"—"}`, valor:fmtCOP(r.valor), color:C.goldDark })),
   ].sort((x,y)=> String(y.ts).localeCompare(String(x.ts)));
 
+  if(!tiendaId) return <SinTiendaElegida/>;
   return (
     <div>
       {toastCaptura && (
@@ -12168,7 +12157,7 @@ export default function App() {
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
   const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll();};
   const logout=()=>{setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);};
-  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?(ventasSoloLectura(user)?"metricas":"registrar"):a==="capacitacion"?(tomaCapacitaciones(user)?"mis_cursos":"progreso"):user.role==="advisor"?"checkin":"dashboard");};
+  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?"metricas":a==="capacitacion"?(tomaCapacitaciones(user)?"mis_cursos":"progreso"):user.role==="advisor"?"checkin":"dashboard");};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
@@ -12278,8 +12267,9 @@ export default function App() {
   if(eligeModulo(user) && !area) return <AreaSelector user={user} onChoose={chooseArea} onLogout={logout}/>;
 
   // Ninguna tienda queda elegida por defecto (pedido de Santiago: poner Unicentro de entrada hacía
-  // sentir que era "la principal"). Hasta que se elija una, Registrar venta y Caja muestran el
-  // selector de tienda (ElegirTiendaPantalla). Las cuentas de tienda siguen fijas en la suya.
+  // sentir que era "la principal"). Hasta que se elija una arriba, Registrar venta y Caja quedan
+  // sin datos (SinTiendaElegida). Las cuentas de tienda siguen fijas en la suya. Además, al entrar
+  // a Ventas todos los admin arrancan en Métricas.
   const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : "");
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
   const renderScreen=()=>{
@@ -12291,7 +12281,6 @@ export default function App() {
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
-        if((tab==="registrar" || tab==="caja") && !tiendaActiva && !esCuentaTienda(user)) return <ElegirTiendaPantalla stores={stores} onElegir={setTiendaActiva} paraQue={tab==="caja"?"la caja":"registrar ventas"} isMobile={isMobile}/>;
         if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
