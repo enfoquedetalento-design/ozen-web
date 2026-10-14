@@ -974,6 +974,27 @@ const MenuItem = ({ ic, children, onClick, color, activo, extra }) => (
   </button>
 );
 
+// Pantalla para elegir la tienda antes de Registrar venta / Caja (ya no se elige ninguna por
+// defecto). Todas las tiendas que venden, en el orden de Tiendas, del mismo tamaño y sin destacar
+// ninguna.
+function ElegirTiendaPantalla({ stores, onElegir, paraQue, isMobile }) {
+  const tiendas = tiendasVenta(stores);
+  return (
+    <div style={{ maxWidth:640, margin:isMobile?"20px auto":"48px auto", textAlign:"center" }}>
+      <div style={{ width:52, height:52, borderRadius:16, background:C.surfaceHover, color:C.gold, display:"grid", placeItems:"center", margin:"0 auto 14px" }}><Icon n="store" s={26}/></div>
+      <div style={{ fontFamily:font.body, fontSize:isMobile?20:23, fontWeight:700, color:C.text }}>¿Con qué tienda vas a trabajar?</div>
+      <div style={{ fontFamily:font.body, fontSize:13.5, color:C.textMuted, marginTop:6 }}>Elige la tienda para {paraQue}. Puedes cambiarla cuando quieras arriba.</div>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${Math.min(tiendas.length,4)}, 1fr)`, gap:12, marginTop:24 }}>
+        {tiendas.map(t=>(
+          <button key={t.id} onClick={()=>onElegir(t.id)} className="ozen-modulo-card" style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10, padding:"20px 12px", borderRadius:16, border:`1px solid ${C.border}`, borderTop:`3px solid ${colorTienda(t)}`, background:"#fff", cursor:"pointer", fontFamily:font.body, fontSize:15, fontWeight:700, color:C.text, transition:"transform .15s, box-shadow .15s" }}>
+            <PuntoTienda color={colorTienda(t)} size={14}/>{nombreTiendaCorto(t)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SelectorTienda({ stores, tiendaId, setTiendaId, fija, compact }) {
   const [abierto, setAbierto] = useState(false);
   const actual = stores[tiendaId];
@@ -981,8 +1002,8 @@ function SelectorTienda({ stores, tiendaId, setTiendaId, fija, compact }) {
   if(fija || !setTiendaId) return <div style={chip}><PuntoTienda color={colorTienda(actual)} size={compact?8:9}/>{nombreTiendaCorto(actual)}</div>;
   return (
     <div style={{ position:"relative" }}>
-      <button onClick={()=>setAbierto(a=>!a)} style={{ ...chip, cursor:"pointer" }} title="Tienda con la que estás trabajando">
-        <PuntoTienda color={colorTienda(actual)} size={compact?8:9}/>{nombreTiendaCorto(actual)}<Icon n="down" s={14} style={{ color:C.textMuted }}/>
+      <button onClick={()=>setAbierto(a=>!a)} style={{ ...chip, cursor:"pointer", ...(actual ? {} : { border:`1.5px dashed ${C.gold}`, color:C.gold }) }} title="Tienda con la que estás trabajando">
+        {actual ? <><PuntoTienda color={colorTienda(actual)} size={compact?8:9}/>{nombreTiendaCorto(actual)}</> : <><Icon n="store" s={14}/>Elige tienda</>}<Icon n="down" s={14} style={{ color:C.textMuted }}/>
       </button>
       <MenuFlotante abierto={abierto} onCerrar={()=>setAbierto(false)} width={230}>
         <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.1em", textTransform:"uppercase", color:C.textMuted, padding:"6px 12px 4px", fontWeight:600 }}>Tienda</div>
@@ -12256,8 +12277,10 @@ export default function App() {
 
   if(eligeModulo(user) && !area) return <AreaSelector user={user} onChoose={chooseArea} onLogout={logout}/>;
 
-  // Si todavía no se ha elegido tienda (o la elegida ya no vende), se toma la primera que vende.
-  const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : (tiendasVenta(stores)[0]?.id || ""));
+  // Ninguna tienda queda elegida por defecto (pedido de Santiago: poner Unicentro de entrada hacía
+  // sentir que era "la principal"). Hasta que se elija una, Registrar venta y Caja muestran el
+  // selector de tienda (ElegirTiendaPantalla). Las cuentas de tienda siguen fijas en la suya.
+  const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : "");
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
@@ -12268,6 +12291,7 @@ export default function App() {
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
+        if((tab==="registrar" || tab==="caja") && !tiendaActiva && !esCuentaTienda(user)) return <ElegirTiendaPantalla stores={stores} onElegir={setTiendaActiva} paraQue={tab==="caja"?"la caja":"registrar ventas"} isMobile={isMobile}/>;
         if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
@@ -12431,7 +12455,7 @@ export default function App() {
         {globalAnimStyles}
         <TopeEstado color="#ffffff"/>
         <BarraSuperiorMovil {...propsBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
-        {mostrarTienda && <FranjaTienda color={colorTiendaActiva}/>}
+        {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
         <main style={{flex:1,overflowY:"auto",padding:16}}>{panel}</main>
         <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
         {modalCambiarPassword}
@@ -12450,7 +12474,7 @@ export default function App() {
         <TopeEstado color="#ffffff"/>
         <BarraSuperior {...propsBarra}/>
         <BarraPestanas tabs={tabsVisibles} tab={tab} setTab={setTab} derecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
-        {mostrarTienda && <FranjaTienda color={colorTiendaActiva}/>}
+        {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
         <main style={{flex:1,overflowY:"auto",padding:"26px 28px 40px"}}>{panel}</main>
         {modalCambiarPassword}
         {modalUsuarios}
