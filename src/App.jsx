@@ -10157,10 +10157,16 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   const baseVigente = Math.max(0, baseLineaVigente - baseDeficit);
   const totalEnCajaAhora = baseVigente + efectivoPendienteTotal;
 
+  // reValorTocado también está en las dependencias: al guardar una recolección se vuelve a poner en
+  // false, y eso fuerza a recalcular el valor sugerido con lo que de verdad queda pendiente — antes
+  // el formulario se limpiaba en blanco y no volvía a llenarse hasta recargar la página, así que
+  // si la recolección se registró con fecha anterior (ej. del 13 registrada el 14) y quedaba
+  // efectivo del día de la recolección sin recoger (Jardín Plaza, 14 oct: $248.000), la tarjeta
+  // decía que no había nada por recoger aunque sí había.
   useEffect(()=>{
     if(!reValorTocado) setReValor(String(efectivoARecolectar||""));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [efectivoARecolectar, tiendaId]);
+  }, [efectivoARecolectar, tiendaId, reValorTocado]);
 
   useEffect(()=>{
     if(!reBaseCajaTocado) setReBaseCaja(String(baseVigente||""));
@@ -10450,7 +10456,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
       // (guardandoRe) durante la captura también, para que no se pueda hacer doble clic mientras
       // se genera la imagen.
       await capturarTarjetaCaja(recoleccionCardRef, setToastCaptura);
-      setReValor(""); setReComentarios(""); setReIncluyeHoy(false); setReValorHoy(""); setReBaseCajaTocado(false);
+      setReValor(""); setReValorTocado(false); setReComentarios(""); setReIncluyeHoy(false); setReValorHoy(""); setReBaseCajaTocado(false);
     }
     else if(error){ setMsg(`No se pudo guardar la recolección: ${error.message||"error desconocido"}`); }
     setGuardandoRe(false);
