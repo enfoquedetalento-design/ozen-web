@@ -2282,6 +2282,7 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
   const [borrador,setBorrador]=useState([]);
   const [cargandoBorrador,setCargandoBorrador]=useState(true);
   const [publicando,setPublicando]=useState(false);
+  const [seleccion,setSeleccion]=useState(()=>new Set()); // llaves 'asesor|fecha' de los cambios marcados para publicar/descartar
   const cargasRef = useRef({}); // evita copiar dos veces el mismo mes si el efecto corre doble
   const publicadasMes = asignaciones.filter(a=>a.fecha && a.fecha.slice(0,7)===mesKey);
   const publicadasRef = useRef(publicadasMes); publicadasRef.current = publicadasMes;
@@ -2327,48 +2328,78 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
   const totalCambios = nuevos.length + modificados.length + quitados.length;
   const cambiadas = new Set([...nuevos.map(b=>`${b.asesor_id}|${b.fecha}`), ...modificados.map(m=>`${m.b.asesor_id}|${m.b.fecha}`), ...quitados.map(p=>`${p.asesor_id}|${p.fecha}`)]);
 
-  const publicar = async () => {
-    if(totalCambios===0) return;
-    if(!window.confirm(`¿Publicar el borrador de ${MESES_LARGO[mes]} ${anio}?\n\nA partir de ahora todos verán estos turnos (${nuevos.length} nuevos, ${modificados.length} modificados, ${quitados.length} quitados).`)) return;
+  // Los cambios se agrupan por SEMANA (lunes a domingo) para poder publicar o descartar solo una
+  // parte — ej. publicar los cambios de la semana que viene y dejar el resto del mes en borrador.
+  // `sel` = { nuevos, modificados, quitados } (un subconjunto de los de arriba).
+  const lunesDe = (f) => { const dow = new Date(f+"T12:00:00").getDay(); return addDiasFecha(f, -((dow+6)%7)); };
+  const etiquetaSemana = (lunes) => { const dom = addDiasFecha(lunes, 6); const mL = Number(lunes.slice(5,7))-1, mD = Number(dom.slice(5,7))-1; return `${Number(lunes.slice(8,10))}${mL!==mD?` ${MESES_LARGO[mL].slice(0,3).toLowerCase()}`:""} al ${Number(dom.slice(8,10))} de ${MESES_LARGO[mD].toLowerCase()}`; };
+  // Lista de cambios uno por uno — cada fila se marca para publicar (o descartar) por separado.
+  const items = [
+    ...nuevos.map(b=>({ key:`${b.asesor_id}|${b.fecha}`, tipo:"nuevo", b, p:null, fecha:b.fecha, asesorId:b.asesor_id })),
+    ...modificados.map(m=>({ key:`${m.b.asesor_id}|${m.b.fecha}`, tipo:"modificado", b:m.b, p:m.p, fecha:m.b.fecha, asesorId:m.b.asesor_id })),
+    ...quitados.map(p=>({ key:`${p.asesor_id}|${p.fecha}`, tipo:"quitado", b:null, p, fecha:p.fecha, asesorId:p.asesor_id })),
+  ].sort((x,y)=> x.fecha.localeCompare(y.fecha) || (advisors.findIndex(a=>a.id===x.asesorId)) - (advisors.findIndex(a=>a.id===y.asesorId)));
+  const marcado = (it) => seleccion.has(it.key);
+  const itemsMarcados = items.filter(marcado);
+  const selDe = (lista) => ({ nuevos:lista.filter(i=>i.tipo==="nuevo").map(i=>i.b), modificados:lista.filter(i=>i.tipo==="modificado").map(i=>({ b:i.b, p:i.p })), quitados:lista.filter(i=>i.tipo==="quitado").map(i=>i.p) });
+  const toggleItem = (key) => setSeleccion(prev=>{ const n=new Set(prev); n.has(key)?n.delete(key):n.add(key); return n; });
+  const semanasItems = {};
+  items.forEach(it=>{ const l=lunesDe(it.fecha); (semanasItems[l]=semanasItems[l]||[]).push(it); });
+  const listaSemanas = Object.keys(semanasItems).sort().map(l=>({ lunes:l, items:semanasItems[l] }));
+  const toggleSemana = (lista) => setSeleccion(prev=>{ const n=new Set(prev); const todos=lista.every(i=>n.has(i.key)); lista.forEach(i=>todos?n.delete(i.key):n.add(i.key)); return n; });
+  const totalDe = (sel) => sel.nuevos.length + sel.modificados.length + sel.quitados.length;
+
+  const publicar = async (sel, etiqueta) => {
+    if(totalDe(sel)===0) return;
+    if(!window.confirm(`¿Publicar ${etiqueta}?\n\nA partir de ahora todos verán estos turnos (${sel.nuevos.length} nuevos, ${sel.modificados.length} modificados, ${sel.quitados.length} quitados). Lo demás del borrador sigue sin publicarse.`)) return;
     setPublicando(true);
     try {
-      if(quitados.length){
-        const { error } = await supabase.from("turnos_asignaciones").delete().in("id", quitados.map(p=>p.id));
+      if(sel.quitados.length){
+        const { error } = await supabase.from("turnos_asignaciones").delete().in("id", sel.quitados.map(p=>p.id));
         if(error) throw error;
-        const ids = new Set(quitados.map(p=>p.id));
+        const ids = new Set(sel.quitados.map(p=>p.id));
         setAsignaciones(prev=>prev.filter(a=>!ids.has(a.id)));
       }
-      for(const { b, p } of modificados){
+      for(const { b, p } of sel.modificados){
         const { data, error } = await supabase.from("turnos_asignaciones").update(copiaParaBorrador(b)).eq("id", p.id).select().single();
         if(error) throw error;
         setAsignaciones(prev=>prev.map(a=>a.id===data.id?data:a));
       }
-      if(nuevos.length){
-        const { data, error } = await supabase.from("turnos_asignaciones").insert(nuevos.map(copiaParaBorrador)).select();
+      if(sel.nuevos.length){
+        const { data, error } = await supabase.from("turnos_asignaciones").insert(sel.nuevos.map(copiaParaBorrador)).select();
         if(error) throw error;
         setAsignaciones(prev=>[...prev, ...(data||[])]);
       }
       await supabase.from("turnos_borrador_meses").update({ publicado_en:new Date().toISOString(), publicado_por:userName||null }).eq("mes", mesKey);
+      setSeleccion(new Set());
     } catch(err){
       alert(`No se pudo publicar completo: ${err.message||"error desconocido"}. Lo que alcanzó a publicarse ya es visible; el borrador sigue intacto, así que puedes volver a pulsar "Publicar".`);
     }
     setPublicando(false);
   };
-  const descartar = async () => {
-    if(totalCambios===0) return;
-    if(!window.confirm(`¿Descartar los ${totalCambios} cambios sin publicar de ${MESES_LARGO[mes]} ${anio}?\n\nEl borrador vuelve a ser igual a lo publicado. Esto no se puede deshacer.`)) return;
+  // Descartar = que el borrador vuelva a ser igual a lo publicado, solo para las celdas de `sel`.
+  const descartar = async (sel, etiqueta) => {
+    if(totalDe(sel)===0) return;
+    if(!window.confirm(`¿Descartar los ${totalDe(sel)} cambios sin publicar de ${etiqueta}?\n\nEl borrador de esas fechas vuelve a ser igual a lo publicado. Esto no se puede deshacer.`)) return;
     setPublicando(true);
     try {
-      const { error: errDel } = await supabase.from("turnos_borrador").delete().gte("fecha", primerDia).lte("fecha", ultimoDia);
-      if(errDel) throw errDel;
-      const copias = publicadasMes.map(copiaParaBorrador);
-      let nuevas = [];
-      for(let i=0;i<copias.length;i+=200){
-        const { data, error } = await supabase.from("turnos_borrador").insert(copias.slice(i,i+200)).select();
+      if(sel.nuevos.length){
+        const { error } = await supabase.from("turnos_borrador").delete().in("id", sel.nuevos.map(b=>b.id));
         if(error) throw error;
-        nuevas = nuevas.concat(data||[]);
+        const ids = new Set(sel.nuevos.map(b=>b.id));
+        setBorrador(prev=>prev.filter(a=>!ids.has(a.id)));
       }
-      setBorrador(nuevas);
+      for(const { b, p } of sel.modificados){
+        const { data, error } = await supabase.from("turnos_borrador").update(copiaParaBorrador(p)).eq("id", b.id).select().single();
+        if(error) throw error;
+        setBorrador(prev=>prev.map(a=>a.id===data.id?data:a));
+      }
+      if(sel.quitados.length){
+        const { data, error } = await supabase.from("turnos_borrador").insert(sel.quitados.map(copiaParaBorrador)).select();
+        if(error) throw error;
+        setBorrador(prev=>[...prev, ...(data||[])]);
+      }
+      setSeleccion(new Set());
     } catch(err){
       alert(`No se pudo descartar: ${err.message||"error desconocido"}`);
     }
@@ -2426,15 +2457,48 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
       <GestionAsesoresActivosTurnos users={users} setUsers={setUsers}/>
       <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
       <Card p="10px 14px" style={{ marginBottom:12, ...(totalCambios>0 ? { border:`1px solid ${C.amber}` } : {}) }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-          <div style={{ flex:1, minWidth:200, fontFamily:font.body, fontSize:12.5, color:C.text }}>
-            {cargandoBorrador ? "Cargando borrador..." : totalCambios===0
-              ? <>✅ El borrador de <b>{MESES_LARGO[mes]}</b> es igual a lo publicado.</>
-              : <>📝 <b>{totalCambios} cambio{totalCambios===1?"":"s"} sin publicar</b> en {MESES_LARGO[mes]} <span style={{ color:C.textMuted }}>({nuevos.length} nuevos · {modificados.length} modificados · {quitados.length} quitados) — marcados en ámbar en la rejilla. Los demás todavía ven la versión anterior.</span></>}
-          </div>
-          {!cargandoBorrador && totalCambios>0 && <Btn onClick={descartar} variant="ghost" sm disabled={publicando}>Descartar cambios</Btn>}
-          {!cargandoBorrador && <Btn onClick={publicar} sm disabled={publicando || totalCambios===0}>{publicando ? "Publicando..." : `📣 Publicar ${MESES_LARGO[mes]}`}</Btn>}
+        <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text }}>
+          {cargandoBorrador ? "Cargando borrador..." : totalCambios===0
+            ? <>✅ El borrador de <b>{MESES_LARGO[mes]}</b> es igual a lo publicado.</>
+            : <>📝 <b>{totalCambios} cambio{totalCambios===1?"":"s"} sin publicar</b> en {MESES_LARGO[mes]} <span style={{ color:C.textMuted }}>— marcados en ámbar en la rejilla. Los demás todavía ven la versión anterior. Marca los que quieres publicar:</span></>}
         </div>
+        {!cargandoBorrador && totalCambios>0 && (
+          <>
+            <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", margin:"10px 0 6px" }}>
+              <button onClick={()=>setSeleccion(new Set(items.map(i=>i.key)))} style={{ background:"none", border:"none", color:C.goldLight, cursor:"pointer", fontFamily:font.body, fontSize:12, padding:0 }}>Marcar todos</button>
+              <span style={{ color:C.textMuted }}>·</span>
+              <button onClick={()=>setSeleccion(new Set())} style={{ background:"none", border:"none", color:C.goldLight, cursor:"pointer", fontFamily:font.body, fontSize:12, padding:0 }}>Quitar marcas</button>
+              <span style={{ flex:1 }}/>
+              <Btn onClick={()=>descartar(selDe(itemsMarcados), `los ${itemsMarcados.length} cambios marcados`)} variant="ghost" sm disabled={publicando || itemsMarcados.length===0}>Descartar marcados</Btn>
+              <Btn onClick={()=>publicar(selDe(itemsMarcados), `${itemsMarcados.length===1?"el cambio marcado":`los ${itemsMarcados.length} cambios marcados`}`)} sm disabled={publicando || itemsMarcados.length===0}>{publicando ? "Publicando..." : `📣 Publicar marcados (${itemsMarcados.length})`}</Btn>
+            </div>
+            <div style={{ maxHeight:320, overflowY:"auto", border:`1px solid ${C.border}`, borderRadius:8 }}>
+              {listaSemanas.map(sem=>(
+                <div key={sem.lunes}>
+                  <label style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 10px", background:C.surfaceAlt, borderTop:`1px solid ${C.border}`, fontFamily:font.body, fontSize:11, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.04em", cursor:"pointer", position:"sticky", top:0, zIndex:1 }}>
+                    <input type="checkbox" checked={sem.items.every(marcado)} onChange={()=>toggleSemana(sem.items)}/>
+                    Semana del {etiquetaSemana(sem.lunes)}
+                  </label>
+                  {sem.items.map(it=>{
+                    const ase = users.find(u=>u.id===it.asesorId);
+                    return (
+                      <label key={it.key} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 10px", borderTop:`1px solid ${C.border}`, cursor:"pointer", background:marcado(it)?`${C.gold}12`:"transparent" }}>
+                        <input type="checkbox" checked={marcado(it)} onChange={()=>toggleItem(it.key)}/>
+                        <span style={{ fontFamily:font.body, fontSize:12.5, color:C.text, minWidth:150 }}><b>{ase?primerNombre(ase.name):"—"}</b> · {nombreDiaCorto(it.fecha).slice(0,2)} {Number(it.fecha.slice(8,10))}</span>
+                        <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}>
+                          <TurnoBadgeCelda turno={it.p ? resolverTurno(it.p, stores, turnosGlobales) : null} size="sm"/>
+                          <span style={{ color:C.textMuted }}>→</span>
+                          <TurnoBadgeCelda turno={it.b ? resolverTurno(it.b, stores, turnosGlobales) : null} size="sm"/>
+                        </span>
+                        <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{it.tipo==="nuevo"?"nuevo":it.tipo==="quitado"?"quitado":"modificado"}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </Card>
       {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay personas activas en la malla. Actívalas arriba, en "Personas activas en la malla".</div> :
         cargandoBorrador ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>Cargando borrador de {MESES_LARGO[mes]}...</div> :
