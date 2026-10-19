@@ -1935,6 +1935,18 @@ const hexToRgba = (hex, alpha) => {
   const r=parseInt(h.substring(0,2),16), g=parseInt(h.substring(2,4),16), b=parseInt(h.substring(4,6),16);
   return `rgba(${r},${g},${b},${alpha})`;
 };
+// Versión para listas (ej. cambios sin publicar del Borrador): se ajusta al ancho del texto — a
+// diferencia de TurnoBadgeCelda (100% del ancho de la celda de la rejilla), que recorta nombres
+// largos como "Vacaciones" o "Capacitación" cuando no tiene un ancho propio.
+function ChipTurnoLista({ turno }) {
+  if(!turno) return <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, minWidth:28, textAlign:"center" }}>—</span>;
+  const txt = colorTextoContraste(turno.color);
+  return (
+    <span style={{ display:"inline-block", flexShrink:0, whiteSpace:"nowrap", borderRadius:8, padding:"3px 10px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:txt,
+      background:`linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,18)})`, textShadow:txt==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none",
+      boxShadow:"0 1px 3px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.22)", border:`1px solid ${hexToRgba(oscurecerColor(turno.color,30),0.55)}` }}>{turno.label}</span>
+  );
+}
 function TurnoBadgeCelda({ turno, size }) {
   if(!turno) return <div style={{ width:"100%", minHeight:size==="sm"?24:28 }}/>;
   const txt = colorTextoContraste(turno.color);
@@ -2482,13 +2494,13 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
                   {sem.items.map(it=>{
                     const ase = users.find(u=>u.id===it.asesorId);
                     return (
-                      <label key={it.key} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 10px", borderTop:`1px solid ${C.border}`, cursor:"pointer", background:marcado(it)?`${C.gold}12`:"transparent" }}>
+                      <label key={it.key} style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:10, padding:"6px 10px", borderTop:`1px solid ${C.border}`, cursor:"pointer", background:marcado(it)?`${C.gold}12`:"transparent" }}>
                         <input type="checkbox" checked={marcado(it)} onChange={()=>toggleItem(it.key)}/>
                         <span style={{ fontFamily:font.body, fontSize:12.5, color:C.text, minWidth:150 }}><b>{ase?primerNombre(ase.name):"—"}</b> · {nombreDiaCorto(it.fecha).slice(0,2)} {Number(it.fecha.slice(8,10))}</span>
                         <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}>
-                          <TurnoBadgeCelda turno={it.p ? resolverTurno(it.p, stores, turnosGlobales) : null} size="sm"/>
+                          <ChipTurnoLista turno={it.p ? resolverTurno(it.p, stores, turnosGlobales) : null}/>
                           <span style={{ color:C.textMuted }}>→</span>
-                          <TurnoBadgeCelda turno={it.b ? resolverTurno(it.b, stores, turnosGlobales) : null} size="sm"/>
+                          <ChipTurnoLista turno={it.b ? resolverTurno(it.b, stores, turnosGlobales) : null}/>
                         </span>
                         <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{it.tipo==="nuevo"?"nuevo":it.tipo==="quitado"?"quitado":"modificado"}</span>
                       </label>
