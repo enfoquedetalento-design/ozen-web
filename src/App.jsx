@@ -1986,8 +1986,7 @@ const hexToRgba = (hex, alpha) => {
   return `rgba(${r},${g},${b},${alpha})`;
 };
 // Versión para listas (ej. cambios sin publicar del Borrador): se ajusta al ancho del texto — a
-// diferencia de TurnoBadgeCelda (100% del ancho de la celda de la rejilla), que recorta nombres
-// largos como "Vacaciones" o "Capacitación" cuando no tiene un ancho propio.
+// diferencia de los bloques de la malla, que recortan nombres largos como "Vacaciones".
 function ChipTurnoLista({ turno }) {
   if(!turno) return <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, minWidth:28, textAlign:"center" }}>—</span>;
   const txt = colorTextoContraste(turno.color);
@@ -1995,23 +1994,6 @@ function ChipTurnoLista({ turno }) {
     <span style={{ display:"inline-block", flexShrink:0, whiteSpace:"nowrap", borderRadius:8, padding:"3px 10px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:txt,
       background:`linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,18)})`, textShadow:txt==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none",
       boxShadow:"0 1px 3px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.22)", border:`1px solid ${hexToRgba(oscurecerColor(turno.color,30),0.55)}` }}>{turno.label}</span>
-  );
-}
-function TurnoBadgeCelda({ turno, size }) {
-  if(!turno) return <div style={{ width:"100%", minHeight:size==="sm"?24:28 }}/>;
-  const txt = colorTextoContraste(turno.color);
-  return (
-    <div style={{
-      width:"100%", minHeight:size==="sm"?24:28, borderRadius:8, boxSizing:"border-box",
-      background:`linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,18)})`,
-      color:txt, display:"flex", alignItems:"center", justifyContent:"center",
-      fontFamily:font.body, fontSize:size==="sm"?10.5:11.5, fontWeight:700, letterSpacing:"0.01em",
-      padding:"3px 6px", textShadow:txt==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none",
-      overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
-      boxShadow:"0 1px 3px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.22)",
-      border:`1px solid ${hexToRgba(oscurecerColor(turno.color,30),0.55)}`,
-      transition:"transform .12s ease, box-shadow .12s ease",
-    }}>{turno.label}</div>
   );
 }
 // Busca, para una familia de turno + tienda + fecha dadas, la fila de `turnos_horarios` que
@@ -2027,61 +2009,166 @@ const filaHorarioVigente = (familia, store, turnosHorarios, fecha=todayStr) => {
   return pool.reduce((a,b)=> b.vigente_desde > a.vigente_desde ? b : a);
 };
 const fmtHora12 = (hhmm) => { if(!hhmm) return "?"; const [h,m]=hhmm.split(":").map(Number); const per=h>=12?"pm":"am"; const h12=h%12===0?12:h%12; return m? `${h12}:${String(m).padStart(2,"0")}${per}` : `${h12}${per}`; };
-const formatearHorarioFila = (fila) => {
-  if(!fila) return null;
-  const lj = `${fmtHora12(fila.entrada_lj)}–${fmtHora12(fila.salida_lj)}`;
-  const vs = `${fmtHora12(fila.entrada_vs)}–${fmtHora12(fila.salida_vs)}`;
-  return lj===vs ? lj : `${lj} (L-J) / ${vs} (V-S)`;
-};
-// Líneas de horario al estilo de tu Excel: una línea si L-J y V-S son iguales,
-// dos líneas ("L-J (COD) hora" / "V-S (COD) hora") si son distintas.
-const lineasHorarioTurno = (sh, fila) => {
-  if(!fila) return [`(${sh.nombre}) sin horario`];
-  const lj = `${fmtHora12(fila.entrada_lj)}–${fmtHora12(fila.salida_lj)}`;
-  const vs = `${fmtHora12(fila.entrada_vs)}–${fmtHora12(fila.salida_vs)}`;
-  if(lj===vs) return [`(${sh.nombre}) ${lj}`];
-  return [`L-J (${sh.nombre}) ${lj}`, `V-S (${sh.nombre}) ${vs}`];
-};
-// ── Turnos: leyenda — un bloque de color por tienda, lado a lado, igual que el Excel ──
-function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios }) {
-  const [abierta,setAbierta]=useState(false); // plegada: se abre con "ⓘ Horarios"
-  const tiendasConTurnos = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
-  if(tiendasConTurnos.length===0 && turnosGlobales.length===0) return null;
-  const totalTurnos = tiendasConTurnos.reduce((n,s)=>n+s.shifts.filter(sh=>sh.activo!==false).length,0) + turnosGlobales.length;
+// ── Turnos: piezas del rediseño general (pedido de Santiago) ─────────────────────────────────────
+// Toda la pantalla habla el mismo idioma: personas en filas, días en columnas, color = tienda.
+// Piezas en orden: Hoy en las tiendas (un pedacito de la malla) · Turnos y horarios (leyenda que
+// además resalta un turno en la malla) · La malla (con cobertura por día y resumen por persona) ·
+// Alertas del mes. El Borrador es la misma pantalla en modo "Editar" (pincel + barra de Publicar).
+const DIAS_CORTOS = ["dom","lun","mar","mié","jue","vie","sáb"];
+const diaCortoTurnos = (f) => `${DIAS_CORTOS[new Date(f+"T12:00:00").getDay()]} ${Number(f.slice(8,10))}`;
+const tiendasCoberturaTurnos = (stores) => Object.values(stores).filter(s=>s.vende!==false && (s.shifts||[]).some(sh=>sh.activo!==false));
+const SeccionTurnos = ({ titulo, nota, derecha, children, style }) => (
+  <div style={{ marginBottom:22, ...style }}>
+    <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:10 }}>
+      <b style={{ fontFamily:font.body, fontSize:16, color:C.text }}>{titulo}</b>
+      {nota && <span style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>{nota}</span>}
+      {derecha && <span style={{ marginLeft:"auto" }}>{derecha}</span>}
+    </div>
+    {children}
+  </div>
+);
+
+// Bloque de un turno (mismo look en toda la pantalla). `horario` opcional al lado del código.
+const BloqueTurno = ({ turno, horario, alto=30, tenue, marcado, style }) => {
+  const txt = turno ? colorTextoContraste(turno.color) : C.textMuted;
   return (
-    <Card p="10px 14px" style={{ marginBottom:16 }}>
-      <button onClick={()=>setAbierta(!abierta)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", display:"flex", alignItems:"center", gap:8, width:"100%" }}>
-        <span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:600, color:C.text }}>ⓘ Horarios ({totalTurnos})</span>
-        <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11, color:C.goldLight }}>{abierta?"Ocultar ▲":"Ver ▾"}</span>
-      </button>
-      <Collapse open={abierta}>
-        <div style={{ display:"flex", marginTop:10, overflowX:"auto", whiteSpace:"nowrap" }}>
-          {tiendasConTurnos.map((s,si)=>{
-            const activos=s.shifts.filter(sh=>sh.activo!==false);
-            const txt = colorTextoContraste(s.color);
-            const lineas = activos.flatMap(sh=>{
-              const fila = filaHorarioVigente(familiaDeTurno(sh.nombre), s.id, turnosHorarios);
-              return lineasHorarioTurno(sh, fila);
-            });
-            const anchoTexto = Math.max(s.name.length, ...lineas.map(l=>l.length), 8) * 6 + 14;
-            return (
-              <div key={s.id} style={{ flex:`0 0 ${anchoTexto}px`, background:s.color, padding:"4px 5px", borderRight:si<tiendasConTurnos.length-1?"1px solid rgba(0,0,0,0.15)":"none" }}>
-                <div style={{ fontFamily:font.body, fontSize:12.5, fontWeight:700, color:txt, textAlign:"center", marginBottom:2, whiteSpace:"nowrap" }}>{s.name}</div>
-                {lineas.map((linea,i)=>(
-                  <div key={s.id+"_"+i} style={{ fontFamily:font.body, fontSize:11, color:txt, textAlign:"center", lineHeight:1.25, whiteSpace:"nowrap" }}>{linea}</div>
-                ))}
+    <div style={{ height:alto, borderRadius:7, boxSizing:"border-box", display:"flex", alignItems:"center", justifyContent:"center", gap:8, padding:"0 8px",
+      background: turno ? `linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,14)})` : C.surfaceAlt,
+      border: turno ? `1px solid ${hexToRgba(oscurecerColor(turno.color,30),0.45)}` : `1px dashed ${C.border}`,
+      color:txt, fontFamily:font.body, fontSize:11.5, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden",
+      opacity: tenue ? 0.5 : 1, outline: marcado ? `2px solid ${C.goldDark}` : "none", outlineOffset:1, ...style }}>
+      {turno ? turno.label : "—"}
+      {horario && <span style={{ fontFamily:font.mono, fontWeight:500, fontSize:10.5, opacity:0.92 }}>{horario}</span>}
+    </div>
+  );
+};
+
+// 1 · Hoy en las tiendas — un pedacito de la malla: personas en filas, Ayer · Hoy · Mañana en
+// columnas, cada bloque con su turno y horario. Quien no trabaja hoy va al final.
+function TurnosHoy({ advisors, asigMap, stores, turnosGlobales, turnosHorarios, isMobile }) {
+  const cols = [[addDiasFecha(todayStr,-1),"Ayer"],[todayStr,"Hoy"],[addDiasFecha(todayStr,1),"Mañana"]];
+  const filas = advisors.filter(a=>cols.some(([f])=>asigMap.has(`${a.id}|${f}`)));
+  if(filas.length===0) return null;
+  const trabajaHoy = (a) => !!asigMap.get(`${a.id}|${todayStr}`)?.tienda_id;
+  const orden = [...filas.filter(trabajaHoy), ...filas.filter(a=>!trabajaHoy(a))];
+  return (
+    <SeccionTurnos titulo="Hoy en las tiendas" nota="ayer, hoy y mañana">
+      <div className="ozen-sin-barra" style={{ overflowX:"auto", background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"8px 10px" }}>
+        <table style={{ borderCollapse:"separate", borderSpacing:3, width:"100%", tableLayout:"fixed" }}>
+          <thead><tr>
+            <th style={{ textAlign:"left", padding:"2px 6px", fontFamily:font.body, fontSize:10, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, width:isMobile?70:190 }}>Persona</th>
+            {cols.map(([f,l])=>{ const hoy=f===todayStr; return (
+              <th key={f} style={{ padding:isMobile?"3px 2px":"4px 8px", borderRadius:8, fontFamily:font.body, fontSize:isMobile?10:11, lineHeight:1.25, fontWeight:500, background:hoy?C.goldDark:"transparent", color:hoy?C.tinta:C.textMuted, whiteSpace:"nowrap" }}>
+                <b style={{ fontSize:isMobile?12:13, color:hoy?C.tinta:C.text }}>{l}</b>{isMobile ? <div>{diaCortoTurnos(f)}</div> : <> · {diaCortoTurnos(f)}</>}
+              </th>
+            ); })}
+          </tr></thead>
+          <tbody>
+            {orden.map(a=>(
+              <tr key={a.id}>
+                <td style={{ padding:"0 6px", fontFamily:font.body, fontSize:isMobile?12.5:13, fontWeight:700, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{isMobile ? primerNombre(a.name) : a.name.split(" ").slice(0,2).join(" ")}</td>
+                {cols.map(([f])=>{ const asig=asigMap.get(`${a.id}|${f}`); const turno=resolverTurno(asig, stores, turnosGlobales); return (
+                  <td key={f} style={{ padding:0 }}><BloqueTurno turno={turno} horario={isMobile?null:horarioDelDia(asig, f, turnosHorarios)?.replace(" (especial)"," ⏱")} tenue={f!==todayStr} marcado={f===todayStr}/></td>
+                ); })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </SeccionTurnos>
+  );
+}
+
+// 2 · Turnos y horarios — una tarjeta por tienda con sus turnos (L–J y, si cambia, V–S en ámbar)
+// y los especiales con su color. Tocar un turno lo resalta en la malla.
+function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios, resaltado, onResaltar }) {
+  const isMobile = useIsMobile();
+  const [abierta,setAbierta]=useState(!isMobile);
+  const tiendas = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
+  if(tiendas.length===0 && turnosGlobales.length===0) return null;
+  const chip = (valor) => ({ cursor:onResaltar?"pointer":"default", outline: resaltado===valor ? `2px solid ${C.goldDark}` : "none", outlineOffset:1 });
+  return (
+    <SeccionTurnos titulo="Turnos y horarios" nota={resaltado ? "resaltado en la malla" : (abierta && onResaltar ? "toca un turno para resaltarlo en la malla" : null)}
+      derecha={<span style={{ display:"inline-flex", gap:6 }}>
+        {resaltado && <button onClick={()=>onResaltar?.("")} style={{ height:28, padding:"0 11px", borderRadius:99, border:`1px solid ${C.gold}`, background:"rgba(38,93,127,0.08)", fontFamily:font.body, fontSize:12, fontWeight:600, color:C.goldDark, cursor:"pointer" }}>Quitar resaltado ✕</button>}
+        <button onClick={()=>setAbierta(x=>!x)} style={{ height:28, padding:"0 11px", borderRadius:99, border:`1px solid ${C.border}`, background:"#fff", fontFamily:font.body, fontSize:12, fontWeight:600, color:C.textSub, cursor:"pointer" }}>{abierta?"▴ Plegar":"▾ Ver horarios"}</button>
+      </span>}>
+      {abierta && (
+        <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:12 }}>
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":`repeat(${Math.min(tiendas.length,4)}, minmax(0,1fr))`, gap:10 }}>
+            {tiendas.map(s=>{ const shifts = s.shifts.filter(sh=>sh.activo!==false); const col = colorTienda(s); const txt = colorTextoContraste(col); return (
+              <div key={s.id} style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
+                <div style={{ background:col, color:txt, padding:"6px 10px", fontFamily:font.body, fontSize:12.5, fontWeight:700, display:"flex", justifyContent:"space-between" }}><span>{s.name}</span><span style={{ fontWeight:400, fontSize:11, opacity:0.85 }}>L–J · V–S</span></div>
+                {shifts.map(sh=>{ const fila = filaHorarioVigente(familiaDeTurno(sh.nombre), s.id, turnosHorarios);
+                  const lj = fila ? `${fmtHora12(fila.entrada_lj)}–${fmtHora12(fila.salida_lj)}` : "sin horario";
+                  const vs = fila ? `${fmtHora12(fila.entrada_vs)}–${fmtHora12(fila.salida_vs)}` : null;
+                  const valor = `t:${s.id}|${encodeURIComponent(sh.nombre)}`; const on = resaltado===valor;
+                  return (
+                    <div key={sh.id||sh.nombre} onClick={()=>onResaltar?.(on?"":valor)} style={{ display:"grid", gridTemplateColumns:"52px 1fr auto", gap:8, alignItems:"center", padding:"4px 10px", borderTop:`1px solid ${C.border}`, background:on?"rgba(38,93,127,0.08)":"transparent", cursor:onResaltar?"pointer":"default" }}>
+                      <BloqueTurno turno={{ label:sh.nombre, color:col }} alto={22} style={{ fontSize:10.5, padding:"0 4px", ...chip(valor) }}/>
+                      <span style={{ fontFamily:font.mono, fontSize:11, color:C.text }}>{lj}</span>
+                      {vs && vs!==lj ? <span style={{ fontFamily:font.mono, fontSize:11, color:C.amber }}>{vs}</span> : <span/>}
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
-        {turnosGlobales.length>0 && (
-          <div style={{ marginTop:10, fontFamily:font.body, fontSize:12, lineHeight:1.6 }}>
-            <span style={{ color:C.text, fontWeight:700 }}>Especiales: </span>
-            <span style={{ color:C.textMuted }}>{turnosGlobales.map(g=>g.nombre).join("  ·  ")}</span>
+            ); })}
           </div>
-        )}
-      </Collapse>
-    </Card>
+          {turnosGlobales.length>0 && (
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center", marginTop:10 }}>
+              <span style={{ fontFamily:font.body, fontSize:10, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, marginRight:4 }}>Especiales</span>
+              {turnosGlobales.map(g=>{ const valor=`g:${g.id}`; return (
+                <span key={g.id} onClick={()=>onResaltar?.(resaltado===valor?"":valor)} style={{ display:"inline-flex", alignItems:"center", height:26, padding:"0 11px", borderRadius:99, background:g.color, color:colorTextoContraste(g.color), fontFamily:font.body, fontSize:12, fontWeight:600, ...chip(valor) }}>{g.nombre}</span>
+              ); })}
+            </div>
+          )}
+        </div>
+      )}
+    </SeccionTurnos>
+  );
+}
+
+// 4 · Alertas del mes — lo que hoy se busca a ojo: tiendas sin nadie un día (solo días que ya
+// tienen turnos), más de 6 días seguidos sin descanso, vacaciones e incapacidades.
+const calcularAlertasTurnos = ({ dias, advisors, asigMap, stores, turnosGlobales }) => {
+  const out = [];
+  const tiendas = tiendasCoberturaTurnos(stores);
+  dias.forEach(f=>{
+    if(!advisors.some(a=>asigMap.has(`${a.id}|${f}`))) return;
+    tiendas.forEach(s=>{ if(!advisors.some(a=>asigMap.get(`${a.id}|${f}`)?.tienda_id===s.id)) out.push({ k:`c${f}${s.id}`, color:C.red, icono:"⚠", t:<><b>{nombreTiendaCorto(s)}</b> sin nadie el <b>{diaCortoTurnos(f)}</b></> }); });
+  });
+  advisors.forEach(a=>{
+    let n=0, ini=null;
+    const cerrar = (fin) => { if(n>6) out.push({ k:`r${a.id}${ini}`, color:C.amber, icono:"⚠", t:<><b>{primerNombre(a.name)}</b> {n} días seguidos sin descanso ({Number(ini.slice(8,10))}–{Number(fin.slice(8,10))})</> }); n=0; };
+    dias.forEach((f,i)=>{ if(asigMap.get(`${a.id}|${f}`)?.tienda_id){ if(!n) ini=f; n++; } else if(n) cerrar(dias[i-1]); });
+    if(n) cerrar(dias[dias.length-1]);
+  });
+  const especiales = turnosGlobales.filter(g=>/vacac|incap/i.test(g.nombre||""));
+  advisors.forEach(a=>{
+    especiales.forEach(g=>{
+      let ini=null, prev=null;
+      const cerrar = () => { if(ini) out.push({ k:`e${a.id}${g.id}${ini}`, color:g.color||C.amber, icono:/vacac/i.test(g.nombre)?"🏖":"🩺", t:<><b>{primerNombre(a.name)}</b> {g.nombre.toLowerCase()} {ini===prev?`el ${diaCortoTurnos(ini)}`:`${Number(ini.slice(8,10))}–${Number(prev.slice(8,10))}`}</> }); ini=null; };
+      dias.forEach(f=>{ if(asigMap.get(`${a.id}|${f}`)?.turno_global_id===g.id){ if(!ini) ini=f; prev=f; } else cerrar(); });
+      cerrar();
+    });
+  });
+  return out;
+};
+function TurnosAlertas({ alertas }) {
+  const [todas,setTodas]=useState(false);
+  if(!alertas.length) return (
+    <SeccionTurnos titulo="Alertas del mes"><div style={{ fontFamily:font.body, fontSize:13, color:C.green }}>✓ Sin alertas: todas las tiendas cubiertas y nadie con más de 6 días seguidos.</div></SeccionTurnos>
+  );
+  const visibles = todas ? alertas : alertas.slice(0,8);
+  return (
+    <SeccionTurnos titulo="Alertas del mes" nota={`${alertas.length}`}>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+        {visibles.map(al=>(
+          <div key={al.k} style={{ background:"#fff", border:`1px solid ${C.border}`, borderLeft:`4px solid ${al.color}`, borderRadius:12, padding:"8px 12px", fontFamily:font.body, fontSize:13, color:C.text }}>{al.icono} {al.t}</div>
+        ))}
+        {alertas.length>8 && <button onClick={()=>setTodas(x=>!x)} style={{ background:"none", border:"none", cursor:"pointer", fontFamily:font.body, fontSize:13, fontWeight:700, color:C.gold }}>{todas?"Ver menos":`Ver ${alertas.length-8} más`}</button>}
+      </div>
+    </SeccionTurnos>
   );
 }
 
@@ -2137,33 +2224,48 @@ const horarioDelDia = (asig, fecha, turnosHorarios) => {
   return `${fmtHora12(vs?fila.entrada_vs:fila.entrada_lj)}–${fmtHora12(vs?fila.salida_vs:fila.salida_lj)}`;
 };
 const LETRA_DIA = ["D","L","M","M","J","V","S"];
-function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnosHorarios, editable, onCambiarCelda, onGuardarCustom, onMoverAsesor, cambiadas }) {
+// 3 · La malla — personas en filas, días en columnas, color = tienda. Rayita entre semanas, hoy
+// marcado, resumen de cada persona a la derecha (días, descansos, ⚠ rachas de más de 6 días) y
+// fila de cobertura abajo (cuántos hay en cada tienda; ✕ en rojo el día que una queda en cero).
+// Solo se desliza de lado (nombres fijos, se ubica en hoy); el scroll de arriba/abajo es el de la
+// página. Ver: tocar un día muestra el detalle. Editar (Borrador): con un turno elegido en el
+// pincel, tocar o arrastrar pinta los días; sin pincel, tocar abre la lista de turnos.
+function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnosHorarios, editable, onCambiarCelda, onGuardarCustom, onMoverAsesor, cambiadas, resaltado, pincel }) {
   const isMobile = useIsMobile();
   const storeGroups = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
+  const tiendasCob = tiendasCoberturaTurnos(stores);
   const [modalInfo,setModalInfo]=useState(null);
-  const [detalle,setDetalle]=useState(null); // { nombre, fecha, turno, tienda, horario }
+  const [detalle,setDetalle]=useState(null);
   const [filtroTienda,setFiltroTienda]=useState("");
   const scrollRef = useRef(null);
-  const celda = isMobile ? 34 : 32;
+  const pintando = useRef(false), tipoPuntero = useRef("mouse"), pendientes = useRef(new Set());
+  useEffect(()=>{ const fin=()=>{ pintando.current=false; }; window.addEventListener("pointerup", fin); return ()=>window.removeEventListener("pointerup", fin); },[]);
+  const celda = isMobile ? 34 : 30;
   const colNombre = isMobile ? 104 : 150;
   const ultimoActivo = advisors.reduce((m,a,i)=>a._retirado?m:i, -1);
   const tiendasUsadas = storeGroups.filter(s=>advisors.some(a=>dias.some(f=>asigMap.get(`${a.id}|${f}`)?.tienda_id===s.id)));
-  // Al abrir (o cambiar de mes) se ubica en hoy, si hoy está en el mes.
   useEffect(()=>{
     const el = scrollRef.current; if(!el) return;
     const i = dias.indexOf(todayStr);
     el.scrollLeft = i>0 ? Math.max(0, i*(celda+3) - (el.clientWidth-colNombre)/2) : 0;
   }, [dias[0], celda, colNombre]); // eslint-disable-line react-hooks/exhaustive-deps
   const flecha = { background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:10, padding:"0 2px", lineHeight:1 };
-  const verDetalle = (a, fecha, asig, turno) => {
-    const tienda = asig?.tienda_id ? stores[asig.tienda_id] : null;
-    setDetalle({ nombre:a.name, fecha, turno, tienda, horario:horarioDelDia(asig, fecha, turnosHorarios), nota:asig?.nota_custom||"" });
-  };
   const fechaLarga = (f) => { const t = new Date(f+"T12:00:00").toLocaleDateString("es-CO",{ weekday:"long", day:"numeric", month:"long" }); return t.charAt(0).toUpperCase()+t.slice(1); };
+  // Pinta un día con el turno del pincel. `pendientes` evita mandar dos veces el mismo día mientras
+  // el guardado anterior todavía no vuelve (pasa al arrastrar rápido de ida y vuelta).
+  const pintar = (a, fecha, asig) => {
+    if(!pincel || a._retirado) return;
+    const k = `${a.id}|${fecha}`, valor = pincel==="__borrar__" ? "" : pincel;
+    if(pendientes.current.has(k) || valorCelda(asig)===valor) return;
+    pendientes.current.add(k);
+    Promise.resolve(onCambiarCelda(a.id, fecha, valor)).finally(()=>pendientes.current.delete(k));
+  };
+  const lunes = (f) => new Date(f+"T12:00:00").getDay()===1 && f!==dias[0];
+  const sep = (f) => lunes(f) ? { borderLeft:`2px solid ${hexToRgba(C.goldDark,0.22)}`, paddingLeft:3 } : {};
+  const diaConDatos = (f) => advisors.some(a=>asigMap.has(`${a.id}|${f}`));
   return (
     <div>
       {modalInfo && <ModalHorarioCustom info={modalInfo} turnosHorarios={turnosHorarios} onCerrar={()=>setModalInfo(null)} onGuardar={(entrada,salida,nota)=>{ onGuardarCustom(modalInfo.asesorId, modalInfo.fecha, entrada, salida, nota); setModalInfo(null); }}/>}
-      {/* Filtro de tienda: apaga los bloquecitos de las demás tiendas */}
       {tiendasUsadas.length>1 && (
         <div className="ozen-sin-barra" style={{ display:"flex", gap:6, overflowX:"auto", marginBottom:10 }}>
           {[{ id:"", name:"Todas" }, ...tiendasUsadas].map(s=>{ const on = filtroTienda===s.id; return (
@@ -2173,7 +2275,7 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
           ); })}
         </div>
       )}
-      {detalle && (
+      {detalle && !editable && (
         <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:10, padding:"9px 12px", borderRadius:12, background:"#fff", border:`1px solid ${C.border}`, borderLeft:`4px solid ${detalle.turno?.color||C.border}` }}>
           <b style={{ fontFamily:font.body, fontSize:13, color:C.text }}>{detalle.nombre}</b>
           <span style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>{fechaLarga(detalle.fecha)}</span>
@@ -2184,22 +2286,23 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
           <button aria-label="Cerrar detalle" onClick={()=>setDetalle(null)} style={{ marginLeft:"auto", background:"none", border:"none", cursor:"pointer", color:C.textMuted, display:"grid", placeItems:"center" }}><Icon n="x" s={13} sw={2.4}/></button>
         </div>
       )}
-      <div ref={scrollRef} className="ozen-sin-barra" style={{ overflowX:"auto", overflowY:"visible", border:`1px solid ${C.border}`, borderRadius:12, background:"#fff" }}>
+      <div ref={scrollRef} className="ozen-sin-barra" style={{ overflowX:"auto", overflowY:"visible", border:`1px solid ${C.border}`, borderRadius:14, background:"#fff", userSelect:pincel?"none":undefined }}>
         <table style={{ borderCollapse:"separate", borderSpacing:3, padding:"4px 4px 6px 0", width:isMobile?undefined:"100%" }}>
           <thead>
             <tr>
-              <th style={{ position:"sticky", left:0, zIndex:3, background:"#fff", minWidth:colNombre, width:colNombre, textAlign:"left", padding:"4px 8px", fontFamily:font.body, fontSize:10.5, fontWeight:600, color:C.textMuted, letterSpacing:"0.08em", textTransform:"uppercase", boxShadow:`1px 0 0 ${C.border}` }}>Persona</th>
+              <th style={{ position:"sticky", left:0, zIndex:3, background:"#fff", minWidth:colNombre, width:colNombre, textAlign:"left", padding:"4px 8px", fontFamily:font.body, fontSize:10, fontWeight:700, color:C.textMuted, letterSpacing:"0.12em", textTransform:"uppercase", boxShadow:`1px 0 0 ${C.border}` }}>Persona</th>
               {dias.map(f=>{ const hoy = f===todayStr, dom = esDomingo(f); const dow = new Date(f+"T12:00:00").getDay(); return (
-                <th key={f} style={{ minWidth:celda, padding:"3px 0", textAlign:"center", fontFamily:font.body, fontSize:10.5, lineHeight:1.2, fontWeight:hoy?700:500, color:hoy?C.tinta:dom?C.green:C.textMuted, background:hoy?C.goldDark:"transparent", borderRadius:7 }}>
+                <th key={f} style={{ minWidth:celda, padding:"3px 0", textAlign:"center", fontFamily:font.body, fontSize:10.5, lineHeight:1.2, fontWeight:hoy?700:500, color:hoy?C.tinta:dom?C.green:C.textMuted, background:hoy?C.goldDark:"transparent", borderRadius:7, ...sep(f) }}>
                   <div style={{ fontSize:11.5, color:hoy?C.tinta:C.text, fontWeight:700 }}>{Number(f.slice(8,10))}</div>{LETRA_DIA[dow]}
                 </th>
               ); })}
+              {!isMobile && <th style={{ textAlign:"left", padding:"0 8px", fontFamily:font.body, fontSize:10, fontWeight:700, color:C.textMuted, letterSpacing:"0.12em", textTransform:"uppercase", whiteSpace:"nowrap" }}>Mes</th>}
             </tr>
           </thead>
           <tbody>
             {advisors.map((a,i)=>{
-              let enTienda = 0; const porTienda = {};
-              dias.forEach(f=>{ const asg = asigMap.get(`${a.id}|${f}`); if(asg?.tienda_id){ enTienda++; porTienda[asg.tienda_id]=(porTienda[asg.tienda_id]||0)+1; } });
+              let enTienda = 0, otros = 0, racha = 0, maxRacha = 0; const porTienda = {};
+              dias.forEach(f=>{ const asg = asigMap.get(`${a.id}|${f}`); if(asg?.tienda_id){ enTienda++; racha++; maxRacha=Math.max(maxRacha,racha); porTienda[asg.tienda_id]=(porTienda[asg.tienda_id]||0)+1; } else { racha=0; if(asg) otros++; } });
               return (
               <tr key={a.id}>
                 <td style={{ position:"sticky", left:0, zIndex:2, background:a._retirado?"#F4EFEB":"#fff", padding:"2px 8px", boxShadow:`1px 0 0 ${C.border}`, verticalAlign:"middle" }} title={a._retirado?`${a.name} — ya no está activo; se muestra porque tuvo turnos este mes`:a.name}>
@@ -2212,10 +2315,7 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
                     )}
                     <span style={{ minWidth:0 }}>
                       <span style={{ display:"block", fontFamily:font.body, fontSize:13, fontWeight:700, color:a._retirado?C.textMuted:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:colNombre-(editable&&!isMobile?30:16) }}>{isMobile ? primerNombre(a.name) : a.name.split(" ").slice(0,2).join(" ")}</span>
-                      <span style={{ display:"flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:10.5, color:C.textMuted, whiteSpace:"nowrap" }}>
-                        {a._retirado ? <b style={{ fontSize:9, letterSpacing:"0.06em" }}>RETIRADO</b> : <>{enTienda} días</>}
-                        {!isMobile && Object.entries(porTienda).map(([tid,n])=><span key={tid} style={{ display:"inline-flex", alignItems:"center", gap:2 }}><PuntoTienda color={colorTienda(stores[tid])} size={6}/>{n}</span>)}
-                      </span>
+                      {(a._retirado || isMobile) && <span style={{ display:"block", fontFamily:font.body, fontSize:10.5, color:C.textMuted, whiteSpace:"nowrap" }}>{a._retirado ? <b style={{ fontSize:9, letterSpacing:"0.06em" }}>RETIRADO</b> : <>{enTienda} días</>}</span>}
                     </span>
                   </div>
                 </td>
@@ -2223,23 +2323,28 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
                   const k = `${a.id}|${fecha}`;
                   const asig = asigMap.get(k);
                   const turno = resolverTurno(asig, stores, turnosGlobales);
-                  const apagado = filtroTienda && asig?.tienda_id!==filtroTienda;
+                  const apagado = (filtroTienda && asig?.tienda_id!==filtroTienda) || (resaltado && valorCelda(asig)!==resaltado);
                   const hoy = fecha===todayStr;
                   const txt = turno ? colorTextoContraste(turno.color) : C.textMuted;
                   const especial = asig && (asig.entrada_custom || asig.salida_custom);
+                  const horario = horarioDelDia(asig, fecha, turnosHorarios);
                   return (
-                    <td key={fecha} style={{ padding:0, position:"relative" }}>
-                      <div onClick={editable?undefined:()=>verDetalle(a, fecha, asig, turno)} title={turno ? `${turno.label}${asig?.tienda_id?` · ${nombreTiendaCorto(stores[asig.tienda_id])}`:""}${horarioDelDia(asig, fecha, turnosHorarios)?` · ${horarioDelDia(asig, fecha, turnosHorarios)}`:""}` : "Sin turno"}
-                        style={{ width:"100%", minWidth:celda, height:isMobile?32:30, borderRadius:6, boxSizing:"border-box", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer",
+                    <td key={fecha} style={{ padding:0, position:"relative", ...sep(fecha) }}>
+                      <div
+                        onClick={editable ? (pincel ? ()=>{ if(tipoPuntero.current!=="mouse") pintar(a, fecha, asig); } : undefined) : ()=>setDetalle({ nombre:a.name, fecha, turno, tienda:asig?.tienda_id?stores[asig.tienda_id]:null, horario, nota:asig?.nota_custom||"" })}
+                        onPointerDown={editable && pincel ? (e)=>{ tipoPuntero.current=e.pointerType; if(e.pointerType==="mouse"){ e.preventDefault(); pintando.current=true; pintar(a, fecha, asig); } } : undefined}
+                        onPointerEnter={editable && pincel ? (e)=>{ if(e.pointerType==="mouse" && pintando.current) pintar(a, fecha, asig); } : undefined}
+                        title={turno ? `${turno.label}${asig?.tienda_id?` · ${nombreTiendaCorto(stores[asig.tienda_id])}`:""}${horario?` · ${horario}`:""}` : "Sin turno"}
+                        style={{ width:"100%", minWidth:celda, height:isMobile?32:30, borderRadius:6, boxSizing:"border-box", display:"flex", alignItems:"center", justifyContent:"center", cursor:pincel?"crosshair":"pointer",
                           background: turno ? `linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,14)})` : (esDomingo(fecha)?"#F3F7F3":C.surfaceAlt),
                           border: turno ? `1px solid ${hexToRgba(oscurecerColor(turno.color,30),0.45)}` : `1px dashed ${C.border}`,
                           color:txt, fontFamily:font.body, fontSize:10, fontWeight:700, letterSpacing:"0.01em", whiteSpace:"nowrap", overflow:"hidden",
-                          opacity: apagado ? 0.18 : 1,
+                          opacity: apagado ? 0.16 : 1,
                           outline: cambiadas?.has(k) ? `2px solid ${C.amber}` : hoy ? `2px solid ${C.goldDark}` : "none", outlineOffset:1 }}>
                         {turno ? abrevTurno(turno.label) : ""}
                         {especial && <span style={{ position:"absolute", top:1, right:2, fontSize:8 }}>⏱</span>}
                       </div>
-                      {editable && (
+                      {editable && !pincel && (
                         <select aria-label={`Turno de ${a.name} el ${fecha}`} value={valorCelda(asig)}
                           onChange={e=>{ const v = e.target.value; if(v==="__especial__"){ setModalInfo({ asesorId:a.id, fecha, asig, nombreAsesor:a.name, shiftLabel:asig?.shift||"" }); return; } onCambiarCelda(a.id, fecha, v); }}
                           style={{ position:"absolute", inset:0, width:"100%", height:"100%", opacity:0, cursor:"pointer", fontSize:16 }}>
@@ -2252,43 +2357,35 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
                     </td>
                   );
                 })}
+                {!isMobile && (
+                  <td style={{ padding:"0 8px", fontFamily:font.body, fontSize:11, color:C.textSub, whiteSpace:"nowrap" }}>
+                    {enTienda} d · {otros} desc.
+                    <span style={{ display:"inline-flex", gap:5, marginLeft:6 }}>{Object.entries(porTienda).map(([tid,n])=><span key={tid} style={{ display:"inline-flex", alignItems:"center", gap:2 }}><PuntoTienda color={colorTienda(stores[tid])} size={6}/>{n}</span>)}</span>
+                    {maxRacha>6 && <b style={{ color:C.red, marginLeft:6 }}>⚠ {maxRacha} seguidos</b>}
+                  </td>
+                )}
               </tr>
             ); })}
+            {tiendasCob.length>0 && (
+              <tr>
+                <td style={{ position:"sticky", left:0, zIndex:2, background:"#fff", padding:"8px 8px 0", fontFamily:font.body, fontSize:10, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, boxShadow:`1px 0 0 ${C.border}` }}>Cobertura</td>
+                {dias.map(f=>{ const conDatos = diaConDatos(f); const cnt = tiendasCob.map(s=>[s, advisors.filter(a=>asigMap.get(`${a.id}|${f}`)?.tienda_id===s.id).length]); const falta = conDatos && cnt.some(([,n])=>n===0); return (
+                  <td key={f} style={{ padding:"6px 0 0", ...sep(f) }}>
+                    <div title={cnt.map(([s,n])=>`${nombreTiendaCorto(s)}: ${n}`).join(" · ")} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:1, fontFamily:font.body, fontSize:9.5, fontWeight:700, lineHeight:1.15, borderRadius:6, padding:"2px 0", background:falta?hexToRgba(C.red,0.1):"transparent" }}>
+                      {conDatos ? cnt.map(([s,n])=><span key={s.id} style={{ color:n?colorTienda(s):C.red }}>{n||"✕"}</span>) : <span style={{ color:C.border }}>·</span>}
+                    </div>
+                  </td>
+                ); })}
+                {!isMobile && <td/>}
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
       <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:8 }}>
-        {editable ? "Toca un día para cambiar el turno. ⏱ = horario especial ese día." : "Toca un día para ver tienda, turno y horario. Desliza de lado para ver todo el mes."}
+        {editable ? (pincel ? "Pincel activo: toca o arrastra sobre los días para pintarlos. Quita el pincel para volver a la lista de turnos." : "Toca un día para elegir el turno (o usa el pincel de arriba). ⏱ = horario especial ese día.") : "Toca un día para ver tienda, turno y horario. Desliza de lado para ver todo el mes."}
       </div>
     </div>
-  );
-}
-
-// ── Turnos: mini resumen ayer / hoy / mañana ───────────────────────────────────
-function TurnosMiniResumen({ advisors:todos, asigMap, stores, turnosGlobales }) {
-  const filas = [{ label:"Ayer", fecha:addDiasFecha(todayStr,-1) },{ label:"Hoy", fecha:todayStr },{ label:"Mañana", fecha:addDiasFecha(todayStr,1) }];
-  // Solo quienes tienen algún turno ayer, hoy o mañana (pedido de Santiago: sin columnas vacías).
-  const advisors = todos.filter(a=>filas.some(f=>asigMap.has(`${a.id}|${f.fecha}`)));
-  if(advisors.length===0) return null;
-  return (
-    <Card glow style={{ marginBottom:16, overflowX:"auto" }}>
-      <table style={{ borderCollapse:"collapse", width:"100%" }}>
-        <thead><tr>
-          <th style={{ textAlign:"left", padding:"4px 10px 8px 0", fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>Día</th>
-          {advisors.map(a=><th key={a.id} style={{ padding:"4px 8px 8px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.text, textAlign:"center" }}>{primerNombre(a.name)}</th>)}
-        </tr></thead>
-        <tbody>
-          {filas.map(f=>(
-            <tr key={f.label}>
-              <td style={{ padding:"4px 10px 4px 0", fontFamily:font.body, fontSize:12, fontWeight:600, color:f.fecha===todayStr?C.goldLight:C.text, whiteSpace:"nowrap" }}>{f.label}</td>
-              {advisors.map(a=>{ const turno=resolverTurno(asigMap.get(`${a.id}|${f.fecha}`), stores, turnosGlobales); return (
-                <td key={a.id} style={{ padding:4, minWidth:76 }}><TurnoBadgeCelda turno={turno} size="sm"/></td>
-              );})}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </Card>
   );
 }
 
@@ -2297,16 +2394,8 @@ function useMesSeleccionado() {
   const [anio,setAnio]=useState(hoy.getFullYear()), [mes,setMes]=useState(hoy.getMonth());
   const prev=()=>{ if(mes===0){setMes(11);setAnio(a=>a-1);} else setMes(m=>m-1); };
   const next=()=>{ if(mes===11){setMes(0);setAnio(a=>a+1);} else setMes(m=>m+1); };
-  return { anio, mes, prev, next };
-}
-function SelectorMes({ anio, mes, prev, next }) {
-  return (
-    <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
-      <Btn onClick={prev} variant="ghost" sm>← Anterior</Btn>
-      <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.goldLight, minWidth:150, textAlign:"center" }}>{MESES_LARGO[mes]} {anio}</div>
-      <Btn onClick={next} variant="ghost" sm>Siguiente →</Btn>
-    </div>
-  );
+  const irHoy=()=>{ const h=toColombiaDate(); setAnio(h.getFullYear()); setMes(h.getMonth()); };
+  return { anio, mes, prev, next, irHoy };
 }
 
 // ── Turnos: quién aparece como columna en la malla — activar/desactivar sin salir de Editar ──
@@ -2395,8 +2484,9 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
 }
 
 // ── SCREEN: Turnos · Ver (esta es la que ven también los asesores, como "Turnos") ──
-function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asignaciones }) {
-  const { anio, mes, prev, next } = useMesSeleccionado();
+function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asignaciones, anio, mes }) {
+  const isMobile = useIsMobile();
+  const [resaltado,setResaltado]=useState(null);
   const dias = fechasDelMesTurnos(anio, mes);
   const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
   const asigDelMes = asignaciones.filter(a=>a.fecha && a.fecha>=dias[0] && a.fecha<=dias[dias.length-1]);
@@ -2404,12 +2494,13 @@ function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asigna
   const advisors = columnasMallaMes(users, activos, asigDelMes, { mesPasado: esMesPasadoTurnos(anio, mes) });
   return (
     <div>
-      <PageHeader title="Rejilla del mes" subtitle="Solo consulta"/>
-      <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios}/>
-      <TurnosMiniResumen advisors={activos} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales}/>
-      <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
-      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>{`No hay turnos publicados en ${MESES_LARGO[mes]} ${anio}.`}</div> :
-        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable={false}/>}
+      <TurnosHoy advisors={activos} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} isMobile={isMobile}/>
+      <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} resaltado={resaltado} onResaltar={setResaltado}/>
+      <SeccionTurnos titulo={`Malla de ${MESES_LARGO[mes]}`} nota={advisors.length ? `${advisors.length} persona${advisors.length===1?"":"s"}` : null}>
+        {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>{`No hay turnos publicados en ${MESES_LARGO[mes]} ${anio}.`}</div> :
+          <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable={false} resaltado={resaltado}/>}
+      </SeccionTurnos>
+      {advisors.length>0 && <TurnosAlertas alertas={calcularAlertasTurnos({ dias, advisors, asigMap, stores, turnosGlobales })}/>}
     </div>
   );
 }
@@ -2423,14 +2514,17 @@ function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asigna
 const CAMPOS_TURNO = ["turno_global_id","tienda_id","shift","entrada_custom","salida_custom","nota_custom"];
 const copiaParaBorrador = (a) => ({ asesor_id:a.asesor_id, fecha:a.fecha, turno_global_id:a.turno_global_id||null, tienda_id:a.tienda_id||null, shift:a.shift||null, entrada_custom:a.entrada_custom||null, salida_custom:a.salida_custom||null, nota_custom:a.nota_custom||null });
 const turnoIgual = (x, y) => CAMPOS_TURNO.every(c => (x[c]||null) === (y[c]||null));
-function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHorarios, asignaciones, setAsignaciones, userName }) {
-  const { anio, mes, prev, next } = useMesSeleccionado();
+function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHorarios, asignaciones, setAsignaciones, userName, anio, mes }) {
   const advisors = advisorsOrdenTurnos(users);
   const dias = fechasDelMesTurnos(anio, mes);
   const mesKey = `${anio}-${String(mes+1).padStart(2,"0")}`;
   const [borrador,setBorrador]=useState([]);
   const [cargandoBorrador,setCargandoBorrador]=useState(true);
   const [publicando,setPublicando]=useState(false);
+  const [pincel,setPincel]=useState(null);       // turno elegido para pintar ("t:…", "g:…" o "__borrar__")
+  const [resaltado,setResaltado]=useState(null);
+  const [verCambios,setVerCambios]=useState(false);
+  const isMobile = useIsMobile();
   const [seleccion,setSeleccion]=useState(()=>new Set()); // llaves 'asesor|fecha' de los cambios marcados para publicar/descartar
   const cargasRef = useRef({}); // evita copiar dos veces el mismo mes si el efecto corre doble
   const publicadasMes = asignaciones.filter(a=>a.fecha && a.fecha.slice(0,7)===mesKey);
@@ -2599,20 +2693,49 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
     if(!error&&data) setBorrador(prev=>prev.map(a=>a.id===data.id?data:a));
     else if(error) alert(`No se pudo guardar: ${error.message}`);
   };
+  const advisorsMalla = columnasMallaMes(users, advisors, [...borrador.filter(b=>b.fecha>=primerDia && b.fecha<=ultimoDia), ...publicadasMes], { mesPasado: esMesPasadoTurnos(anio, mes), todosLosActivos:true });
+  const tiendasPincel = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
+  const chipPincel = (valor, etiqueta, color, extra) => { const on = pincel===valor; return (
+    <button key={valor} onClick={()=>setPincel(on?null:valor)} title={on?"Quitar pincel":`Pintar con ${etiqueta}`} style={{ flex:"0 0 auto", display:"inline-flex", alignItems:"center", gap:6, height:32, padding:"0 12px", borderRadius:9, cursor:"pointer", fontFamily:font.body, fontSize:12.5, fontWeight:700, whiteSpace:"nowrap",
+      background: color ? `linear-gradient(135deg, ${color}, ${oscurecerColor(color,14)})` : "#fff", color: color ? colorTextoContraste(color) : C.textSub,
+      border: color ? `1px solid ${hexToRgba(oscurecerColor(color,30),0.45)}` : `1px dashed ${C.border}`,
+      outline: on ? `3px solid ${C.goldDark}` : "none", outlineOffset:2, transform: on ? "translateY(-1px)" : "none", ...extra }}>{etiqueta}</button>
+  ); };
   return (
-    <div>
-      <PageHeader title="Borrador de turnos" subtitle="Los cambios se guardan en el borrador — nadie los ve hasta que publiques el mes"/>
-      <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios}/>
+    <div style={{ paddingBottom:8 }}>
+      <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} resaltado={resaltado} onResaltar={setResaltado}/>
       <GestionAsesoresActivosTurnos users={users} setUsers={setUsers}/>
-      <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
-      <Card p="10px 14px" style={{ marginBottom:12, ...(totalCambios>0 ? { border:`1px solid ${C.amber}` } : {}) }}>
-        <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text }}>
-          {cargandoBorrador ? "Cargando borrador..." : totalCambios===0
-            ? <>✅ El borrador de <b>{MESES_LARGO[mes]}</b> es igual a lo publicado.</>
-            : <>📝 <b>{totalCambios} cambio{totalCambios===1?"":"s"} sin publicar</b> en {MESES_LARGO[mes]} <span style={{ color:C.textMuted }}>— marcados en ámbar en la rejilla. Los demás todavía ven la versión anterior. Marca los que quieres publicar:</span></>}
+      <SeccionTurnos titulo="🖌 Pincel" nota={pincel ? "Toca o arrastra sobre los días de la malla para pintarlos" : "Elige un turno y pinta varios días seguidos de un solo gesto"}
+        derecha={pincel && <button onClick={()=>setPincel(null)} style={{ background:"none", border:"none", cursor:"pointer", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.gold }}>Quitar pincel ✕</button>}>
+        <div className="ozen-sin-barra" style={{ display:"flex", gap:8, flexWrap:isMobile?"nowrap":"wrap", overflowX:isMobile?"auto":"visible", padding:"4px 2px 6px" }}>
+          {tiendasPincel.map(s=>s.shifts.filter(sh=>sh.activo!==false).map(sh=>chipPincel(`t:${s.id}|${encodeURIComponent(sh.nombre)}`, `${abrevTurno(sh.nombre)} · ${nombreTiendaCorto(s)}`, colorTienda(s))))}
+          {turnosGlobales.map(g=>chipPincel(`g:${g.id}`, g.nombre, g.color||"#9AA5AE"))}
+          {chipPincel("__borrar__", "⌫ Borrar", null)}
         </div>
-        {!cargandoBorrador && totalCambios>0 && (
-          <>
+      </SeccionTurnos>
+      <SeccionTurnos titulo={`Malla de ${MESES_LARGO[mes]}`} nota="Borrador — nadie lo ve hasta que publiques">
+        {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay personas activas en la malla. Actívalas arriba, en "Personas activas en la malla".</div> :
+          cargandoBorrador ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>Cargando borrador de {MESES_LARGO[mes]}...</div> :
+          <TurnosRejilla dias={dias} advisors={advisorsMalla} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom} onMoverAsesor={moverAsesor} cambiadas={cambiadas} resaltado={resaltado} pincel={pincel}/>}
+      </SeccionTurnos>
+      {!cargandoBorrador && <TurnosAlertas alertas={calcularAlertasTurnos({ dias, advisors:advisorsMalla, asigMap, stores, turnosGlobales })}/>}
+      {/* Barra fija abajo: siempre a la vista cuántos cambios hay sin publicar y el botón de publicar. */}
+      {!cargandoBorrador && (
+        <div style={{ position:"sticky", bottom:12, zIndex:20, marginTop:8, background:"#fff", borderRadius:14, border:`1px solid ${totalCambios>0?C.amber:C.border}`, boxShadow:"0 10px 30px rgba(20,40,60,0.16)", padding:"10px 14px" }}>
+          {totalCambios===0 ? (
+            <div style={{ fontFamily:font.body, fontSize:13, color:C.text }}>✅ El borrador de <b>{MESES_LARGO[mes]}</b> es igual a lo publicado.</div>
+          ) : (
+            <>
+              <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                <span style={{ width:10, height:10, borderRadius:99, background:C.amber, flex:"0 0 auto" }}/>
+                <span style={{ fontFamily:font.body, fontSize:13.5, color:C.text }}><b>{totalCambios} cambio{totalCambios===1?"":"s"} sin publicar</b>{!isMobile && <span style={{ color:C.textMuted }}> · marcados en ámbar en la malla</span>}</span>
+                <button onClick={()=>setVerCambios(v=>!v)} style={{ background:"none", border:"none", cursor:"pointer", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.gold, padding:0 }}>{verCambios?"Ocultar cambios ▾":"Ver cambios ▴"}</button>
+                <span style={{ flex:1 }}/>
+                <Btn onClick={()=>descartar(selDe(items), "todos los cambios")} variant="ghost" sm disabled={publicando}>Descartar todo</Btn>
+                <Btn onClick={()=>publicar(selDe(items), "todos los cambios")} sm disabled={publicando}>{publicando ? "Publicando..." : "📣 Publicar todo"}</Btn>
+              </div>
+              {verCambios && (
+                <div style={{ marginTop:8 }}>
             <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", margin:"10px 0 6px" }}>
               <button onClick={()=>setSeleccion(new Set(items.map(i=>i.key)))} style={{ background:"none", border:"none", color:C.goldLight, cursor:"pointer", fontFamily:font.body, fontSize:12, padding:0 }}>Marcar todos</button>
               <span style={{ color:C.textMuted }}>·</span>
@@ -2646,12 +2769,12 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
                 </div>
               ))}
             </div>
-          </>
-        )}
-      </Card>
-      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay personas activas en la malla. Actívalas arriba, en "Personas activas en la malla".</div> :
-        cargandoBorrador ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>Cargando borrador de {MESES_LARGO[mes]}...</div> :
-        <TurnosRejilla dias={dias} advisors={columnasMallaMes(users, advisors, [...borrador.filter(b=>b.fecha>=primerDia && b.fecha<=ultimoDia), ...publicadasMes], { mesPasado: esMesPasadoTurnos(anio, mes), todosLosActivos:true })} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom} onMoverAsesor={moverAsesor} cambiadas={cambiadas}/>}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2659,27 +2782,57 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
 // ── SCREEN: Turnos (contenedor con sub-pestañas Ver / Editar / Administrar) ────
 function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, turnosHorarios, setTurnosHorarios, puedeGestionar, onSubChange, userName }) {
   const [sub,setSub]=useState("ver");
+  const isMobile = useIsMobile();
+  // Un solo mes para Ver y Editar: cambiar de modo no te saca del mes que estabas mirando.
+  const { anio, mes, prev, next, irHoy } = useMesSeleccionado();
+  const mesKey = `${anio}-${String(mes+1).padStart(2,"0")}`;
+  const hoyCO = toColombiaDate(), esMesActual = hoyCO.getFullYear()===anio && hoyCO.getMonth()===mes;
+  const [publicado,setPublicado]=useState(null);
   // Avisa hacia arriba en qué sub-pestaña está (App la usa para alargar el cierre de sesión por
   // inactividad mientras se edita el Borrador o Administrar, que puede tomar rato).
   useEffect(()=>{ onSubChange?.(sub); return ()=>onSubChange?.(null); },[sub]);
   // Borrador y Administrar son solo para quien puede GESTIONAR turnos (master/admin_finanzas) —
-  // "admin" y "visualizador" solo ven la rejilla, igual que "admin" en Ventas.
-  const subTabs=[
-    { id:"ver", label:"📅 Turnos" },
-    ...(puedeGestionar?[{ id:"editar", label:"📝 Borrador" }]:[]),
-    ...(puedeGestionar?[{ id:"administrar", label:"⚙️ Administrar" }]:[]),
-  ];
-  useEffect(()=>{ if(!subTabs.some(t=>t.id===sub)) setSub("ver"); },[puedeGestionar]);
+  // "admin" y "visualizador" solo ven la malla, igual que "admin" en Ventas.
+  useEffect(()=>{ if(!puedeGestionar && sub!=="ver") setSub("ver"); },[puedeGestionar]);
+  // "Publicado el … por …" — se relee al cambiar de mes o al volver a Ver (por si se acaba de publicar).
+  useEffect(()=>{
+    if(sub!=="ver"){ return; }
+    let vivo = true; setPublicado(null);
+    supabase.from("turnos_borrador_meses").select("publicado_en,publicado_por").eq("mes", mesKey).maybeSingle()
+      .then(({ data })=>{ if(vivo && data?.publicado_en) setPublicado(data); }, ()=>{});
+    return ()=>{ vivo=false; };
+  },[mesKey, sub]);
+  const fechaPub = publicado ? new Date(publicado.publicado_en).toLocaleDateString("es-CO",{ day:"numeric", month:"short" }) : "";
+  const flechaMes = { width:34, height:34, borderRadius:10, border:`1px solid ${C.border}`, background:"#fff", cursor:"pointer", color:C.text, fontSize:16, display:"grid", placeItems:"center" };
+  const seg = (id, label) => { const on = sub===id; return (
+    <button onClick={()=>setSub(id)} style={{ height:30, padding:"0 14px", borderRadius:8, border:"none", cursor:"pointer", background:on?"#fff":"transparent", boxShadow:on?"0 1px 4px rgba(20,40,60,0.14)":"none", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:on?C.text:C.textMuted, whiteSpace:"nowrap" }}>{label}</button>
+  ); };
   return (
     <div>
-      <div style={{ display:"flex", gap:6, marginBottom:18, flexWrap:"wrap" }}>
-        {subTabs.map(t=>(
-          <button key={t.id} onClick={()=>setSub(t.id)} style={{ padding:"7px 16px", borderRadius:99, border:`1px solid ${sub===t.id?C.gold:C.border}`, background:sub===t.id?`${C.gold}18`:"transparent", color:sub===t.id?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>{t.label}</button>
-        ))}
+      <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:18 }}>
+        {sub!=="administrar" ? (
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <button aria-label="Mes anterior" onClick={prev} style={flechaMes}>‹</button>
+            <div style={{ fontFamily:font.body, fontSize:isMobile?20:24, fontWeight:700, color:C.text, minWidth:isMobile?130:170, textAlign:"center", whiteSpace:"nowrap" }}>{MESES_LARGO[mes]} {anio}</div>
+            <button aria-label="Mes siguiente" onClick={next} style={flechaMes}>›</button>
+            {!esMesActual && <button onClick={irHoy} style={{ height:30, padding:"0 12px", borderRadius:99, border:`1px solid ${C.gold}`, background:"transparent", color:C.goldDark, fontFamily:font.body, fontSize:12, fontWeight:700, cursor:"pointer" }}>Hoy</button>}
+          </div>
+        ) : (
+          <button onClick={()=>setSub("ver")} style={{ background:"none", border:"none", cursor:"pointer", fontFamily:font.body, fontSize:13, fontWeight:700, color:C.gold, padding:0 }}>‹ Volver a la malla</button>
+        )}
+        <span style={{ flex:1 }}/>
+        {sub==="ver" && publicado && !isMobile && <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Publicado el {fechaPub}{publicado.publicado_por ? ` · por ${primerNombre(publicado.publicado_por)}` : ""}</span>}
+        {puedeGestionar && sub!=="administrar" && (
+          <div style={{ display:"inline-flex", gap:2, padding:3, borderRadius:10, background:C.surfaceAlt, border:`1px solid ${C.border}` }}>
+            {seg("ver","Ver")}{seg("editar","✎ Editar")}
+          </div>
+        )}
+        {puedeGestionar && sub!=="administrar" && <button aria-label="Administrar turnos" title="Administrar tiendas, turnos y horarios" onClick={()=>setSub("administrar")} style={{ ...flechaMes, fontSize:15 }}>⚙</button>}
       </div>
+      {sub==="ver" && publicado && isMobile && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, margin:"-10px 0 14px" }}>Publicado el {fechaPub}{publicado.publicado_por ? ` · por ${primerNombre(publicado.publicado_por)}` : ""}</div>}
       <div key={sub} className="ozen-pane-anim-tab">
-        {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones}/>}
-        {sub==="editar"      && puedeGestionar && <TurnosEditarScreen users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} setAsignaciones={setAsignaciones} userName={userName}/>}
+        {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} anio={anio} mes={mes}/>}
+        {sub==="editar"      && puedeGestionar && <TurnosEditarScreen key={mesKey} users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} setAsignaciones={setAsignaciones} userName={userName} anio={anio} mes={mes}/>}
         {sub==="administrar" && puedeGestionar && <TurnosAdminScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
       </div>
     </div>
