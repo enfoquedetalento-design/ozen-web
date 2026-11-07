@@ -2152,19 +2152,13 @@ function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios, resaltado, onRe
 }
 
 // 4 · Alertas del mes — lo que hoy se busca a ojo: tiendas sin nadie un día (solo días que ya
-// tienen turnos), más de 6 días seguidos sin descanso, vacaciones e incapacidades.
+// tienen turnos), vacaciones e incapacidades (pedido de Santiago: sin la de días seguidos).
 const calcularAlertasTurnos = ({ dias, advisors, asigMap, stores, turnosGlobales }) => {
   const out = [];
   const tiendas = tiendasCoberturaTurnos(stores);
   dias.forEach(f=>{
     if(!advisors.some(a=>asigMap.has(`${a.id}|${f}`))) return;
     tiendas.forEach(s=>{ if(!advisors.some(a=>asigMap.get(`${a.id}|${f}`)?.tienda_id===s.id)) out.push({ k:`c${f}${s.id}`, color:C.red, icono:"⚠", t:<><b>{nombreTiendaCorto(s)}</b> sin nadie el <b>{diaCortoTurnos(f)}</b></> }); });
-  });
-  advisors.forEach(a=>{
-    let n=0, ini=null;
-    const cerrar = (fin) => { if(n>6) out.push({ k:`r${a.id}${ini}`, color:C.amber, icono:"⚠", t:<><b>{primerNombre(a.name)}</b> {n} días seguidos sin descanso ({Number(ini.slice(8,10))}–{Number(fin.slice(8,10))})</> }); n=0; };
-    dias.forEach((f,i)=>{ if(asigMap.get(`${a.id}|${f}`)?.tienda_id){ if(!n) ini=f; n++; } else if(n) cerrar(dias[i-1]); });
-    if(n) cerrar(dias[dias.length-1]);
   });
   const especiales = turnosGlobales.filter(g=>/vacac|incap/i.test(g.nombre||""));
   advisors.forEach(a=>{
@@ -2180,7 +2174,7 @@ const calcularAlertasTurnos = ({ dias, advisors, asigMap, stores, turnosGlobales
 function TurnosAlertas({ alertas }) {
   const [todas,setTodas]=useState(false);
   if(!alertas.length) return (
-    <SeccionTurnos titulo="Alertas del mes"><div style={{ fontFamily:font.body, fontSize:13, color:C.green }}>✓ Sin alertas: todas las tiendas cubiertas y nadie con más de 6 días seguidos.</div></SeccionTurnos>
+    <SeccionTurnos titulo="Alertas del mes"><div style={{ fontFamily:font.body, fontSize:13, color:C.green }}>✓ Sin alertas: todas las tiendas cubiertas y nadie de vacaciones ni incapacitado.</div></SeccionTurnos>
   );
   const visibles = todas ? alertas : alertas.slice(0,8);
   return (
@@ -2248,7 +2242,7 @@ const horarioDelDia = (asig, fecha, turnosHorarios) => {
 };
 const LETRA_DIA = ["D","L","M","M","J","V","S"];
 // 3 · La malla — personas en filas, días en columnas, color = tienda. Rayita entre semanas, hoy
-// marcado, resumen de cada persona a la derecha (días, descansos, ⚠ rachas de más de 6 días) y
+// marcado, resumen de cada persona a la derecha (días en tienda, descansos, días por tienda) y
 // fila de cobertura abajo (cuántos hay en cada tienda; ✕ en rojo el día que una queda en cero).
 // Solo se desliza de lado (nombres fijos, se ubica en hoy); el scroll de arriba/abajo es el de la
 // página. Ver: tocar un día muestra el detalle. Editar (Borrador): con un turno elegido en el
@@ -2324,8 +2318,8 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
           </thead>
           <tbody>
             {advisors.map((a,i)=>{
-              let enTienda = 0, otros = 0, racha = 0, maxRacha = 0; const porTienda = {};
-              dias.forEach(f=>{ const asg = asigMap.get(`${a.id}|${f}`); if(asg?.tienda_id){ enTienda++; racha++; maxRacha=Math.max(maxRacha,racha); porTienda[asg.tienda_id]=(porTienda[asg.tienda_id]||0)+1; } else { racha=0; if(asg) otros++; } });
+              let enTienda = 0, otros = 0; const porTienda = {};
+              dias.forEach(f=>{ const asg = asigMap.get(`${a.id}|${f}`); if(asg?.tienda_id){ enTienda++; porTienda[asg.tienda_id]=(porTienda[asg.tienda_id]||0)+1; } else if(asg) otros++; });
               return (
               <tr key={a.id}>
                 <td style={{ position:"sticky", left:0, zIndex:2, background:a._retirado?"#F4EFEB":"#fff", padding:"2px 8px", boxShadow:`1px 0 0 ${C.border}`, verticalAlign:"middle" }} title={a._retirado?`${a.name} — ya no está activo; se muestra porque tuvo turnos este mes`:a.name}>
@@ -2384,7 +2378,6 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
                   <td style={{ padding:"0 8px", fontFamily:font.body, fontSize:11, color:C.textSub, whiteSpace:"nowrap" }}>
                     {enTienda} d · {otros} desc.
                     <span style={{ display:"inline-flex", gap:5, marginLeft:6 }}>{Object.entries(porTienda).map(([tid,n])=><span key={tid} style={{ display:"inline-flex", alignItems:"center", gap:2 }}><PuntoTienda color={colorTienda(stores[tid])} size={6}/>{n}</span>)}</span>
-                    {maxRacha>6 && <b style={{ color:C.red, marginLeft:6 }}>⚠ {maxRacha} seguidos</b>}
                   </td>
                 )}
               </tr>
