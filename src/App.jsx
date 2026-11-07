@@ -5226,7 +5226,7 @@ const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItem
     const original = Number(v.valor_original ?? v.total ?? 0);
     const tipoPrincipal = v.es_flexipago ? "flexipago" : (tipos.includes("producto") ? "producto" : tipos[0]);
     // Flexipago (pedido de Santiago): el registro del día en que se abrió muestra en Total SOLO la
-    // plata que entró ese día (el separado); los días siguientes salen como registros de abono con
+    // plata que entró ese día (el primer abono); los días siguientes salen como registros de abono con
     // lo que entró cada día, y el día que se completa sale el valor completo del Flexipago.
     const abonosDia = v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id && a.fecha===v.fecha) : [];
     const abonadoDia = abonosDia.reduce((t,a)=>t+Number(a.valor||0),0);
@@ -5234,7 +5234,7 @@ const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItem
     const valorFlex = v.es_flexipago ? its.filter(i=>i.tipo==="flexipago").reduce((t,i)=>t+Number(i.valor||0)-Number(i.descuento||0),0) : 0;
     const flexCompletoDia = v.es_flexipago && valorFlex>0 && abonadoHastaDia>=valorFlex;
     return { key:`v-${v.id}`, fecha:v.fecha, orden:`${v.fecha||""} ${v.created_at||""}`, hora:horaCol(v.created_at), tiendaId:v.tienda_id, asesor:v.vendedor_nombre||"—", cliente:v.cliente_nombre||"", documento:v.cliente_documento||"",
-      tipo: v.es_flexipago ? (flexCompletoDia ? "Flexipago · completado" : "Flexipago · separado") : tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta", colorTipo:colorDeTipoVenta(tipoPrincipal),
+      tipo: v.es_flexipago ? (flexCompletoDia ? "Flexipago · completado" : "Flexipago") : tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta", colorTipo:colorDeTipoVenta(tipoPrincipal),
       medios: v.es_flexipago ? ([...new Set(abonosDia.flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))].map(medioCortoLabel).join(" + ") || "Sin abono") : (medios.join(" + ")||"—"), factura:v.numero_factura||"—",
       total: v.es_flexipago ? (flexCompletoDia ? (valorFlex||original) : abonadoDia) : original,
       detalle: ()=> <VentaCard sinEncabezado venta={v} {...props}/> };
@@ -6572,7 +6572,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
                   {saldoPendiente>0 && !soloLectura && (
                     flexipagoVencido ? (
                       <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"8px 10px", fontFamily:font.body, fontSize:12, color:C.red }}>
-                        ⛔ Pasaron {diasDesdeAbono} días desde el primer abono (máximo {FLEXIPAGO_PLAZO_DIAS}, según el aviso legal). No se puede abonar más ni completar esta venta — el cliente pierde lo abonado y el separado.
+                        ⛔ Pasaron {diasDesdeAbono} días desde el primer abono (máximo {FLEXIPAGO_PLAZO_DIAS}, según el aviso legal). No se puede abonar más ni completar esta venta — el cliente pierde lo abonado y el producto.
                         {puedeReabrirVencido && (
                           <div style={{ marginTop:8 }}>
                             <Btn onClick={()=>reabrirFlexipagoVencido(v)} variant="ghost" sm style={{ color:C.amber }}>🔓 Reabrir de todas formas (la tienda lo honra con el cliente)</Btn>
@@ -6762,7 +6762,7 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
   const itemEsFlexipago = itemTipo === "flexipago";
 
   // El valor total del Flexipago no se digita: es la suma de los valores de los códigos de
-  // producto separados, para obligar al asesor a desglosarlos bien en vez de poner un total a ojo.
+  // producto, para obligar al asesor a desglosarlos bien en vez de poner un total a ojo.
   const itemValorCodigosFlexipago = itemCodigosFlexipago.reduce((s,c)=>s+Number(c.valor||0),0);
   const itemValorNum = itemEsFlexipago ? itemValorCodigosFlexipago : Number(itemValor||0);
   const itemDescuentoInput = Number(itemDescuento||0);
@@ -7032,7 +7032,7 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
                     <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Valor total</div>
                     <div style={{ width:"100%", background:C.dark, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.mono, boxSizing:"border-box" }}>${itemValorCodigosFlexipago.toLocaleString("es-CO")}</div>
                   </div>
-                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Productos separados</div>
+                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Productos del Flexipago</div>
                   {itemCodigosFlexipago.map((c,idx)=>(
                     <div key={idx} style={{ display:"grid", gridTemplateColumns: itemCodigosFlexipago.length>1 ? "1fr 1fr auto" : "1fr 1fr", gap:6, marginBottom:6, alignItems:"center" }}>
                       <input value={c.codigo} onChange={e=>setCodigoFlexipago(idx,"codigo",e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="#producto" inputMode="numeric" maxLength={6} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
