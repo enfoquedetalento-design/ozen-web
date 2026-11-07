@@ -2044,14 +2044,14 @@ const lineasHorarioTurno = (sh, fila) => {
 };
 // ── Turnos: leyenda — un bloque de color por tienda, lado a lado, igual que el Excel ──
 function TurnosLeyenda({ stores, turnosGlobales, turnosHorarios }) {
-  const [abierta,setAbierta]=useState(true);
+  const [abierta,setAbierta]=useState(false); // plegada: se abre con "ⓘ Horarios"
   const tiendasConTurnos = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
   if(tiendasConTurnos.length===0 && turnosGlobales.length===0) return null;
   const totalTurnos = tiendasConTurnos.reduce((n,s)=>n+s.shifts.filter(sh=>sh.activo!==false).length,0) + turnosGlobales.length;
   return (
     <Card p="10px 14px" style={{ marginBottom:16 }}>
       <button onClick={()=>setAbierta(!abierta)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", display:"flex", alignItems:"center", gap:8, width:"100%" }}>
-        <span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:600, color:C.text }}>Horarios ({totalTurnos})</span>
+        <span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:600, color:C.text }}>ⓘ Horarios ({totalTurnos})</span>
         <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11, color:C.goldLight }}>{abierta?"Ocultar ▲":"Ver ▾"}</span>
       </button>
       <Collapse open={abierta}>
@@ -2118,68 +2118,148 @@ function ModalHorarioCustom({ info, turnosHorarios, onGuardar, onCerrar }) {
 }
 
 // ── Turnos: rejilla mensual (asesores en columnas, días en filas) ─────────────
+// ── Turnos: rejilla "C" (pedido de Santiago, a prueba en staging) ─────────────────────────────
+// Una fila por persona y una columna por día: el mes completo de cada uno en una línea de
+// bloquecitos de color (color = tienda). Es LA MISMA visual para todos (consulta y Borrador,
+// computador y celular) para que nadie vea la malla distinta. Solo se desliza de lado (los nombres
+// quedan fijos a la izquierda y al abrir se ubica en hoy); el scroll de arriba/abajo es el de la
+// página — antes el cuadro tenía su propio scroll vertical y la gente quedaba "peleando" con la
+// página. Tocar un bloquecito muestra el detalle (tienda, turno y horario de ese día). En el
+// Borrador, tocar abre la lista de turnos para cambiarlo (un <select> invisible encima del bloque).
+const abrevTurno = (label) => { const l = String(label||""); return l.length<=4 ? l : l.slice(0,3); };
+const horarioDelDia = (asig, fecha, turnosHorarios) => {
+  if(!asig || !asig.tienda_id) return null;
+  if(asig.entrada_custom || asig.salida_custom) return `${fmtHora12(asig.entrada_custom)}–${fmtHora12(asig.salida_custom)} (especial)`;
+  const fila = filaHorarioVigente(familiaDeTurno(asig.shift), asig.tienda_id, turnosHorarios, fecha);
+  if(!fila) return null;
+  const dow = new Date(fecha+"T12:00:00").getDay();
+  const vs = dow===5 || dow===6;
+  return `${fmtHora12(vs?fila.entrada_vs:fila.entrada_lj)}–${fmtHora12(vs?fila.salida_vs:fila.salida_lj)}`;
+};
+const LETRA_DIA = ["D","L","M","M","J","V","S"];
 function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnosHorarios, editable, onCambiarCelda, onGuardarCustom, onMoverAsesor, cambiadas }) {
-  // Lo más compacto posible en ancho y alto (pedido de Santiago) — Día angosto (solo cabe el
-  // número + 2 letras del día), columnas de asesor más ceñidas al nombre, menos padding en filas.
-  const colWidth = Math.max(52, ...advisors.map(a=>primerNombre(a.name).length*7.5+(editable?34:14)), 52);
-  const diaColWidth = 46;
+  const isMobile = useIsMobile();
   const storeGroups = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
   const [modalInfo,setModalInfo]=useState(null);
-  const flechaStyle = { background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:10, padding:"0 1px", lineHeight:1, flexShrink:0 };
+  const [detalle,setDetalle]=useState(null); // { nombre, fecha, turno, tienda, horario }
+  const [filtroTienda,setFiltroTienda]=useState("");
+  const scrollRef = useRef(null);
+  const celda = isMobile ? 34 : 32;
+  const colNombre = isMobile ? 104 : 150;
   const ultimoActivo = advisors.reduce((m,a,i)=>a._retirado?m:i, -1);
+  const tiendasUsadas = storeGroups.filter(s=>advisors.some(a=>dias.some(f=>asigMap.get(`${a.id}|${f}`)?.tienda_id===s.id)));
+  // Al abrir (o cambiar de mes) se ubica en hoy, si hoy está en el mes.
+  useEffect(()=>{
+    const el = scrollRef.current; if(!el) return;
+    const i = dias.indexOf(todayStr);
+    el.scrollLeft = i>0 ? Math.max(0, i*(celda+3) - (el.clientWidth-colNombre)/2) : 0;
+  }, [dias[0], celda, colNombre]); // eslint-disable-line react-hooks/exhaustive-deps
+  const flecha = { background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:10, padding:"0 2px", lineHeight:1 };
+  const verDetalle = (a, fecha, asig, turno) => {
+    const tienda = asig?.tienda_id ? stores[asig.tienda_id] : null;
+    setDetalle({ nombre:a.name, fecha, turno, tienda, horario:horarioDelDia(asig, fecha, turnosHorarios), nota:asig?.nota_custom||"" });
+  };
+  const fechaLarga = (f) => { const t = new Date(f+"T12:00:00").toLocaleDateString("es-CO",{ weekday:"long", day:"numeric", month:"long" }); return t.charAt(0).toUpperCase()+t.slice(1); };
   return (
-    // text-align:center + la tabla en "inline-table" hace que se centre sola cuando es más
-    // angosta que el contenedor (pocos asesores), y si es más ancha simplemente aparece el
-    // scroll normal — a diferencia de centrar con flex, esto no corta el borde izquierdo.
-    <div style={{ overflow:"auto", maxHeight:"78vh", border:`1px solid ${C.border}`, borderRadius:10, textAlign:"center" }}>
+    <div>
       {modalInfo && <ModalHorarioCustom info={modalInfo} turnosHorarios={turnosHorarios} onCerrar={()=>setModalInfo(null)} onGuardar={(entrada,salida,nota)=>{ onGuardarCustom(modalInfo.asesorId, modalInfo.fecha, entrada, salida, nota); setModalInfo(null); }}/>}
-      <table style={{ borderCollapse:"separate", borderSpacing:0, display:"inline-table", width:diaColWidth+advisors.length*colWidth, textAlign:"left" }}>
-        <thead>
-          <tr>
-            <th style={{ position:"sticky", left:0, top:0, zIndex:4, background:C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, 1px 0 0 ${C.border}`, padding:"6px 4px", width:diaColWidth, minWidth:diaColWidth, textAlign:"left", fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.03em" }}>Día</th>
-            {advisors.map((a,i)=>(
-              <th key={a.id} title={a._retirado?`${a.name} — ya no está activo; se muestra porque tuvo turnos este mes`:a.name} style={{ position:"sticky", top:0, zIndex:3, background:a._retirado?"#ECE6E1":C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, -1px 0 0 ${C.border}`, padding:"6px 2px", width:colWidth, minWidth:colWidth, textAlign:"center", fontFamily:font.body, fontSize:11, fontWeight:700, color:C.text }}>
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:1 }}>
-                  {editable && !a._retirado && <button onClick={()=>onMoverAsesor(a.id,-1)} disabled={i===0} title="Mover a la izquierda" style={{...flechaStyle, opacity:i===0?0.25:1, cursor:i===0?"default":"pointer"}}>◀</button>}
-                  <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:a._retirado?C.textMuted:undefined }}>{primerNombre(a.name)}</span>
-                  {editable && !a._retirado && <button onClick={()=>onMoverAsesor(a.id,1)} disabled={i>=ultimoActivo} title="Mover a la derecha" style={{...flechaStyle, opacity:i>=ultimoActivo?0.25:1, cursor:i>=ultimoActivo?"default":"pointer"}}>▶</button>}
-                </div>
-                {a._retirado && <div style={{ fontFamily:font.body, fontSize:8.5, fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase", color:C.textMuted, marginTop:1 }}>Retirado</div>}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {dias.map(fecha=>{ const dom=esDomingo(fecha); return (
-            <tr key={fecha}>
-              <td style={{ position:"sticky", left:0, zIndex:1, background:C.surface, boxShadow:`0 -1px 0 ${C.border}, 1px 0 0 ${C.border}`, padding:"3px 4px", width:diaColWidth, minWidth:diaColWidth, fontFamily:font.body, fontSize:10.5, whiteSpace:"nowrap" }}>
-                <span title={nombreDia(fecha)} style={{ color:dom?C.green:C.textMuted, fontWeight:dom?700:400 }}>{nombreDiaCorto(fecha).slice(0,2)}</span>{" "}
-                <span style={{ color:C.text }}>{Number(fecha.slice(8,10))}</span>
-              </td>
-              {advisors.map(a=>{
-                const asig = asigMap.get(`${a.id}|${fecha}`);
-                const turno = resolverTurno(asig, stores, turnosGlobales);
-                return (
-                  <td key={a.id} style={{ borderBottom:`1px solid ${C.border}`, borderLeft:`1px solid ${C.border}`, padding:2, ...(cambiadas?.has(`${a.id}|${fecha}`) ? { outline:`2px solid ${C.amber}`, outlineOffset:-2 } : {}) }} title={cambiadas?.has(`${a.id}|${fecha}`) ? "Cambio sin publicar" : undefined}>
-                    {editable ? (
-                      <div style={{ display:"flex", alignItems:"center", gap:2 }}>
-                        <select value={valorCelda(asig)} onChange={e=>onCambiarCelda(a.id,fecha,e.target.value)} style={{ flex:1, minWidth:0, minHeight:24, borderRadius:6, boxSizing:"border-box", border:`1px solid ${turno?hexToRgba(oscurecerColor(turno.color,30),0.55):C.border}`, background:turno?`linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,18)})`:C.surfaceAlt, color:turno?colorTextoContraste(turno.color):C.textMuted, fontFamily:font.body, fontSize:10.5, fontWeight:turno?700:400, padding:"2px 1px", cursor:"pointer", outline:"none", boxShadow:turno?"0 1px 3px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.22)":"none", textShadow:turno&&colorTextoContraste(turno.color)==="#fff"?"0 1px 2px rgba(0,0,0,0.3)":"none", transition:"transform .12s ease, box-shadow .12s ease" }}>
-                          <option value="">—</option>
+      {/* Filtro de tienda: apaga los bloquecitos de las demás tiendas */}
+      {tiendasUsadas.length>1 && (
+        <div className="ozen-sin-barra" style={{ display:"flex", gap:6, overflowX:"auto", marginBottom:10 }}>
+          {[{ id:"", name:"Todas" }, ...tiendasUsadas].map(s=>{ const on = filtroTienda===s.id; return (
+            <button key={s.id||"todas"} onClick={()=>setFiltroTienda(s.id)} style={{ flex:"0 0 auto", display:"inline-flex", alignItems:"center", gap:6, height:30, padding:"0 12px", borderRadius:99, border:`1px solid ${on?C.gold:C.border}`, background:on?"rgba(38,93,127,0.08)":"#fff", fontFamily:font.body, fontSize:12.5, fontWeight:600, color:on?C.goldDark:C.textSub, cursor:"pointer", whiteSpace:"nowrap" }}>
+              {s.id && <PuntoTienda color={colorTienda(s)} size={8}/>}{s.id ? nombreTiendaCorto(s) : s.name}
+            </button>
+          ); })}
+        </div>
+      )}
+      {detalle && (
+        <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:10, padding:"9px 12px", borderRadius:12, background:"#fff", border:`1px solid ${C.border}`, borderLeft:`4px solid ${detalle.turno?.color||C.border}` }}>
+          <b style={{ fontFamily:font.body, fontSize:13, color:C.text }}>{detalle.nombre}</b>
+          <span style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>{fechaLarga(detalle.fecha)}</span>
+          <span style={{ fontFamily:font.body, fontSize:13, color:C.text }}>
+            {!detalle.turno ? "Sin turno" : detalle.tienda ? <>{nombreTiendaCorto(detalle.tienda)} · <b>{detalle.turno.label}</b>{detalle.horario && <> · <span style={{ fontFamily:font.mono, fontSize:12 }}>{detalle.horario}</span></>}</> : <b>{detalle.turno.label}</b>}
+            {detalle.nota && <span style={{ color:C.textMuted }}> · {detalle.nota}</span>}
+          </span>
+          <button aria-label="Cerrar detalle" onClick={()=>setDetalle(null)} style={{ marginLeft:"auto", background:"none", border:"none", cursor:"pointer", color:C.textMuted, display:"grid", placeItems:"center" }}><Icon n="x" s={13} sw={2.4}/></button>
+        </div>
+      )}
+      <div ref={scrollRef} className="ozen-sin-barra" style={{ overflowX:"auto", overflowY:"visible", border:`1px solid ${C.border}`, borderRadius:12, background:"#fff" }}>
+        <table style={{ borderCollapse:"separate", borderSpacing:3, padding:"4px 4px 6px 0", width:isMobile?undefined:"100%" }}>
+          <thead>
+            <tr>
+              <th style={{ position:"sticky", left:0, zIndex:3, background:"#fff", minWidth:colNombre, width:colNombre, textAlign:"left", padding:"4px 8px", fontFamily:font.body, fontSize:10.5, fontWeight:600, color:C.textMuted, letterSpacing:"0.08em", textTransform:"uppercase", boxShadow:`1px 0 0 ${C.border}` }}>Persona</th>
+              {dias.map(f=>{ const hoy = f===todayStr, dom = esDomingo(f); const dow = new Date(f+"T12:00:00").getDay(); return (
+                <th key={f} style={{ minWidth:celda, padding:"3px 0", textAlign:"center", fontFamily:font.body, fontSize:10.5, lineHeight:1.2, fontWeight:hoy?700:500, color:hoy?C.tinta:dom?C.green:C.textMuted, background:hoy?C.goldDark:"transparent", borderRadius:7 }}>
+                  <div style={{ fontSize:11.5, color:hoy?C.tinta:C.text, fontWeight:700 }}>{Number(f.slice(8,10))}</div>{LETRA_DIA[dow]}
+                </th>
+              ); })}
+            </tr>
+          </thead>
+          <tbody>
+            {advisors.map((a,i)=>{
+              let enTienda = 0; const porTienda = {};
+              dias.forEach(f=>{ const asg = asigMap.get(`${a.id}|${f}`); if(asg?.tienda_id){ enTienda++; porTienda[asg.tienda_id]=(porTienda[asg.tienda_id]||0)+1; } });
+              return (
+              <tr key={a.id}>
+                <td style={{ position:"sticky", left:0, zIndex:2, background:a._retirado?"#F4EFEB":"#fff", padding:"2px 8px", boxShadow:`1px 0 0 ${C.border}`, verticalAlign:"middle" }} title={a._retirado?`${a.name} — ya no está activo; se muestra porque tuvo turnos este mes`:a.name}>
+                  <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+                    {editable && !a._retirado && !isMobile && (
+                      <span style={{ display:"flex", flexDirection:"column" }}>
+                        <button onClick={()=>onMoverAsesor(a.id,-1)} disabled={i===0} title="Subir" style={{ ...flecha, opacity:i===0?0.25:1 }}>▲</button>
+                        <button onClick={()=>onMoverAsesor(a.id,1)} disabled={i>=ultimoActivo} title="Bajar" style={{ ...flecha, opacity:i>=ultimoActivo?0.25:1 }}>▼</button>
+                      </span>
+                    )}
+                    <span style={{ minWidth:0 }}>
+                      <span style={{ display:"block", fontFamily:font.body, fontSize:13, fontWeight:700, color:a._retirado?C.textMuted:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:colNombre-(editable&&!isMobile?30:16) }}>{isMobile ? primerNombre(a.name) : a.name.split(" ").slice(0,2).join(" ")}</span>
+                      <span style={{ display:"flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:10.5, color:C.textMuted, whiteSpace:"nowrap" }}>
+                        {a._retirado ? <b style={{ fontSize:9, letterSpacing:"0.06em" }}>RETIRADO</b> : <>{enTienda} días</>}
+                        {!isMobile && Object.entries(porTienda).map(([tid,n])=><span key={tid} style={{ display:"inline-flex", alignItems:"center", gap:2 }}><PuntoTienda color={colorTienda(stores[tid])} size={6}/>{n}</span>)}
+                      </span>
+                    </span>
+                  </div>
+                </td>
+                {dias.map(fecha=>{
+                  const k = `${a.id}|${fecha}`;
+                  const asig = asigMap.get(k);
+                  const turno = resolverTurno(asig, stores, turnosGlobales);
+                  const apagado = filtroTienda && asig?.tienda_id!==filtroTienda;
+                  const hoy = fecha===todayStr;
+                  const txt = turno ? colorTextoContraste(turno.color) : C.textMuted;
+                  const especial = asig && (asig.entrada_custom || asig.salida_custom);
+                  return (
+                    <td key={fecha} style={{ padding:0, position:"relative" }}>
+                      <div onClick={editable?undefined:()=>verDetalle(a, fecha, asig, turno)} title={turno ? `${turno.label}${asig?.tienda_id?` · ${nombreTiendaCorto(stores[asig.tienda_id])}`:""}${horarioDelDia(asig, fecha, turnosHorarios)?` · ${horarioDelDia(asig, fecha, turnosHorarios)}`:""}` : "Sin turno"}
+                        style={{ width:"100%", minWidth:celda, height:isMobile?32:30, borderRadius:6, boxSizing:"border-box", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer",
+                          background: turno ? `linear-gradient(135deg, ${turno.color}, ${oscurecerColor(turno.color,14)})` : (esDomingo(fecha)?"#F3F7F3":C.surfaceAlt),
+                          border: turno ? `1px solid ${hexToRgba(oscurecerColor(turno.color,30),0.45)}` : `1px dashed ${C.border}`,
+                          color:txt, fontFamily:font.body, fontSize:10, fontWeight:700, letterSpacing:"0.01em", whiteSpace:"nowrap", overflow:"hidden",
+                          opacity: apagado ? 0.18 : 1,
+                          outline: cambiadas?.has(k) ? `2px solid ${C.amber}` : hoy ? `2px solid ${C.goldDark}` : "none", outlineOffset:1 }}>
+                        {turno ? abrevTurno(turno.label) : ""}
+                        {especial && <span style={{ position:"absolute", top:1, right:2, fontSize:8 }}>⏱</span>}
+                      </div>
+                      {editable && (
+                        <select aria-label={`Turno de ${a.name} el ${fecha}`} value={valorCelda(asig)}
+                          onChange={e=>{ const v = e.target.value; if(v==="__especial__"){ setModalInfo({ asesorId:a.id, fecha, asig, nombreAsesor:a.name, shiftLabel:asig?.shift||"" }); return; } onCambiarCelda(a.id, fecha, v); }}
+                          style={{ position:"absolute", inset:0, width:"100%", height:"100%", opacity:0, cursor:"pointer", fontSize:16 }}>
+                          <option value="">— Sin turno</option>
                           <optgroup label="Especiales">{turnosGlobales.map(g=><option key={g.id} value={`g:${g.id}`}>{g.nombre}</option>)}</optgroup>
                           {storeGroups.map(s=>(<optgroup key={s.id} label={s.name}>{s.shifts.filter(sh=>sh.activo!==false).map(sh=><option key={sh.id} value={`t:${s.id}|${encodeURIComponent(sh.nombre)}`}>{sh.nombre}</option>)}</optgroup>))}
+                          {asig?.tienda_id && <optgroup label="Este día"><option value="__especial__">⏱ Horario especial…</option></optgroup>}
                         </select>
-                        {asig?.tienda_id && (
-                          <button onClick={()=>setModalInfo({ asesorId:a.id, fecha, asig, nombreAsesor:a.name, shiftLabel:asig.shift||"" })} title={(asig.entrada_custom||asig.salida_custom)?`Horario especial: ${asig.entrada_custom||"?"}–${asig.salida_custom||"?"}`:"Autorizar horario especial este día"} style={{ background:"none", border:"none", cursor:"pointer", fontSize:11, flexShrink:0, opacity:(asig.entrada_custom||asig.salida_custom)?1:0.45 }}>⏰</button>
-                        )}
-                      </div>
-                    ) : <TurnoBadgeCelda turno={turno}/>}
-                  </td>
-                );
-              })}
-            </tr>
-          );})}
-        </tbody>
-      </table>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ); })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:8 }}>
+        {editable ? "Toca un día para cambiar el turno. ⏱ = horario especial ese día." : "Toca un día para ver tienda, turno y horario. Desliza de lado para ver todo el mes."}
+      </div>
     </div>
   );
 }
