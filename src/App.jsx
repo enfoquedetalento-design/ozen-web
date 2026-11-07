@@ -117,6 +117,29 @@ const toColombiaDate = (d = new Date()) => new Date(d.toLocaleString("en-US", { 
 const fmt = (d) => { const c = toColombiaDate(d); return `${c.getFullYear()}-${String(c.getMonth()+1).padStart(2,"0")}-${String(c.getDate()).padStart(2,"0")}`; };
 const fmtTime = (d) => { const c = toColombiaDate(d); return `${String(c.getHours()).padStart(2,"0")}:${String(c.getMinutes()).padStart(2,"0")}`; };
 const todayStr = fmt(new Date());
+// Supabase devuelve como máximo 1000 filas por consulta — si una tabla pasa de ahí y se pide con
+// .select("*") a secas, las que sobran se pierden EN SILENCIO (ventas sin sus renglones/medios de
+// pago, turnos faltantes, etc.). Esta función trae la tabla completa pidiendo de a 1000 filas
+// (orden estable: el que se pida + id) hasta que ya no queden. Si algo falla en la paginación,
+// cae a la consulta simple de antes para no dejar la app sin datos.
+const traerTodo = async (tabla, orden = []) => {
+  const PAGINA = 1000;
+  let todas = [];
+  for (let desde = 0; ; desde += PAGINA) {
+    let q = supabase.from(tabla).select("*");
+    orden.forEach(([col, asc]) => { q = q.order(col, { ascending: asc }); });
+    q = q.order("id", { ascending: true }).range(desde, desde + PAGINA - 1);
+    const { data, error } = await q;
+    if (error) {
+      let simple = supabase.from(tabla).select("*");
+      orden.forEach(([col, asc]) => { simple = simple.order(col, { ascending: asc }); });
+      return await simple;
+    }
+    todas = todas.concat(data || []);
+    if (!data || data.length < PAGINA) break;
+  }
+  return { data: todas, error: null };
+};
 const fmtFechaHora = (iso) => iso ? new Date(iso).toLocaleString("es-CO", { day:"numeric", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" }) : "—";
 // Días de calendario entre dos fechas "YYYY-MM-DD" (fechaFin - fechaIni)
 const diasEntre = (fechaIni, fechaFin) => Math.round((new Date(fechaFin+"T00:00:00") - new Date(fechaIni+"T00:00:00")) / 86400000);
@@ -12425,32 +12448,32 @@ export default function App() {
     const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:jic},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj},{data:csb},{data:tg},{data:tas},{data:th},{data:kc},{data:kl},{data:kp},{data:kv},{data:ki}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
-      supabase.from("registros").select("*").order("date",{ascending:false}),
+      traerTodo("registros",[["date",false]]),
       supabase.from("junta_lideres").select("*").order("orden",{ascending:true}),
-      supabase.from("junta_compromisos").select("*").order("semana",{ascending:false}),
+      traerTodo("junta_compromisos",[["semana",false]]),
       supabase.from("junta_acuerdos").select("*").order("fecha",{ascending:false}),
       supabase.from("junta_areas").select("*").order("nombre",{ascending:true}),
       supabase.from("junta_lider_areas").select("*"),
       supabase.from("junta_indicadores_congelados").select("*"),
-      supabase.from("ventas").select("*").order("fecha",{ascending:false}),
-      supabase.from("ventas_items").select("*"),
+      traerTodo("ventas",[["fecha",false]]),
+      traerTodo("ventas_items"),
       supabase.from("ventas_metas").select("*"),
       supabase.from("ventas_metas_asesor").select("*"),
-      supabase.from("ventas_abonos").select("*"),
-      supabase.from("ventas_caja_aperturas").select("*").order("created_at",{ascending:false}),
-      supabase.from("ventas_caja_cierres").select("*").order("created_at",{ascending:false}),
-      supabase.from("ventas_caja_recolecciones").select("*").order("created_at",{ascending:false}),
-      supabase.from("ventas_caja_gastos").select("*").order("created_at",{ascending:false}),
-      supabase.from("ventas_ajustes").select("*"),
+      traerTodo("ventas_abonos"),
+      traerTodo("ventas_caja_aperturas",[["created_at",false]]),
+      traerTodo("ventas_caja_cierres",[["created_at",false]]),
+      traerTodo("ventas_caja_recolecciones",[["created_at",false]]),
+      traerTodo("ventas_caja_gastos",[["created_at",false]]),
+      traerTodo("ventas_ajustes"),
       supabase.from("ventas_caja_solicitudes_borrado").select("*").order("fecha_solicitud",{ascending:false}),
       supabase.from("turnos_globales").select("*"),
-      supabase.from("turnos_asignaciones").select("*"),
+      traerTodo("turnos_asignaciones"),
       supabase.from("turnos_horarios").select("*"),
       supabase.from("capacitacion_cursos").select("*"),
       supabase.from("capacitacion_lecciones").select("*"),
       supabase.from("capacitacion_preguntas").select("*"),
-      supabase.from("capacitacion_lecciones_vistas").select("*"),
-      supabase.from("capacitacion_intentos").select("*").order("created_at",{ascending:true}),
+      traerTodo("capacitacion_lecciones_vistas"),
+      traerTodo("capacitacion_intentos",[["created_at",true]]),
     ]);
     const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
     setStores(sm);setUsers(u||[]);setRecords(r||[]);
