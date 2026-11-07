@@ -12439,7 +12439,12 @@ export default function App() {
     try { window.resizeTo(1120, 840); } catch(e) { /* si falla, se queda con el tamaño que dé el sistema */ }
   }, []);
 
+  // Cuándo fue la última carga completa — sirve para no volver a descargar TODO si la anterior fue
+  // hace nada (cada carga completa baja todas las tablas, y el refresco automático ya había hecho
+  // que Supabase pasara del tope gratis de transferencia: 5 GB/mes, con 5,07 GB usados).
+  const ultimaCargaRef = useRef(0);
   const loadAll=async()=>{
+    ultimaCargaRef.current = Date.now();
     const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:jic},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj},{data:csb},{data:tg},{data:tas},{data:th},{data:kc},{data:kl},{data:kp},{data:kv},{data:ki}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
@@ -12537,11 +12542,14 @@ export default function App() {
   // Al iniciar sesión se refresca todo del servidor en segundo plano (sin bloquear la entrada) —
   // en un dispositivo compartido donde una cuenta entra justo después de que otra salió, sin esto
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
-  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll();};
+  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll(60000);};
   const logout=()=>{setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);};
   const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?"metricas":a==="capacitacion"?(tomaCapacitaciones(user)?"mis_cursos":"progreso"):user.role==="advisor"?"checkin":"dashboard");};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
-  const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
+  // Sin argumento (botón 🔄) siempre recarga. Con `maxEdadMs` solo recarga si la última carga es
+  // más vieja que eso — así el login justo después de abrir la página, o "volver a la pestaña"
+  // (focus y visibilitychange suelen dispararse a la vez), no repiten una descarga completa.
+  const refreshAll=async(maxEdadMs)=>{ if(typeof maxEdadMs==="number" && Date.now()-ultimaCargaRef.current < maxEdadMs) return; setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
   // Corrección manual de registros (solo master, desde Registros) — el borrado/edición en la base
   // ya lo hace RecordsScreen; esto solo mantiene sincronizado el estado local en memoria.
@@ -12556,12 +12564,12 @@ export default function App() {
   // justo lo que puede generar problemas reales (duplicados, sobrescrituras, decisiones con
   // números desactualizados). Por eso, además del botón de refrescar manual (🔄) y del refresco ya
   // agregado al iniciar sesión, la app se refresca sola: cada vez que se vuelve a esta pestaña
-  // (se cambia de app y se regresa, se prende la pantalla del celular, etc.) y cada 3 minutos
-  // mientras quede abierta y visible.
+  // (se cambia de app y se regresa, se prende la pantalla del celular, etc.) y cada 5 minutos
+  // mientras quede abierta y visible — pero nunca si ya se cargó hace menos de 2 minutos.
   useEffect(()=>{
     if(!user) return;
-    const refrescarSiVisible = () => { if(document.visibilityState==="visible") refreshAll(); };
-    const intervalo = setInterval(refrescarSiVisible, 3*60000);
+    const refrescarSiVisible = () => { if(document.visibilityState==="visible") refreshAll(2*60000); };
+    const intervalo = setInterval(refrescarSiVisible, 5*60000);
     document.addEventListener("visibilitychange", refrescarSiVisible);
     window.addEventListener("focus", refrescarSiVisible);
     return () => {
