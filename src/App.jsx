@@ -887,12 +887,26 @@ const esUsuarioDeTurnos = (u) => u.role==="advisor" || esAdminAsignableATurnos(u
 // `activo_en_turnos` para no interferir con el `active` general que ya se usa en otras pantallas
 // (ej. Caja, para elegir quién recibe una recolección). Si la columna aún no existe o es null,
 // se trata como activo por defecto.
-const activoEnMallaTurnos = (u) => u.role==="advisor" ? !!u.active : u.activo_en_turnos!==false;
+const activoEnMallaTurnos = (u) => u.role==="advisor" ? !!u.active : (u.active!==false && u.activo_en_turnos!==false);
 // Orden manual de columnas en la rejilla (ver botones ◀▶ en el Borrador) — campo `orden_turnos`
 // en usuarios, null si nunca se ha movido a nadie (esos quedan al final, ordenados por nombre).
 const advisorsOrdenTurnos = (users) => users
   .filter(u=>esUsuarioDeTurnos(u) && activoEnMallaTurnos(u))
   .sort((a,b)=> (a.orden_turnos??9999)-(b.orden_turnos??9999) || a.name.localeCompare(b.name));
+// Columnas de la malla de UN mes: las personas activas (en su orden) + cualquiera que tenga al
+// menos un turno ese mes aunque hoy esté inactiva o retirada (pedido de Santiago: al revisar meses
+// pasados hay que ver a todos los que trabajaron, aunque ya no estén en la empresa). Los
+// retirados van al final, ordenados por nombre, marcados con `_retirado` (encabezado gris, sin
+// flechas para mover).
+const columnasMallaMes = (users, activos, asignacionesMes) => {
+  const idsActivos = new Set(activos.map(a=>a.id));
+  const conTurno = new Set(asignacionesMes.map(a=>a.asesor_id));
+  const retirados = users
+    .filter(u=>!idsActivos.has(u.id) && conTurno.has(u.id))
+    .sort((a,b)=>(a.name||"").localeCompare(b.name||""))
+    .map(u=>({ ...u, _retirado:true }));
+  return [...activos, ...retirados];
+};
 // Admin Finanzas: hace todo lo de un Administrador normal (Asistencia/Junta), más Ventas completo
 // (registrar, lista, métricas, asignar metas, aprobar notas crédito y corregir por error).
 const esAdminFinanzas = (user) => user.role==="admin_finanzas";
@@ -1392,6 +1406,49 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
   );
 }
 
+// ── Retirar en vez de eliminar (pedido de Santiago) ─────────────────────────────
+// Antes "Eliminar" borraba también los turnos, la asistencia y la meta de la persona, y ese
+// historial se perdía para siempre (ej. al revisar la malla de un mes pasado ya no aparecía). Ahora:
+// si la persona tiene CUALQUIER historial, no se elimina — se RETIRA (queda inactiva: no puede
+// ingresar ni aparece para asignar, pero todo su historial se conserva y la malla de los meses en
+// que trabajó la sigue mostrando). Solo se elimina de verdad quien no tiene nada (ej. creado por error).
+const contarHistorialUsuario = async (id) => {
+  const contar = async (tabla, campo) => { const { count, error } = await supabase.from(tabla).select("id", { count:"exact", head:true }).eq(campo, id); return error ? 0 : (count||0); };
+  const [registros, turnos, ventas, metas] = await Promise.all([
+    contar("registros","user_id"), contar("turnos_asignaciones","asesor_id"), contar("ventas","vendedor_id"), contar("ventas_metas_asesor","vendedor_id"),
+  ]);
+  return { registros, turnos, ventas, metas, total: registros+turnos+ventas+metas };
+};
+const textoHistorial = (h) => [
+  h.turnos ? `${h.turnos} turno${h.turnos===1?"":"s"} en la malla` : null,
+  h.registros ? `${h.registros} registro${h.registros===1?"":"s"} de asistencia` : null,
+  h.ventas ? `${h.ventas} venta${h.ventas===1?"":"s"}` : null,
+  h.metas ? `${h.metas} meta${h.metas===1?"":"s"} de ventas` : null,
+].filter(Boolean).join(", ");
+const retirarOEliminarUsuario = async (u, setUsers) => {
+  const h = await contarHistorialUsuario(u.id);
+  if(h.total>0){
+    if(u.active===false){ alert(`${u.name} ya está retirado. Su historial (${textoHistorial(h)}) se conserva; no se puede eliminar para no perderlo.`); return; }
+    if(!window.confirm(`${u.name} tiene historial: ${textoHistorial(h)}.\n\nPara no perderlo no se elimina: se RETIRA. Queda inactivo (no puede ingresar ni aparece para asignar), pero sus turnos, asistencia y ventas se conservan y se siguen viendo en los meses en que trabajó. Si vuelve, lo reactivas con ✓.\n\n¿Retirar a ${u.name}?`)) return;
+    const { data, error } = await supabase.from("usuarios").update({ active:false }).eq("id", u.id).select().single();
+    if(error){ alert(`No se pudo retirar: ${error.message}`); return; }
+    if(data) setUsers(prev=>prev.map(x=>x.id===u.id?data:x));
+    return;
+  }
+  if(!window.confirm(`${u.name} no tiene ningún historial (ni turnos, ni asistencia, ni ventas). ¿Eliminarlo definitivamente? Esto no se puede deshacer.`)) return;
+  await supabase.from("turnos_borrador").delete().eq("asesor_id", u.id);
+  const { error } = await supabase.from("usuarios").delete().eq("id", u.id);
+  if(error){ alert(`No se pudo eliminar: ${error.message}`); return; }
+  setUsers(prev=>prev.filter(x=>x.id!==u.id));
+};
+// Encabezado plegable de la sección de retirados / inactivos en Usuarios y Asesores.
+const SeccionRetirados = ({ n, abierto, onToggle }) => (
+  <button onClick={onToggle} style={{ display:"flex", alignItems:"center", gap:8, marginTop:14, padding:"10px 14px", width:"100%", border:`1px dashed ${C.border}`, borderRadius:12, background:"transparent", cursor:"pointer", fontFamily:font.body, fontSize:13, fontWeight:600, color:C.textSub, textAlign:"left" }}>
+    <Icon n={abierto?"up":"down"} s={14} sw={2.2}/>Retirados e inactivos ({n})
+    <span style={{ marginLeft:"auto", fontWeight:400, fontSize:12, color:C.textMuted }}>su historial se conserva</span>
+  </button>
+);
+
 // ── SCREEN: Users ─────────────────────────────────────────────────────────────
 function UsersScreen({ users, setUsers }) {
   const soloLectura = useReadOnly();
@@ -1400,18 +1457,9 @@ function UsersScreen({ users, setUsers }) {
   const add=async()=>{ if(!form.name.trim()||!form.documento.trim())return; setLoading(true); const{data,error}=await supabase.from("usuarios").insert({name:form.name.trim(),documento:form.documento.trim(),password:form.documento.trim(),role:"advisor",active:true}).select().single(); if(!error){setUsers(prev=>[...prev,data]);setForm({name:"",documento:""});setShowForm(false);} setLoading(false); };
   const toggle=async(u)=>{ const{data}=await supabase.from("usuarios").update({active:!u.active}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
   const saveEdit=async(id)=>{ if(!editVal.name.trim()||!editVal.documento.trim())return; const{data}=await supabase.from("usuarios").update({name:editVal.name.trim(),documento:editVal.documento.trim()}).eq("id",id).select().single(); if(data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setEditing(null);} };
-  const deleteUser=async(id)=>{
-    const { count } = await supabase.from("registros").select("id", { count: "exact", head: true }).eq("user_id", id);
-    if (count > 0) { alert(`Este asesor tiene ${count} registro(s) de asistencia. Eliminarlo borraría ese historial para siempre. Usa el botón "✕" para desactivarlo en su lugar — así deja de aparecer como activo pero conserva sus registros.`); return; }
-    if (!window.confirm("Este asesor no tiene registros de asistencia. ¿Eliminarlo de todas formas? Esto no se puede deshacer.")) return;
-    await supabase.from("usuarios").delete().eq("id",id); setUsers(prev=>prev.filter(u=>u.id!==id));
-  };
-  return (
-    <div>
-      <PageHeader title="Asesores" subtitle={`${advisors.length} asesores`} action={soloLectura?null:<Btn onClick={()=>{setShowForm(!showForm);setEditing(null);}} sm>{showForm?"Cancelar":"+ Nuevo"}</Btn>} />
-      {!soloLectura && showForm&&(<Card glow style={{marginBottom:16}}><div style={{fontFamily:font.body,fontSize:13,fontWeight:600,color:C.goldLight,marginBottom:14}}>Nuevo asesor</div><Field label="Nombre completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nombre Apellido" /><Field label="Usuario" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Usuario para ingresar" /><div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 La contraseña inicial será el mismo usuario.</div><Btn onClick={add} disabled={loading} full>{loading?"Guardando...":"Crear asesor"}</Btn></Card>)}
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {advisors.map(u=>(
+  const deleteUser=async(id)=>{ const u = users.find(x=>x.id===id); if(u) await retirarOEliminarUsuario(u, setUsers); };
+  const [verRetirados,setVerRetirados]=useState(false);
+  const tarjetaAsesor = (u) => (
           <Card key={u.id} p="14px" style={{opacity:u.active?1:0.6}}>
             {!soloLectura && editing===u.id?(
               <div><Field label="Nombre" value={editVal.name} onChange={v=>setEditVal(p=>({...p,name:v}))} /><Field label="Usuario" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} /><div style={{display:"flex",gap:8}}><Btn onClick={()=>saveEdit(u.id)} variant="success" sm full>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm full>Cancelar</Btn></div></div>
@@ -1423,12 +1471,20 @@ function UsersScreen({ users, setUsers }) {
                 {!soloLectura && <div style={{display:"flex",gap:4,flexShrink:0}}>
                   <Btn onClick={()=>{setEditing(u.id);setEditVal({name:u.name,documento:u.documento});}} variant="ghost" sm>✏</Btn>
                   <Btn onClick={()=>toggle(u)} variant={u.active?"danger":"success"} sm>{u.active?"✕":"✓"}</Btn>
-                  <Btn onClick={()=>deleteUser(u.id)} variant="danger" sm>🗑</Btn>
+                  <Btn onClick={()=>deleteUser(u.id)} variant="danger" sm title="Retirar (o eliminar si no tiene historial)">🗑</Btn>
                 </div>}
               </div>
             )}
           </Card>
-        ))}
+  );
+  return (
+    <div>
+      <PageHeader title="Asesores" subtitle={`${advisors.length} asesores`} action={soloLectura?null:<Btn onClick={()=>{setShowForm(!showForm);setEditing(null);}} sm>{showForm?"Cancelar":"+ Nuevo"}</Btn>} />
+      {!soloLectura && showForm&&(<Card glow style={{marginBottom:16}}><div style={{fontFamily:font.body,fontSize:13,fontWeight:600,color:C.goldLight,marginBottom:14}}>Nuevo asesor</div><Field label="Nombre completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nombre Apellido" /><Field label="Usuario" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Usuario para ingresar" /><div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 La contraseña inicial será el mismo usuario.</div><Btn onClick={add} disabled={loading} full>{loading?"Guardando...":"Crear asesor"}</Btn></Card>)}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {advisors.filter(u=>u.active).map(tarjetaAsesor)}
+        {advisors.some(u=>!u.active) && <SeccionRetirados n={advisors.filter(u=>!u.active).length} abierto={verRetirados} onToggle={()=>setVerRetirados(v=>!v)}/>}
+        {verRetirados && advisors.filter(u=>!u.active).map(tarjetaAsesor)}
       </div>
     </div>
   );
@@ -1462,47 +1518,11 @@ function UsuariosScreen({ users, setUsers, stores }) {
   const add=async()=>{ if(!form.name.trim()||!form.documento.trim())return; if(form.role==="tienda"&&!form.tienda_id)return; setLoading(true); const{data,error}=await supabase.from("usuarios").insert({name:form.name.trim(),documento:form.documento.trim(),password:form.documento.trim(),role:form.role,tienda_id:form.role==="tienda"?form.tienda_id:null,active:true}).select().single(); if(!error&&data){setUsers(prev=>[...prev,data]);setForm({name:"",documento:"",role:"advisor",tienda_id:""});setShowForm(false);} setLoading(false); };
   const toggle=async(u)=>{ const{data}=await supabase.from("usuarios").update({active:!u.active}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
   const saveEdit=async(id)=>{ if(!editVal.name.trim()||!editVal.documento.trim())return; if(editVal.role==="tienda"&&!editVal.tienda_id)return; const{data}=await supabase.from("usuarios").update({name:editVal.name.trim(),documento:editVal.documento.trim(),role:editVal.role,tienda_id:editVal.role==="tienda"?(editVal.tienda_id||null):null}).eq("id",id).select().single(); if(data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setEditing(null);} };
-  const deleteUsuario=async(id)=>{
-    const { count } = await supabase.from("registros").select("id", { count: "exact", head: true }).eq("user_id", id);
-    const mensaje = count > 0
-      ? `Este usuario tiene ${count} registro(s) de asistencia. Si lo eliminas, también se borra ese historial para siempre (y cualquier turno asignado o meta de ventas que tenga). Esto no se puede deshacer. ¿Eliminarlo de todas formas?`
-      : "¿Eliminar este usuario? Esto no se puede deshacer.";
-    if (!window.confirm(mensaje)) return;
-    // Antes de borrar el usuario hay que borrar lo que depende de él (si no, la base de datos
-    // rechaza el borrado por las llaves foráneas) — registros de asistencia, turnos que se le
-    // hayan asignado en la malla, y su meta personal de ventas si tenía.
-    await supabase.from("registros").delete().eq("user_id", id);
-    await supabase.from("turnos_asignaciones").delete().eq("asesor_id", id);
-    await supabase.from("turnos_borrador").delete().eq("asesor_id", id);
-    await supabase.from("ventas_metas_asesor").delete().eq("vendedor_id", id);
-    const { error } = await supabase.from("usuarios").delete().eq("id", id);
-    if (error) { alert(`No se pudo eliminar: ${error.message}`); return; }
-    setUsers(prev=>prev.filter(u=>u.id!==id));
-  };
+  const deleteUsuario=async(id)=>{ const u = users.find(x=>x.id===id); if(u) await retirarOEliminarUsuario(u, setUsers); };
+  const [verRetirados,setVerRetirados]=useState(false);
   const guardarPassword=async(id)=>{ if(!nuevaPass.trim())return; const{data,error}=await supabase.from("usuarios").update({password:nuevaPass.trim(),password_updated_at:new Date().toISOString()}).eq("id",id).select().single(); if(!error&&data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setCambiandoPass(null);setNuevaPass("");alert("Contraseña actualizada.");} };
   const liberarDispositivo=async(u)=>{ if(!window.confirm(`¿Liberar el dispositivo autorizado de "${u.name}"? El próximo dispositivo que ingrese con esta cuenta quedará autorizado.`))return; const{data}=await supabase.from("usuarios").update({device_token:null}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
-  return (
-    <div>
-      <PageHeader title="Usuarios" subtitle={`${users.length} usuarios · solo visible para cuentas master · aquí se ve y controla la contraseña de todos`} action={
-        <div style={{display:"flex",gap:8}}>
-          <Btn onClick={traerFrescos} variant="ghost" sm disabled={sincronizando}>{sincronizando?"Actualizando...":"🔄 Actualizar"}</Btn>
-          <Btn onClick={()=>{setShowForm(!showForm);setEditing(null);setCambiandoPass(null);}} sm>{showForm?"Cancelar":"+ Nuevo usuario"}</Btn>
-        </div>
-      } />
-      {showForm&&(
-        <Card glow style={{marginBottom:16}}>
-          <div style={{fontFamily:font.body,fontSize:13,fontWeight:600,color:C.goldLight,marginBottom:14}}>Nuevo usuario</div>
-          <Field label="Nombre completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nombre Apellido" />
-          <Field label="Usuario" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Usuario para ingresar" />
-          <Field label="Tipo de usuario" value={form.role} onChange={v=>setForm(f=>({...f,role:v}))} options={roleOptions} />
-          <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginTop:-10,marginBottom:12}}>🔎 {ROLE_PERMISOS[form.role]}</div>
-          {form.role==="tienda" && <Field label="Tienda de esta cuenta" value={form.tienda_id} onChange={v=>setForm(f=>({...f,tienda_id:v}))} options={tiendaOptions} />}
-          <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 La contraseña inicial será el mismo usuario.</div>
-          <Btn onClick={add} disabled={loading || (form.role==="tienda" && !form.tienda_id)} full>{loading?"Guardando...":"Crear usuario"}</Btn>
-        </Card>
-      )}
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {ordenados.map(u=>(
+  const tarjetaUsuario = (u) => (
           <Card key={u.id} p="14px" style={{opacity:u.active?1:0.6}}>
             {editing===u.id?(
               <div>
@@ -1530,7 +1550,7 @@ function UsuariosScreen({ users, setUsers, stores }) {
                   <Btn onClick={()=>{setEditing(u.id);setEditVal({name:u.name,documento:u.documento,role:u.role,tienda_id:u.tienda_id||""});}} variant="ghost" sm>✏</Btn>
                   <Btn onClick={()=>{setCambiandoPass(u.id);setNuevaPass("");}} variant="ghost" sm>🔑</Btn>
                   <Btn onClick={()=>toggle(u)} variant={u.active?"danger":"success"} sm>{u.active?"✕":"✓"}</Btn>
-                  <Btn onClick={()=>deleteUsuario(u.id)} variant="danger" sm>🗑</Btn>
+                  <Btn onClick={()=>deleteUsuario(u.id)} variant="danger" sm title="Retirar (o eliminar si no tiene historial)">🗑</Btn>
                 </div>
               </div>
             )}
@@ -1543,7 +1563,31 @@ function UsuariosScreen({ users, setUsers, stores }) {
               </div>
             )}
           </Card>
-        ))}
+  );
+  return (
+    <div>
+      <PageHeader title="Usuarios" subtitle={`${users.length} usuarios · solo visible para cuentas master · aquí se ve y controla la contraseña de todos`} action={
+        <div style={{display:"flex",gap:8}}>
+          <Btn onClick={traerFrescos} variant="ghost" sm disabled={sincronizando}>{sincronizando?"Actualizando...":"🔄 Actualizar"}</Btn>
+          <Btn onClick={()=>{setShowForm(!showForm);setEditing(null);setCambiandoPass(null);}} sm>{showForm?"Cancelar":"+ Nuevo usuario"}</Btn>
+        </div>
+      } />
+      {showForm&&(
+        <Card glow style={{marginBottom:16}}>
+          <div style={{fontFamily:font.body,fontSize:13,fontWeight:600,color:C.goldLight,marginBottom:14}}>Nuevo usuario</div>
+          <Field label="Nombre completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nombre Apellido" />
+          <Field label="Usuario" value={form.documento} onChange={v=>setForm(f=>({...f,documento:v}))} placeholder="Usuario para ingresar" />
+          <Field label="Tipo de usuario" value={form.role} onChange={v=>setForm(f=>({...f,role:v}))} options={roleOptions} />
+          <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginTop:-10,marginBottom:12}}>🔎 {ROLE_PERMISOS[form.role]}</div>
+          {form.role==="tienda" && <Field label="Tienda de esta cuenta" value={form.tienda_id} onChange={v=>setForm(f=>({...f,tienda_id:v}))} options={tiendaOptions} />}
+          <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted,marginBottom:12}}>💡 La contraseña inicial será el mismo usuario.</div>
+          <Btn onClick={add} disabled={loading || (form.role==="tienda" && !form.tienda_id)} full>{loading?"Guardando...":"Crear usuario"}</Btn>
+        </Card>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {ordenados.filter(u=>u.active!==false).map(tarjetaUsuario)}
+        {ordenados.some(u=>u.active===false) && <SeccionRetirados n={ordenados.filter(u=>u.active===false).length} abierto={verRetirados} onToggle={()=>setVerRetirados(v=>!v)}/>}
+        {verRetirados && ordenados.filter(u=>u.active===false).map(tarjetaUsuario)}
       </div>
     </div>
   );
@@ -2076,6 +2120,7 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
   const storeGroups = Object.values(stores).filter(s=>(s.shifts||[]).some(sh=>sh.activo!==false));
   const [modalInfo,setModalInfo]=useState(null);
   const flechaStyle = { background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:10, padding:"0 1px", lineHeight:1, flexShrink:0 };
+  const ultimoActivo = advisors.reduce((m,a,i)=>a._retirado?m:i, -1);
   return (
     // text-align:center + la tabla en "inline-table" hace que se centre sola cuando es más
     // angosta que el contenedor (pocos asesores), y si es más ancha simplemente aparece el
@@ -2087,12 +2132,13 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
           <tr>
             <th style={{ position:"sticky", left:0, top:0, zIndex:4, background:C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, 1px 0 0 ${C.border}`, padding:"6px 4px", width:diaColWidth, minWidth:diaColWidth, textAlign:"left", fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.03em" }}>Día</th>
             {advisors.map((a,i)=>(
-              <th key={a.id} style={{ position:"sticky", top:0, zIndex:3, background:C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, -1px 0 0 ${C.border}`, padding:"6px 2px", width:colWidth, minWidth:colWidth, textAlign:"center", fontFamily:font.body, fontSize:11, fontWeight:700, color:C.text }}>
+              <th key={a.id} title={a._retirado?`${a.name} — ya no está activo; se muestra porque tuvo turnos este mes`:a.name} style={{ position:"sticky", top:0, zIndex:3, background:a._retirado?"#ECE6E1":C.surfaceAlt, boxShadow:`0 1px 0 ${C.border}, -1px 0 0 ${C.border}`, padding:"6px 2px", width:colWidth, minWidth:colWidth, textAlign:"center", fontFamily:font.body, fontSize:11, fontWeight:700, color:C.text }}>
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:1 }}>
-                  {editable && <button onClick={()=>onMoverAsesor(a.id,-1)} disabled={i===0} title="Mover a la izquierda" style={{...flechaStyle, opacity:i===0?0.25:1, cursor:i===0?"default":"pointer"}}>◀</button>}
-                  <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{primerNombre(a.name)}</span>
-                  {editable && <button onClick={()=>onMoverAsesor(a.id,1)} disabled={i===advisors.length-1} title="Mover a la derecha" style={{...flechaStyle, opacity:i===advisors.length-1?0.25:1, cursor:i===advisors.length-1?"default":"pointer"}}>▶</button>}
+                  {editable && !a._retirado && <button onClick={()=>onMoverAsesor(a.id,-1)} disabled={i===0} title="Mover a la izquierda" style={{...flechaStyle, opacity:i===0?0.25:1, cursor:i===0?"default":"pointer"}}>◀</button>}
+                  <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:a._retirado?C.textMuted:undefined }}>{primerNombre(a.name)}</span>
+                  {editable && !a._retirado && <button onClick={()=>onMoverAsesor(a.id,1)} disabled={i>=ultimoActivo} title="Mover a la derecha" style={{...flechaStyle, opacity:i>=ultimoActivo?0.25:1, cursor:i>=ultimoActivo?"default":"pointer"}}>▶</button>}
                 </div>
+                {a._retirado && <div style={{ fontFamily:font.body, fontSize:8.5, fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase", color:C.textMuted, marginTop:1 }}>Retirado</div>}
               </th>
             ))}
           </tr>
@@ -2262,14 +2308,16 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
 // ── SCREEN: Turnos · Ver (esta es la que ven también los asesores, como "Turnos") ──
 function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asignaciones }) {
   const { anio, mes, prev, next } = useMesSeleccionado();
-  const advisors = advisorsOrdenTurnos(users);
   const dias = fechasDelMesTurnos(anio, mes);
   const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
+  const asigDelMes = asignaciones.filter(a=>a.fecha && a.fecha>=dias[0] && a.fecha<=dias[dias.length-1]);
+  const activos = advisorsOrdenTurnos(users);
+  const advisors = columnasMallaMes(users, activos, asigDelMes);
   return (
     <div>
       <PageHeader title="Rejilla del mes" subtitle="Solo consulta"/>
       <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios}/>
-      <TurnosMiniResumen advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales}/>
+      <TurnosMiniResumen advisors={activos} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales}/>
       <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
       {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay personas activas en la malla. Actívalas en Turnos ▸ Borrador ▸ "Personas activas en la malla".</div> :
         <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable={false}/>}
@@ -2514,7 +2562,7 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
       </Card>
       {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay personas activas en la malla. Actívalas arriba, en "Personas activas en la malla".</div> :
         cargandoBorrador ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>Cargando borrador de {MESES_LARGO[mes]}...</div> :
-        <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom} onMoverAsesor={moverAsesor} cambiadas={cambiadas}/>}
+        <TurnosRejilla dias={dias} advisors={columnasMallaMes(users, advisors, [...borrador.filter(b=>b.fecha>=primerDia && b.fecha<=ultimoDia), ...publicadasMes])} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom} onMoverAsesor={moverAsesor} cambiadas={cambiadas}/>}
     </div>
   );
 }
