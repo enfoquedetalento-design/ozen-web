@@ -6694,8 +6694,8 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
           {/* Un mismo recibo puede llevar Venta + Arreglo + Marcación + Grabado: se agrega uno, se
               elige el siguiente tipo y se agrega también. Flexipago va siempre solo. Antes del
               rediseño esto era un desplegable + "Agregar"; con las fichas, los asesores creían que
-              solo se podía uno — por eso el aviso explícito y el contador en cada ficha. */}
-          {items.length===0 && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textSub, marginTop:-6, marginBottom:12, lineHeight:1.45 }}>Elige un tipo, pon el valor y cómo pagó, y dale <b>Agregar</b>. Luego puedes elegir otro tipo y sumarlo al mismo recibo (ej: Venta + Grabado). Flexipago va solo.</div>}
+              solo se podía uno — hubo un aviso explícito un tiempo (ya se quitó, los asesores se acostumbraron);
+              queda el contador verde en cada ficha y el botón "Agregar X al recibo". */}
           <div style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(3,1fr)":"repeat(5,1fr)", gap:10, marginBottom:14 }}>
             {VENTAS_TIPOS.map(t=>{ const on=itemTipo===t.value; const permitido=itemTipoOptions.some(o=>o.value===t.value); const enRecibo=items.filter(i=>i.tipo===t.value).length; return (
               <button key={t.value} disabled={!permitido} onClick={()=>permitido&&setItemTipo(t.value)} title={permitido?"":(esFlexipago?"Esta factura ya tiene un Flexipago":"Para un Flexipago, hazlo en una factura aparte")} style={{ height:isMobile?64:78, border:`1.5px solid ${on?C.gold:C.border}`, background:on?"rgba(38,93,127,0.07)":"#fff", borderRadius:12, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:7, fontFamily:font.body, fontSize:13, fontWeight:on?600:400, color:on?C.goldDark:C.textSub, cursor:permitido?"pointer":"not-allowed", opacity:permitido?1:0.35, transition:"all .18s ease", position:"relative" }}>
@@ -6704,10 +6704,7 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
               </button>
             ); })}
           </div>
-          {items.length>0 && (esFlexipago
-            ? <div style={{ fontFamily:font.body, fontSize:11.5, color:C.blue, marginTop:-4, marginBottom:12 }}>Esta factura ya tiene un Flexipago — no se puede mezclar con otros tipos.</div>
-            : <div style={{ fontFamily:font.body, fontSize:12.5, color:C.green, fontWeight:600, marginTop:-4, marginBottom:12 }}>✓ Agregado al recibo. ¿Hubo algo más? Elige otro tipo y agrégalo a este mismo recibo. (Flexipago va en un registro aparte.)</div>
-          )}
+          {items.length>0 && esFlexipago && <div style={{ fontFamily:font.body, fontSize:11.5, color:C.blue, marginTop:-4, marginBottom:12 }}>Esta factura ya tiene un Flexipago — no se puede mezclar con otros tipos.</div>}
           {itemEsFlexipago ? (
             <>
                   <div style={{ marginBottom:14 }}>
