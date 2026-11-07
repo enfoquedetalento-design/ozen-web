@@ -896,14 +896,14 @@ const advisorsOrdenTurnos = (users) => users
 // Columnas de la malla de UN mes (pedido de Santiago):
 //  · Meses pasados: SOLO quienes tuvieron al menos un turno ese mes (activos o ya retirados) — así
 //    no aparecen asesores que ingresaron después.
-//  · Mes actual y futuros: los asesores activos (para ver / asignar) + cualquiera con turno ese mes.
-//    Los admin activos sin ningún turno ese mes no se muestran, salvo en el Borrador
-//    (`todosLosActivos`), que es donde se les asignan turnos.
+//  · Rejilla "Turnos" (consulta), cualquier mes: solo quienes tienen al menos un turno ese mes —
+//    nada de columnas vacías (asesores o admin sin turnos).
+//  · Borrador, mes actual y futuros (`todosLosActivos`): todos los activos, porque ahí se asignan.
 // Los que ya no están activos van al final, por nombre, marcados con `_retirado` (encabezado gris,
 // sin flechas para mover).
 const columnasMallaMes = (users, activos, asignacionesMes, { mesPasado=false, todosLosActivos=false } = {}) => {
   const conTurno = new Set(asignacionesMes.map(a=>a.asesor_id));
-  const visibles = activos.filter(a => conTurno.has(a.id) || (!mesPasado && (todosLosActivos || a.role==="advisor")));
+  const visibles = activos.filter(a => conTurno.has(a.id) || (!mesPasado && todosLosActivos));
   const idsActivos = new Set(activos.map(a=>a.id));
   const retirados = users
     .filter(u=>!idsActivos.has(u.id) && conTurno.has(u.id))
@@ -2185,8 +2185,11 @@ function TurnosRejilla({ dias, advisors, asigMap, stores, turnosGlobales, turnos
 }
 
 // ── Turnos: mini resumen ayer / hoy / mañana ───────────────────────────────────
-function TurnosMiniResumen({ advisors, asigMap, stores, turnosGlobales }) {
+function TurnosMiniResumen({ advisors:todos, asigMap, stores, turnosGlobales }) {
   const filas = [{ label:"Ayer", fecha:addDiasFecha(todayStr,-1) },{ label:"Hoy", fecha:todayStr },{ label:"Mañana", fecha:addDiasFecha(todayStr,1) }];
+  // Solo quienes tienen algún turno ayer, hoy o mañana (pedido de Santiago: sin columnas vacías).
+  const advisors = todos.filter(a=>filas.some(f=>asigMap.has(`${a.id}|${f.fecha}`)));
+  if(advisors.length===0) return null;
   return (
     <Card glow style={{ marginBottom:16, overflowX:"auto" }}>
       <table style={{ borderCollapse:"collapse", width:"100%" }}>
@@ -2325,7 +2328,7 @@ function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asigna
       <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios}/>
       <TurnosMiniResumen advisors={activos} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales}/>
       <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
-      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>{esMesPasadoTurnos(anio, mes) ? `No hay turnos registrados en ${MESES_LARGO[mes]} ${anio}.` : `No hay personas activas en la malla. Actívalas en Turnos ▸ Borrador ▸ "Personas activas en la malla".`}</div> :
+      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>{`No hay turnos publicados en ${MESES_LARGO[mes]} ${anio}.`}</div> :
         <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable={false}/>}
     </div>
   );
