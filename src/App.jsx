@@ -2171,6 +2171,53 @@ const calcularAlertasTurnos = ({ dias, advisors, asigMap, stores, turnosGlobales
   });
   return out;
 };
+// 5 · Resumen del mes (pedido de Felipe) — cuántos días tuvo cada persona de cada turno (UT1, CT2…)
+// y de cada especial (descansos, vacaciones…). Misma forma que la malla: personas en filas; en
+// columnas solo los turnos que se usaron ese mes, en el orden de las tiendas y con su color.
+function TurnosResumenMes({ dias, advisors, asigMap, stores, turnosGlobales }) {
+  const isMobile = useIsMobile();
+  const conteo = {}, total = {};
+  advisors.forEach(a=>{ conteo[a.id]={}; dias.forEach(f=>{ const v = valorCelda(asigMap.get(`${a.id}|${f}`)); if(!v) return; conteo[a.id][v]=(conteo[a.id][v]||0)+1; total[v]=(total[v]||0)+1; }); });
+  if(!Object.keys(total).length) return null;
+  const cols = [];
+  Object.values(stores).forEach(s=>(s.shifts||[]).forEach(sh=>{ const v=`t:${s.id}|${encodeURIComponent(sh.nombre)}`; if(total[v]) cols.push({ v, label:sh.nombre, color:colorTienda(s), titulo:`${sh.nombre} · ${nombreTiendaCorto(s)}`, tienda:true }); }));
+  turnosGlobales.forEach(g=>{ const v=`g:${g.id}`; if(total[v]) cols.push({ v, label:g.nombre, color:g.color||"#9AA5AE", titulo:g.nombre }); });
+  // Turnos que ya no existen en la configuración pero sí quedaron en la malla de ese mes.
+  Object.keys(total).filter(v=>!cols.some(c=>c.v===v)).forEach(v=>{ const ej = advisors.map(a=>dias.map(f=>asigMap.get(`${a.id}|${f}`)).find(x=>valorCelda(x)===v)).find(Boolean); const t = resolverTurno(ej, stores, turnosGlobales); cols.push({ v, label:t?.label||"?", color:t?.color||"#9AA5AE", titulo:t?.label||"?", tienda:v.startsWith("t:") }); });
+  const enTienda = (id) => cols.filter(c=>c.tienda).reduce((s,c)=>s+(conteo[id][c.v]||0),0);
+  const filas = advisors.filter(a=>Object.keys(conteo[a.id]).length);
+  const colNombre = isMobile ? 104 : 150;
+  const th = { padding:"3px 0", minWidth:isMobile?40:46 };
+  return (
+    <SeccionTurnos titulo="Resumen del mes" nota="días de cada turno por persona">
+      <div className="ozen-sin-barra" style={{ overflowX:"auto", border:`1px solid ${C.border}`, borderRadius:14, background:"#fff" }}>
+        <table style={{ borderCollapse:"separate", borderSpacing:3, padding:"4px 4px 6px 0" }}>
+          <thead><tr>
+            <th style={{ position:"sticky", left:0, zIndex:2, background:"#fff", minWidth:colNombre, width:colNombre, textAlign:"left", padding:"4px 8px", fontFamily:font.body, fontSize:10, fontWeight:700, color:C.textMuted, letterSpacing:"0.12em", textTransform:"uppercase", boxShadow:`1px 0 0 ${C.border}` }}>Persona</th>
+            {cols.map(c=>(
+              <th key={c.v} title={c.titulo} style={th}>
+                <div style={{ height:24, borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 6px", background:`linear-gradient(135deg, ${c.color}, ${oscurecerColor(c.color,14)})`, border:`1px solid ${hexToRgba(oscurecerColor(c.color,30),0.45)}`, color:colorTextoContraste(c.color), fontFamily:font.body, fontSize:10.5, fontWeight:700, whiteSpace:"nowrap" }}>{c.tienda ? c.label : abrevTurno(c.label)}</div>
+              </th>
+            ))}
+            <th style={{ ...th, padding:"3px 8px", fontFamily:font.body, fontSize:10, fontWeight:700, color:C.textMuted, letterSpacing:"0.08em", textTransform:"uppercase", whiteSpace:"nowrap" }}>En tienda</th>
+          </tr></thead>
+          <tbody>
+            {filas.map(a=>(
+              <tr key={a.id}>
+                <td style={{ position:"sticky", left:0, zIndex:1, background:a._retirado?"#F4EFEB":"#fff", padding:"2px 8px", boxShadow:`1px 0 0 ${C.border}`, fontFamily:font.body, fontSize:13, fontWeight:700, color:a._retirado?C.textMuted:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:colNombre }}>{isMobile ? primerNombre(a.name) : a.name.split(" ").slice(0,2).join(" ")}</td>
+                {cols.map(c=>{ const n = conteo[a.id][c.v]||0; return (
+                  <td key={c.v} style={{ textAlign:"center", fontFamily:font.body, fontSize:13.5, fontWeight:n?700:400, color:n?C.text:C.border, background:n?hexToRgba(c.color,0.1):"transparent", borderRadius:6, height:28 }}>{n||"·"}</td>
+                ); })}
+                <td style={{ textAlign:"center", fontFamily:font.body, fontSize:13.5, fontWeight:700, color:C.goldDark }}>{enTienda(a.id)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </SeccionTurnos>
+  );
+}
+
 function TurnosAlertas({ alertas }) {
   const [todas,setTodas]=useState(false);
   if(!alertas.length) return (
@@ -2516,6 +2563,7 @@ function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asigna
         {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>{`No hay turnos publicados en ${MESES_LARGO[mes]} ${anio}.`}</div> :
           <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable={false} resaltado={resaltado}/>}
       </SeccionTurnos>
+      {advisors.length>0 && <TurnosResumenMes dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales}/>}
       {advisors.length>0 && <TurnosAlertas alertas={calcularAlertasTurnos({ dias, advisors, asigMap, stores, turnosGlobales })}/>}
     </div>
   );
@@ -2734,6 +2782,7 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
           cargandoBorrador ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>Cargando borrador de {MESES_LARGO[mes]}...</div> :
           <TurnosRejilla dias={dias} advisors={advisorsMalla} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom} onMoverAsesor={moverAsesor} cambiadas={cambiadas} resaltado={resaltado} pincel={pincel}/>}
       </SeccionTurnos>
+      {!cargandoBorrador && <TurnosResumenMes dias={dias} advisors={advisorsMalla} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales}/>}
       {!cargandoBorrador && <TurnosAlertas alertas={calcularAlertasTurnos({ dias, advisors:advisorsMalla, asigMap, stores, turnosGlobales })}/>}
       {/* Barra fija abajo: siempre a la vista cuántos cambios hay sin publicar y el botón de publicar. */}
       {!cargandoBorrador && (
