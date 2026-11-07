@@ -893,20 +893,26 @@ const activoEnMallaTurnos = (u) => u.role==="advisor" ? !!u.active : (u.active!=
 const advisorsOrdenTurnos = (users) => users
   .filter(u=>esUsuarioDeTurnos(u) && activoEnMallaTurnos(u))
   .sort((a,b)=> (a.orden_turnos??9999)-(b.orden_turnos??9999) || a.name.localeCompare(b.name));
-// Columnas de la malla de UN mes: las personas activas (en su orden) + cualquiera que tenga al
-// menos un turno ese mes aunque hoy esté inactiva o retirada (pedido de Santiago: al revisar meses
-// pasados hay que ver a todos los que trabajaron, aunque ya no estén en la empresa). Los
-// retirados van al final, ordenados por nombre, marcados con `_retirado` (encabezado gris, sin
-// flechas para mover).
-const columnasMallaMes = (users, activos, asignacionesMes) => {
-  const idsActivos = new Set(activos.map(a=>a.id));
+// Columnas de la malla de UN mes (pedido de Santiago):
+//  · Meses pasados: SOLO quienes tuvieron al menos un turno ese mes (activos o ya retirados) — así
+//    no aparecen asesores que ingresaron después.
+//  · Mes actual y futuros: los asesores activos (para ver / asignar) + cualquiera con turno ese mes.
+//    Los admin activos sin ningún turno ese mes no se muestran, salvo en el Borrador
+//    (`todosLosActivos`), que es donde se les asignan turnos.
+// Los que ya no están activos van al final, por nombre, marcados con `_retirado` (encabezado gris,
+// sin flechas para mover).
+const columnasMallaMes = (users, activos, asignacionesMes, { mesPasado=false, todosLosActivos=false } = {}) => {
   const conTurno = new Set(asignacionesMes.map(a=>a.asesor_id));
+  const visibles = activos.filter(a => conTurno.has(a.id) || (!mesPasado && (todosLosActivos || a.role==="advisor")));
+  const idsActivos = new Set(activos.map(a=>a.id));
   const retirados = users
     .filter(u=>!idsActivos.has(u.id) && conTurno.has(u.id))
     .sort((a,b)=>(a.name||"").localeCompare(b.name||""))
     .map(u=>({ ...u, _retirado:true }));
-  return [...activos, ...retirados];
+  return [...visibles, ...retirados];
 };
+// ¿El mes (anio, mes 0-11) ya pasó? (anterior al mes en curso, hora Colombia)
+const esMesPasadoTurnos = (anio, mes) => { const h = toColombiaDate(); return anio < h.getFullYear() || (anio===h.getFullYear() && mes < h.getMonth()); };
 // Admin Finanzas: hace todo lo de un Administrador normal (Asistencia/Junta), más Ventas completo
 // (registrar, lista, métricas, asignar metas, aprobar notas crédito y corregir por error).
 const esAdminFinanzas = (user) => user.role==="admin_finanzas";
@@ -2312,14 +2318,14 @@ function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asigna
   const asigMap = new Map(asignaciones.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
   const asigDelMes = asignaciones.filter(a=>a.fecha && a.fecha>=dias[0] && a.fecha<=dias[dias.length-1]);
   const activos = advisorsOrdenTurnos(users);
-  const advisors = columnasMallaMes(users, activos, asigDelMes);
+  const advisors = columnasMallaMes(users, activos, asigDelMes, { mesPasado: esMesPasadoTurnos(anio, mes) });
   return (
     <div>
       <PageHeader title="Rejilla del mes" subtitle="Solo consulta"/>
       <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios}/>
       <TurnosMiniResumen advisors={activos} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales}/>
       <SelectorMes anio={anio} mes={mes} prev={prev} next={next}/>
-      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay personas activas en la malla. Actívalas en Turnos ▸ Borrador ▸ "Personas activas en la malla".</div> :
+      {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>{esMesPasadoTurnos(anio, mes) ? `No hay turnos registrados en ${MESES_LARGO[mes]} ${anio}.` : `No hay personas activas en la malla. Actívalas en Turnos ▸ Borrador ▸ "Personas activas en la malla".`}</div> :
         <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable={false}/>}
     </div>
   );
@@ -2562,7 +2568,7 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
       </Card>
       {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>No hay personas activas en la malla. Actívalas arriba, en "Personas activas en la malla".</div> :
         cargandoBorrador ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>Cargando borrador de {MESES_LARGO[mes]}...</div> :
-        <TurnosRejilla dias={dias} advisors={columnasMallaMes(users, advisors, [...borrador.filter(b=>b.fecha>=primerDia && b.fecha<=ultimoDia), ...publicadasMes])} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom} onMoverAsesor={moverAsesor} cambiadas={cambiadas}/>}
+        <TurnosRejilla dias={dias} advisors={columnasMallaMes(users, advisors, [...borrador.filter(b=>b.fecha>=primerDia && b.fecha<=ultimoDia), ...publicadasMes], { mesPasado: esMesPasadoTurnos(anio, mes), todosLosActivos:true })} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable onCambiarCelda={onCambiarCelda} onGuardarCustom={onGuardarCustom} onMoverAsesor={moverAsesor} cambiadas={cambiadas}/>}
     </div>
   );
 }
