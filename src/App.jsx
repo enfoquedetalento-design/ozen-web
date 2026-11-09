@@ -1622,6 +1622,337 @@ function UsuariosScreen({ users, setUsers, stores }) {
   );
 }
 
+// ── PERMISOS (Fase 1 — inventario, SOLO LECTURA) ───────────────────────────────
+// Tablero para master: qué puede hacer cada rol y cada persona HOY. Esta lista es una FOTO de las
+// comprobaciones que están repartidas por todo este archivo (user.role==="master",
+// esAdminDeVentas, puedeGestionarTurnos, soloLectura, etc.) — todavía NO manda sobre nada: ninguna
+// pantalla lee de aquí. Si se cambia una comprobación en el código, hay que actualizar su fila.
+// En la Fase 2 esta misma lista se siembra en tablas de Supabase, y desde la Fase 3 el código
+// empieza a preguntarle a esas tablas con una sola función `puede(user, "permiso")`.
+// Cada permiso: `r` = qué rol lo tiene (1 = sí; un texto = sí, pero con esa condición).
+const PERM_ROLES = ["master","admin","admin_finanzas","admin_turnos","visualizador","advisor","tienda"];
+const PERM_ROL_CORTO = { master:"Master", admin:"Admin", admin_finanzas:"Finanzas", admin_turnos:"Turnos", visualizador:"Visual.", advisor:"Asesor", tienda:"Tienda" };
+const PERM_ROLES_GESTION_JUNTA = ["master","admin","admin_finanzas","admin_turnos"];
+// Dos condiciones que dependen de la PERSONA y no solo del rol (ver permDePersona).
+const PERM_SI_MONITOR = "si es Monitor";
+const PERM_SI_SU_TAREA = "si es su tarea";
+const PERM_GRUPOS = [{ id:"ventas_registrar", label:"Ventas · Registrar venta" }, { id:"ventas_lista", label:"Ventas · Lista y correcciones" }, { id:"ventas_metricas", label:"Ventas · Métricas" }, { id:"ventas_caja", label:"Ventas · Caja" }, { id:"asistencia", label:"Asistencia" }, { id:"turnos", label:"Turnos" }, { id:"junta", label:"La Junta" }, { id:"escuela", label:"Escuela OZEN" }, { id:"cuenta", label:"Cuenta y usuarios" }];
+const PERMISOS = [
+  { id:"ventas.registrar.ver", g:"ventas_registrar", label:"Ver la pantalla Registrar venta", r:{ master:1, admin_finanzas:1, admin:"solo ver", admin_turnos:"solo ver", tienda:"su tienda" }, nota:"Admin y Admin Turnos pueden llenar el formulario pero no guardar. El Visualizador ni ve la pestaña." },
+  { id:"ventas.registrar.guardar", g:"ventas_registrar", label:"Guardar una venta", r:{ master:1, admin_finanzas:1, tienda:"su tienda" }, nota:"La cuenta de tienda solo registra en su tienda y con fecha de hoy." },
+  { id:"ventas.fecha_libre", g:"ventas_registrar", label:"Usar una fecha distinta a hoy (venta, abono o ajuste)", r:{ master:1, admin_finanzas:1 } },
+  { id:"ventas.vendedor", g:"ventas_registrar", label:"Aparecer como vendedor («quién hizo la venta»)", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, advisor:1 }, nota:"Solo si la cuenta está activa. No es algo que la persona haga: es que su nombre sale en la lista de vendedores." },
+  { id:"ventas.lista.ver", g:"ventas_lista", label:"Ver la lista de ventas", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, tienda:"su tienda" } },
+  { id:"ventas.abono.registrar", g:"ventas_lista", label:"Registrar un abono a un Flexipago", r:{ master:1, admin_finanzas:1, tienda:"su tienda" } },
+  { id:"ventas.abono.corregir", g:"ventas_lista", label:"Corregir un abono ya registrado", r:{ master:1, admin_finanzas:1 } },
+  { id:"ventas.flexipago.reabrir", g:"ventas_lista", label:"Reabrir un Flexipago vencido", r:{ master:1, admin_finanzas:1 }, sensible:true, nota:"Queda registrado quién lo reabrió y cuándo." },
+  { id:"ventas.notacredito.hacer", g:"ventas_lista", label:"Hacer una Notacrédito Siigo (sin pedir permiso)", r:{ master:1, admin_finanzas:1 }, sensible:true },
+  { id:"ventas.factura.corregir", g:"ventas_lista", label:"Corregir factura (error al registrar)", r:{ master:1, admin_finanzas:1, tienda:"solo hoy" }, sensible:true, nota:"La cuenta de tienda corrige libremente solo lo registrado el mismo día." },
+  { id:"ventas.eliminar", g:"ventas_lista", label:"Eliminar una venta", r:{ master:1, admin_finanzas:1, tienda:"solo hoy" }, sensible:true, nota:"La cuenta de tienda elimina solo lo registrado el mismo día." },
+  { id:"ventas.correccion.solicitar", g:"ventas_lista", label:"Pedir una corrección (solicitud de Notacrédito)", r:{ tienda:"días anteriores" }, nota:"Es el camino de la tienda para ventas de días anteriores. Master y Admin Finanzas no lo usan porque corrigen directo." },
+  { id:"ventas.correccion.resolver", g:"ventas_lista", label:"Aprobar o rechazar solicitudes de corrección", r:{ master:1, admin_finanzas:1 }, sensible:true },
+  { id:"ventas.correccion.aplicar", g:"ventas_lista", label:"Aplicar una corrección ya aprobada", r:{ master:"con aprobación", admin_finanzas:"con aprobación", tienda:"con aprobación" }, nota:"Incluye corregir solo el medio de pago. Solo aparece cuando la venta tiene una solicitud aprobada sin aplicar." },
+  { id:"ventas.metricas.ver", g:"ventas_metricas", label:"Ver Métricas", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, tienda:"vista de tienda" }, nota:"La cuenta de tienda entra con su tienda primero y sin la sección de Consultas." },
+  { id:"ventas.metricas.consultas", g:"ventas_metricas", label:"Usar Consultas y exportarlas", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
+  { id:"ventas.metas.asignar", g:"ventas_metricas", label:"Asignar metas mensuales", r:{ master:1, admin_finanzas:1 }, sensible:true },
+  { id:"caja.ver", g:"ventas_caja", label:"Ver Caja e historial", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, tienda:"su tienda" }, nota:"Admin, Admin Turnos y Visualizador solo ven el Historial." },
+  { id:"caja.registrar", g:"ventas_caja", label:"Registrar apertura, cierre y novedad", r:{ master:1, admin_finanzas:1, tienda:"su tienda, hoy" } },
+  { id:"caja.fecha_libre", g:"ventas_caja", label:"Usar una fecha distinta a hoy en Caja", r:{ master:1, admin_finanzas:1 } },
+  { id:"caja.recoleccion.registrar", g:"ventas_caja", label:"Registrar una recolección de efectivo", r:{ master:1, admin_finanzas:1, tienda:"su tienda" } },
+  { id:"caja.recoleccion.recibir", g:"ventas_caja", label:"Aparecer como quien recibe una recolección", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1 }, nota:"Solo si la cuenta está activa. Es la lista de «quién recibe»." },
+  { id:"caja.novedad.aprobar", g:"ventas_caja", label:"Aprobar novedades", r:{ master:1, admin_finanzas:1 }, sensible:true },
+  { id:"caja.novedad.editar", g:"ventas_caja", label:"Editar o borrar una novedad", r:{ master:1, admin_finanzas:1, tienda:"solo hoy" } },
+  { id:"caja.borrar", g:"ventas_caja", label:"Borrar apertura, cierre o recolección", r:{ master:1, admin_finanzas:1 }, sensible:true },
+  { id:"caja.borrado.solicitar", g:"ventas_caja", label:"Solicitar un borrado", r:{ tienda:1 }, nota:"La tienda no borra directo: pide y Master o Admin Finanzas aprueban." },
+  { id:"caja.borrado.resolver", g:"ventas_caja", label:"Aprobar o rechazar solicitudes de borrado", r:{ master:1, admin_finanzas:1 }, sensible:true },
+  { id:"caja.detalle_calculo", g:"ventas_caja", label:"Ver el detalle del cálculo", r:{ master:1, admin_finanzas:1 } },
+  { id:"asistencia.marcar", g:"asistencia", label:"Marcar su propia asistencia", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, advisor:1 } },
+  { id:"asistencia.historial", g:"asistencia", label:"Ver su propio historial", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, advisor:1 } },
+  { id:"asistencia.panel", g:"asistencia", label:"Ver el Panel del día", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
+  { id:"asistencia.registros.ver", g:"asistencia", label:"Ver los registros de todos", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
+  { id:"asistencia.registros.corregir", g:"asistencia", label:"Corregir, crear o borrar una marcación", r:{ master:1 }, sensible:true },
+  { id:"asistencia.informes", g:"asistencia", label:"Ver Informes y exportar a Excel", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
+  { id:"asistencia.avisos", g:"asistencia", label:"Recibir aviso cada vez que alguien marca", r:{ master:1, admin_turnos:1 }, nota:"Son las notificaciones del celular o computador; cada quien las activa en su menú." },
+  { id:"turnos.ver", g:"turnos", label:"Ver la malla de turnos", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, advisor:1, tienda:1 } },
+  { id:"turnos.editar", g:"turnos", label:"Editar el Borrador", r:{ master:1, admin_turnos:1 } },
+  { id:"turnos.publicar", g:"turnos", label:"Publicar turnos", r:{ master:1, admin_turnos:1 }, sensible:true },
+  { id:"turnos.asesores", g:"turnos", label:"Crear, editar, desactivar o retirar asesores", r:{ master:1, admin_turnos:1 }, sensible:true },
+  { id:"turnos.tiendas", g:"turnos", label:"Crear, editar o eliminar tiendas y sus turnos", r:{ master:1, admin_turnos:1 }, sensible:true },
+  { id:"turnos.especiales", g:"turnos", label:"Administrar turnos especiales (descanso, vacaciones…)", r:{ master:1, admin_turnos:1 } },
+  { id:"turnos.horarios", g:"turnos", label:"Cambiar los horarios de entrada (puntualidad)", r:{ master:1, admin_turnos:1 } },
+  { id:"turnos.malla_activos", g:"turnos", label:"Decidir quién aparece en la malla", r:{ master:1, admin_turnos:1 } },
+  { id:"junta.ver", g:"junta", label:"Ver La Junta (seguimiento, acuerdos, perfiles, guion, indicadores)", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
+  { id:"junta.tareas.gestionar", g:"junta", label:"Crear tareas, confirmarlas y reabrir vencidas", r:{ master:1, admin:"si es Monitor", admin_finanzas:"si es Monitor", admin_turnos:"si es Monitor" }, nota:"El Monitor rota cada mes y se reconoce por nombre." },
+  { id:"junta.tareas.borrar", g:"junta", label:"Borrar tareas", r:{ master:1, admin:"si es Monitor", admin_finanzas:"si es Monitor", admin_turnos:"si es Monitor" }, sensible:true, nota:"El Monitor solo borra tareas activas; las vencidas o cumplidas solo las borra Master." },
+  { id:"junta.tareas.autorreportar", g:"junta", label:"Marcar como hecha una tarea propia (autorreporte)", r:{ admin:"si es su tarea", admin_finanzas:"si es su tarea", admin_turnos:"si es su tarea" }, nota:"No cuenta para Indicadores hasta que el Monitor la confirme. Master no lo usa porque confirma directo." },
+  { id:"junta.tareas.comentar", g:"junta", label:"Escribir comentarios en las tareas", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1 } },
+  { id:"junta.acuerdos.crear", g:"junta", label:"Registrar un acuerdo", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1 }, nota:"Una vez guardado nadie lo puede editar ni borrar." },
+  { id:"junta.equipo.editar", g:"junta", label:"Editar perfiles de líderes y áreas", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1 } },
+  { id:"junta.indicadores.congelar", g:"junta", label:"Congelar un mes de Indicadores", r:{ master:1 }, sensible:true },
+  { id:"escuela.cursar", g:"escuela", label:"Tomar cursos y quizzes (Mis cursos)", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, advisor:1 } },
+  { id:"escuela.progreso", g:"escuela", label:"Ver el progreso de todos", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
+  { id:"escuela.administrar", g:"escuela", label:"Crear y editar cursos, lecciones y quizzes", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1 } },
+  { id:"cuenta.usuarios", g:"cuenta", label:"Usuarios: crear, cambiar rol, ver y cambiar contraseñas, retirar", r:{ master:1 }, sensible:true, nota:"Se entra manteniendo presionado el logo." },
+  { id:"cuenta.permisos", g:"cuenta", label:"Ver el tablero de Permisos", r:{ master:1 }, sensible:true, nota:"Protegido: nunca se le podrá quitar a Master desde el tablero." },
+  { id:"cuenta.acceso_tiendas", g:"cuenta", label:"Cuentas de tienda: usuario, contraseña y liberar dispositivo", r:{ master:"desde Usuarios", admin_finanzas:1 }, sensible:true, nota:"Admin Finanzas lo tiene en su menú como «Acceso tiendas»." },
+  { id:"cuenta.firmar", g:"cuenta", label:"Firmar documento", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, advisor:1 } },
+  { id:"cuenta.password", g:"cuenta", label:"Cambiar su propia contraseña", r:{ master:"desde Usuarios", admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, advisor:1 }, nota:"La contraseña de una cuenta de tienda la cambian Master o Admin Finanzas." },
+];
+
+const permMismoNombre = (a, b) => !!a && !!b && normalizarNombre(a).localeCompare(normalizarNombre(b), "es", { sensitivity:"base" })===0;
+const permMesActual = () => MESES_LARGO[toColombiaDate().getMonth()].toLowerCase();
+
+// Qué puede hacer UNA persona hoy: lo de su rol, más los casos que dependen de quién es
+// (Monitor del mes y líder de la Junta — los dos se reconocen por nombre, igual que en La Junta).
+const permDePersona = (u, lideres) => {
+  const esMonitor = esMonitorActual(u, lideres);
+  const esLider = (lideres||[]).some(l => permMismoNombre(l.nombre, u.name));
+  return PERMISOS.map(p => {
+    const base = p.r[u.role];
+    if (base === undefined) return { p, puede:false };
+    if (base === 1) return { p, puede:true, origen:"rol" };
+    if (base === PERM_SI_MONITOR) return esMonitor
+      ? { p, puede:true, origen:"monitor", cond: p.id==="junta.tareas.borrar" ? "solo tareas activas" : null }
+      : { p, puede:false, falta:"solo cuando sea Monitor del mes" };
+    if (base === PERM_SI_SU_TAREA) return (esLider && !esMonitor)
+      ? { p, puede:true, origen:"lider", cond:"solo sus tareas" }
+      : { p, puede:false, falta: esMonitor ? "como Monitor las confirma directo" : "solo si es líder de la Junta" };
+    return { p, puede:true, origen:"rol", cond:base };
+  });
+};
+
+// Etiquetas de una persona: lo que la distingue de otra con su mismo rol.
+const permEtiquetasDe = (u, lideres, stores) => {
+  const out = [];
+  if (u.active===false) out.push({ t:"Cuenta inactiva", c:C.red });
+  if (esMonitorActual(u, lideres)) out.push(PERM_ROLES_GESTION_JUNTA.includes(u.role)
+    ? { t:`Monitor de ${permMesActual()}`, c:C.blue }
+    : { t:`Monitor de ${permMesActual()} — su rol no le deja manejar tareas`, c:C.amber });
+  else if ((lideres||[]).some(l => permMismoNombre(l.nombre, u.name))) out.push({ t:"Líder de la Junta", c:C.blue });
+  if (esUsuarioDeTurnos(u)) out.push(activoEnMallaTurnos(u) ? { t:"En la malla de turnos", c:C.green } : { t:"Fuera de la malla de turnos", c:C.textMuted });
+  if (u.role==="tienda") {
+    out.push(stores[u.tienda_id] ? { t:`Fija en ${nombreTiendaCorto(stores[u.tienda_id])}`, c:C.gold } : { t:"Sin tienda asignada", c:C.amber });
+    out.push(u.device_token ? { t:"Dispositivo autorizado", c:C.green } : { t:"Sin dispositivo todavía", c:C.textMuted });
+  }
+  if (ROLES_ADMIN_VENDEDOR.includes(u.role) && FUERA_DE_EQUIPO_ADMIN.includes(primerNombreNorm(u.name))) out.push({ t:"Fuera del «Equipo admin» en Métricas", c:C.amber });
+  return out;
+};
+
+// Cosas para tener presentes — solo observaciones (las alertas completas llegan en la Fase 4).
+const permAvisos = (users, lideres) => {
+  const activos = users.filter(u => u.active!==false);
+  const avisos = [];
+  const monitor = getMonitorActual(lideres);
+  const mes = permMesActual();
+  if (!monitor?.nombre) avisos.push({ c:C.amber, t:`No hay Monitor de ${mes}: La Junta no tiene líderes con nombre. Hoy solo Master puede manejar las tareas.` });
+  else {
+    const cuentas = activos.filter(u => permMismoNombre(monitor.nombre, u.name));
+    if (!cuentas.length) avisos.push({ c:C.amber, t:`El Monitor de ${mes} es ${monitor.nombre}, pero ninguna cuenta activa se llama exactamente así. Hoy solo Master puede manejar las tareas de La Junta.` });
+    else if (!cuentas.some(u => PERM_ROLES_GESTION_JUNTA.includes(u.role))) avisos.push({ c:C.amber, t:`El Monitor de ${mes} es ${monitor.nombre}, pero su cuenta es ${ROLE_LABEL[cuentas[0].role]||cuentas[0].role} y ese rol no puede manejar tareas.` });
+    else avisos.push({ c:C.green, t:`Monitor de ${mes}: ${monitor.nombre}.` });
+  }
+  const sinCuenta = (lideres||[]).filter(l => l.nombre && l.nombre.trim() && !activos.some(u => permMismoNombre(l.nombre, u.name)));
+  if (sinCuenta.length) avisos.push({ c:C.amber, t:`Líderes de La Junta sin una cuenta activa con su mismo nombre (no podrán ser Monitor ni autorreportar): ${sinCuenta.map(l=>l.nombre.trim()).join(", ")}.` });
+  PERM_ROLES.filter(r => !activos.some(u => u.role===r)).forEach(r => avisos.push({ c:C.textMuted, t:`Nadie activo tiene el rol ${ROLE_LABEL[r]}.` }));
+  return avisos;
+};
+
+const PermCandado = () => <span title="Acción sensible: toca plata, borra algo o cambia accesos" style={{ display:"inline-flex", verticalAlign:"-2px", marginLeft:5, color:C.red }}><Icon n="lock" s={13}/></span>;
+const PermCondicion = ({ children, color=C.amber, fondo=C.amberDim }) => <span style={{ display:"inline-block", fontFamily:font.body, fontSize:10.5, fontWeight:600, lineHeight:1.25, color, background:fondo, borderRadius:8, padding:"2px 7px" }}>{children}</span>;
+const PermPildora = ({ activo, onClick, children }) => (
+  <button onClick={onClick} style={{ padding:"7px 16px", borderRadius:99, border:`1px solid ${activo?C.gold:C.border}`, background:activo?`${C.gold}18`:"transparent", color:activo?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>{children}</button>
+);
+
+function PermisosScreen({ users, stores, lideres }) {
+  const isMobile = useIsMobile();
+  const [vista, setVista] = useState("matriz"); // 'matriz' | 'persona'
+  const [soloSensibles, setSoloSensibles] = useState(false);
+  const [buscar, setBuscar] = useState("");
+  const [cerrados, setCerrados] = useState(()=>new Set());
+  const [notaAbierta, setNotaAbierta] = useState(null);
+  const [personaId, setPersonaId] = useState("");
+  const [verNoPuede, setVerNoPuede] = useState(false);
+
+  const activos = users.filter(u => u.active!==false);
+  const q = buscar.trim().toLowerCase();
+  const visibles = PERMISOS.filter(p => (!soloSensibles || p.sensible) && (!q || p.label.toLowerCase().includes(q)));
+  const avisos = permAvisos(users, lideres);
+  const toggleGrupo = (id) => setCerrados(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const th = { padding:"8px 4px", fontFamily:font.body, fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", textAlign:"center", borderBottom:`1px solid ${C.border}` };
+  const td = { padding:"9px 4px", textAlign:"center", borderBottom:`1px solid ${C.border}`, verticalAlign:"middle" };
+  const celda = (p, rol) => {
+    const v = p.r[rol];
+    if (v === undefined) return <span style={{ color:C.border, fontSize:15 }}>—</span>;
+    if (v === 1) return <span style={{ display:"inline-flex", color:C.green }} title={p.id==="cuenta.permisos" ? "Protegido: no se le podrá quitar a Master" : undefined}><Icon n="check" s={17} sw={2.4}/></span>;
+    return <PermCondicion>{v}</PermCondicion>;
+  };
+
+  const vistaMatriz = (
+    <div>
+      <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginBottom:14 }}>
+        <input value={buscar} onChange={e=>setBuscar(e.target.value)} placeholder="Buscar un permiso…" style={{ flex:1, minWidth:180, background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"9px 12px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+        <PermPildora activo={soloSensibles} onClick={()=>setSoloSensibles(v=>!v)}>Solo sensibles</PermPildora>
+      </div>
+      <div style={{ display:"flex", gap:14, alignItems:"center", flexWrap:"wrap", marginBottom:14, fontFamily:font.body, fontSize:12, color:C.textMuted }}>
+        <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><span style={{ display:"inline-flex", color:C.green }}><Icon n="check" s={15} sw={2.4}/></span>puede</span>
+        <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><PermCondicion>solo hoy</PermCondicion>puede, con esa condición</span>
+        <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><span style={{ color:C.border }}>—</span>no puede</span>
+        <span style={{ display:"inline-flex", alignItems:"center", gap:2 }}><PermCandado/>&nbsp;sensible</span>
+      </div>
+      {PERM_GRUPOS.map(g => {
+        const filas = visibles.filter(p => p.g===g.id);
+        if (!filas.length) return null;
+        const abierto = !cerrados.has(g.id);
+        return (
+          <Card key={g.id} p="0" style={{ marginBottom:12, overflow:"hidden" }}>
+            <button onClick={()=>toggleGrupo(g.id)} style={{ width:"100%", display:"flex", alignItems:"center", gap:8, padding:"12px 16px", background:C.surfaceAlt, border:"none", borderBottom:abierto?`1px solid ${C.border}`:"none", cursor:"pointer", fontFamily:font.body, fontSize:13.5, fontWeight:700, color:C.text, textAlign:"left" }}>
+              <Icon n={abierto?"down":"right"} s={15} sw={2.2}/>{g.label}
+              <span style={{ fontWeight:400, fontSize:12, color:C.textMuted }}>{filas.length} {filas.length===1?"permiso":"permisos"}</span>
+            </button>
+            {abierto && (
+              <div style={{ overflowX:"auto" }}>
+                <table style={{ width:"100%", minWidth:720, borderCollapse:"collapse", tableLayout:"fixed" }}>
+                  <colgroup><col style={{ width:isMobile?210:"36%" }}/>{PERM_ROLES.map(r=><col key={r}/>)}</colgroup>
+                  <thead>
+                    <tr>
+                      <th style={{ ...th, textAlign:"left", paddingLeft:16 }}>Permiso</th>
+                      {PERM_ROLES.map(r=><th key={r} style={th} title={ROLE_LABEL[r]}>{PERM_ROL_CORTO[r]}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filas.map(p => (
+                      <Fragment key={p.id}>
+                        <tr onClick={p.nota ? ()=>setNotaAbierta(notaAbierta===p.id?null:p.id) : undefined} style={{ cursor:p.nota?"pointer":"default" }}>
+                          <td style={{ ...td, textAlign:"left", paddingLeft:16, fontFamily:font.body, fontSize:13, color:C.text, lineHeight:1.35 }}>
+                            {p.label}{p.sensible && <PermCandado/>}
+                            {p.nota && <span style={{ marginLeft:6, fontSize:11, color:C.gold, textDecoration:"underline", whiteSpace:"nowrap" }}>{notaAbierta===p.id?"ocultar":"detalle"}</span>}
+                          </td>
+                          {PERM_ROLES.map(r=><td key={r} style={td}>{celda(p, r)}</td>)}
+                        </tr>
+                        {notaAbierta===p.id && (
+                          <tr><td colSpan={PERM_ROLES.length+1} style={{ padding:"8px 16px 10px", background:C.surfaceAlt, borderBottom:`1px solid ${C.border}`, fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.45 }}>{p.nota}</td></tr>
+                        )}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        );
+      })}
+      {!visibles.length && <Card><div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>Ningún permiso coincide con esa búsqueda.</div></Card>}
+    </div>
+  );
+
+  const ordenRol = (r) => PERM_ROLES.indexOf(r);
+  const porNombre = (a, b) => ordenRol(a.role)-ordenRol(b.role) || (a.name||"").localeCompare(b.name||"");
+  const persona = users.find(u => String(u.id)===String(personaId));
+  const detalle = persona ? permDePersona(persona, lideres) : [];
+  const puede = detalle.filter(d => d.puede);
+  const tarjeta = (label, valor, sub) => (
+    <div style={{ background:C.surfaceAlt, borderRadius:10, padding:"10px 12px" }}>
+      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>{label}</div>
+      <div style={{ fontFamily:font.body, fontSize:22, fontWeight:700, color:C.text, marginTop:2 }}>{valor}{sub && <span style={{ fontSize:12, fontWeight:400, color:C.textMuted }}> {sub}</span>}</div>
+    </div>
+  );
+  const origenDe = (d) => d.origen==="monitor" ? <Badge color={C.blue} sm>Por ser Monitor este mes</Badge>
+    : d.origen==="lider" ? <Badge color={C.blue} sm>Por ser líder de la Junta</Badge>
+    : <Badge color={C.textMuted} sm>Por su rol</Badge>;
+
+  const vistaPersona = (
+    <div>
+      <select value={personaId} onChange={e=>setPersonaId(e.target.value)} style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"10px 12px", color:C.text, fontSize:13.5, fontFamily:font.body, outline:"none", marginBottom:14, boxSizing:"border-box", cursor:"pointer" }}>
+        <option value="">Elige una persona…</option>
+        {PERM_ROLES.map(r => { const lista = activos.filter(u=>u.role===r).sort(porNombre); return lista.length ? <optgroup key={r} label={ROLE_LABEL[r]}>{lista.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</optgroup> : null; })}
+        {users.some(u=>u.active===false) && <optgroup label="Retirados e inactivos">{users.filter(u=>u.active===false).sort(porNombre).map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</optgroup>}
+      </select>
+      {!persona && <Card><div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, lineHeight:1.5 }}>Elige a alguien para ver todo lo que puede hacer hoy y de dónde le viene cada permiso.</div></Card>}
+      {persona && (
+        <Card>
+          <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+            <div style={{ width:40, height:40, borderRadius:10, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontWeight:700, fontSize:16, color:"#fff", flexShrink:0 }}>{(persona.name||"?")[0]}</div>
+            <div style={{ flex:1, minWidth:160 }}>
+              <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>{persona.name}</div>
+              <div style={{ marginTop:4 }}><Badge color={ROLE_COLOR[persona.role]||C.textMuted} sm>{ROLE_LABEL[persona.role]||persona.role}</Badge></div>
+            </div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"flex-end" }}>
+              {permEtiquetasDe(persona, lideres, stores).map(e => <Badge key={e.t} color={e.c} sm>{e.t}</Badge>)}
+            </div>
+          </div>
+          {persona.active===false && <div style={{ marginTop:14, background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:8, padding:"9px 12px", fontFamily:font.body, fontSize:12.5, color:C.red }}>Esta cuenta está inactiva: no puede iniciar sesión, así que hoy no puede hacer nada de lo de abajo. Es lo que podría hacer si se reactiva.</div>}
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3, minmax(0,1fr))", gap:10, margin:"16px 0 6px" }}>
+            {tarjeta("Puede hacer", puede.length, `de ${PERMISOS.length}`)}
+            {tarjeta("Sensibles", puede.filter(d=>d.p.sensible).length)}
+            {tarjeta("Con condición", puede.filter(d=>d.cond || d.origen!=="rol").length)}
+          </div>
+          <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, lineHeight:1.45, marginBottom:6 }}>Hoy todo viene del rol o de un caso especial (como ser Monitor). Las excepciones personales — darle o quitarle algo a una sola persona — se podrán guardar desde la Fase 2 y aparecerán aquí marcadas con otro color.</div>
+          {PERM_GRUPOS.map(g => {
+            const filas = detalle.filter(d => d.p.g===g.id && (d.puede || verNoPuede));
+            if (!filas.length) return null;
+            return (
+              <div key={g.id}>
+                <div style={{ fontFamily:font.body, fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 2px" }}>{g.label}</div>
+                {filas.map(d => (
+                  <div key={d.p.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap", padding:"8px 0", borderTop:`1px solid ${C.border}`, fontFamily:font.body, fontSize:13, color:d.puede?C.text:C.textMuted }}>
+                    <span style={{ flex:1, minWidth:200, lineHeight:1.35 }}>{d.p.label}{d.p.sensible && d.puede && <PermCandado/>}</span>
+                    {d.puede
+                      ? <span style={{ display:"inline-flex", gap:6, alignItems:"center", flexWrap:"wrap", justifyContent:"flex-end" }}>{d.cond && <PermCondicion>{d.cond}</PermCondicion>}{origenDe(d)}</span>
+                      : <span style={{ fontSize:11.5, color:C.textMuted }}>{d.falta ? `No — ${d.falta}` : "No puede"}</span>}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+          <div style={{ marginTop:16 }}><Btn onClick={()=>setVerNoPuede(v=>!v)} variant="ghost" sm>{verNoPuede?"Ocultar lo que no puede":"Mostrar también lo que no puede"}</Btn></div>
+        </Card>
+      )}
+    </div>
+  );
+
+  return (
+    <div>
+      <PageHeader title="Permisos" subtitle={`${PERMISOS.length} permisos · ${PERMISOS.filter(p=>p.sensible).length} sensibles · qué puede hacer hoy cada rol y cada persona · por ahora solo para consultar`} />
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14 }}>
+        {PERM_ROLES.map(r => { const n = activos.filter(u=>u.role===r).length; return <Badge key={r} color={n?(ROLE_COLOR[r]||C.textMuted):C.textMuted} sm title={`${n} ${n===1?"cuenta activa":"cuentas activas"} con el rol ${ROLE_LABEL[r]}`}>{ROLE_LABEL[r]} · {n}</Badge>; })}
+      </div>
+      {avisos.length>0 && (
+        <Card p="12px 16px" style={{ marginBottom:14 }}>
+          <div style={{ fontFamily:font.body, fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Para tener presente</div>
+          {avisos.map((a, i) => (
+            <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", fontFamily:font.body, fontSize:12.5, color:C.text, lineHeight:1.45, padding:"3px 0" }}>
+              <span style={{ width:7, height:7, borderRadius:"50%", background:a.c, flexShrink:0, marginTop:6 }}/>{a.t}
+            </div>
+          ))}
+        </Card>
+      )}
+      <div style={{ display:"flex", gap:6, marginBottom:16, flexWrap:"wrap" }}>
+        <PermPildora activo={vista==="matriz"} onClick={()=>setVista("matriz")}>Matriz por rol</PermPildora>
+        <PermPildora activo={vista==="persona"} onClick={()=>setVista("persona")}>Por persona</PermPildora>
+      </div>
+      <div key={vista} className="ozen-pane-anim-tab">{vista==="matriz" ? vistaMatriz : vistaPersona}</div>
+    </div>
+  );
+}
+
+// Lo que se abre al mantener presionado el logo (solo master): Usuarios, y al lado Permisos.
+// Usuarios se deja montado aunque se esté viendo Permisos — así volver a su pestaña no repite la
+// descarga de la tabla de usuarios que hace al abrirse (cuidar la transferencia de Supabase).
+function UsuariosYPermisos({ users, setUsers, stores, lideres }) {
+  const [sub, setSub] = useState("usuarios");
+  return (
+    <div>
+      <div style={{ display:"flex", gap:6, marginBottom:18, flexWrap:"wrap" }}>
+        <PermPildora activo={sub==="usuarios"} onClick={()=>setSub("usuarios")}>Usuarios</PermPildora>
+        <PermPildora activo={sub==="permisos"} onClick={()=>setSub("permisos")}>Permisos</PermPildora>
+      </div>
+      <div style={{ display:sub==="usuarios"?"block":"none" }}><UsuariosScreen users={users} setUsers={setUsers} stores={stores}/></div>
+      {sub==="permisos" && <PermisosScreen users={users} stores={stores} lideres={lideres}/>}
+    </div>
+  );
+}
+
 // ── SCREEN: Acceso de tiendas (admin_finanzas) ─────────────────────────────────
 // Versión reducida de UsuariosScreen: solo cuentas de tienda, y solo lo que admin_finanzas
 // necesita para resolver problemas de acceso sin tener el panel completo de Usuarios (que
@@ -12804,7 +13135,7 @@ export default function App() {
     <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}} className="ozen-pane-anim-modulo">
       <div style={{maxWidth:900,margin:"0 auto"}}>
         <Btn onClick={()=>setMostrarUsuarios(false)} variant="ghost" sm style={{marginBottom:14}}>← Volver</Btn>
-        <UsuariosScreen users={users} setUsers={setUsers} stores={stores}/>
+        <UsuariosYPermisos users={users} setUsers={setUsers} stores={stores} lideres={juntaLideres}/>
       </div>
     </div>
   );

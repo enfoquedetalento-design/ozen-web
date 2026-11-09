@@ -598,6 +598,34 @@ fusionar a `main`).
   módulo/pestaña: se abre desde el menú de la cuenta (la inicial, arriba a la derecha),
   para todos menos las cuentas de tienda.
 
+## Módulo "Permisos" (9 nov 2026) — Fase 1 en `staging`, sin probar por Santiago
+
+Tablero SOLO para master que muestra qué puede hacer cada rol y cada persona. Se construye en 4
+fases; cada una se cierra confirmando con Santiago antes de seguir.
+
+- **Fase 1 (hecha, solo lectura, no cambia ningún comportamiento):** en `src/App.jsx`, justo antes
+  de `TiendasAccesoScreen`, están `PERM_GRUPOS` y `PERMISOS` (59 permisos en 9 grupos, 18
+  sensibles), `permDePersona`, `permEtiquetasDe`, `permAvisos`, `PermisosScreen` y
+  `UsuariosYPermisos`. Se entra igual que a Usuarios (mantener presionado el logo): ahora hay dos
+  pestañas, Usuarios y Permisos. Permisos tiene "Matriz por rol" y "Por persona". No hace ninguna
+  consulta nueva a Supabase: usa `users` y `juntaLideres` que ya están cargados.
+- **Ojo:** `PERMISOS` es una FOTO de las comprobaciones repartidas por el código
+  (`user.role==="master"`, `esAdminDeVentas`, `puedeGestionarTurnos`, `soloLectura`...). Todavía
+  ninguna pantalla lee de ahí. Si se cambia una comprobación, hay que actualizar su fila.
+- Santiago decidió: el tablero muestra lo que el código HACE (no lo que dice el texto
+  `ROLE_PERMISOS`, que en "Administrador" está mal: dice que puede crear/editar asesores y tiendas
+  y en realidad solo master y admin_turnos pueden). La entrada va escondida junto a Usuarios.
+- Inventario para que Santiago lo revise y comente: documento "Inventario de permisos — OZEN-WEB
+  (Fase 1)" → https://claude.ai/artifact/XQpDVq6WPUMC7H3vpnohGa
+- **Fase 2 (pendiente):** tablas en Supabase (rol↔permiso, excepciones por persona, historial),
+  sembradas con exactamente lo que dice `PERMISOS`. Se entregan como `.sql` con `if not exists`.
+- **Fase 3 (pendiente):** función única `puede(user, "permiso")`; migrar un módulo a la vez
+  empezando por Caja. Si falla la lectura: comportamiento actual, y lo sensible NO se concede.
+- **Fase 4 (pendiente):** editar con interruptores, "Ver como", historial y alertas. Master nunca
+  debe poder quitarse a sí mismo el permiso `cuenta.permisos`.
+- Las ramas `main` y `staging` tienen historias distintas (100 y 37 commits propios) aunque el
+  código es casi igual: revisar con cuidado antes de pasar este módulo a `main`.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
