@@ -11072,7 +11072,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
                   <div className="ozen-no-foto" style={{ fontFamily:font.body, fontSize:11, color:C_DARK.textMuted, marginBottom:4 }}>Costos en rojo, ingresos en verde — desde la última recolección.</div>
                   {gastosDesdeRecoleccion.length>0 ? (
                     <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
-                      {gastosDesdeRecoleccion.slice(0,5).map((g,idx)=>(
+                      {[...gastosDesdeRecoleccion].sort((a,b)=>(a.estado==='aprobado'?1:0)-(b.estado==='aprobado'?1:0)).slice(0, Math.max(5, novPend)).map((g,idx)=>(
                         <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C_DARK.text, gap:6 }}>
                           <span>{idx+1}. {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C_DARK.amber }}> · pendiente</span>}</span>
                           <span style={{ display:"flex", alignItems:"center", gap:6 }}>
@@ -11332,6 +11332,11 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
               if(pend) estado = chip("● Borrado solicitado", C_DARK.amber, C_DARK.amberDim);
               // Acciones del menú ⋯ (mismos permisos de antes).
               const acciones = [];
+              // Aprobar una novedad pendiente — solo master/admin de finanzas. Antes esto solo existía en la
+              // lista corta del panel de Novedades (primeras 5 desde la última recolección); en el
+              // Historial no había forma, así que una novedad vieja o la sexta quedaba sin poder aprobarse.
+              const puedeAprobarEsta = e.tipo==="novedad" && puedeAprobarNovedad && e.r.estado!=="aprobado";
+              if(puedeAprobarEsta) acciones.push({ txt:"✔ Aprobar novedad", fn:()=>aprobarGasto(e.r) });
               if(e.tipo!=="novedad") acciones.push({ txt: abiertoRecibo?"Ocultar recibo":"Ver recibo", fn:()=>setVerDetalleId(abiertoRecibo?null:key) });
               if(e.tipo==="novedad" && puedeTocarGasto(e.r)){
                 acciones.push({ txt:"Editar", fn:()=>empezarEditarGasto(e.r) });
@@ -11358,6 +11363,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
                     <div style={{ textAlign:"right" }}>
                       <b style={{ fontFamily:font.mono, fontSize:isMobile?13:14, color:montoCol, whiteSpace:"nowrap" }}>{monto}</b>
                       {!isMobile && <div style={{ fontFamily:font.body, fontSize:11.5, color:C_DARK.textMuted, marginTop:2 }}>{montoSub}</div>}
+                      {puedeAprobarEsta && <button type="button" onClick={()=>aprobarGasto(e.r)} title="Aprobar esta novedad" style={{ marginTop:4, background:"none", border:`1px solid ${C_DARK.green}`, borderRadius:6, color:C_DARK.green, cursor:"pointer", fontFamily:font.body, fontSize:11, fontWeight:700, padding:"2px 8px" }}>Aprobar</button>}
                     </div>
                     <div style={{ position:"relative" }}>
                       {acciones.length>0 ? (
