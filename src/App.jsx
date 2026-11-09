@@ -5227,7 +5227,7 @@ const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItem
     const original = Number(v.valor_original ?? v.total ?? 0);
     const tipoPrincipal = v.es_flexipago ? "flexipago" : (tipos.includes("producto") ? "producto" : tipos[0]);
     // Flexipago (pedido de Santiago): el registro del día en que se abrió muestra en Total SOLO la
-    // plata que entró ese día (el separado); los días siguientes salen como registros de abono con
+    // plata que entró ese día (el primer abono); los días siguientes salen como registros de abono con
     // lo que entró cada día, y el día que se completa sale el valor completo del Flexipago.
     const abonosDia = v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id && a.fecha===v.fecha) : [];
     const abonadoDia = abonosDia.reduce((t,a)=>t+Number(a.valor||0),0);
@@ -5235,7 +5235,7 @@ const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItem
     const valorFlex = v.es_flexipago ? its.filter(i=>i.tipo==="flexipago").reduce((t,i)=>t+Number(i.valor||0)-Number(i.descuento||0),0) : 0;
     const flexCompletoDia = v.es_flexipago && valorFlex>0 && abonadoHastaDia>=valorFlex;
     return { key:`v-${v.id}`, fecha:v.fecha, orden:`${v.fecha||""} ${v.created_at||""}`, hora:horaCol(v.created_at), tiendaId:v.tienda_id, asesor:v.vendedor_nombre||"—", cliente:v.cliente_nombre||"", documento:v.cliente_documento||"",
-      tipo: v.es_flexipago ? (flexCompletoDia ? "Flexipago · completado" : "Flexipago · separado") : tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta", colorTipo:colorDeTipoVenta(tipoPrincipal),
+      tipo: v.es_flexipago ? (flexCompletoDia ? "Flexipago · completado" : "Flexipago") : tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta", colorTipo:colorDeTipoVenta(tipoPrincipal),
       medios: v.es_flexipago ? ([...new Set(abonosDia.flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))].map(medioCortoLabel).join(" + ") || "Sin abono") : (medios.join(" + ")||"—"), factura:v.numero_factura||"—",
       total: v.es_flexipago ? (flexCompletoDia ? (valorFlex||original) : abonadoDia) : original,
       detalle: ()=> <VentaCard sinEncabezado venta={v} {...props}/> };
@@ -6573,7 +6573,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
                   {saldoPendiente>0 && !soloLectura && (
                     flexipagoVencido ? (
                       <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"8px 10px", fontFamily:font.body, fontSize:12, color:C.red }}>
-                        ⛔ Pasaron {diasDesdeAbono} días desde el primer abono (máximo {FLEXIPAGO_PLAZO_DIAS}, según el aviso legal). No se puede abonar más ni completar esta venta — el cliente pierde lo abonado y el separado.
+                        ⛔ Pasaron {diasDesdeAbono} días desde el primer abono (máximo {FLEXIPAGO_PLAZO_DIAS}, según el aviso legal). No se puede abonar más ni completar esta venta — el cliente pierde lo abonado y el producto.
                         {puedeReabrirVencido && (
                           <div style={{ marginTop:8 }}>
                             <Btn onClick={()=>reabrirFlexipagoVencido(v)} variant="ghost" sm style={{ color:C.amber }}>🔓 Reabrir de todas formas (la tienda lo honra con el cliente)</Btn>
@@ -6763,7 +6763,7 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
   const itemEsFlexipago = itemTipo === "flexipago";
 
   // El valor total del Flexipago no se digita: es la suma de los valores de los códigos de
-  // producto separados, para obligar al asesor a desglosarlos bien en vez de poner un total a ojo.
+  // producto, para obligar al asesor a desglosarlos bien en vez de poner un total a ojo.
   const itemValorCodigosFlexipago = itemCodigosFlexipago.reduce((s,c)=>s+Number(c.valor||0),0);
   const itemValorNum = itemEsFlexipago ? itemValorCodigosFlexipago : Number(itemValor||0);
   const itemDescuentoInput = Number(itemDescuento||0);
@@ -7033,7 +7033,7 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
                     <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Valor total</div>
                     <div style={{ width:"100%", background:C.dark, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.mono, boxSizing:"border-box" }}>${itemValorCodigosFlexipago.toLocaleString("es-CO")}</div>
                   </div>
-                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Productos separados</div>
+                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Productos del Flexipago</div>
                   {itemCodigosFlexipago.map((c,idx)=>(
                     <div key={idx} style={{ display:"grid", gridTemplateColumns: itemCodigosFlexipago.length>1 ? "1fr 1fr auto" : "1fr 1fr", gap:6, marginBottom:6, alignItems:"center" }}>
                       <input value={c.codigo} onChange={e=>setCodigoFlexipago(idx,"codigo",e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="#producto" inputMode="numeric" maxLength={6} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
@@ -11073,7 +11073,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
                   <div className="ozen-no-foto" style={{ fontFamily:font.body, fontSize:11, color:C_DARK.textMuted, marginBottom:4 }}>Costos en rojo, ingresos en verde — desde la última recolección.</div>
                   {gastosDesdeRecoleccion.length>0 ? (
                     <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
-                      {gastosDesdeRecoleccion.slice(0,5).map((g,idx)=>(
+                      {[...gastosDesdeRecoleccion].sort((a,b)=>(a.estado==='aprobado'?1:0)-(b.estado==='aprobado'?1:0)).slice(0, Math.max(5, novPend)).map((g,idx)=>(
                         <div key={g.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:font.body, fontSize:12, color:C_DARK.text, gap:6 }}>
                           <span>{idx+1}. {g.motivo}{g.estado!=="aprobado" && <span style={{ color:C_DARK.amber }}> · pendiente</span>}</span>
                           <span style={{ display:"flex", alignItems:"center", gap:6 }}>
@@ -11333,6 +11333,11 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
               if(pend) estado = chip("● Borrado solicitado", C_DARK.amber, C_DARK.amberDim);
               // Acciones del menú ⋯ (mismos permisos de antes).
               const acciones = [];
+              // Aprobar una novedad pendiente — solo master/admin de finanzas. Antes esto solo existía en la
+              // lista corta del panel de Novedades (primeras 5 desde la última recolección); en el
+              // Historial no había forma, así que una novedad vieja o la sexta quedaba sin poder aprobarse.
+              const puedeAprobarEsta = e.tipo==="novedad" && puedeAprobarNovedad && e.r.estado!=="aprobado";
+              if(puedeAprobarEsta) acciones.push({ txt:"✔ Aprobar novedad", fn:()=>aprobarGasto(e.r) });
               if(e.tipo!=="novedad") acciones.push({ txt: abiertoRecibo?"Ocultar recibo":"Ver recibo", fn:()=>setVerDetalleId(abiertoRecibo?null:key) });
               if(e.tipo==="novedad" && puedeTocarGasto(e.r)){
                 acciones.push({ txt:"Editar", fn:()=>empezarEditarGasto(e.r) });
@@ -11359,6 +11364,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
                     <div style={{ textAlign:"right" }}>
                       <b style={{ fontFamily:font.mono, fontSize:isMobile?13:14, color:montoCol, whiteSpace:"nowrap" }}>{monto}</b>
                       {!isMobile && <div style={{ fontFamily:font.body, fontSize:11.5, color:C_DARK.textMuted, marginTop:2 }}>{montoSub}</div>}
+                      {puedeAprobarEsta && <button type="button" onClick={()=>aprobarGasto(e.r)} title="Aprobar esta novedad" style={{ marginTop:4, background:"none", border:`1px solid ${C_DARK.green}`, borderRadius:6, color:C_DARK.green, cursor:"pointer", fontFamily:font.body, fontSize:11, fontWeight:700, padding:"2px 8px" }}>Aprobar</button>}
                     </div>
                     <div style={{ position:"relative" }}>
                       {acciones.length>0 ? (
@@ -12440,7 +12446,12 @@ export default function App() {
     try { window.resizeTo(1120, 840); } catch(e) { /* si falla, se queda con el tamaño que dé el sistema */ }
   }, []);
 
+  // Cuándo fue la última carga completa — sirve para no volver a descargar TODO si la anterior fue
+  // hace nada (cada carga completa baja todas las tablas, y el refresco automático ya había hecho
+  // que Supabase pasara del tope gratis de transferencia: 5 GB/mes, con 5,07 GB usados).
+  const ultimaCargaRef = useRef(0);
   const loadAll=async()=>{
+    ultimaCargaRef.current = Date.now();
     const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:jic},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj},{data:csb},{data:tg},{data:tas},{data:th},{data:kc},{data:kl},{data:kp},{data:kv},{data:ki}]=await Promise.all([
       supabase.from("tiendas").select("*"),
       supabase.from("usuarios").select("*"),
@@ -12541,11 +12552,14 @@ export default function App() {
   // Al iniciar sesión se refresca todo del servidor en segundo plano (sin bloquear la entrada) —
   // en un dispositivo compartido donde una cuenta entra justo después de que otra salió, sin esto
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
-  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll();};
+  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll(60000);};
   const logout=()=>{setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);};
   const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?"metricas":a==="capacitacion"?(tomaCapacitaciones(user)?"mis_cursos":"progreso"):user.role==="advisor"?"checkin":"dashboard");};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
-  const refreshAll=async()=>{ setRefreshing(true); await loadAll(); setRefreshing(false); };
+  // Sin argumento (botón 🔄) siempre recarga. Con `maxEdadMs` solo recarga si la última carga es
+  // más vieja que eso — así el login justo después de abrir la página, o "volver a la pestaña"
+  // (focus y visibilitychange suelen dispararse a la vez), no repiten una descarga completa.
+  const refreshAll=async(maxEdadMs)=>{ if(typeof maxEdadMs==="number" && Date.now()-ultimaCargaRef.current < maxEdadMs) return; setRefreshing(true); await loadAll(); setRefreshing(false); };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
   // Corrección manual de registros (solo master, desde Registros) — el borrado/edición en la base
   // ya lo hace RecordsScreen; esto solo mantiene sincronizado el estado local en memoria.
@@ -12560,12 +12574,12 @@ export default function App() {
   // justo lo que puede generar problemas reales (duplicados, sobrescrituras, decisiones con
   // números desactualizados). Por eso, además del botón de refrescar manual (🔄) y del refresco ya
   // agregado al iniciar sesión, la app se refresca sola: cada vez que se vuelve a esta pestaña
-  // (se cambia de app y se regresa, se prende la pantalla del celular, etc.) y cada 3 minutos
-  // mientras quede abierta y visible.
+  // (se cambia de app y se regresa, se prende la pantalla del celular, etc.) y cada 5 minutos
+  // mientras quede abierta y visible — pero nunca si ya se cargó hace menos de 2 minutos.
   useEffect(()=>{
     if(!user) return;
-    const refrescarSiVisible = () => { if(document.visibilityState==="visible") refreshAll(); };
-    const intervalo = setInterval(refrescarSiVisible, 3*60000);
+    const refrescarSiVisible = () => { if(document.visibilityState==="visible") refreshAll(2*60000); };
+    const intervalo = setInterval(refrescarSiVisible, 5*60000);
     document.addEventListener("visibilitychange", refrescarSiVisible);
     window.addEventListener("focus", refrescarSiVisible);
     return () => {
