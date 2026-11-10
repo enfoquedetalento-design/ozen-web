@@ -624,22 +624,91 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
   inventario quedó al día. Confirmó que quiere dejar así: Admin y Admin Turnos pueden llenar
   Registrar venta sin guardar ("me gusta que vean cómo funciona"), ven Caja sin poder tocar y sí
   reciben recolecciones; el Visualizador marca asistencia y firma documentos.
-- **Pedidos de Santiago que necesitan base de datos (van con el SQL de la Fase 2, pendientes de
-  su visto bueno):** (1) enlazar cada líder de La Junta con su cuenta de usuario en vez de
-  comparar nombres (Monitor y autorreporte); (2) botón para que el Monitor SOLICITE borrar una
-  tarea vencida o cumplida y el master apruebe (hoy esas solo las borra master).
 - **Paolo / "Equipo admin" en Métricas:** el Top junta en una sola fila a los administrativos que
   tienen meta ese mes; Paolo queda por fuera (aparece solo, como un asesor) porque cubre un turno
   completo de asesor. Los otros 4 ya no cubren turnos, así que esa fila ya casi no aparece. Sigue
   escrito por nombre en el código (`FUERA_DE_EQUIPO_ADMIN`); no se cambió nada.
-- **Fase 2 (pendiente):** tablas en Supabase (rol↔permiso, excepciones por persona, historial),
-  sembradas con exactamente lo que dice `PERMISOS`. Se entregan como `.sql` con `if not exists`.
+- **Fase 2 (hecha en `staging` el 9 nov 2026, falta que Santiago corra el SQL y la pruebe):**
+  - `sql/permisos_fase2.sql` crea `permisos_roles` (una fila = ese rol SÍ tiene ese permiso;
+    `condicion` vacía = siempre), `permisos_excepciones` y `permisos_historial`, y siembra
+    `permisos_roles` con exactamente lo que dice `PERMISOS` (61 permisos, 200 filas). Los
+    `usuario_id` van como texto y sin relación a `usuarios`, igual que en capacitaciones.
+    Si se cambia `PERMISOS` hay que regenerar ese archivo (sale del propio código).
+  - El tablero consulta `permisos_roles` UNA vez al abrirse y muestra si la base coincide con el
+    código (`permCompararConBase`). El código sigue mandando: nada lee todavía de la base.
+  - Tablero rediseñado (Santiago lo veía "ladrilludo"): pestañas Roles (tarjetas con nivel de
+    acceso por área), Personas, ¿Quién puede…?, Monitor y líderes, y Tabla completa.
+  - **Líder ↔ cuenta:** columna `junta_lideres.usuario_id`; se enlaza en Permisos → Monitor y
+    líderes (solo master). `liderEsDeUsuario` usa el enlace y, si no hay, compara por nombre como
+    antes. Cada enlace deja rastro en `permisos_historial`.
+  - **Pedir borrado de tareas:** columnas `borrado_solicitado_por` / `_en` en
+    `junta_compromisos`. El monitor pide borrar una tarea vencida o cumplida; master ve los
+    pedidos arriba en Seguimiento y aprueba (borra) o rechaza.
 - **Fase 3 (pendiente):** función única `puede(user, "permiso")`; migrar un módulo a la vez
   empezando por Caja. Si falla la lectura: comportamiento actual, y lo sensible NO se concede.
 - **Fase 4 (pendiente):** editar con interruptores, "Ver como", historial y alertas. Master nunca
   debe poder quitarse a sí mismo el permiso `cuenta.permisos`.
 - Las ramas `main` y `staging` tienen historias distintas (100 y 37 commits propios) aunque el
   código es casi igual: revisar con cuidado antes de pasar este módulo a `main`.
+
+## Módulo "Operaciones" (10 nov 2026) — Parte 1 en `staging`, sin probar por Santiago
+
+Reemplaza al Excel "Operaciones" de Google Sheets (hojas OP EXTERNO, OP INTERNO, ORDEN y Gestión
+de garantías). Alcance definido con Santiago el 10 nov 2026; se construye en 4 partes, cada una
+probada en práctica antes de seguir.
+
+**Decisiones de Santiago (no cambiar sin preguntarle):**
+- Área nueva "Operaciones". Entran las cuentas de tienda y los administradores; el Visualizador
+  solo mira; los asesores con su cuenta individual NO entran.
+- **Líder de Operaciones: Edwin**, de internas y de externas. No va amarrado al nombre en el
+  código: Master lo elige en la pantalla (tabla `operaciones_config`, clave `lider_usuario_id`).
+  El líder (y Master) es quien cancela, devuelve una etapa, decide las garantías y cierra internas.
+- **Externas** (todo lo que tiene que ver con un cliente): Arreglo, Marcación, Garantía, Traslado
+  y Pedido. Separado, Factura y Grabado NO entran: se quedan en Ventas.
+- **Toda orden nace en Operaciones** al recibir la pieza. El cobro en Registrar venta se enlazará
+  a la orden después (parte 4). Ojo: Registrar venta hoy solo guarda datos del cliente en Flexipago.
+- Etapas: arreglo / marcación / garantía = Recibida en tienda → En taller o gestión → Lista en
+  tienda → Entregada al cliente. Traslado = Solicitado → Enviado por la tienda de origen →
+  Recibido en la tienda destino → Entregado al cliente. Pedido = Solicitado → Pedido en gestión →
+  Llegó a tienda → Entregado al cliente. Cualquiera se puede Cancelar (con motivo; no se reabre).
+- Garantía: no avanza hasta que el líder marque "Se cubre" o "No se cubre" con su respuesta. Si no
+  se cubre, salta de Recibida a Lista en tienda (para devolverle la pieza al cliente).
+- Estado de pago: Pago, Debe o No aplica (como en el Excel).
+- **Internas** (lo que no tiene que ver con clientes): Insumos, Novedad, Arreglo del inventario,
+  Arreglo del punto; tienda o "Global". Estados: Nueva → En gestión → Completada o Rechazada (con
+  motivo). Se quitó "En revisión" del Excel. Toda solicitud nace "Nueva" (en el Excel se quedaban
+  sin estado y había 26 abiertas desde 2024-2025).
+- Primera versión incluye: orden para el cliente (con el aviso de los 60 días y la fecha estimada
+  de entrega), indicadores y alertas de atraso. La foto de la pieza quedó para después.
+- **Atraso = 5 días hábiles sin moverse** (internas y externas), más el aviso de pieza sin
+  reclamar a los 60 días. Falta confirmar con Santiago si el sábado cuenta como hábil.
+- Se empezó en limpio: no se pasa el historial del Excel; la numeración sigue desde **1802**.
+
+**Parte 1 — Externas (hecha en `staging`, falta que Santiago corra el SQL y la pruebe):**
+- `sql/operaciones.sql` crea `operaciones_externas`, `operaciones_internas` (ya queda lista para
+  la parte 2) y `operaciones_config`. Ids de usuario y tienda como texto, sin relación a
+  `usuarios`/`tiendas`. A propósito NO hay permiso de borrar: una orden se cancela, no se borra.
+- En `src/App.jsx`, justo antes de `export default function App`: bloque "OPERACIONES" con
+  `OPER_PERMISOS` / `puedeOper`, `OPER_ETAPAS`, `OperNuevaOrden`, `OperOrdenCard`,
+  `OperOrdenCliente`, `OperLider` y `OperacionesExternasScreen`. Área `operaciones` en
+  `AREAS_NAV` y `AreaSelector`, pestaña `op_externas`; la cuenta de tienda la ve como una pestaña
+  más ("Operaciones") junto a Ventas y Turnos.
+- **Permisos por acción con nombre** (para pasarlos luego al tablero de Permisos; hoy NO están en
+  `PERMISOS` ni en `permisos_roles`): `operaciones.ver`, `operaciones.externas.crear`,
+  `.externas.avanzar`, `.externas.pago`, `.externas.devolver`, `.externas.cancelar`,
+  `operaciones.garantias.decidir`, `operaciones.lider.asignar`.
+- **Consumo de Supabase:** Operaciones NO va en `loadAll`. `cargarOperaciones` (en `App`) solo
+  corre al entrar al área, trae lo abierto + lo cerrado en los últimos 90 días (la cuenta de
+  tienda, solo lo suyo y los traslados donde es origen o destino) y no repite si la última carga
+  tiene menos de 5 minutos. "Traer todo el historial" usa `traerTodo`.
+- Cada cambio se guarda solo si la orden sigue en la etapa que se estaba viendo (evita que dos
+  computadores se pisen). Cada movimiento queda en `historial` (jsonb) con quién y cuándo; en la
+  cuenta de tienda se elige el nombre de quien hace el movimiento.
+- Revisado el 10 nov 2026: parseo con `@babel/parser` OK y `eslint` sin errores de `no-undef`.
+
+**Lo que sigue:** parte 2 = pantalla de Internas (la tabla ya existe). Parte 3 = Indicadores y
+alertas de atraso. Parte 4 = enlazar el cobro de Registrar venta con la orden (`venta_id`); va de
+última porque toca una pantalla que mueve plata.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 

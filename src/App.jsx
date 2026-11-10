@@ -243,12 +243,18 @@ const getMonitorActual = (lideres) => {
 // sesión es la misma persona que el líder configurado como Monitor de turno (no hay un vínculo
 // directo entre "líderes" de la Junta y las cuentas de usuario, así que se compara por nombre).
 const normalizarNombre = (s) => (s||"").trim().toLowerCase();
-const esMonitorActual = (user, lideres) => {
-  const monitor = getMonitorActual(lideres);
-  if (!monitor?.nombre || !user?.name) return false;
+// ¿Este líder de la Junta ES esta cuenta? Si el líder ya tiene una cuenta enlazada (columna
+// `usuario_id` de junta_lideres — master la asigna en Permisos → Monitor y líderes) manda ese
+// enlace y el nombre ya no importa. Mientras no tenga enlace se sigue comparando por nombre, como
+// siempre, para que nada cambie el día que se estrena esto (pedido de Santiago, nov 2026).
+const liderEsDeUsuario = (lider, user) => {
+  if (!lider || !user) return false;
+  if (lider.usuario_id) return String(lider.usuario_id) === String(user.id);
+  if (!lider.nombre || !user.name) return false;
   // sensitivity:"base" ignora mayúsculas y tildes, así que "José" y "jose" cuentan como el mismo nombre.
-  return normalizarNombre(monitor.nombre).localeCompare(normalizarNombre(user.name), "es", { sensitivity:"base" }) === 0;
+  return normalizarNombre(lider.nombre).localeCompare(normalizarNombre(user.name), "es", { sensitivity:"base" }) === 0;
 };
+const esMonitorActual = (user, lideres) => liderEsDeUsuario(getMonitorActual(lideres), user);
 // Suma (o resta, con n negativo) n días de calendario a una fecha "aaaa-mm-dd".
 const sumarDias = (fechaStr, n) => fmt(new Date(new Date(fechaStr+"T12:00:00").getTime() + n*86400000));
 // Fechas (aaaa-mm-dd) de todos los martes de un mes calendario dado.
@@ -879,6 +885,9 @@ const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar ven
 // Escuela OZEN (área "capacitacion"): "Mis cursos" para quien toma cursos (no visualizador),
 // "Progreso" para admins y visualizador, y "Administrar cursos" para todos los admins.
 const ADMIN_TABS_CAPACITACION = [{ id:"mis_cursos",icon:"📚",label:"Mis cursos" },{ id:"progreso",icon:"📊",label:"Progreso" },{ id:"cursos_admin",icon:"🛠️",label:"Administrar cursos" }];
+// Operaciones (área "operaciones"): por ahora solo Externas (parte 1). Internas e Indicadores son
+// las partes 2 y 3 — ver "OPERACIONES" más abajo.
+const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas" }];
 const tabsCapacitacion = (user) => ADMIN_TABS_CAPACITACION.filter(t => t.id==="mis_cursos" ? tomaCapacitaciones(user) : t.id==="cursos_admin" ? puedeEditarCapacitacion(user) : puedeUsarAreas(user));
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas" || user.role==="admin_turnos";
 // Quién ve la pantalla de módulos al entrar y el selector de áreas arriba: los admins (puedeUsarAreas)
@@ -955,10 +964,11 @@ const puedeAsignarMetas = (user) => user.role==="master" || user.role==="admin_f
 // tienda (porque son quienes ven la caja físicamente y confirman si estaba completa o no).
 // Ojo: NO incluye a los usuarios individuales de "advisor" (esos son solo para Asistencia).
 const puedeHacerRecoleccion = (user) => user.role==="master" || user.role==="admin_finanzas" || user.role==="tienda";
-// Qué pestañas le corresponden a cada quien, según su rol y el área elegida
+// Qué pestañas le corresponden a cada quien, según su rol y el área elegida. La cuenta de tienda
+// no elige área (va directo a Ventas), así que Operaciones le llega como una pestaña más.
 const tabsPara = (user, area) => !puedeUsarAreas(user)
-  ? (esCuentaTienda(user) ? [...ADMIN_TABS_VENTAS, { id:"turnos", icon:"📅", label:"Turnos" }] : area==="capacitacion" ? tabsCapacitacion(user) : ADVISOR_TABS)
-  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="ventas" ? (puedeVerRegistrar(user) ? ADMIN_TABS_VENTAS : ADMIN_TABS_VENTAS.filter(t=>t.id!=="registrar")) : area==="capacitacion" ? tabsCapacitacion(user) : ADMIN_TABS_ASISTENCIA);
+  ? (esCuentaTienda(user) ? [...ADMIN_TABS_VENTAS, { id:"turnos", icon:"📅", label:"Turnos" }, { id:"op_externas", icon:"🧰", label:"Operaciones" }] : area==="capacitacion" ? tabsCapacitacion(user) : ADVISOR_TABS)
+  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="operaciones" ? ADMIN_TABS_OPERACIONES : area==="ventas" ? (puedeVerRegistrar(user) ? ADMIN_TABS_VENTAS : ADMIN_TABS_VENTAS.filter(t=>t.id!=="registrar")) : area==="capacitacion" ? tabsCapacitacion(user) : ADMIN_TABS_ASISTENCIA);
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -974,16 +984,17 @@ const passwordVencida = (u) => {
 // las pestañas del área con una línea que se desliza a la pestaña elegida, y bajo ellas una franja
 // fina del color de la tienda (cuando la pantalla trabaja sobre una tienda). En celular las
 // pestañas bajan a una barra inferior, como antes.
-const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench" };
+const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench", op_externas:"wrench" };
 const AREAS_NAV = [
   { id:"ventas", label:"Ventas", ic:"receipt" },
+  { id:"operaciones", label:"Operaciones", ic:"box" },
   { id:"asistencia", label:"Asistencia", ic:"clock" },
   { id:"junta", label:"La Junta", ic:"users" },
   // Escuela OZEN: internamente el área se sigue llamando "capacitacion". En celular el selector de
   // áreas es una fila de botones: ahí se muestra el nombre corto.
   { id:"capacitacion", label:"Escuela OZEN", corto:"Escuela", ic:"book" },
 ];
-const areasPara = (user) => AREAS_NAV.filter(a => user.role==="advisor" ? (a.id==="asistencia" || a.id==="capacitacion") : (a.id!=="ventas" || puedeUsarVentasArea(user)));
+const areasPara = (user) => AREAS_NAV.filter(a => user.role==="advisor" ? (a.id==="asistencia" || a.id==="capacitacion") : ((a.id!=="ventas" || puedeUsarVentasArea(user)) && (a.id!=="operaciones" || puedeOper(user, "operaciones.ver"))));
 // "OZEN Unicentro" → "Unicentro": en la barra y en las etiquetas el prefijo de marca sobra.
 const nombreTiendaCorto = (s) => (s?.name || "").replace(/^OZEN\s+/i, "") || "—";
 const colorTienda = (s) => s?.color || "#6b7280";
@@ -1624,13 +1635,15 @@ function UsuariosScreen({ users, setUsers, stores }) {
   );
 }
 
-// ── PERMISOS (Fase 1 — inventario, SOLO LECTURA) ───────────────────────────────
+// ── PERMISOS (Fases 1 y 2 — inventario, SOLO LECTURA) ──────────────────────────
 // Tablero para master: qué puede hacer cada rol y cada persona HOY. Esta lista es una FOTO de las
 // comprobaciones que están repartidas por todo este archivo (user.role==="master",
 // esAdminDeVentas, puedeGestionarTurnos, soloLectura, etc.) — todavía NO manda sobre nada: ninguna
 // pantalla lee de aquí. Si se cambia una comprobación en el código, hay que actualizar su fila.
-// En la Fase 2 esta misma lista se siembra en tablas de Supabase, y desde la Fase 3 el código
-// empieza a preguntarle a esas tablas con una sola función `puede(user, "permiso")`.
+// Fase 2: esta misma lista está sembrada en la tabla `permisos_roles` de Supabase
+// (sql/permisos_fase2.sql) y el tablero avisa si la tabla y esta lista dejan de coincidir — si se
+// agrega o cambia una fila aquí, hay que regenerar ese SQL. Desde la Fase 3 el código empieza a
+// preguntarle a esas tablas con una sola función `puede(user, "permiso")`.
 // Cada permiso: `r` = qué rol lo tiene (1 = sí; un texto = sí, pero con esa condición).
 const PERM_ROLES = ["master","admin","admin_finanzas","admin_turnos","visualizador","advisor","tienda"];
 const PERM_ROL_CORTO = { master:"Master", admin:"Admin", admin_finanzas:"Finanzas", admin_turnos:"Turnos", visualizador:"Visual.", advisor:"Asesor", tienda:"Tienda" };
@@ -1684,8 +1697,10 @@ const PERMISOS = [
   { id:"turnos.horarios", g:"turnos", label:"Cambiar los horarios de entrada (puntualidad)", r:{ master:1, admin_turnos:1 } },
   { id:"turnos.malla_activos", g:"turnos", label:"Decidir quién aparece en la malla", r:{ master:1, admin_turnos:1 } },
   { id:"junta.ver", g:"junta", label:"Ver La Junta (seguimiento, acuerdos, perfiles, guion, indicadores)", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
-  { id:"junta.tareas.gestionar", g:"junta", label:"Crear tareas, confirmarlas y reabrir vencidas", r:{ master:1, admin:"si es Monitor", admin_finanzas:"si es Monitor", admin_turnos:"si es Monitor" }, nota:"El Monitor rota cada mes y se reconoce por nombre." },
-  { id:"junta.tareas.borrar", g:"junta", label:"Borrar tareas", r:{ master:1, admin:"si es Monitor", admin_finanzas:"si es Monitor", admin_turnos:"si es Monitor" }, sensible:true, nota:"El Monitor solo borra tareas activas; las vencidas o cumplidas solo las borra Master." },
+  { id:"junta.tareas.gestionar", g:"junta", label:"Crear tareas, confirmarlas y reabrir vencidas", r:{ master:1, admin:"si es Monitor", admin_finanzas:"si es Monitor", admin_turnos:"si es Monitor" }, nota:"El Monitor rota cada mes. Se reconoce por la cuenta enlazada al líder (Permisos → Monitor y líderes) o, si no tiene, por el nombre." },
+  { id:"junta.tareas.borrar", g:"junta", label:"Borrar tareas", r:{ master:1, admin:"si es Monitor", admin_finanzas:"si es Monitor", admin_turnos:"si es Monitor" }, sensible:true, nota:"El Monitor solo borra tareas activas; las vencidas o cumplidas solo las borra Master (el Monitor puede pedírselo)." },
+  { id:"junta.tareas.borrado.solicitar", g:"junta", label:"Pedir que se borre una tarea vencida o cumplida", r:{ admin:"si es Monitor", admin_finanzas:"si es Monitor", admin_turnos:"si es Monitor" }, nota:"El Monitor no borra tareas cerradas: lo pide con un botón y Master lo aprueba o lo rechaza." },
+  { id:"junta.tareas.borrado.resolver", g:"junta", label:"Aprobar o rechazar pedidos de borrado de tareas", r:{ master:1 }, sensible:true },
   { id:"junta.tareas.autorreportar", g:"junta", label:"Marcar como hecha una tarea propia (autorreporte)", r:{ admin:"si es su tarea", admin_finanzas:"si es su tarea", admin_turnos:"si es su tarea" }, nota:"No cuenta para Indicadores hasta que el Monitor la confirme. Master no lo usa porque confirma directo." },
   { id:"junta.tareas.comentar", g:"junta", label:"Escribir comentarios en las tareas", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1 } },
   { id:"junta.acuerdos.crear", g:"junta", label:"Registrar un acuerdo", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1 }, nota:"Una vez guardado nadie lo puede editar ni borrar." },
@@ -1694,27 +1709,53 @@ const PERMISOS = [
   { id:"escuela.cursar", g:"escuela", label:"Tomar cursos y quizzes (Mis cursos)", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, advisor:1 } },
   { id:"escuela.progreso", g:"escuela", label:"Ver el progreso de todos", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
   { id:"escuela.administrar", g:"escuela", label:"Crear y editar cursos, lecciones y quizzes", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1 } },
-  { id:"cuenta.usuarios", g:"cuenta", label:"Usuarios: crear, cambiar rol, ver y cambiar contraseñas, retirar", r:{ master:1 }, sensible:true, nota:"Se entra manteniendo presionado el logo." },
+  { id:"cuenta.usuarios", g:"cuenta", label:"Manejar usuarios: crear, cambiar rol, ver y cambiar contraseñas, retirar", r:{ master:1 }, sensible:true, nota:"Se entra manteniendo presionado el logo." },
   { id:"cuenta.permisos", g:"cuenta", label:"Ver el tablero de Permisos", r:{ master:1 }, sensible:true, nota:"Protegido: nunca se le podrá quitar a Master desde el tablero." },
-  { id:"cuenta.acceso_tiendas", g:"cuenta", label:"Cuentas de tienda: usuario, contraseña y liberar dispositivo", r:{ master:"desde Usuarios", admin_finanzas:1 }, sensible:true, nota:"Admin Finanzas lo tiene en su menú como «Acceso tiendas»." },
+  { id:"cuenta.acceso_tiendas", g:"cuenta", label:"Manejar cuentas de tienda: usuario, contraseña y liberar dispositivo", r:{ master:"desde Usuarios", admin_finanzas:1 }, sensible:true, nota:"Admin Finanzas lo tiene en su menú como «Acceso tiendas»." },
   { id:"cuenta.firmar", g:"cuenta", label:"Firmar documento", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, advisor:1 } },
   { id:"cuenta.password", g:"cuenta", label:"Cambiar su propia contraseña", r:{ master:"desde Usuarios", admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, advisor:1 }, nota:"La contraseña de una cuenta de tienda la cambian Master o Admin Finanzas." },
 ];
 
-const permMismoNombre = (a, b) => !!a && !!b && normalizarNombre(a).localeCompare(normalizarNombre(b), "es", { sensitivity:"base" })===0;
-const permMesActual = () => MESES_LARGO[toColombiaDate().getMonth()].toLowerCase();
+// Áreas grandes de la app — para resumir cada rol o persona de un vistazo (nivel de acceso por
+// área) antes de entrar al detalle permiso por permiso.
+const PERM_AREAS = [
+  { id:"ventas", label:"Ventas", ic:"bag", grupos:["ventas_registrar","ventas_lista","ventas_metricas"] },
+  { id:"caja", label:"Caja", ic:"cash", grupos:["ventas_caja"] },
+  { id:"asistencia", label:"Asistencia", ic:"clock", grupos:["asistencia"] },
+  { id:"turnos", label:"Turnos", ic:"cal", grupos:["turnos"] },
+  { id:"junta", label:"La Junta", ic:"users", grupos:["junta"] },
+  { id:"escuela", label:"Escuela OZEN", ic:"book", grupos:["escuela"] },
+  { id:"cuenta", label:"Cuenta y usuarios", ic:"key", grupos:["cuenta"] },
+];
+// Permisos que son solo MIRAR (si alguien tiene únicamente de estos en un área, su nivel es "Solo ver").
+const PERM_SOLO_VER = new Set(["ventas.registrar.ver","ventas.lista.ver","ventas.metricas.ver","ventas.metricas.consultas","caja.ver","caja.detalle_calculo","asistencia.historial","asistencia.panel","asistencia.registros.ver","asistencia.informes","turnos.ver","junta.ver","escuela.progreso"]);
+// Permisos que son "pedir permiso" — existen justo para quien NO puede hacer la acción directa,
+// así que no tenerlos no le quita a nadie el nivel "Completo" (master no pide: aprueba).
+const PERM_PEDIR = new Set(["ventas.correccion.solicitar","caja.borrado.solicitar","junta.tareas.autorreportar","junta.tareas.borrado.solicitar"]);
+// Permisos "pasivos": la persona no hace nada, solo aparece en una lista (vendedores, quién recibe
+// una recolección). No cuentan para el nivel de acceso de un área — un asesor que sale en la lista
+// de vendedores no por eso "entra" a Ventas.
+const PERM_PASIVO = new Set(["ventas.vendedor","caja.recoleccion.recibir"]);
 
-// Qué puede hacer UNA persona hoy: lo de su rol, más los casos que dependen de quién es
-// (Monitor del mes y líder de la Junta — los dos se reconocen por nombre, igual que en La Junta).
+const permMesActual = () => MESES_LARGO[toColombiaDate().getMonth()].toLowerCase();
+const permCuentaDeLider = (l, users) => users.find(u => u.active!==false && liderEsDeUsuario(l, u)) || null;
+
+// Qué puede hacer UN ROL (sin mirar a nadie en particular).
+const permDeRol = (rol) => PERMISOS.map(p => {
+  const v = p.r[rol];
+  return v === undefined ? { p, puede:false } : { p, puede:true, origen:"rol", cond: v===1 ? null : v };
+});
+// Qué puede hacer UNA persona hoy: lo de su rol, más los casos que dependen de quién es (Monitor
+// del mes y líder de la Junta — por cuenta enlazada o, si no la tiene, por nombre).
 const permDePersona = (u, lideres) => {
   const esMonitor = esMonitorActual(u, lideres);
-  const esLider = (lideres||[]).some(l => permMismoNombre(l.nombre, u.name));
+  const esLider = (lideres||[]).some(l => liderEsDeUsuario(l, u));
   return PERMISOS.map(p => {
     const base = p.r[u.role];
     if (base === undefined) return { p, puede:false };
     if (base === 1) return { p, puede:true, origen:"rol" };
     if (base === PERM_SI_MONITOR) return esMonitor
-      ? { p, puede:true, origen:"monitor", cond: p.id==="junta.tareas.borrar" ? "solo tareas activas" : null }
+      ? { p, puede:true, origen:"monitor", cond: p.id==="junta.tareas.borrar" ? "solo tareas activas" : p.id==="junta.tareas.borrado.solicitar" ? "vencidas o cumplidas" : null }
       : { p, puede:false, falta:"solo cuando sea Monitor del mes" };
     if (base === PERM_SI_SU_TAREA) return (esLider && !esMonitor)
       ? { p, puede:true, origen:"lider", cond:"solo sus tareas" }
@@ -1722,6 +1763,19 @@ const permDePersona = (u, lideres) => {
     return { p, puede:true, origen:"rol", cond:base };
   });
 };
+// Nivel de acceso de un conjunto de filas (un área): Sin acceso · Solo ver · Parcial · Completo.
+const permNivel = (todas) => {
+  const filas = todas.filter(d => !PERM_PASIVO.has(d.p.id));
+  // El total no cuenta los "pedir permiso" que la persona no tiene (ver PERM_PEDIR): así la barra
+  // de quien lo puede todo se llena completa.
+  const puede = filas.filter(d => d.puede), k = puede.length, n = filas.filter(d => d.puede || !PERM_PEDIR.has(d.p.id)).length;
+  const fijo = puede.filter(d => !d.cond).length;
+  if (!k) return { k, n, fijo, id:"nada", label:"Sin acceso", color:C.textMuted };
+  if (puede.every(d => PERM_SOLO_VER.has(d.p.id))) return { k, n, fijo, id:"ver", label:"Solo ver", color:C.blue };
+  if (filas.every(d => d.puede || PERM_PEDIR.has(d.p.id))) return { k, n, fijo, id:"completo", label:"Completo", color:C.green };
+  return { k, n, fijo, id:"parcial", label:"Parcial", color:C.amber };
+};
+const permFilasDeArea = (filas, area) => filas.filter(d => area.grupos.includes(d.p.g));
 
 // Etiquetas de una persona: lo que la distingue de otra con su mismo rol.
 const permEtiquetasDe = (u, lideres, stores) => {
@@ -1730,7 +1784,7 @@ const permEtiquetasDe = (u, lideres, stores) => {
   if (esMonitorActual(u, lideres)) out.push(PERM_ROLES_GESTION_JUNTA.includes(u.role)
     ? { t:`Monitor de ${permMesActual()}`, c:C.blue }
     : { t:`Monitor de ${permMesActual()} — su rol no le deja manejar tareas`, c:C.amber });
-  else if ((lideres||[]).some(l => permMismoNombre(l.nombre, u.name))) out.push({ t:"Líder de la Junta", c:C.blue });
+  else if ((lideres||[]).some(l => liderEsDeUsuario(l, u))) out.push({ t:"Líder de la Junta", c:C.blue });
   if (esUsuarioDeTurnos(u)) out.push(activoEnMallaTurnos(u) ? { t:"En la malla de turnos", c:C.green } : { t:"Fuera de la malla de turnos", c:C.textMuted });
   if (u.role==="tienda") {
     out.push(stores[u.tienda_id] ? { t:`Fija en ${nombreTiendaCorto(stores[u.tienda_id])}`, c:C.gold } : { t:"Sin tienda asignada", c:C.amber });
@@ -1746,41 +1800,408 @@ const permAvisos = (users, lideres) => {
   const avisos = [];
   const monitor = getMonitorActual(lideres);
   const mes = permMesActual();
-  if (!monitor?.nombre) avisos.push({ c:C.amber, t:`No hay Monitor de ${mes}: La Junta no tiene líderes con nombre. Hoy solo Master puede manejar las tareas.` });
+  const nombreMon = monitor?.nombre?.trim();
+  if (!monitor) avisos.push({ c:C.amber, t:`No hay Monitor de ${mes}: La Junta no tiene líderes. Hoy solo Master puede manejar las tareas.` });
   else {
-    const cuentas = activos.filter(u => permMismoNombre(monitor.nombre, u.name));
-    if (!cuentas.length) avisos.push({ c:C.amber, t:`El Monitor de ${mes} es ${monitor.nombre}, pero ninguna cuenta activa se llama exactamente así. Hoy solo Master puede manejar las tareas de La Junta.` });
-    else if (!cuentas.some(u => PERM_ROLES_GESTION_JUNTA.includes(u.role))) avisos.push({ c:C.amber, t:`El Monitor de ${mes} es ${monitor.nombre}, pero su cuenta es ${ROLE_LABEL[cuentas[0].role]||cuentas[0].role} y ese rol no puede manejar tareas.` });
-    else avisos.push({ c:C.green, t:`Monitor de ${mes}: ${monitor.nombre}.` });
+    const cuenta = permCuentaDeLider(monitor, users);
+    if (!cuenta) avisos.push({ c:C.amber, t:`El Monitor de ${mes} es ${nombreMon||"un líder sin nombre"}, pero no tiene una cuenta enlazada ni una cuenta activa con ese mismo nombre. Hoy solo Master puede manejar las tareas de La Junta.` });
+    else if (!PERM_ROLES_GESTION_JUNTA.includes(cuenta.role)) avisos.push({ c:C.amber, t:`El Monitor de ${mes} es ${nombreMon||cuenta.name}, pero su cuenta es ${ROLE_LABEL[cuenta.role]||cuenta.role} y ese rol no puede manejar tareas.` });
   }
-  const sinCuenta = (lideres||[]).filter(l => l.nombre && l.nombre.trim() && !activos.some(u => permMismoNombre(l.nombre, u.name)));
-  if (sinCuenta.length) avisos.push({ c:C.amber, t:`Líderes de La Junta sin una cuenta activa con su mismo nombre (no podrán ser Monitor ni autorreportar): ${sinCuenta.map(l=>l.nombre.trim()).join(", ")}.` });
+  const conNombre = (lideres||[]).filter(l => l.nombre && l.nombre.trim());
+  const sinCuenta = conNombre.filter(l => !permCuentaDeLider(l, users));
+  if (sinCuenta.length) avisos.push({ c:C.amber, t:`Líderes de La Junta sin cuenta (no podrán ser Monitor ni autorreportar): ${sinCuenta.map(l=>l.nombre.trim()).join(", ")}. Enlázalos en «Monitor y líderes».` });
+  const porNombre = conNombre.filter(l => !l.usuario_id && permCuentaDeLider(l, users));
+  if (porNombre.length) avisos.push({ c:C.textMuted, t:`${porNombre.length===1?"1 líder todavía se reconoce":`${porNombre.length} líderes todavía se reconocen`} solo por el nombre: ${porNombre.map(l=>l.nombre.trim()).join(", ")}. Enlazarlos con su cuenta evita que un cambio de nombre los deje por fuera.` });
   PERM_ROLES.filter(r => !activos.some(u => u.role===r)).forEach(r => avisos.push({ c:C.textMuted, t:`Nadie activo tiene el rol ${ROLE_LABEL[r]}.` }));
   return avisos;
 };
 
+// Fase 2: la tabla permisos_roles debe decir EXACTAMENTE lo mismo que PERMISOS. Devuelve las
+// diferencias (vacío = coinciden) para mostrarlas en el tablero.
+const permCompararConBase = (filasBase) => {
+  const esperado = new Map();
+  PERMISOS.forEach(p => Object.entries(p.r).forEach(([rol, v]) => esperado.set(`${p.id}|${rol}`, v===1 ? null : v)));
+  const enBase = new Map((filasBase||[]).map(f => [`${f.permiso}|${f.rol}`, f.condicion || null]));
+  const nombre = (k) => { const [id, rol] = k.split("|"); return `${PERMISOS.find(p=>p.id===id)?.label || id} → ${ROLE_LABEL[rol] || rol}`; };
+  const difs = [];
+  esperado.forEach((cond, k) => {
+    if (!enBase.has(k)) difs.push(`Falta en la base: ${nombre(k)}`);
+    else if (enBase.get(k) !== cond) difs.push(`Condición distinta: ${nombre(k)} (código: ${cond||"siempre"} · base: ${enBase.get(k)||"siempre"})`);
+  });
+  enBase.forEach((_, k) => { if (!esperado.has(k)) difs.push(`Sobra en la base: ${nombre(k)}`); });
+  return { total:esperado.size, difs };
+};
+
 const PermCandado = () => <span title="Acción sensible: toca plata, borra algo o cambia accesos" style={{ display:"inline-flex", verticalAlign:"-2px", marginLeft:5, color:C.red }}><Icon n="lock" s={13}/></span>;
 const PermCondicion = ({ children, color=C.amber, fondo=C.amberDim }) => <span style={{ display:"inline-block", fontFamily:font.body, fontSize:10.5, fontWeight:600, lineHeight:1.25, color, background:fondo, borderRadius:8, padding:"2px 7px" }}>{children}</span>;
-const PermPildora = ({ activo, onClick, children }) => (
-  <button onClick={onClick} style={{ padding:"7px 16px", borderRadius:99, border:`1px solid ${activo?C.gold:C.border}`, background:activo?`${C.gold}18`:"transparent", color:activo?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>{children}</button>
+const PermPildora = ({ activo, onClick, children, ic }) => (
+  <button onClick={onClick} className="perm-pildora" style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"7px 15px", borderRadius:99, border:`1px solid ${activo?C.gold:C.border}`, background:activo?C.goldDark:"transparent", color:activo?C.tinta:C.textMuted, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>{ic && <Icon n={ic} s={14}/>}{children}</button>
+);
+// Interruptor (por ahora de adorno: se enciende de verdad en la Fase 4).
+const PermSwitch = ({ estado }) => {
+  const on = estado!=="no";
+  return (
+    <span title="Por ahora solo se consulta — los interruptores se podrán mover en la Fase 4" style={{ width:32, height:18, borderRadius:99, background:estado==="si"?C.green:estado==="cond"?C.amber:"rgba(26,59,82,0.16)", position:"relative", flexShrink:0, display:"inline-block", transition:"background .25s" }}>
+      <span style={{ position:"absolute", top:2, left:on?16:2, width:14, height:14, borderRadius:"50%", background:"#fff", transition:"left .25s cubic-bezier(.34,1.4,.5,1)" }}/>
+    </span>
+  );
+};
+// Barrita de un área: verde = puede siempre, ámbar = puede con condición, gris = no puede.
+const PermBarra = ({ nivel, alto=6 }) => (
+  <span style={{ flex:1, minWidth:40, height:alto, borderRadius:99, background:"rgba(26,59,82,0.10)", display:"flex", overflow:"hidden" }}>
+    <span style={{ width:`${nivel.n?nivel.fijo/nivel.n*100:0}%`, background:nivel.id==="ver"?C.blue:C.green, transition:"width .4s" }}/>
+    <span style={{ width:`${nivel.n?(nivel.k-nivel.fijo)/nivel.n*100:0}%`, background:C.amber, transition:"width .4s" }}/>
+  </span>
+);
+const PermAnillo = ({ k, n, size=62 }) => {
+  const r = (size-9)/2, largo = 2*Math.PI*r;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink:0 }}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(26,59,82,0.10)" strokeWidth="7"/>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={C.green} strokeWidth="7" strokeLinecap="round" strokeDasharray={`${n?largo*k/n:0} ${largo}`} transform={`rotate(-90 ${size/2} ${size/2})`}/>
+      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central" style={{ fontFamily:font.body, fontSize:size*0.3, fontWeight:700, fill:C.text }}>{k}</text>
+    </svg>
+  );
+};
+const PermAvatar = ({ u, size=30 }) => (
+  <span title={`${u.name} · ${ROLE_LABEL[u.role]||u.role}`} style={{ width:size, height:size, borderRadius:"50%", background:ROLE_COLOR[u.role]||C.textMuted, color:"#fff", display:"inline-flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:size*0.42, fontWeight:700, flexShrink:0, border:"2px solid #fff", boxSizing:"border-box", textTransform:"uppercase", opacity:u.active===false?0.5:1 }}>{(u.name||"?")[0]}</span>
+);
+const PermEstilos = () => (
+  <style>{`
+    .perm-tarjeta { transition: transform .18s cubic-bezier(.34,1.3,.5,1), border-color .18s, box-shadow .18s; }
+    .perm-tarjeta:hover { transform: translateY(-3px); border-color: ${C.gold} !important; box-shadow: 0 6px 18px rgba(26,59,82,0.10); }
+    .perm-fila:hover { background: ${C.surfaceAlt}; }
+    .perm-area { transition: background .15s; }
+    .perm-area:hover { background: ${C.surfaceHover} !important; }
+    .perm-pildora { transition: background .15s, color .15s, border-color .15s; }
+    .perm-persona { transition: background .15s, border-color .15s; }
+    .perm-persona:hover { background: ${C.surfaceHover}; border-color: ${C.borderGold} !important; }
+  `}</style>
 );
 
-function PermisosScreen({ users, stores, lideres }) {
+// Detalle permiso por permiso, agrupado por área, con interruptores. Sirve igual para un rol y
+// para una persona (`conOrigen` agrega de dónde le viene cada permiso a la persona).
+function PermDetalle({ filas, conOrigen }) {
+  const [filtro, setFiltro] = useState("todo"); // 'todo' | 'puede' | 'no' | 'sensibles'
+  // Las áreas arrancan plegadas (se ve el nivel de cada una y se abre la que interese). Con un
+  // filtro puesto se abren todas, porque ahí ya se está buscando algo puntual.
+  const [abiertas, setAbiertas] = useState(()=>new Set());
+  const [notaAbierta, setNotaAbierta] = useState(null);
+  const toggle = (id) => setAbiertas(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const pasa = (d) => filtro==="todo" || (filtro==="puede" && d.puede) || (filtro==="no" && !d.puede) || (filtro==="sensibles" && d.p.sensible);
+  const origenDe = (d) => d.origen==="monitor" ? <Badge color={C.blue} sm>Por ser Monitor este mes</Badge>
+    : d.origen==="lider" ? <Badge color={C.blue} sm>Por ser líder de la Junta</Badge>
+    : <Badge color={C.textMuted} sm>Por su rol</Badge>;
+  const opciones = [["todo","Todo"],["puede",`Puede (${filas.filter(d=>d.puede).length})`],["no",`No puede (${filas.filter(d=>!d.puede).length})`],["sensibles",`Sensibles (${filas.filter(d=>d.p.sensible).length})`]];
+  return (
+    <div>
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap", margin:"16px 0 10px" }}>
+        {opciones.map(([id, label]) => <PermPildora key={id} activo={filtro===id} onClick={()=>setFiltro(id)}>{label}</PermPildora>)}
+      </div>
+      {PERM_AREAS.map(area => {
+        const todas = permFilasDeArea(filas, area);
+        const vis = todas.filter(pasa);
+        if (!vis.length) return null;
+        const nivel = permNivel(todas);
+        const abierta = filtro!=="todo" || abiertas.has(area.id);
+        return (
+          <div key={area.id} style={{ border:`1px solid ${C.border}`, borderRadius:12, marginBottom:10, overflow:"hidden", background:C.surface }}>
+            <button onClick={()=>toggle(area.id)} className="perm-area" style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"11px 14px", background:C.surfaceAlt, border:"none", cursor:"pointer", fontFamily:font.body, textAlign:"left" }}>
+              <span style={{ width:28, height:28, borderRadius:8, background:`${nivel.color}1F`, color:nivel.color, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n={area.ic} s={16}/></span>
+              <span style={{ fontSize:13.5, fontWeight:700, color:C.text }}>{area.label}</span>
+              <PermBarra nivel={nivel}/>
+              <span style={{ fontSize:11.5, fontWeight:700, color:nivel.color, whiteSpace:"nowrap" }}>{nivel.label}</span>
+              <span style={{ fontSize:11.5, color:C.textMuted, whiteSpace:"nowrap" }}>{nivel.k}/{nivel.n}</span>
+              <span style={{ color:C.textMuted, display:"inline-flex" }}><Icon n={abierta?"up":"down"} s={14} sw={2.2}/></span>
+            </button>
+            {abierta && vis.map((d, i) => {
+              const nuevoGrupo = area.grupos.length>1 && (i===0 || vis[i-1].p.g!==d.p.g);
+              return (
+                <Fragment key={d.p.id}>
+                  {nuevoGrupo && <div style={{ padding:"9px 14px 3px", fontFamily:font.body, fontSize:10.5, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", borderTop:`1px solid ${C.border}` }}>{(PERM_GRUPOS.find(g=>g.id===d.p.g)?.label||"").replace("Ventas · ","")}</div>}
+                  <div className="perm-fila" onClick={d.p.nota ? ()=>setNotaAbierta(notaAbierta===d.p.id?null:d.p.id) : undefined} style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"9px 14px", borderTop:nuevoGrupo?"none":`1px solid ${C.border}`, cursor:d.p.nota?"pointer":"default" }}>
+                    <PermSwitch estado={!d.puede ? "no" : d.cond ? "cond" : "si"}/>
+                    <span style={{ flex:1, minWidth:180, fontFamily:font.body, fontSize:13, lineHeight:1.35, color:d.puede?C.text:C.textMuted }}>
+                      {d.p.label}{d.p.sensible && <PermCandado/>}
+                      {d.p.nota && <span style={{ marginLeft:6, fontSize:11, color:C.gold, textDecoration:"underline", whiteSpace:"nowrap" }}>{notaAbierta===d.p.id?"ocultar":"detalle"}</span>}
+                    </span>
+                    <span style={{ display:"inline-flex", gap:6, alignItems:"center", flexWrap:"wrap", justifyContent:"flex-end" }}>
+                      {d.puede && d.cond && <PermCondicion>{d.cond}</PermCondicion>}
+                      {d.puede && conOrigen && origenDe(d)}
+                      {!d.puede && d.falta && <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{d.falta}</span>}
+                    </span>
+                  </div>
+                  {notaAbierta===d.p.id && <div style={{ padding:"8px 14px 10px 56px", background:C.surfaceAlt, borderTop:`1px solid ${C.border}`, fontFamily:font.body, fontSize:12, color:C.textSub, lineHeight:1.45 }}>{d.p.nota}</div>}
+                </Fragment>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PermisosScreen({ users, stores, lideres, setLideres, user }) {
   const isMobile = useIsMobile();
-  const [vista, setVista] = useState("matriz"); // 'matriz' | 'persona'
+  const [vista, setVista] = useState("roles"); // 'roles' | 'personas' | 'quien' | 'monitor' | 'tabla'
+  const [rolSel, setRolSel] = useState(null);
+  const [personaId, setPersonaId] = useState(null);
+  const [permSel, setPermSel] = useState("caja.novedad.aprobar");
+  const [buscarPersona, setBuscarPersona] = useState("");
+  const [verAvisos, setVerAvisos] = useState(false);
+  const [verDifs, setVerDifs] = useState(false);
+  // Tabla completa
   const [soloSensibles, setSoloSensibles] = useState(false);
   const [buscar, setBuscar] = useState("");
   const [cerrados, setCerrados] = useState(()=>new Set());
   const [notaAbierta, setNotaAbierta] = useState(null);
-  const [personaId, setPersonaId] = useState("");
-  const [verNoPuede, setVerNoPuede] = useState(false);
+  // Fase 2: ¿la base de datos dice lo mismo que el código? Se consulta UNA vez al abrir el tablero.
+  // permisos_roles es chiquita y no crece sola (permisos × roles), por eso no usa traerTodo.
+  const [base, setBase] = useState(null); // null = consultando · { falta:true } · { total, difs }
+  useEffect(() => {
+    let vivo = true;
+    supabase.from("permisos_roles").select("permiso,rol,condicion").then(({ data, error }) => {
+      if (!vivo) return;
+      setBase(error || !data ? { falta:true } : permCompararConBase(data));
+    });
+    return () => { vivo = false; };
+  }, []);
 
   const activos = users.filter(u => u.active!==false);
+  const ordenRol = (r) => PERM_ROLES.indexOf(r);
+  const porNombre = (a, b) => ordenRol(a.role)-ordenRol(b.role) || (a.name||"").localeCompare(b.name||"");
+  const avisos = permAvisos(users, lideres);
+  const avisosFuertes = avisos.filter(a => a.c===C.amber).length;
+  const irAPersona = (u) => { setPersonaId(u.id); setVista("personas"); };
+  const verVista = (v) => { setVista(v); if (v==="roles") setRolSel(null); if (v==="personas") setPersonaId(null); };
+
+  // ── Vista: Roles ───────────────────────────────────────────────────────────
+  const tarjetaRol = (rol) => {
+    const filas = permDeRol(rol);
+    const gente = activos.filter(u => u.role===rol).sort(porNombre);
+    const puede = filas.filter(d => d.puede);
+    return (
+      <button key={rol} onClick={()=>setRolSel(rol)} className="perm-tarjeta" style={{ textAlign:"left", background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:0, cursor:"pointer", overflow:"hidden", display:"flex", flexDirection:"column", fontFamily:font.body }}>
+        <span style={{ height:5, background:ROLE_COLOR[rol]||C.textMuted, display:"block" }}/>
+        <span style={{ padding:"14px 16px 12px", display:"flex", flexDirection:"column", gap:10, flex:1 }}>
+          <span style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+            <span style={{ fontSize:16, fontWeight:700, color:C.text }}>{ROLE_LABEL[rol]}</span>
+            <span style={{ display:"inline-flex", alignItems:"center" }}>
+              {gente.slice(0,4).map((u, i) => <span key={u.id} style={{ marginLeft:i?-8:0, display:"inline-flex" }}><PermAvatar u={u} size={26}/></span>)}
+              {gente.length>4 && <span style={{ marginLeft:4, fontSize:11, color:C.textMuted }}>+{gente.length-4}</span>}
+              {!gente.length && <span style={{ fontSize:11, color:C.textMuted }}>nadie</span>}
+            </span>
+          </span>
+          <span style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {PERM_AREAS.map(area => { const nivel = permNivel(permFilasDeArea(filas, area)); return (
+              <span key={area.id} style={{ display:"flex", alignItems:"center", gap:8, opacity:nivel.id==="nada"?0.55:1 }}>
+                <span style={{ color:nivel.color, display:"inline-flex" }}><Icon n={area.ic} s={14}/></span>
+                <span style={{ width:isMobile?70:78, fontSize:12, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{area.label.replace(" OZEN","").replace(" y usuarios","")}</span>
+                <PermBarra nivel={nivel}/>
+                <span style={{ width:62, textAlign:"right", fontSize:11, fontWeight:700, color:nivel.color, whiteSpace:"nowrap" }}>{nivel.label}</span>
+              </span>
+            ); })}
+          </span>
+          <span style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginTop:"auto", paddingTop:8, borderTop:`1px solid ${C.border}`, fontSize:11.5, color:C.textMuted }}>
+            <span>{puede.length} de {PERMISOS.length} · {puede.filter(d=>d.p.sensible).length} sensibles</span>
+            <span style={{ color:C.gold, fontWeight:600, display:"inline-flex", alignItems:"center", gap:2 }}>Ver<Icon n="right" s={13} sw={2.2}/></span>
+          </span>
+        </span>
+      </button>
+    );
+  };
+  const detalleRol = () => {
+    const filas = permDeRol(rolSel);
+    const gente = users.filter(u => u.role===rolSel && u.active!==false).sort(porNombre);
+    const puede = filas.filter(d => d.puede);
+    return (
+      <div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14 }}>
+          <PermPildora onClick={()=>setRolSel(null)}>← Todos</PermPildora>
+          {PERM_ROLES.map(r => <PermPildora key={r} activo={r===rolSel} onClick={()=>setRolSel(r)}>{PERM_ROL_CORTO[r]}</PermPildora>)}
+        </div>
+        <Card key={rolSel} style={{ borderTop:`5px solid ${ROLE_COLOR[rolSel]||C.textMuted}` }}>
+          <div className="ozen-pane-anim-tab">
+            <div style={{ display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
+              <PermAnillo k={puede.length} n={PERMISOS.length}/>
+              <div style={{ flex:1, minWidth:200 }}>
+                <div style={{ fontFamily:font.body, fontSize:20, fontWeight:700, color:C.text }}>{ROLE_LABEL[rolSel]}</div>
+                <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginTop:2, lineHeight:1.45 }}>{ROLE_PERMISOS[rolSel]}</div>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:12, alignItems:"center" }}>
+              <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginRight:2 }}>{gente.length ? `${gente.length} ${gente.length===1?"persona":"personas"}` : "Nadie activo tiene este rol"}</span>
+              {gente.map(u => <button key={u.id} onClick={()=>irAPersona(u)} className="perm-persona" title="Ver lo que puede hacer esta persona" style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"3px 10px 3px 3px", borderRadius:99, border:`1px solid ${C.border}`, background:"transparent", cursor:"pointer", fontFamily:font.body, fontSize:12, color:C.text }}><PermAvatar u={u} size={22}/>{u.name}</button>)}
+            </div>
+            <PermDetalle filas={filas}/>
+          </div>
+        </Card>
+      </div>
+    );
+  };
+  const vistaRoles = rolSel ? detalleRol() : (
+    <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill, minmax(270px, 1fr))", gap:12 }}>{PERM_ROLES.map(tarjetaRol)}</div>
+  );
+
+  // ── Vista: Personas ────────────────────────────────────────────────────────
+  const persona = personaId!=null ? users.find(u => String(u.id)===String(personaId)) : null;
+  const qPersona = buscarPersona.trim().toLowerCase();
+  const fichaPersona = (u) => (
+    <button key={u.id} onClick={()=>setPersonaId(u.id)} className="perm-persona" style={{ display:"flex", alignItems:"center", gap:9, padding:"7px 12px 7px 7px", borderRadius:99, border:`1px solid ${C.border}`, background:C.surface, cursor:"pointer", fontFamily:font.body, fontSize:13, color:C.text, opacity:u.active===false?0.6:1 }}>
+      <PermAvatar u={u}/>{u.name}
+      {esMonitorActual(u, lideres) && <span title={`Monitor de ${permMesActual()}`} style={{ color:C.blue, display:"inline-flex" }}><Icon n="flag" s={13}/></span>}
+    </button>
+  );
+  const detallePersona = () => {
+    const filas = permDePersona(persona, lideres);
+    const puede = filas.filter(d => d.puede);
+    return (
+      <div>
+        <div style={{ marginBottom:14 }}><PermPildora onClick={()=>setPersonaId(null)}>← Todas las personas</PermPildora></div>
+        <Card key={persona.id} style={{ borderTop:`5px solid ${ROLE_COLOR[persona.role]||C.textMuted}` }}>
+          <div className="ozen-pane-anim-tab">
+            <div style={{ display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
+              <PermAnillo k={puede.length} n={PERMISOS.length}/>
+              <div style={{ flex:1, minWidth:180 }}>
+                <div style={{ fontFamily:font.body, fontSize:20, fontWeight:700, color:C.text }}>{persona.name}</div>
+                <div style={{ marginTop:5, display:"flex", gap:6, flexWrap:"wrap" }}>
+                  <button onClick={()=>{ setRolSel(persona.role); setVista("roles"); }} title="Ver este rol" style={{ background:"none", border:"none", padding:0, cursor:"pointer" }}><Badge color={ROLE_COLOR[persona.role]||C.textMuted} sm>{ROLE_LABEL[persona.role]||persona.role}</Badge></button>
+                  {permEtiquetasDe(persona, lideres, stores).map(e => <Badge key={e.t} color={e.c} sm>{e.t}</Badge>)}
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:16, fontFamily:font.body }}>
+                <div style={{ textAlign:"center" }}><div style={{ fontSize:20, fontWeight:700, color:C.red }}>{puede.filter(d=>d.p.sensible).length}</div><div style={{ fontSize:10.5, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>sensibles</div></div>
+                <div style={{ textAlign:"center" }}><div style={{ fontSize:20, fontWeight:700, color:C.amber }}>{puede.filter(d=>d.cond).length}</div><div style={{ fontSize:10.5, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>con condición</div></div>
+                <div style={{ textAlign:"center" }}><div style={{ fontSize:20, fontWeight:700, color:C.blue }}>{puede.filter(d=>d.origen!=="rol").length}</div><div style={{ fontSize:10.5, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>fuera del rol</div></div>
+              </div>
+            </div>
+            {persona.active===false && <div style={{ marginTop:14, background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:8, padding:"9px 12px", fontFamily:font.body, fontSize:12.5, color:C.red }}>Esta cuenta está inactiva: no puede iniciar sesión. Lo de abajo es lo que podría hacer si se reactiva.</div>}
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(auto-fit, minmax(120px, 1fr))", gap:8, marginTop:14 }}>
+              {PERM_AREAS.map(area => { const nivel = permNivel(permFilasDeArea(filas, area)); return (
+                <div key={area.id} style={{ border:`1px solid ${C.border}`, borderRadius:10, padding:"8px 10px", opacity:nivel.id==="nada"?0.55:1 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:11.5, color:C.text, fontWeight:600 }}><span style={{ color:nivel.color, display:"inline-flex" }}><Icon n={area.ic} s={13}/></span>{area.label.replace(" OZEN","").replace(" y usuarios","")}</div>
+                  <div style={{ fontFamily:font.body, fontSize:12, fontWeight:700, color:nivel.color, marginTop:3 }}>{nivel.label}</div>
+                </div>
+              ); })}
+            </div>
+            <PermDetalle filas={filas} conOrigen/>
+            <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, lineHeight:1.45, marginTop:6 }}>Hoy todo viene del rol o de ser Monitor o líder. Las excepciones personales (darle o quitarle algo a una sola persona) se editan desde la Fase 4 y saldrán aquí con otro color.</div>
+          </div>
+        </Card>
+      </div>
+    );
+  };
+  const vistaPersonas = persona ? detallePersona() : (
+    <div>
+      <input value={buscarPersona} onChange={e=>setBuscarPersona(e.target.value)} placeholder="Buscar a alguien por nombre…" style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"10px 12px", color:C.text, fontSize:13.5, fontFamily:font.body, outline:"none", marginBottom:14, boxSizing:"border-box" }}/>
+      {PERM_ROLES.map(r => { const lista = activos.filter(u => u.role===r && (!qPersona || (u.name||"").toLowerCase().includes(qPersona))).sort(porNombre); return lista.length ? (
+        <div key={r} style={{ marginBottom:14 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:7, fontFamily:font.body, fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:7 }}><span style={{ width:8, height:8, borderRadius:"50%", background:ROLE_COLOR[r]||C.textMuted }}/>{ROLE_LABEL[r]} · {lista.length}</div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>{lista.map(fichaPersona)}</div>
+        </div>
+      ) : null; })}
+      {(() => { const inact = users.filter(u => u.active===false && (!qPersona || (u.name||"").toLowerCase().includes(qPersona))).sort(porNombre); return inact.length ? (
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontFamily:font.body, fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:7 }}>Retirados e inactivos · {inact.length}</div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>{inact.map(fichaPersona)}</div>
+        </div>
+      ) : null; })()}
+    </div>
+  );
+
+  // ── Vista: ¿Quién puede…? ──────────────────────────────────────────────────
+  const permisoSel = PERMISOS.find(p => p.id===permSel) || PERMISOS[0];
+  const quienes = activos.map(u => ({ u, d:permDePersona(u, lideres).find(x => x.p.id===permisoSel.id) })).filter(x => x.d.puede).sort((a, b) => porNombre(a.u, b.u));
+  const vistaQuien = (
+    <div>
+      <select value={permisoSel.id} onChange={e=>setPermSel(e.target.value)} style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"10px 12px", color:C.text, fontSize:13.5, fontFamily:font.body, outline:"none", marginBottom:10, boxSizing:"border-box", cursor:"pointer" }}>
+        {PERM_GRUPOS.map(g => <optgroup key={g.id} label={g.label}>{PERMISOS.filter(p=>p.g===g.id).map(p => <option key={p.id} value={p.id}>{p.label}{p.sensible?" 🔒":""}</option>)}</optgroup>)}
+      </select>
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14, alignItems:"center" }}>
+        <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>Sensibles:</span>
+        {PERMISOS.filter(p => p.sensible).map(p => <button key={p.id} onClick={()=>setPermSel(p.id)} className="perm-pildora" style={{ padding:"4px 10px", borderRadius:99, border:`1px solid ${p.id===permisoSel.id?C.red:C.border}`, background:p.id===permisoSel.id?C.redDim:"transparent", color:p.id===permisoSel.id?C.red:C.textMuted, fontFamily:font.body, fontSize:11.5, cursor:"pointer" }}>{p.label.split(":")[0].split(" (")[0]}</button>)}
+      </div>
+      <Card key={permisoSel.id}>
+        <div className="ozen-pane-anim-tab">
+          <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>{PERM_GRUPOS.find(g=>g.id===permisoSel.g)?.label}</div>
+          <div style={{ fontFamily:font.body, fontSize:19, fontWeight:700, color:C.text, margin:"3px 0 4px", lineHeight:1.3 }}>¿Quién puede {permisoSel.label.charAt(0).toLowerCase()+permisoSel.label.slice(1)}?{permisoSel.sensible && <PermCandado/>}</div>
+          {permisoSel.nota && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, lineHeight:1.45 }}>{permisoSel.nota}</div>}
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap", margin:"14px 0 4px" }}>
+            {PERM_ROLES.map(r => { const v = permisoSel.r[r]; const col = v===undefined ? C.textMuted : v===1 ? C.green : C.amber; return (
+              <button key={r} onClick={()=>{ setRolSel(r); setVista("roles"); }} title="Ver este rol" style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"5px 11px", borderRadius:99, border:`1px solid ${v===undefined?C.border:col}`, background:v===undefined?"transparent":`${col}16`, color:col, fontFamily:font.body, fontSize:12, fontWeight:600, cursor:"pointer", opacity:v===undefined?0.6:1, textDecoration:v===undefined?"line-through":"none" }}>
+                {v!==undefined && <Icon n="check" s={13} sw={2.6}/>}{ROLE_LABEL[r]}{typeof v==="string" && <span style={{ fontWeight:400 }}>· {v}</span>}
+              </button>
+            ); })}
+          </div>
+          <div style={{ fontFamily:font.body, fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 8px" }}>{quienes.length ? `${quienes.length} ${quienes.length===1?"persona puede":"personas pueden"} hoy` : "Hoy nadie puede"}</div>
+          <div style={{ display:"flex", flexDirection:"column" }}>
+            {quienes.map(({ u, d }) => (
+              <button key={u.id} onClick={()=>irAPersona(u)} className="perm-fila" style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"7px 6px", border:"none", borderTop:`1px solid ${C.border}`, background:"transparent", cursor:"pointer", fontFamily:font.body, fontSize:13, color:C.text, textAlign:"left" }}>
+                <PermAvatar u={u}/><span style={{ flex:1, minWidth:140 }}>{u.name}</span>
+                {d.cond && <PermCondicion>{d.cond}</PermCondicion>}
+                {d.origen==="monitor" ? <Badge color={C.blue} sm>Monitor este mes</Badge> : d.origen==="lider" ? <Badge color={C.blue} sm>Líder de la Junta</Badge> : <Badge color={ROLE_COLOR[u.role]||C.textMuted} sm>{ROLE_LABEL[u.role]||u.role}</Badge>}
+              </button>
+            ))}
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+
+  // ── Vista: Monitor y líderes ───────────────────────────────────────────────
+  const hoyCol = toColombiaDate();
+  const monitor = getMonitorActual(lideres);
+  const sigMes = new Date(hoyCol.getFullYear(), hoyCol.getMonth()+1, 1);
+  const monitorSig = getMonitorDeMes(lideres, sigMes.getFullYear(), sigMes.getMonth());
+  const hayColumnaEnlace = (lideres||[]).length>0 && Object.prototype.hasOwnProperty.call(lideres[0], "usuario_id");
+  const cuentasEnlazables = activos.filter(u => puedeUsarAreas(u)).sort(porNombre);
+  const enlazar = async (l, usuarioId) => {
+    const nuevo = usuarioId || null;
+    const { data, error } = await supabase.from("junta_lideres").update({ usuario_id:nuevo }).eq("id", l.id).select().single();
+    if (error || !data) { alert(`No se pudo guardar el enlace: ${error?.message||"error desconocido"}${/usuario_id/.test(error?.message||"") ? "\n\nFalta correr el archivo sql/permisos_fase2.sql en Supabase." : ""}`); return; }
+    setLideres(prev => prev.map(x => x.id===l.id ? data : x));
+    // Rastro del cambio (el historial se ve en la Fase 4). Si la tabla aún no existe, no pasa nada.
+    const cuenta = users.find(u => String(u.id)===String(nuevo));
+    supabase.from("permisos_historial").insert({ hecho_por:user?.name||null, hecho_por_id:user?.id!=null?String(user.id):null, accion:nuevo?"lider_enlazar":"lider_desenlazar", usuario_id:nuevo?String(nuevo):null, usuario_nombre:cuenta?.name||null, antes:{ lider:l.nombre||null, usuario_id:l.usuario_id||null }, despues:{ lider:l.nombre||null, usuario_id:nuevo } }).then(()=>{});
+  };
+  const tarjetaMonitor = (titulo, l, fuerte) => { const cuenta = l ? permCuentaDeLider(l, users) : null; return (
+    <div style={{ flex:1, minWidth:220, border:`1px solid ${fuerte?C.borderGold:C.border}`, borderRadius:14, padding:"14px 16px", background:fuerte?C.surfaceHover:C.surface }}>
+      <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}><Icon n="flag" s={13}/>{titulo}</div>
+      <div style={{ fontFamily:font.body, fontSize:fuerte?20:16, fontWeight:700, color:C.text, marginTop:4 }}>{l ? (l.nombre?.trim() || "— sin nombre") : "— sin líderes"}</div>
+      {l && <div style={{ marginTop:6 }}>{cuenta ? <Badge color={PERM_ROLES_GESTION_JUNTA.includes(cuenta.role)?C.green:C.amber} sm>{l.usuario_id?"Cuenta enlazada":"Por nombre"} · {ROLE_LABEL[cuenta.role]||cuenta.role}</Badge> : <Badge color={C.amber} sm>Sin cuenta</Badge>}</div>}
+    </div>
+  ); };
+  const vistaMonitor = (
+    <div>
+      <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:14 }}>
+        {tarjetaMonitor(`Monitor de ${permMesActual()}`, monitor, true)}
+        {tarjetaMonitor(`Sigue en ${MESES_LARGO[sigMes.getMonth()].toLowerCase()}`, monitorSig, false)}
+      </div>
+      <Card>
+        <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.text }}>Líderes de La Junta y sus cuentas</div>
+        <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, lineHeight:1.45, margin:"3px 0 10px" }}>Al enlazar un líder con su cuenta, la app deja de fijarse en el nombre para saber quién es el Monitor y de quién es cada tarea. Mientras un líder no esté enlazado, se sigue comparando por nombre como siempre.</div>
+        {!hayColumnaEnlace && (lideres||[]).length>0 && <div style={{ background:C.amberDim, border:`1px solid ${C.amber}55`, borderRadius:8, padding:"9px 12px", fontFamily:font.body, fontSize:12.5, color:C.amber, marginBottom:10 }}>Para poder enlazar, primero hay que correr el archivo <b>sql/permisos_fase2.sql</b> en Supabase. Mientras tanto todo sigue por nombre.</div>}
+        {(lideres||[]).map((l, i) => { const cuenta = permCuentaDeLider(l, users); return (
+          <div key={l.id} style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"9px 0", borderTop:`1px solid ${C.border}` }}>
+            <span style={{ width:24, height:24, borderRadius:"50%", background:C.surfaceHover, color:C.textSub, display:"grid", placeItems:"center", fontFamily:font.body, fontSize:11.5, fontWeight:700, flexShrink:0 }}>{i+1}</span>
+            <span style={{ flex:1, minWidth:140, fontFamily:font.body, fontSize:13.5, fontWeight:600, color:C.text }}>{l.nombre?.trim() || "— sin nombre"}{monitor && l.id===monitor.id && <span style={{ marginLeft:6, color:C.blue, display:"inline-flex", verticalAlign:"-2px" }} title="Monitor de este mes"><Icon n="flag" s={13}/></span>}</span>
+            {l.usuario_id ? <Badge color={C.green} sm>Enlazado</Badge> : cuenta ? <Badge color={C.textMuted} sm title={`Hoy se reconoce porque su cuenta se llama igual: ${cuenta.name}`}>Por nombre</Badge> : <Badge color={C.amber} sm>Sin cuenta</Badge>}
+            <select value={l.usuario_id ? String(l.usuario_id) : ""} disabled={!hayColumnaEnlace} onChange={e=>enlazar(l, e.target.value)} style={{ width:isMobile?"100%":230, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 9px", color:C.text, fontSize:12.5, fontFamily:font.body, outline:"none", cursor:hayColumnaEnlace?"pointer":"not-allowed", opacity:hayColumnaEnlace?1:0.55 }}>
+              <option value="">{cuenta && !l.usuario_id ? `Sin enlazar (hoy: ${cuenta.name})` : "Sin enlazar"}</option>
+              {cuentasEnlazables.map(u => <option key={u.id} value={String(u.id)}>{u.name} · {ROLE_LABEL[u.role]||u.role}</option>)}
+            </select>
+          </div>
+        ); })}
+        {!(lideres||[]).length && <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>La Junta todavía no tiene líderes configurados.</div>}
+      </Card>
+    </div>
+  );
+
+  // ── Vista: Tabla completa (rol × permiso) ──────────────────────────────────
   const q = buscar.trim().toLowerCase();
   const visibles = PERMISOS.filter(p => (!soloSensibles || p.sensible) && (!q || p.label.toLowerCase().includes(q)));
-  const avisos = permAvisos(users, lideres);
   const toggleGrupo = (id) => setCerrados(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-
   const th = { padding:"8px 4px", fontFamily:font.body, fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", textAlign:"center", borderBottom:`1px solid ${C.border}` };
   const td = { padding:"9px 4px", textAlign:"center", borderBottom:`1px solid ${C.border}`, verticalAlign:"middle" };
   const celda = (p, rol) => {
@@ -1789,18 +2210,11 @@ function PermisosScreen({ users, stores, lideres }) {
     if (v === 1) return <span style={{ display:"inline-flex", color:C.green }} title={p.id==="cuenta.permisos" ? "Protegido: no se le podrá quitar a Master" : undefined}><Icon n="check" s={17} sw={2.4}/></span>;
     return <PermCondicion>{v}</PermCondicion>;
   };
-
-  const vistaMatriz = (
+  const vistaTabla = (
     <div>
       <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginBottom:14 }}>
         <input value={buscar} onChange={e=>setBuscar(e.target.value)} placeholder="Buscar un permiso…" style={{ flex:1, minWidth:180, background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"9px 12px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
-        <PermPildora activo={soloSensibles} onClick={()=>setSoloSensibles(v=>!v)}>Solo sensibles</PermPildora>
-      </div>
-      <div style={{ display:"flex", gap:14, alignItems:"center", flexWrap:"wrap", marginBottom:14, fontFamily:font.body, fontSize:12, color:C.textMuted }}>
-        <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><span style={{ display:"inline-flex", color:C.green }}><Icon n="check" s={15} sw={2.4}/></span>puede</span>
-        <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><PermCondicion>solo hoy</PermCondicion>puede, con esa condición</span>
-        <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><span style={{ color:C.border }}>—</span>no puede</span>
-        <span style={{ display:"inline-flex", alignItems:"center", gap:2 }}><PermCandado/>&nbsp;sensible</span>
+        <PermPildora activo={soloSensibles} onClick={()=>setSoloSensibles(v=>!v)} ic="lock">Solo sensibles</PermPildora>
       </div>
       {PERM_GRUPOS.map(g => {
         const filas = visibles.filter(p => p.g===g.id);
@@ -1825,7 +2239,7 @@ function PermisosScreen({ users, stores, lideres }) {
                   <tbody>
                     {filas.map(p => (
                       <Fragment key={p.id}>
-                        <tr onClick={p.nota ? ()=>setNotaAbierta(notaAbierta===p.id?null:p.id) : undefined} style={{ cursor:p.nota?"pointer":"default" }}>
+                        <tr className="perm-fila" onClick={p.nota ? ()=>setNotaAbierta(notaAbierta===p.id?null:p.id) : undefined} style={{ cursor:p.nota?"pointer":"default" }}>
                           <td style={{ ...td, textAlign:"left", paddingLeft:16, fontFamily:font.body, fontSize:13, color:C.text, lineHeight:1.35 }}>
                             {p.label}{p.sensible && <PermCandado/>}
                             {p.nota && <span style={{ marginLeft:6, fontSize:11, color:C.gold, textDecoration:"underline", whiteSpace:"nowrap" }}>{notaAbierta===p.id?"ocultar":"detalle"}</span>}
@@ -1848,92 +2262,51 @@ function PermisosScreen({ users, stores, lideres }) {
     </div>
   );
 
-  const ordenRol = (r) => PERM_ROLES.indexOf(r);
-  const porNombre = (a, b) => ordenRol(a.role)-ordenRol(b.role) || (a.name||"").localeCompare(b.name||"");
-  const persona = users.find(u => String(u.id)===String(personaId));
-  const detalle = persona ? permDePersona(persona, lideres) : [];
-  const puede = detalle.filter(d => d.puede);
-  const tarjeta = (label, valor, sub) => (
-    <div style={{ background:C.surfaceAlt, borderRadius:10, padding:"10px 12px" }}>
-      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em" }}>{label}</div>
-      <div style={{ fontFamily:font.body, fontSize:22, fontWeight:700, color:C.text, marginTop:2 }}>{valor}{sub && <span style={{ fontSize:12, fontWeight:400, color:C.textMuted }}> {sub}</span>}</div>
-    </div>
-  );
-  const origenDe = (d) => d.origen==="monitor" ? <Badge color={C.blue} sm>Por ser Monitor este mes</Badge>
-    : d.origen==="lider" ? <Badge color={C.blue} sm>Por ser líder de la Junta</Badge>
-    : <Badge color={C.textMuted} sm>Por su rol</Badge>;
-
-  const vistaPersona = (
-    <div>
-      <select value={personaId} onChange={e=>setPersonaId(e.target.value)} style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"10px 12px", color:C.text, fontSize:13.5, fontFamily:font.body, outline:"none", marginBottom:14, boxSizing:"border-box", cursor:"pointer" }}>
-        <option value="">Elige una persona…</option>
-        {PERM_ROLES.map(r => { const lista = activos.filter(u=>u.role===r).sort(porNombre); return lista.length ? <optgroup key={r} label={ROLE_LABEL[r]}>{lista.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</optgroup> : null; })}
-        {users.some(u=>u.active===false) && <optgroup label="Retirados e inactivos">{users.filter(u=>u.active===false).sort(porNombre).map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</optgroup>}
-      </select>
-      {!persona && <Card><div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, lineHeight:1.5 }}>Elige a alguien para ver todo lo que puede hacer hoy y de dónde le viene cada permiso.</div></Card>}
-      {persona && (
-        <Card>
-          <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
-            <div style={{ width:40, height:40, borderRadius:10, background:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontWeight:700, fontSize:16, color:"#fff", flexShrink:0 }}>{(persona.name||"?")[0]}</div>
-            <div style={{ flex:1, minWidth:160 }}>
-              <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>{persona.name}</div>
-              <div style={{ marginTop:4 }}><Badge color={ROLE_COLOR[persona.role]||C.textMuted} sm>{ROLE_LABEL[persona.role]||persona.role}</Badge></div>
-            </div>
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"flex-end" }}>
-              {permEtiquetasDe(persona, lideres, stores).map(e => <Badge key={e.t} color={e.c} sm>{e.t}</Badge>)}
-            </div>
-          </div>
-          {persona.active===false && <div style={{ marginTop:14, background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:8, padding:"9px 12px", fontFamily:font.body, fontSize:12.5, color:C.red }}>Esta cuenta está inactiva: no puede iniciar sesión, así que hoy no puede hacer nada de lo de abajo. Es lo que podría hacer si se reactiva.</div>}
-          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3, minmax(0,1fr))", gap:10, margin:"16px 0 6px" }}>
-            {tarjeta("Puede hacer", puede.length, `de ${PERMISOS.length}`)}
-            {tarjeta("Sensibles", puede.filter(d=>d.p.sensible).length)}
-            {tarjeta("Con condición", puede.filter(d=>d.cond || d.origen!=="rol").length)}
-          </div>
-          <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, lineHeight:1.45, marginBottom:6 }}>Hoy todo viene del rol o de un caso especial (como ser Monitor). Las excepciones personales — darle o quitarle algo a una sola persona — se podrán guardar desde la Fase 2 y aparecerán aquí marcadas con otro color.</div>
-          {PERM_GRUPOS.map(g => {
-            const filas = detalle.filter(d => d.p.g===g.id && (d.puede || verNoPuede));
-            if (!filas.length) return null;
-            return (
-              <div key={g.id}>
-                <div style={{ fontFamily:font.body, fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"16px 0 2px" }}>{g.label}</div>
-                {filas.map(d => (
-                  <div key={d.p.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap", padding:"8px 0", borderTop:`1px solid ${C.border}`, fontFamily:font.body, fontSize:13, color:d.puede?C.text:C.textMuted }}>
-                    <span style={{ flex:1, minWidth:200, lineHeight:1.35 }}>{d.p.label}{d.p.sensible && d.puede && <PermCandado/>}</span>
-                    {d.puede
-                      ? <span style={{ display:"inline-flex", gap:6, alignItems:"center", flexWrap:"wrap", justifyContent:"flex-end" }}>{d.cond && <PermCondicion>{d.cond}</PermCondicion>}{origenDe(d)}</span>
-                      : <span style={{ fontSize:11.5, color:C.textMuted }}>{d.falta ? `No — ${d.falta}` : "No puede"}</span>}
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-          <div style={{ marginTop:16 }}><Btn onClick={()=>setVerNoPuede(v=>!v)} variant="ghost" sm>{verNoPuede?"Ocultar lo que no puede":"Mostrar también lo que no puede"}</Btn></div>
-        </Card>
-      )}
-    </div>
-  );
+  const chipBase = base===null ? { c:C.textMuted, t:"Revisando la base de datos…" }
+    : base.falta ? { c:C.textMuted, t:"Base de datos: tablas de la Fase 2 sin crear" }
+    : base.difs.length ? { c:C.amber, t:`Base de datos: ${base.difs.length} ${base.difs.length===1?"diferencia":"diferencias"} con el código` }
+    : { c:C.green, t:`Base de datos al día · ${base.total} de ${base.total}` };
 
   return (
     <div>
-      <PageHeader title="Permisos" subtitle={`${PERMISOS.length} permisos · ${PERMISOS.filter(p=>p.sensible).length} sensibles · qué puede hacer hoy cada rol y cada persona · por ahora solo para consultar`} />
-      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14 }}>
-        {PERM_ROLES.map(r => { const n = activos.filter(u=>u.role===r).length; return <Badge key={r} color={n?(ROLE_COLOR[r]||C.textMuted):C.textMuted} sm title={`${n} ${n===1?"cuenta activa":"cuentas activas"} con el rol ${ROLE_LABEL[r]}`}>{ROLE_LABEL[r]} · {n}</Badge>; })}
-      </div>
-      {avisos.length>0 && (
+      <PermEstilos/>
+      <PageHeader title="Permisos" subtitle={`${PERMISOS.length} permisos · ${PERMISOS.filter(p=>p.sensible).length} sensibles · por ahora solo para consultar`} action={
+        <button onClick={()=>setVerDifs(v=>!v)} disabled={!base || !base.difs?.length} title={base?.falta ? "Falta correr sql/permisos_fase2.sql en Supabase" : "La tabla permisos_roles debe decir lo mismo que el código"} style={{ display:"inline-flex", alignItems:"center", gap:7, padding:"6px 12px", borderRadius:99, border:`1px solid ${chipBase.c}55`, background:`${chipBase.c}14`, color:chipBase.c, fontFamily:font.body, fontSize:12, fontWeight:600, cursor:base?.difs?.length?"pointer":"default" }}>
+          <span style={{ width:7, height:7, borderRadius:"50%", background:chipBase.c }}/>{chipBase.t}
+        </button>
+      } />
+      {verDifs && base?.difs?.length>0 && (
         <Card p="12px 16px" style={{ marginBottom:14 }}>
-          <div style={{ fontFamily:font.body, fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Para tener presente</div>
-          {avisos.map((a, i) => (
-            <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", fontFamily:font.body, fontSize:12.5, color:C.text, lineHeight:1.45, padding:"3px 0" }}>
-              <span style={{ width:7, height:7, borderRadius:"50%", background:a.c, flexShrink:0, marginTop:6 }}/>{a.t}
-            </div>
-          ))}
+          <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, lineHeight:1.5 }}>{base.difs.slice(0,40).map(d => <div key={d}>{d}</div>)}{base.difs.length>40 && <div style={{ color:C.textMuted }}>… y {base.difs.length-40} más.</div>}</div>
         </Card>
       )}
+      {avisos.length>0 && (
+        <div style={{ marginBottom:14 }}>
+          <button onClick={()=>setVerAvisos(v=>!v)} style={{ display:"flex", alignItems:"center", gap:8, width:"100%", padding:"9px 14px", borderRadius:verAvisos?"12px 12px 0 0":12, border:`1px solid ${avisosFuertes?`${C.amber}55`:C.border}`, background:avisosFuertes?C.amberDim:C.surface, cursor:"pointer", fontFamily:font.body, fontSize:12.5, fontWeight:600, color:avisosFuertes?C.amber:C.textSub, textAlign:"left" }}>
+            <Icon n="bell" s={15}/>{avisosFuertes ? `${avisosFuertes} ${avisosFuertes===1?"cosa para revisar":"cosas para revisar"}` : `${avisos.length} ${avisos.length===1?"nota":"notas"}`}
+            <span style={{ marginLeft:"auto", display:"inline-flex" }}><Icon n={verAvisos?"up":"down"} s={14} sw={2.2}/></span>
+          </button>
+          {verAvisos && (
+            <div style={{ border:`1px solid ${C.border}`, borderTop:"none", borderRadius:"0 0 12px 12px", background:C.surface, padding:"8px 14px" }}>
+              {avisos.map((a, i) => (
+                <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", fontFamily:font.body, fontSize:12.5, color:C.text, lineHeight:1.45, padding:"4px 0" }}>
+                  <span style={{ width:7, height:7, borderRadius:"50%", background:a.c, flexShrink:0, marginTop:6 }}/>{a.t}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <div style={{ display:"flex", gap:6, marginBottom:16, flexWrap:"wrap" }}>
-        <PermPildora activo={vista==="matriz"} onClick={()=>setVista("matriz")}>Matriz por rol</PermPildora>
-        <PermPildora activo={vista==="persona"} onClick={()=>setVista("persona")}>Por persona</PermPildora>
+        <PermPildora activo={vista==="roles"} onClick={()=>verVista("roles")} ic="grid">Roles</PermPildora>
+        <PermPildora activo={vista==="personas"} onClick={()=>verVista("personas")} ic="users">Personas</PermPildora>
+        <PermPildora activo={vista==="quien"} onClick={()=>verVista("quien")} ic="search">¿Quién puede…?</PermPildora>
+        <PermPildora activo={vista==="monitor"} onClick={()=>verVista("monitor")} ic="flag">Monitor y líderes</PermPildora>
+        <PermPildora activo={vista==="tabla"} onClick={()=>verVista("tabla")} ic="list">Tabla completa</PermPildora>
       </div>
-      <div key={vista} className="ozen-pane-anim-tab">{vista==="matriz" ? vistaMatriz : vistaPersona}</div>
+      <div key={vista} className="ozen-pane-anim-tab">
+        {vista==="roles" ? vistaRoles : vista==="personas" ? vistaPersonas : vista==="quien" ? vistaQuien : vista==="monitor" ? vistaMonitor : vistaTabla}
+      </div>
     </div>
   );
 }
@@ -1941,16 +2314,16 @@ function PermisosScreen({ users, stores, lideres }) {
 // Lo que se abre al mantener presionado el logo (solo master): Usuarios, y al lado Permisos.
 // Usuarios se deja montado aunque se esté viendo Permisos — así volver a su pestaña no repite la
 // descarga de la tabla de usuarios que hace al abrirse (cuidar la transferencia de Supabase).
-function UsuariosYPermisos({ users, setUsers, stores, lideres }) {
+function UsuariosYPermisos({ users, setUsers, stores, lideres, setLideres, user }) {
   const [sub, setSub] = useState("usuarios");
   return (
     <div>
       <div style={{ display:"flex", gap:6, marginBottom:18, flexWrap:"wrap" }}>
-        <PermPildora activo={sub==="usuarios"} onClick={()=>setSub("usuarios")}>Usuarios</PermPildora>
-        <PermPildora activo={sub==="permisos"} onClick={()=>setSub("permisos")}>Permisos</PermPildora>
+        <PermPildora activo={sub==="usuarios"} onClick={()=>setSub("usuarios")} ic="user">Usuarios</PermPildora>
+        <PermPildora activo={sub==="permisos"} onClick={()=>setSub("permisos")} ic="key">Permisos</PermPildora>
       </div>
       <div style={{ display:sub==="usuarios"?"block":"none" }}><UsuariosScreen users={users} setUsers={setUsers} stores={stores}/></div>
-      {sub==="permisos" && <PermisosScreen users={users} stores={stores} lideres={lideres}/>}
+      {sub==="permisos" && <PermisosScreen users={users} stores={stores} lideres={lideres} setLideres={setLideres} user={user}/>}
     </div>
   );
 }
@@ -4168,10 +4541,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   };
   // ¿El usuario logueado es uno de los responsables de esta tarea? Se compara por nombre (igual
   // que esMonitorActual) porque no hay un vínculo directo entre cuentas de usuario y líderes.
-  const esTareaDelUsuario = (g) => g.some(m => {
-    const nombreLid = nombreLider(m.lider_id);
-    return !!nombreLid && !!user?.name && normalizarNombre(nombreLid).localeCompare(normalizarNombre(user.name), "es", { sensitivity:"base" })===0;
-  });
+  const esTareaDelUsuario = (g) => g.some(m => liderEsDeUsuario(lideres.find(l=>l.id===m.lider_id), user));
   // Si la reunión no se hizo el día previsto (se corrió a otro día), una tarea puede vencer
   // antes de que alcancen a revisarla. El monitor/master puede "reabrirla" con una nueva fecha
   // para poder marcarla en la reunión real. Queda registrado quién la reabrió y cuándo — y a
@@ -4214,6 +4584,24 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
     const cerrada = esGrupoVencido(g) || esGrupoCompletado(g);
     return esMonitor && !cerrada;
   };
+  // Lo cerrado (vencida o cumplida) el monitor no lo puede borrar, pero sí PEDIR que se borre: la
+  // tarea queda marcada con quién lo pidió y cuándo, y master lo aprueba (se borra) o lo rechaza
+  // (se quita la marca). Columnas `borrado_solicitado_por` / `borrado_solicitado_en` de
+  // junta_compromisos — ver sql/permisos_fase2.sql. Pedido de Santiago, nov 2026.
+  const borradoPedido = (g) => g.find(m=>m.borrado_solicitado_en) || null;
+  const puedePedirBorrado = (g) => !soloLectura && user.role!=="master" && esMonitor && (esGrupoVencido(g) || esGrupoCompletado(g)) && !borradoPedido(g);
+  const marcarBorrado = async (g, patch) => {
+    const { error } = await supabase.from("junta_compromisos").update(patch).in("id", g.map(m=>m.id));
+    if (error) { alert(`No se pudo guardar: ${error.message||"error desconocido"}${/borrado_solicitado/.test(error.message||"") ? "\n\nFalta correr el archivo sql/permisos_fase2.sql en Supabase." : ""}`); return; }
+    setCompromisos(prev=>prev.map(c=>g.some(m=>m.id===c.id) ? { ...c, ...patch } : c));
+  };
+  const pedirBorrado = (g) => {
+    if (!window.confirm("¿Pedir que se borre esta tarea? Master tiene que aprobarlo; mientras tanto la tarea sigue ahí.")) return;
+    marcarBorrado(g, { borrado_solicitado_por:user.name, borrado_solicitado_en:new Date().toISOString() });
+  };
+  const quitarPedidoBorrado = (g) => marcarBorrado(g, { borrado_solicitado_por:null, borrado_solicitado_en:null });
+  // Master ve arriba TODOS los pedidos pendientes, sin importar el mes o la semana que esté mirando.
+  const pedidosBorrado = user.role==="master" ? agrupar(compromisos).filter(g=>borradoPedido(g)) : [];
 
   const selectStyle = { background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" };
 
@@ -4232,6 +4620,22 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
         </div>
         {puedeGestionar && <Btn onClick={abrirNueva}><Icon n="plus" s={15}/>Nueva tarea</Btn>}
       </div>
+
+      {pedidosBorrado.length>0 && (
+        <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.amber}`, borderRadius:12, padding:"12px 16px", marginBottom:16 }}>
+          <div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:C.text, marginBottom:4 }}>{pedidosBorrado.length===1 ? "El monitor pidió borrar 1 tarea" : `El monitor pidió borrar ${pedidosBorrado.length} tareas`}</div>
+          {pedidosBorrado.map(g=>{ const ped = borradoPedido(g); return (
+            <div key={g[0].id} style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"8px 0", borderTop:`1px dashed ${C.border}`, fontFamily:font.body, fontSize:13, color:C.text }}>
+              <div style={{ flex:1, minWidth:200 }}>
+                <div style={{ fontWeight:600 }}>{g[0].descripcion || "— sin descripción"}</div>
+                <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{[...new Set(g.map(m=>nombreLider(m.lider_id)))].join(", ")} · {esGrupoCompletado(g)?"cumplida":"vencida"} · lo pidió {ped.borrado_solicitado_por||"—"} el {fmtFechaHora(ped.borrado_solicitado_en)}</div>
+              </div>
+              <Btn onClick={()=>quitarPedidoBorrado(g)} variant="ghost" sm>Rechazar</Btn>
+              <Btn onClick={()=>eliminarGrupo(g)} variant="danger" sm>Aprobar y borrar</Btn>
+            </div>
+          ); })}
+        </div>
+      )}
 
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
@@ -4341,6 +4745,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
                 {completadoGrupo && <Badge color={C.green} sm>Cumplida</Badge>}
                 {autorreportadoGrupo && <Badge color={C.blue} sm title="Marcada por su responsable, falta que el monitor la confirme">Autorreportada</Badge>}
                 {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
+                {borradoPedido(g) && <Badge color={C.red} sm title={`${borradoPedido(g).borrado_solicitado_por||"El monitor"} pidió borrarla el ${fmtFechaHora(borradoPedido(g).borrado_solicitado_en)} — falta que master lo apruebe`}>Borrado solicitado</Badge>}
                 {vencida && puedeGestionar && <button onClick={()=>{ if(reabriendo===toggleId){ setReabriendo(null); return; } setReabriendo(toggleId); setFechaReabrir(sumarDias(todayStr, 1)); }} title="La tarea todavía no se ha hecho — darle un nuevo plazo" style={{ background:reabriendo===toggleId?`${C.amber}18`:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir a una nueva fecha</button>}
                 {vencida && puedeGestionar && <button onClick={()=>marcarRealizadaVencida(g)} title="Se hizo, pero no hubo reunión para marcarla — queda cumplida hoy, sin reabrirla" style={{ background:"none", border:`1px solid ${C.green}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Marcar como realizada</button>}
                 {completadoGrupo && base.completado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· marcada por {base.completado_por}</div>}
@@ -4375,6 +4780,8 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
               {/* Línea 3: comentario (ancho libre) + eliminar */}
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <input placeholder="Comentario..." defaultValue={base.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==base.comentarios) (compartida?actualizarComentarioGrupo(g,e.target.value):actualizar(base.id,{comentarios:e.target.value})); }} style={{ flex:1, minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+                {puedePedirBorrado(g) && <button onClick={()=>pedirBorrado(g)} title="Esta tarea ya está cerrada: solo master la puede borrar. Con esto se lo pides." style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:6, color:C.textMuted, cursor:"pointer", flexShrink:0, padding:"3px 8px", fontFamily:font.body, fontSize:10.5, whiteSpace:"nowrap" }}>Pedir borrado</button>}
+                {borradoPedido(g) && esMonitor && user.role!=="master" && !soloLectura && <button onClick={()=>quitarPedidoBorrado(g)} title="Quitar el pedido de borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:6, color:C.textMuted, cursor:"pointer", flexShrink:0, padding:"3px 8px", fontFamily:font.body, fontSize:10.5, whiteSpace:"nowrap" }}>Cancelar pedido</button>}
                 {puedeBorrar && <button onClick={()=>eliminarGrupo(g)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, padding:2, display:"grid" }}><Icon n="x" s={15}/></button>}
               </div>
             </div>
@@ -4918,6 +5325,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
   // solo color de acento (Base) — antes cada módulo tenía un color propio fuera de la paleta.
   const modulos = [
     { id:"ventas", icon:<Icon n="receipt" s={24}/>, titulo:"Ventas", desc:ventasSoloLectura(user) ? "Solo para ver — no se puede registrar ni corregir nada" : "Registro de ventas, caja, metas y métricas por tienda", accent:C.gold, mostrar:puedeUsarVentasArea(user) },
+    { id:"operaciones", icon:<Icon n="box" s={24}/>, titulo:"Operaciones", desc:user.role==="visualizador" ? "Solo para ver — órdenes de arreglos, marcaciones, garantías, traslados y pedidos" : "Órdenes de clientes: arreglos, marcaciones, garantías, traslados y pedidos", accent:C.gold, mostrar:puedeUsarAreas(user) && puedeOper(user, "operaciones.ver") },
     { id:"asistencia", icon:<Icon n="clock" s={24}/>, titulo:"Registro de Asistencia", desc:user.role==="advisor" ? "Marca tu asistencia, revisa tu historial y tus turnos" : "Panel, registros, turnos, asesores, tiendas e informes", accent:C.gold, mostrar:true },
     { id:"junta", icon:<Icon n="users" s={24}/>, titulo:"La Junta Administrativa", desc:"Equipo, seguimiento semanal y guion de la reunión", accent:C.gold, mostrar:puedeUsarAreas(user) },
     { id:"capacitacion", icon:<Icon n="book" s={24}/>, titulo:"Escuela OZEN", desc:user.role==="visualizador" ? "Progreso del equipo en cada curso" : user.role==="advisor" ? "Tus cursos de inducción y capacitación, con sus quizzes" : "Cursos de inducción y capacitación — y el progreso de cada persona", accent:C.gold, mostrar:true },
@@ -12710,6 +13118,606 @@ function CapacitacionAdminScreen({ cursos, setCursos, lecciones, setLecciones, p
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// OPERACIONES (operaciones comerciales) — reemplaza al Excel "Operaciones"
+// ══════════════════════════════════════════════════════════════════════════════
+// Alcance definido con Santiago el 10 nov 2026 (ver "Módulo Operaciones" en ESTADO_PROYECTO.md):
+//  · EXTERNAS = todo lo que tiene que ver con un cliente: arreglo, marcación, garantía, traslado
+//    y pedido. Separado, Factura y Grabado NO entran: ya viven en Ventas.
+//  · INTERNAS = lo que la tienda necesita y no tiene que ver con clientes (insumos, novedades,
+//    arreglos del inventario y del punto). Es la parte 2; aquí todavía no hay pantalla.
+//  · Toda orden externa NACE AQUÍ, al recibir la pieza (el cobro en Registrar venta se enlazará a
+//    la orden en la parte 4). Se empezó en limpio: la numeración sigue desde 1802.
+//  · Registran las cuentas de tienda y los administradores; los asesores con su cuenta no entran.
+//  · Hay un LÍDER de Operaciones (Edwin) que lo elige Master desde la pantalla: es quien cancela,
+//    devuelve una etapa y decide las garantías. No va amarrado a un nombre en el código.
+// Los datos NO se cargan con el resto de la app (loadAll): solo al entrar a Operaciones, y por
+// defecto solo lo abierto + lo cerrado en los últimos 90 días (ver cargarOperaciones en App) — la
+// cuenta de Supabase ya pasó su tope de descarga.
+
+// Permisos de Operaciones por ACCIÓN con nombre — pensados para pasarlos tal cual al tablero de
+// Permisos (cada clave será una fila de PERMISOS cuando ese tablero mande). `l` = id de usuario
+// del líder de Operaciones (tabla operaciones_config, clave "lider_usuario_id").
+const OPER_ROLES_VEN = ["master","admin","admin_finanzas","admin_turnos","visualizador","tienda"];
+const OPER_ROLES_REGISTRAN = ["master","admin","admin_finanzas","admin_turnos","tienda"];
+const esLiderOperaciones = (user, liderId) => !!user && !!liderId && String(user.id)===String(liderId);
+const operRegistra = (u, l) => OPER_ROLES_REGISTRAN.includes(u.role) || esLiderOperaciones(u, l);
+const operManda = (u, l) => u.role==="master" || esLiderOperaciones(u, l);
+const OPER_PERMISOS = {
+  "operaciones.ver":               (u) => OPER_ROLES_VEN.includes(u.role),
+  "operaciones.externas.crear":    operRegistra,
+  "operaciones.externas.avanzar":  operRegistra,
+  "operaciones.externas.pago":     operRegistra,
+  "operaciones.externas.devolver": operManda,
+  "operaciones.externas.cancelar": operManda,
+  "operaciones.garantias.decidir": operManda,
+  "operaciones.lider.asignar":     (u) => u.role==="master",
+};
+const puedeOper = (user, accion, liderId) => !!user && !!OPER_PERMISOS[accion] && !!OPER_PERMISOS[accion](user, liderId);
+
+const OPER_TIPOS_EXT = [
+  { value:"arreglo",   label:"Arreglo",   ic:"wrench" },
+  { value:"marcacion", label:"Marcación", ic:"nib" },
+  { value:"garantia",  label:"Garantía",  ic:"check" },
+  { value:"traslado",  label:"Traslado",  ic:"truck" },
+  { value:"pedido",    label:"Pedido",    ic:"box" },
+];
+const operTipoLabel = (tipo) => OPER_TIPOS_EXT.find(t=>t.value===tipo)?.label || tipo;
+// Las 4 etapas de cada tipo, en orden. La última siempre es "entregada" (así "cerrada" significa lo
+// mismo en todos los tipos). "cancelada" no es una etapa del camino: es una salida aparte.
+const operEtapasPieza = (medio, medioCorto) => [
+  { id:"recibida",   label:"Recibida en tienda",   corto:"Recibida" },
+  { id:"en_gestion", label:medio,                  corto:medioCorto },
+  { id:"lista",      label:"Lista en tienda",      corto:"Lista" },
+  { id:"entregada",  label:"Entregada al cliente", corto:"Entregada" },
+];
+const OPER_ETAPAS = {
+  arreglo:   operEtapasPieza("En taller o gestión", "En taller"),
+  marcacion: operEtapasPieza("En taller o gestión", "En taller"),
+  garantia:  operEtapasPieza("En gestión", "En gestión"),
+  traslado: [
+    { id:"solicitado", label:"Solicitado",                      corto:"Solicitado" },
+    { id:"enviado",    label:"Enviado por la tienda de origen", corto:"Enviado" },
+    { id:"recibido",   label:"Recibido en la tienda destino",   corto:"Recibido" },
+    { id:"entregada",  label:"Entregado al cliente",            corto:"Entregado" },
+  ],
+  pedido: [
+    { id:"solicitado", label:"Solicitado",           corto:"Solicitado" },
+    { id:"en_gestion", label:"Pedido en gestión",    corto:"En gestión" },
+    { id:"llego",      label:"Llegó a tienda",       corto:"Llegó" },
+    { id:"entregada",  label:"Entregado al cliente", corto:"Entregado" },
+  ],
+};
+const operEtapasDe = (tipo) => OPER_ETAPAS[tipo] || OPER_ETAPAS.arreglo;
+const operCerrada = (op) => op.etapa==="entregada" || op.etapa==="cancelada";
+const operIdxEtapa = (op) => operEtapasDe(op.tipo).findIndex(e=>e.id===op.etapa);
+const operEtiquetaEtapa = (op) => op.etapa==="cancelada" ? "Cancelada" : (operEtapasDe(op.tipo).find(e=>e.id===op.etapa)?.label || op.etapa);
+// Garantía que NO se cubre: no pasa por "En gestión" — de "Recibida" salta a "Lista en tienda"
+// (la pieza queda lista para devolvérsela al cliente).
+const operGarantiaSinGestion = (op) => op.tipo==="garantia" && op.garantia_decision==="no_cubre";
+const operSiguienteEtapa = (op) => {
+  if(operCerrada(op)) return null;
+  const etapas = operEtapasDe(op.tipo), i = operIdxEtapa(op);
+  if(i<0) return null;
+  if(operGarantiaSinGestion(op) && i===0) return etapas[2];
+  return etapas[i+1] || null;
+};
+const operEtapaAnterior = (op) => {
+  if(op.etapa==="cancelada") return null;
+  const etapas = operEtapasDe(op.tipo), i = operIdxEtapa(op);
+  if(i<=0) return null;
+  if(operGarantiaSinGestion(op) && i===2) return etapas[0];
+  return etapas[i-1];
+};
+// Para los filtros: en qué momento va la orden, sin importar cómo se llame la etapa en su tipo.
+const OPER_FASES = [
+  { id:"abiertas",      label:"Abiertas" },
+  { id:"por_empezar",   label:"Por empezar" },
+  { id:"en_proceso",    label:"En proceso" },
+  { id:"para_entregar", label:"Para entregar" },
+  { id:"cerradas",      label:"Cerradas" },
+  { id:"todas",         label:"Todas" },
+];
+const operFase = (op) => operCerrada(op) ? "cerradas" : (["por_empezar","en_proceso","para_entregar"][operIdxEtapa(op)] || "por_empezar");
+const OPER_PAGOS = [{ value:"pago", label:"Pago" }, { value:"debe", label:"Debe" }, { value:"no_aplica", label:"No aplica" }];
+const OPER_PAGO_COLOR = { pago:C.green, debe:C.red, no_aplica:C.textMuted };
+const OPER_PAGO_DEFECTO = { arreglo:"debe", marcacion:"debe", garantia:"no_aplica", traslado:"no_aplica", pedido:"no_aplica" };
+const operPagoLabel = (v) => OPER_PAGOS.find(p=>p.value===v)?.label || v;
+const OPER_AVISO_60 = "No nos hacemos responsables por mercancías o piezas dejadas en la tienda después de 60 días calendario desde la fecha de este recibo.";
+// La cuenta de tienda ve lo suyo y los traslados donde es origen o destino; los demás ven todo.
+const operVisiblePara = (op, user) => !esCuentaTienda(user) || op.tienda_id===user.tienda_id || op.tienda_origen_id===user.tienda_id;
+const operFechaLarga = (f) => f ? new Date(f+"T12:00:00").toLocaleDateString("es-CO", { day:"numeric", month:"long", year:"numeric" }) : "—";
+const operTextoMov = (h, op) => {
+  const etapa = operEtapasDe(op.tipo).find(e=>e.id===h.etapa)?.label || h.etapa;
+  if(h.accion==="creada")    return "Orden creada";
+  if(h.accion==="etapa")     return `Pasó a "${etapa}"`;
+  if(h.accion==="devuelta")  return `Devuelta a "${etapa}"${h.nota?` — ${h.nota}`:""}`;
+  if(h.accion==="cancelada") return `Cancelada${h.nota?` — ${h.nota}`:""}`;
+  if(h.accion==="garantia")  return `Garantía: ${h.nota||""}`;
+  if(h.accion==="pago")      return `Pago cambiado a "${h.nota||""}"`;
+  return h.accion||"";
+};
+const operChip = (on) => ({ display:"inline-flex", alignItems:"center", gap:7, height:34, padding:"0 13px", borderRadius:10, border:`1px solid ${on?C.gold:C.border}`, background:on?"rgba(38,93,127,0.08)":"#fff", fontFamily:font.body, fontSize:13, fontWeight:600, color:on?C.goldDark:C.textSub, whiteSpace:"nowrap", cursor:"pointer", flex:"0 0 auto" });
+const OperTituloSec = ({ children, style }) => <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, margin:"0 0 6px", ...style }}>{children}</div>;
+// Tienda de una orden: en traslados se muestra "origen → destino", como en el Excel.
+const OperTiendas = ({ op, stores, sm }) => op.tipo==="traslado" && op.tienda_origen_id
+  ? <span style={{ display:"inline-flex", alignItems:"center", gap:5, flexWrap:"wrap" }}><EtiquetaTienda store={stores[op.tienda_origen_id]} sm={sm}/><Icon n="right" s={13} style={{ color:C.textMuted }}/><EtiquetaTienda store={stores[op.tienda_id]} sm={sm}/></span>
+  : <EtiquetaTienda store={stores[op.tienda_id]} sm={sm}/>;
+
+// Las etapas de una orden. Compacto (lista): 4 rayitas. Con texto (detalle): círculos numerados
+// unidos por una línea, con la fecha en que se llegó a cada etapa.
+const OperPasos = ({ op, conTexto, isMobile }) => {
+  const etapas = operEtapasDe(op.tipo);
+  const cancelada = op.etapa==="cancelada", entregada = op.etapa==="entregada";
+  const idx = cancelada ? -1 : operIdxEtapa(op);
+  const saltada = (i) => operGarantiaSinGestion(op) && i===1;
+  if(!conTexto) return (
+    <span style={{ display:"inline-flex", gap:3, flexShrink:0 }}>
+      {etapas.map((e,i)=><span key={e.id} title={e.label} style={{ width:16, height:5, borderRadius:3, background: cancelada ? C.redDim : saltada(i) ? C.border : (i<idx || entregada) ? C.green : i===idx ? C.gold : C.border }}/>)}
+    </span>
+  );
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:`repeat(${etapas.length}, 1fr)` }}>
+      {etapas.map((e,i)=>{
+        const hecho = !cancelada && !saltada(i) && (i<idx || entregada), actual = !cancelada && i===idx && !entregada;
+        const mov = (op.historial||[]).filter(h=>h.etapa===e.id && (h.accion==="creada" || h.accion==="etapa")).slice(-1)[0];
+        return (
+          <div key={e.id} style={{ position:"relative", textAlign:"center", padding:"0 3px", opacity:saltada(i)?0.4:1 }}>
+            {i>0 && <span style={{ position:"absolute", top:13, left:"-50%", width:"100%", height:2, background:(hecho||actual)?C.green:C.border }}/>}
+            <span style={{ position:"relative", width:28, height:28, borderRadius:"50%", display:"inline-grid", placeItems:"center", boxSizing:"border-box", background:hecho?C.green:actual?C.goldDark:"#fff", color:(hecho||actual)?"#fff":C.textMuted, border:`2px solid ${hecho?C.green:actual?C.goldDark:"rgba(26,59,82,0.2)"}`, fontFamily:font.mono, fontSize:12, fontWeight:700 }}>{hecho ? <Icon n="check" s={14} sw={2.6}/> : i+1}</span>
+            <div style={{ fontFamily:font.body, fontSize:isMobile?10.5:12, fontWeight:actual?700:500, color:actual?C.text:hecho?C.green:C.textMuted, marginTop:6, lineHeight:1.25 }}>{isMobile ? e.corto : e.label}</div>
+            {mov && (hecho || actual) && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:2 }}>{fmtFechaHora(mov.en)}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// La orden para el cliente (la hoja ORDEN del Excel): N°, datos, descripción, valor y el aviso de
+// los 60 días. Se puede copiar como imagen (para WhatsApp) o imprimir. Va en un portal sobre toda
+// la página para que ningún contenedor la recorte.
+function OperOrdenCliente({ op, stores, onCerrar }) {
+  const ref = useRef(null);
+  const [toast, setToast] = useState(null);
+  const filas = [
+    ["Tipo de gestión", operTipoLabel(op.tipo)],
+    ["Asesor", op.asesor_nombre || "—"],
+    ["Fecha", operFechaLarga(op.fecha)],
+    ["Cliente", op.cliente_nombre],
+    ["Teléfono", op.cliente_telefono || "—"],
+    ["Fecha estimada de entrega", op.fecha_estimada_entrega ? operFechaLarga(op.fecha_estimada_entrega) : "Por confirmar"],
+  ];
+  const tiendaTxt = op.tipo==="traslado" && op.tienda_origen_id ? `${nombreTiendaCorto(stores[op.tienda_origen_id])} → ${nombreTiendaCorto(stores[op.tienda_id])}` : nombreTiendaCorto(stores[op.tienda_id]);
+  const imprimir = () => {
+    const w = ref.current ? window.open("", "_blank", "width=440,height=720") : null;
+    if(!w){ setToast("⚠️ El navegador no dejó abrir la ventana para imprimir — usa Copiar foto."); setTimeout(()=>setToast(null), 3200); return; }
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Orden ${op.numero}</title></head><body style="margin:0;padding:16px;background:#fff;"><div style="max-width:380px;margin:0 auto;">${ref.current.outerHTML}</div></body></html>`);
+    w.document.close();
+    w.focus();
+    setTimeout(()=>{ try { w.print(); } catch(e) { /* si falla, la ventana queda abierta para imprimir a mano */ } }, 450);
+  };
+  const lineaStyle = { display:"flex", justifyContent:"space-between", gap:12, padding:"6px 0", borderBottom:`1px solid ${C.border}`, fontSize:13 };
+  return createPortal(
+    <div className="ozen-modal-overlay" onClick={onCerrar} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"flex-start", justifyContent:"center", zIndex:1000, padding:16, overflowY:"auto" }}>
+      <div className="ozen-modal-pop" onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:380, margin:"auto 0" }}>
+        <div ref={ref} style={{ background:"#fff", borderRadius:14, padding:"20px 20px 16px", fontFamily:font.body, color:C.text, boxSizing:"border-box" }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:14 }}>
+            <img src={`${window.location.origin}/logo-wordmark.png`} alt="OZEN" style={{ height:22, width:"auto" }}/>
+            <div style={{ textAlign:"right" }}>
+              <div style={{ fontSize:10, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:700 }}>Orden de servicio</div>
+              <div style={{ fontFamily:font.mono, fontSize:20, fontWeight:700, color:C.text, lineHeight:1.2 }}>N° {op.numero}</div>
+            </div>
+          </div>
+          <div style={{ fontSize:14, fontWeight:700, color:C.text, paddingBottom:8, borderBottom:`2px solid ${C.text}` }}>{tiendaTxt}</div>
+          {filas.map(([k,v])=>(
+            <div key={k} style={lineaStyle}><span style={{ color:C.textMuted, flexShrink:0 }}>{k}</span><span style={{ fontWeight:600, textAlign:"right", overflowWrap:"anywhere" }}>{v}</span></div>
+          ))}
+          <div style={{ padding:"8px 0", borderBottom:`1px solid ${C.border}` }}>
+            <div style={{ fontSize:13, color:C.textMuted, marginBottom:3 }}>Descripción</div>
+            <div style={{ fontSize:13, lineHeight:1.45, whiteSpace:"pre-wrap", overflowWrap:"anywhere" }}>{op.descripcion}</div>
+          </div>
+          <div style={lineaStyle}><span style={{ color:C.textMuted }}>Valor</span><span style={{ fontFamily:font.mono, fontWeight:700 }}>{fmtCOP(op.valor)}</span></div>
+          <div style={{ ...lineaStyle, borderBottom:"none" }}><span style={{ color:C.textMuted }}>Estado</span><span style={{ fontWeight:700, textTransform:"uppercase", letterSpacing:"0.04em" }}>{operPagoLabel(op.estado_pago)}</span></div>
+          <div style={{ marginTop:10, fontSize:11, lineHeight:1.45, color:C.textMuted, background:C.surfaceAlt, borderRadius:8, padding:"9px 11px" }}>{OPER_AVISO_60}</div>
+        </div>
+        <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" }}>
+          <Btn onClick={()=>capturarTarjetaCaja(ref, setToast)} sm style={{ flex:1 }}><Icon n="camera" s={15}/>Copiar foto</Btn>
+          <Btn onClick={imprimir} variant="ghost" sm style={{ flex:1, background:"#fff" }}><Icon n="file" s={15}/>Imprimir</Btn>
+          <Btn onClick={onCerrar} variant="ghost" sm style={{ flex:1, background:"#fff" }}>Cerrar</Btn>
+        </div>
+      </div>
+      {toast && <div style={{ position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:9999, background:C.goldDark, borderRadius:10, padding:"10px 18px", color:C.tinta, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", maxWidth:"calc(100% - 32px)", textAlign:"center" }}>{toast}</div>}
+    </div>,
+    document.body
+  );
+}
+
+// Formulario "Nueva orden". Mismos datos que pedía el Excel (OP EXTERNO), más la fecha estimada
+// de entrega (el campo que en el Excel estaba roto).
+function OperNuevaOrden({ user, users, stores, onCreada, onCancelar, isMobile }) {
+  const tiendaFija = esCuentaTienda(user) ? (user.tienda_id||"") : "";
+  const [tipo, setTipo] = useState("arreglo");
+  const [tiendaId, setTiendaId] = useState(tiendaFija);
+  const [origenId, setOrigenId] = useState("");
+  const [asesorId, setAsesorId] = useState("");
+  const [cliente, setCliente] = useState("");
+  const [telefono, setTelefono] = useState("");
+  const [descripcion, setDescripcion] = useState("");
+  const [valor, setValor] = useState("");
+  const [pago, setPago] = useState(OPER_PAGO_DEFECTO.arreglo);
+  const [fechaEst, setFechaEst] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState("");
+  const tiendas = tiendasVenta(stores).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const asesores = users.filter(esVendedorPosible).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const esTraslado = tipo==="traslado";
+  const elegirTipo = (t) => { setTipo(t); setPago(OPER_PAGO_DEFECTO[t] || "debe"); if(t!=="traslado") setOrigenId(""); };
+  const guardar = async () => {
+    setMsg("");
+    if(!tiendaId){ setMsg("Falta elegir la tienda."); return; }
+    if(esTraslado && !origenId){ setMsg("Falta elegir la tienda que envía la pieza."); return; }
+    if(esTraslado && origenId===tiendaId){ setMsg("La tienda que envía y la que recibe no pueden ser la misma."); return; }
+    if(!asesorId){ setMsg("Falta elegir quién atiende al cliente."); return; }
+    if(!cliente.trim()){ setMsg("Falta el nombre del cliente."); return; }
+    if(!telefono.trim()){ setMsg("Falta el teléfono del cliente."); return; }
+    if(!descripcion.trim()){ setMsg("Falta la descripción de la pieza y de lo que hay que hacer."); return; }
+    if(fechaEst && fechaEst < todayStr){ setMsg("La fecha estimada de entrega no puede ser anterior a hoy."); return; }
+    setGuardando(true);
+    const asesor = users.find(u=>String(u.id)===String(asesorId));
+    const ahora = new Date().toISOString();
+    const etapa0 = operEtapasDe(tipo)[0].id;
+    const { data, error } = await supabase.from("operaciones_externas").insert({
+      fecha:todayStr, tipo, tienda_id:tiendaId, tienda_origen_id:esTraslado?origenId:null,
+      asesor_id:String(asesorId), asesor_nombre:asesor?.name||"", registrado_por:user.name, registrado_por_id:String(user.id),
+      cliente_nombre:cliente.trim(), cliente_telefono:telefono.trim(), descripcion:descripcion.trim(),
+      valor:Number(valor||0), estado_pago:pago, fecha_estimada_entrega:fechaEst||null,
+      etapa:etapa0, etapa_desde:ahora,
+      historial:[{ en:ahora, por:asesor?.name||user.name, cuenta:user.name, accion:"creada", etapa:etapa0 }],
+    }).select().single();
+    setGuardando(false);
+    if(error || !data){ setMsg("No se pudo guardar la orden. Revisa la conexión e intenta de nuevo."); sonidoError(); return; }
+    onCreada(data);
+  };
+  const dosCol = { display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:isMobile?0:14 };
+  return (
+    <Card glow style={{ marginBottom:18 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:14 }}>
+        <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>Nueva orden</div>
+        <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>El N° de orden se asigna solo al guardar</span>
+      </div>
+      <OperTituloSec>Tipo de gestión</OperTituloSec>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:16 }}>
+        {OPER_TIPOS_EXT.map(t=><button key={t.value} type="button" onClick={()=>elegirTipo(t.value)} style={operChip(tipo===t.value)}><Icon n={t.ic} s={15}/>{t.label}</button>)}
+      </div>
+      <div style={dosCol}>
+        <Field label={esTraslado ? "Tienda que pide la pieza (destino)" : "Tienda"} value={tiendaId} onChange={setTiendaId} disabled={!!tiendaFija} options={[{ value:"", label:"Elige la tienda…" }, ...tiendas.map(t=>({ value:t.id, label:nombreTiendaCorto(t) }))]}/>
+        {esTraslado
+          ? <Field label="Tienda que envía la pieza (origen)" value={origenId} onChange={setOrigenId} options={[{ value:"", label:"Elige la tienda…" }, ...tiendas.filter(t=>t.id!==tiendaId).map(t=>({ value:t.id, label:nombreTiendaCorto(t) }))]}/>
+          : <Field label="Quién atiende al cliente" value={asesorId} onChange={setAsesorId} options={[{ value:"", label:"Elige a la persona…" }, ...asesores.map(a=>({ value:String(a.id), label:a.name }))]}/>}
+      </div>
+      {esTraslado && <Field label="Quién atiende al cliente" value={asesorId} onChange={setAsesorId} options={[{ value:"", label:"Elige a la persona…" }, ...asesores.map(a=>({ value:String(a.id), label:a.name }))]}/>}
+      <div style={dosCol}>
+        <Field label="Nombre y apellido del cliente" value={cliente} onChange={setCliente} autoComplete="off"/>
+        <Field label="Teléfono" value={telefono} onChange={v=>setTelefono(v.replace(/[^\d+\s]/g,""))} type="tel" autoComplete="off"/>
+      </div>
+      <Field label="Descripción" value={descripcion} onChange={setDescripcion} multiline rows={3} placeholder={esTraslado ? "Qué pieza se pide: referencia, código, talla, material…" : "El mayor detalle posible de la pieza y de lo que hay que hacer"}/>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr", gap:isMobile?0:14 }}>
+        <CurrencyField label="Valor" value={valor} onChange={setValor}/>
+        <Field label="Estado de pago" value={pago} onChange={setPago} options={OPER_PAGOS}/>
+        <Field label="Fecha estimada de entrega (opcional)" type="date" value={fechaEst} onChange={setFechaEst}/>
+      </div>
+      {msg && <div style={{ fontFamily:font.body, fontSize:13, color:C.red, background:C.redDim, borderRadius:8, padding:"9px 12px", marginBottom:12 }}>{msg}</div>}
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+        <Btn onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Guardar orden"}</Btn>
+        <Btn onClick={onCancelar} variant="ghost" disabled={guardando}>Cancelar</Btn>
+      </div>
+    </Card>
+  );
+}
+
+// Una orden en la lista. Cerrada muestra el resumen; al tocarla se abre el detalle con las etapas,
+// las acciones (según permisos) y el historial de movimientos.
+function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, onCambio, onRecargar, onVerOrden, quienId, setQuienId, isMobile }) {
+  const [modo, setModo] = useState(null); // null | "avanzar" | "devolver" | "cancelar" | "garantia"
+  const [texto, setTexto] = useState("");
+  const [decision, setDecision] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  const [msg, setMsg] = useState("");
+  const cerrada = operCerrada(op);
+  const siguiente = operSiguienteEtapa(op), anterior = operEtapaAnterior(op);
+  const puede = (accion) => puedeOper(user, accion, liderId);
+  const esTienda = esCuentaTienda(user);
+  // La cuenta de tienda es un login compartido: para saber QUIÉN hizo cada movimiento se elige el
+  // nombre (igual que "quién hizo la venta" en Registrar venta). Las cuentas personales no eligen.
+  const quien = esTienda ? (users.find(u=>String(u.id)===String(quienId))?.name || "") : user.name;
+  const personas = users.filter(esVendedorPosible).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const garantiaPendiente = op.tipo==="garantia" && !op.garantia_decision && !cerrada;
+  const abrirModo = (m) => { setMsg(""); setTexto(""); setDecision(""); setModo(prev=>prev===m?null:m); };
+  // Todo cambio se guarda SOLO si la orden sigue en la etapa que se está viendo: si otra persona
+  // ya la movió desde otro computador, no se pisa — se avisa y se recarga la lista.
+  const guardarCambio = async (cambios, mov) => {
+    if(esTienda && !quien){ setMsg("Elige arriba quién está haciendo el movimiento."); return false; }
+    setOcupado(true); setMsg("");
+    const historial = [...(op.historial||[]), { en:new Date().toISOString(), por:quien, cuenta:user.name, ...mov }];
+    const { data, error } = await supabase.from("operaciones_externas").update({ ...cambios, historial }).eq("id", op.id).eq("etapa", op.etapa).select();
+    setOcupado(false);
+    if(error){ setMsg("No se pudo guardar. Revisa la conexión e intenta de nuevo."); sonidoError(); return false; }
+    if(!data || !data.length){ setMsg("Alguien más ya movió esta orden. Se actualizó la lista: revisa cómo quedó."); onRecargar(); return false; }
+    onCambio(data[0]); setModo(null); setTexto(""); setDecision("");
+    return true;
+  };
+  const avanzar = async () => {
+    if(!siguiente) return;
+    const ahora = new Date().toISOString();
+    const ok = await guardarCambio({ etapa:siguiente.id, etapa_desde:ahora, cerrada_en:siguiente.id==="entregada"?ahora:null }, { accion:"etapa", etapa:siguiente.id });
+    if(ok && siguiente.id==="entregada") sonidoTareaCumplida();
+  };
+  const devolver = async () => {
+    if(!anterior) return;
+    if(!texto.trim()){ setMsg("Escribe por qué se devuelve la etapa."); return; }
+    await guardarCambio({ etapa:anterior.id, etapa_desde:new Date().toISOString(), cerrada_en:null }, { accion:"devuelta", etapa:anterior.id, nota:texto.trim() });
+  };
+  const cancelar = async () => {
+    if(!texto.trim()){ setMsg("Escribe el motivo de la cancelación."); return; }
+    const ahora = new Date().toISOString();
+    await guardarCambio({ etapa:"cancelada", etapa_desde:ahora, cerrada_en:ahora, cancelada_motivo:texto.trim() }, { accion:"cancelada", etapa:"cancelada", nota:texto.trim() });
+  };
+  const decidirGarantia = async () => {
+    if(!decision){ setMsg("Elige si la garantía se cubre o no."); return; }
+    if(!texto.trim()){ setMsg("Escribe la respuesta para el cliente."); return; }
+    const etiqueta = decision==="cubre" ? "Se cubre" : "No se cubre";
+    await guardarCambio({ garantia_decision:decision, garantia_respuesta:texto.trim(), garantia_decidida_por:quien, garantia_decidida_en:new Date().toISOString() }, { accion:"garantia", nota:`${etiqueta} — ${texto.trim()}` });
+  };
+  const cambiarPago = async (v) => { if(v!==op.estado_pago) await guardarCambio({ estado_pago:v }, { accion:"pago", nota:operPagoLabel(v) }); };
+  const dato = (k, v) => (
+    <div style={{ minWidth:0 }}>
+      <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:2 }}>{k}</div>
+      <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, overflowWrap:"anywhere" }}>{v}</div>
+    </div>
+  );
+  const cajaAccion = { background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 14px", marginTop:12 };
+  const colorEtapa = op.etapa==="cancelada" ? C.red : op.etapa==="entregada" ? C.green : C.gold;
+  return (
+    <Card p="0" glow={abierto} style={{ marginBottom:10, overflow:"hidden" }}>
+      <div onClick={onToggle} className="ozen-fila-venta" style={{ display:"flex", alignItems:isMobile?"flex-start":"center", gap:isMobile?10:16, padding:isMobile?"12px 14px":"13px 18px", cursor:"pointer", flexDirection:isMobile?"column":"row" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0, flexWrap:"wrap" }}>
+          <span style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.text, minWidth:52 }}>{op.numero}</span>
+          <Badge color={C.gold} sm>{operTipoLabel(op.tipo)}</Badge>
+          <OperTiendas op={op} stores={stores} sm/>
+        </div>
+        <div style={{ flex:1, minWidth:0, width:isMobile?"100%":undefined }}>
+          <div style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{op.cliente_nombre}</div>
+          <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{op.descripcion}</div>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:12, flexShrink:0, flexWrap:"wrap" }}>
+          {garantiaPendiente && <Badge color={C.amber} sm>Falta decidir</Badge>}
+          <Badge color={OPER_PAGO_COLOR[op.estado_pago]||C.textMuted} sm>{operPagoLabel(op.estado_pago)}</Badge>
+          <span style={{ display:"inline-flex", flexDirection:"column", alignItems:isMobile?"flex-start":"flex-end", gap:4, minWidth:isMobile?0:150 }}>
+            <span style={{ fontFamily:font.body, fontSize:12, fontWeight:700, color:colorEtapa }}>{operEtiquetaEtapa(op)}</span>
+            <OperPasos op={op}/>
+          </span>
+          <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, minWidth:44, textAlign:"right" }}>{fechaCorta(op.fecha)}</span>
+          <Icon n="down" s={16} style={{ color:C.textMuted, transition:"transform .25s ease", transform:abierto?"rotate(180deg)":"none" }}/>
+        </div>
+      </div>
+      <Collapse open={abierto}>
+        <div style={{ borderTop:`1px solid ${C.border}`, padding:isMobile?"14px":"18px 20px 20px" }}>
+          {op.etapa==="cancelada"
+            ? <div style={{ fontFamily:font.body, fontSize:13, color:C.red, background:C.redDim, borderRadius:8, padding:"9px 12px", marginBottom:14 }}><strong>Orden cancelada.</strong> {op.cancelada_motivo}</div>
+            : <div style={{ marginBottom:18 }}><OperPasos op={op} conTexto isMobile={isMobile}/></div>}
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, 1fr)", gap:14, marginBottom:14 }}>
+            {dato("Cliente", op.cliente_nombre)}
+            {dato("Teléfono", op.cliente_telefono || "—")}
+            {dato("Atendió", op.asesor_nombre || "—")}
+            {dato("Recibida el", operFechaLarga(op.fecha))}
+            {dato("Entrega estimada", op.fecha_estimada_entrega ? operFechaLarga(op.fecha_estimada_entrega) : "Por confirmar")}
+            {dato("Valor", <span style={{ fontFamily:font.mono, fontWeight:700 }}>{fmtCOP(op.valor)}</span>)}
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:2 }}>Estado de pago</div>
+              {puede("operaciones.externas.pago") && op.etapa!=="cancelada"
+                ? <select value={op.estado_pago} disabled={ocupado} onChange={e=>cambiarPago(e.target.value)} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 8px", color:OPER_PAGO_COLOR[op.estado_pago]||C.text, fontSize:13, fontWeight:700, fontFamily:font.body, outline:"none" }}>{OPER_PAGOS.map(p=><option key={p.value} value={p.value}>{p.label}</option>)}</select>
+                : <div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:OPER_PAGO_COLOR[op.estado_pago]||C.text }}>{operPagoLabel(op.estado_pago)}</div>}
+            </div>
+            {dato("Registró", op.registrado_por || "—")}
+          </div>
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:3 }}>Descripción</div>
+            <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, lineHeight:1.5, whiteSpace:"pre-wrap", overflowWrap:"anywhere" }}>{op.descripcion}</div>
+          </div>
+          {op.tipo==="garantia" && (
+            <div style={{ borderRadius:10, padding:"11px 14px", marginBottom:14, background:op.garantia_decision==="cubre"?C.greenDim:op.garantia_decision==="no_cubre"?C.redDim:C.amberDim }}>
+              {op.garantia_decision
+                ? <><div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:op.garantia_decision==="cubre"?C.green:C.red }}>{op.garantia_decision==="cubre" ? "La garantía SE CUBRE" : "La garantía NO se cubre"}</div>
+                    <div style={{ fontFamily:font.body, fontSize:13, color:C.text, marginTop:3, lineHeight:1.45, whiteSpace:"pre-wrap" }}>{op.garantia_respuesta}</div>
+                    <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:4 }}>{op.garantia_decidida_por} · {fmtFechaHora(op.garantia_decidida_en)}</div></>
+                : <div style={{ fontFamily:font.body, fontSize:13, color:C.amber, fontWeight:600 }}>Falta que el líder de Operaciones decida si esta garantía se cubre. Mientras tanto la orden no puede avanzar.</div>}
+            </div>
+          )}
+          {esTienda && !cerrada && puede("operaciones.externas.avanzar") && (
+            <div style={{ maxWidth:320 }}>
+              <Field label="¿Quién hace el movimiento?" value={quienId} onChange={setQuienId} options={[{ value:"", label:"Elige a la persona…" }, ...personas.map(a=>({ value:String(a.id), label:a.name }))]}/>
+            </div>
+          )}
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {siguiente && !garantiaPendiente && puede("operaciones.externas.avanzar") && <Btn sm onClick={()=>abrirModo("avanzar")} disabled={ocupado}><Icon n="right" s={14}/>Pasar a: {siguiente.label}</Btn>}
+            {garantiaPendiente && puede("operaciones.garantias.decidir") && <Btn sm onClick={()=>abrirModo("garantia")} disabled={ocupado}><Icon n="check" s={14}/>Decidir la garantía</Btn>}
+            <Btn sm variant="ghost" onClick={onVerOrden}><Icon n="receipt" s={14}/>Orden para el cliente</Btn>
+            {anterior && puede("operaciones.externas.devolver") && <Btn sm variant="ghost" onClick={()=>abrirModo("devolver")} disabled={ocupado}>Devolver una etapa</Btn>}
+            {!cerrada && puede("operaciones.externas.cancelar") && <Btn sm variant="danger" onClick={()=>abrirModo("cancelar")} disabled={ocupado}>Cancelar orden</Btn>}
+          </div>
+          {modo==="avanzar" && siguiente && (
+            <div style={cajaAccion}>
+              <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, marginBottom:10 }}>¿Confirmas que la orden <strong>{op.numero}</strong> pasa a <strong>{siguiente.label}</strong>?</div>
+              {siguiente.id==="entregada" && op.estado_pago==="debe" && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.red, marginBottom:10 }}>Ojo: esta orden figura como <strong>DEBE</strong>. Si el cliente ya pagó, cambia primero el estado de pago.</div>}
+              <div style={{ display:"flex", gap:8 }}><Btn sm variant="success" onClick={avanzar} disabled={ocupado}>{ocupado ? "Guardando…" : "Sí, confirmar"}</Btn><Btn sm variant="ghost" onClick={()=>setModo(null)} disabled={ocupado}>No</Btn></div>
+            </div>
+          )}
+          {modo==="garantia" && (
+            <div style={cajaAccion}>
+              <OperTituloSec>Decisión de la garantía</OperTituloSec>
+              <div style={{ display:"flex", gap:8, marginBottom:10, flexWrap:"wrap" }}>
+                <button type="button" onClick={()=>setDecision("cubre")} style={operChip(decision==="cubre")}>Se cubre</button>
+                <button type="button" onClick={()=>setDecision("no_cubre")} style={operChip(decision==="no_cubre")}>No se cubre</button>
+              </div>
+              <Field label="Respuesta para el cliente" value={texto} onChange={setTexto} multiline rows={2} placeholder="Qué se va a hacer, o por qué no aplica la garantía"/>
+              <div style={{ display:"flex", gap:8 }}><Btn sm onClick={decidirGarantia} disabled={ocupado}>{ocupado ? "Guardando…" : "Guardar decisión"}</Btn><Btn sm variant="ghost" onClick={()=>setModo(null)} disabled={ocupado}>Cerrar</Btn></div>
+            </div>
+          )}
+          {modo==="devolver" && anterior && (
+            <div style={cajaAccion}>
+              <Field label={`Por qué se devuelve a "${anterior.label}"`} value={texto} onChange={setTexto} placeholder="Ej: se marcó por error"/>
+              <div style={{ display:"flex", gap:8 }}><Btn sm onClick={devolver} disabled={ocupado}>{ocupado ? "Guardando…" : "Devolver etapa"}</Btn><Btn sm variant="ghost" onClick={()=>setModo(null)} disabled={ocupado}>Cerrar</Btn></div>
+            </div>
+          )}
+          {modo==="cancelar" && (
+            <div style={cajaAccion}>
+              <Field label="Motivo de la cancelación" value={texto} onChange={setTexto} placeholder="Ej: el cliente desistió"/>
+              <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>Una orden cancelada no se puede volver a abrir. Queda guardada con su motivo.</div>
+              <div style={{ display:"flex", gap:8 }}><Btn sm variant="danger" onClick={cancelar} disabled={ocupado}>{ocupado ? "Guardando…" : "Cancelar la orden"}</Btn><Btn sm variant="ghost" onClick={()=>setModo(null)} disabled={ocupado}>Cerrar</Btn></div>
+            </div>
+          )}
+          {msg && <div style={{ fontFamily:font.body, fontSize:13, color:C.red, background:C.redDim, borderRadius:8, padding:"9px 12px", marginTop:12 }}>{msg}</div>}
+          <div style={{ marginTop:18 }}>
+            <OperTituloSec>Movimientos</OperTituloSec>
+            {(op.historial||[]).slice().reverse().map((h,i)=>(
+              <div key={i} style={{ display:"flex", gap:10, fontFamily:font.body, fontSize:12.5, padding:"5px 0", borderTop:i?`1px solid ${C.border}`:"none", flexWrap:"wrap" }}>
+                <span style={{ color:C.textMuted, minWidth:150 }}>{fmtFechaHora(h.en)}</span>
+                <span style={{ color:C.text, flex:1, minWidth:160 }}>{operTextoMov(h, op)}</span>
+                <span style={{ color:C.textMuted }}>{h.por || h.cuenta || ""}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Collapse>
+    </Card>
+  );
+}
+
+// Quién es el líder de Operaciones. Todos lo ven; solo Master lo cambia.
+function OperLider({ user, users, liderId, onGuardar }) {
+  const lider = users.find(u=>String(u.id)===String(liderId));
+  const candidatos = users.filter(u=>ROLE_ORDEN_TURNOS.includes(u.role) && u.active!==false).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const puedeCambiar = puedeOper(user, "operaciones.lider.asignar", liderId);
+  if(!puedeCambiar && !lider) return null;
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", fontFamily:font.body, fontSize:13, color:C.textMuted, marginBottom:16 }}>
+      <Icon n="flag" s={15} style={{ color:C.gold }}/>
+      <span>Líder de Operaciones:</span>
+      {puedeCambiar
+        ? <select value={liderId||""} onChange={e=>onGuardar(e.target.value)} style={{ background:"#fff", border:`1px solid ${lider?C.border:C.amber}`, borderRadius:8, padding:"5px 9px", color:C.text, fontSize:13, fontWeight:600, fontFamily:font.body, outline:"none" }}>
+            <option value="">Sin elegir</option>
+            {candidatos.map(u=><option key={u.id} value={String(u.id)}>{u.name}</option>)}
+          </select>
+        : <strong style={{ color:C.text }}>{lider.name}</strong>}
+      {puedeCambiar && !lider && <span style={{ color:C.amber, fontWeight:600 }}>Elige al líder: es quien cancela órdenes y decide las garantías.</span>}
+    </div>
+  );
+}
+
+// ── SCREEN: Operaciones · Externas ───────────────────────────────────────────
+function OperacionesExternasScreen({ user, users, stores, ops, setOps, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
+  const liderId = config.find(c=>c.clave==="lider_usuario_id")?.valor || "";
+  const [creando, setCreando] = useState(false);
+  const [abiertoId, setAbiertoId] = useState(null);
+  const [ordenVista, setOrdenVista] = useState(null);
+  const [fase, setFase] = useState("abiertas");
+  const [tipoF, setTipoF] = useState("");
+  const [tiendaF, setTiendaF] = useState("");
+  const [q, setQ] = useState("");
+  const [limite, setLimite] = useState(40);
+  const [quienId, setQuienId] = useState("");
+  // Se carga al entrar (si la última carga tiene más de 5 minutos) y al volver a esta pestaña del
+  // navegador. No hay refresco automático cada tanto: para ver lo más nuevo está el botón 🔄.
+  useEffect(()=>{
+    onCargar(5*60000);
+    const alVolver = () => { if(document.visibilityState==="visible") onCargar(5*60000); };
+    document.addEventListener("visibilitychange", alVolver);
+    window.addEventListener("focus", alVolver);
+    return () => { document.removeEventListener("visibilitychange", alVolver); window.removeEventListener("focus", alVolver); };
+  }, []);
+  const esTienda = esCuentaTienda(user);
+  const visibles = useMemo(()=>ops.filter(op=>operVisiblePara(op, user)), [ops, user]);
+  const cuenta = useMemo(()=>{
+    const c = { abiertas:0, por_empezar:0, en_proceso:0, para_entregar:0, cerradas:0, todas:visibles.length };
+    visibles.forEach(op=>{ const f = operFase(op); c[f]++; if(f!=="cerradas") c.abiertas++; });
+    return c;
+  }, [visibles]);
+  const filtradas = useMemo(()=>{
+    const texto = sinTildes(q.trim());
+    return visibles.filter(op=>{
+      const f = operFase(op);
+      if(fase==="abiertas" ? f==="cerradas" : (fase!=="todas" && f!==fase)) return false;
+      if(tipoF && op.tipo!==tipoF) return false;
+      if(tiendaF && op.tienda_id!==tiendaF && op.tienda_origen_id!==tiendaF) return false;
+      if(texto && !sinTildes(`${op.numero} ${op.cliente_nombre} ${op.cliente_telefono||""} ${op.descripcion} ${op.asesor_nombre||""}`).includes(texto)) return false;
+      return true;
+    });
+  }, [visibles, fase, tipoF, tiendaF, q]);
+  const actualizarOrden = (fila) => setOps(prev=>prev.map(o=>o.id===fila.id?fila:o));
+  const guardarLider = async (id) => {
+    const { data, error } = await supabase.from("operaciones_config").upsert({ clave:"lider_usuario_id", valor:id||null, actualizado_por:user.name, actualizado_en:new Date().toISOString() }, { onConflict:"clave" }).select().single();
+    if(error || !data){ alert("No se pudo guardar el líder de Operaciones. Intenta de nuevo."); return; }
+    setConfig(prev=>[...prev.filter(c=>c.clave!=="lider_usuario_id"), data]);
+  };
+  const tiendas = tiendasVenta(stores).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const mostrandoCerradas = fase==="cerradas" || fase==="todas";
+  if(estado==="error") return (
+    <div>
+      <PageHeader title="Operaciones externas" subtitle="Arreglos, marcaciones, garantías, traslados y pedidos de clientes"/>
+      <Card>
+        <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.red, marginBottom:6 }}>No se pudieron cargar las operaciones</div>
+        <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, lineHeight:1.5, marginBottom:14 }}>Puede ser la conexión. Si es la primera vez que se abre Operaciones en esta base de datos, falta correr el archivo <strong>sql/operaciones.sql</strong> en Supabase.</div>
+        <Btn sm onClick={()=>onCargar()}>Reintentar</Btn>
+      </Card>
+    </div>
+  );
+  return (
+    <div style={{ maxWidth:1100, margin:"0 auto" }}>
+      <PageHeader title="Operaciones externas" subtitle="Arreglos, marcaciones, garantías, traslados y pedidos de clientes"
+        action={puedeOper(user, "operaciones.externas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva orden</Btn> : null}/>
+      <OperLider user={user} users={users} liderId={liderId} onGuardar={guardarLider}/>
+      {creando && <OperNuevaOrden user={user} users={users} stores={stores} isMobile={isMobile} onCancelar={()=>setCreando(false)} onCreada={(fila)=>{ setOps(prev=>[fila, ...prev]); setCreando(false); setFase("abiertas"); setAbiertoId(fila.id); setOrdenVista(fila); }}/>}
+      <div className="ozen-sin-barra" style={{ display:"flex", gap:8, marginBottom:10, overflowX:"auto", paddingBottom:2 }}>
+        {OPER_FASES.map(f=><button key={f.id} type="button" onClick={()=>{ setFase(f.id); setLimite(40); }} style={operChip(fase===f.id)}>{f.label}<span style={{ background:fase===f.id?C.goldDark:C.surfaceHover, color:fase===f.id?C.tinta:C.textSub, borderRadius:99, fontSize:11, padding:"1px 7px", lineHeight:"16px" }}>{cuenta[f.id]}</span></button>)}
+      </div>
+      <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
+        <select value={tipoF} onChange={e=>{ setTipoF(e.target.value); setLimite(40); }} style={{ ...operChip(!!tipoF), paddingRight:8 }}>
+          <option value="">Todos los tipos</option>
+          {OPER_TIPOS_EXT.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+        {!esTienda && (
+          <select value={tiendaF} onChange={e=>{ setTiendaF(e.target.value); setLimite(40); }} style={{ ...operChip(!!tiendaF), paddingRight:8 }}>
+            <option value="">Todas las tiendas</option>
+            {tiendas.map(t=><option key={t.id} value={t.id}>{nombreTiendaCorto(t)}</option>)}
+          </select>
+        )}
+        <div style={{ flex:1, minWidth:200, position:"relative" }}>
+          <Icon n="search" s={15} style={{ position:"absolute", left:11, top:10, color:C.textMuted }}/>
+          <input value={q} onChange={e=>{ setQ(e.target.value); setLimite(40); }} placeholder="Buscar por N°, cliente, teléfono o descripción…" style={{ width:"100%", height:34, background:"#fff", border:`1px solid ${C.border}`, borderRadius:10, padding:"0 12px 0 32px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+        </div>
+      </div>
+      {estado!=="listo" && !ops.length
+        ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>Cargando operaciones…</div></Card>
+        : filtradas.length===0
+          ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>{visibles.length===0 ? "Todavía no hay órdenes. La primera que se cree será la N° 1802." : "No hay órdenes con esos filtros."}</div></Card>
+          : filtradas.slice(0, limite).map(op=>(
+              <OperOrdenCard key={op.id} op={op} stores={stores} user={user} users={users} liderId={liderId} isMobile={isMobile}
+                abierto={abiertoId===op.id} onToggle={()=>setAbiertoId(prev=>prev===op.id?null:op.id)}
+                onCambio={actualizarOrden} onRecargar={()=>onCargar()} onVerOrden={()=>setOrdenVista(op)}
+                quienId={quienId} setQuienId={setQuienId}/>
+            ))}
+      {filtradas.length>limite && <div style={{ textAlign:"center", marginTop:6 }}><Btn sm variant="ghost" onClick={()=>setLimite(l=>l+40)}>Ver más ({filtradas.length-limite})</Btn></div>}
+      {mostrandoCerradas && !todoCargado && (
+        <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, textAlign:"center", marginTop:16 }}>
+          Se muestran las órdenes cerradas de los últimos 90 días. <button type="button" onClick={()=>onCargar(undefined, true)} style={{ border:"none", background:"none", padding:0, color:C.gold, fontWeight:600, fontFamily:font.body, fontSize:12.5, cursor:"pointer", textDecoration:"underline" }}>Traer todo el historial</button>
+        </div>
+      )}
+      {ordenVista && <OperOrdenCliente op={ops.find(o=>o.id===ordenVista.id) || ordenVista} stores={stores} onCerrar={()=>setOrdenVista(null)}/>}
+    </div>
+  );
+}
+
 export default function App() {
   const [user,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
   // Para que el panel principal sepa si el cambio que se acaba de hacer fue de MÓDULO (área) o solo
@@ -12730,6 +13738,9 @@ export default function App() {
   const [ventasAjustes,setVentasAjustes]=useState([]);
   const [turnosGlobales,setTurnosGlobales]=useState([]),[turnosAsignaciones,setTurnosAsignaciones]=useState([]),[turnosHorarios,setTurnosHorarios]=useState([]);
   const [capCursos,setCapCursos]=useState([]),[capLecciones,setCapLecciones]=useState([]),[capPreguntas,setCapPreguntas]=useState([]),[capVistas,setCapVistas]=useState([]),[capIntentos,setCapIntentos]=useState([]);
+  // Operaciones: a propósito NO se carga en loadAll — ver cargarOperaciones más abajo.
+  const [opExternas,setOpExternas]=useState([]),[opConfig,setOpConfig]=useState([]),[opEstado,setOpEstado]=useState("sin_cargar"),[opTodoCargado,setOpTodoCargado]=useState(false);
+  const opCargaRef = useRef(0), opTodoRef = useRef(false);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
   // Firmar documento: herramienta que se abre desde el menú de la cuenta, encima de cualquier módulo.
@@ -12906,13 +13917,38 @@ export default function App() {
   // en un dispositivo compartido donde una cuenta entra justo después de que otra salió, sin esto
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
   const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll(60000);};
-  const logout=()=>{setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);};
-  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="ventas"?"metricas":a==="capacitacion"?(tomaCapacitaciones(user)?"mis_cursos":"progreso"):user.role==="advisor"?"checkin":"dashboard");};
+  const logout=()=>{setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOpExternas([]);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
+  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="operaciones"?"op_externas":a==="ventas"?"metricas":a==="capacitacion"?(tomaCapacitaciones(user)?"mis_cursos":"progreso"):user.role==="advisor"?"checkin":"dashboard");};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   // Sin argumento (botón 🔄) siempre recarga. Con `maxEdadMs` solo recarga si la última carga es
   // más vieja que eso — así el login justo después de abrir la página, o "volver a la pestaña"
   // (focus y visibilitychange suelen dispararse a la vez), no repiten una descarga completa.
   const refreshAll=async(maxEdadMs)=>{ if(typeof maxEdadMs==="number" && Date.now()-ultimaCargaRef.current < maxEdadMs) return; setRefreshing(true); await loadAll(); setRefreshing(false); };
+  // Operaciones NO va en loadAll: se trae solo cuando alguien entra a esa área (la mayoría de las
+  // sesiones nunca la abren) y, por defecto, solo lo abierto + lo cerrado en los últimos 90 días —
+  // la cuenta de Supabase ya pasó su tope de descarga. La cuenta de tienda pide solo lo suyo (y los
+  // traslados donde es origen o destino). `maxEdadMs`: no repite la carga si la última es más
+  // reciente que eso. `todo`: trae el historial completo (enlace "Traer todo el historial") y se
+  // queda así hasta cerrar sesión.
+  const cargarOperaciones=async(maxEdadMs,todo)=>{
+    if(!user) return;
+    if(todo) opTodoRef.current = true;
+    else if(typeof maxEdadMs==="number" && Date.now()-opCargaRef.current < maxEdadMs) return;
+    opCargaRef.current = Date.now();
+    setOpEstado(e=>e==="listo"?e:"cargando");
+    const tiendaPropia = esCuentaTienda(user) ? user.tienda_id : null;
+    let consulta;
+    if(opTodoRef.current && !tiendaPropia) consulta = traerTodo("operaciones_externas",[["numero",false]]);
+    else {
+      let q = supabase.from("operaciones_externas").select("*");
+      if(tiendaPropia) q = q.or(`tienda_id.eq.${tiendaPropia},tienda_origen_id.eq.${tiendaPropia}`);
+      if(!opTodoRef.current) q = q.or(`etapa.not.in.(entregada,cancelada),fecha.gte.${sumarDias(todayStr,-90)}`);
+      consulta = q.order("numero",{ascending:false}).limit(1000);
+    }
+    const[{data:oe,error:eOe},{data:oc}]=await Promise.all([consulta, supabase.from("operaciones_config").select("*")]);
+    if(eOe){ setOpEstado("error"); return; }
+    setOpExternas(oe||[]); setOpConfig(oc||[]); setOpEstado("listo"); setOpTodoCargado(opTodoRef.current);
+  };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
   // Corrección manual de registros (solo master, desde Registros) — el borrado/edición en la base
   // ya lo hace RecordsScreen; esto solo mantiene sincronizado el estado local en memoria.
@@ -13025,6 +14061,7 @@ export default function App() {
   // a Ventas todos los admin arrancan en Métricas.
   const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : "");
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
+  const propsOperaciones = { user, users, stores, ops:opExternas, setOps:setOpExternas, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
       if(area==="junta"){
@@ -13038,6 +14075,8 @@ export default function App() {
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
         if(tab==="caja")      return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
+      } else if(area==="operaciones"){
+        if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesExternasScreen {...propsOperaciones}/>;
       } else if(area==="capacitacion"){
         if(tab==="mis_cursos" && tomaCapacitaciones(user)) return <CapacitacionMisCursosScreen {...propsCapacitacion}/>;
         if(tab==="progreso")     return <CapacitacionProgresoScreen users={users} {...propsCapacitacion}/>;
@@ -13054,6 +14093,7 @@ export default function App() {
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
       if(tab==="caja")      return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
+      if(tab==="op_externas") return <OperacionesExternasScreen {...propsOperaciones}/>;
       // La misma pantalla de Turnos que ven todos (encabezado de mes incluido), pero sin Editar ni
       // Administrar — la cuenta de tienda ve quién tiene turno sin poder cambiar nada.
       if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={false} userName={user.name}/>;
@@ -13161,7 +14201,7 @@ export default function App() {
     <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}} className="ozen-pane-anim-modulo">
       <div style={{maxWidth:900,margin:"0 auto"}}>
         <Btn onClick={()=>setMostrarUsuarios(false)} variant="ghost" sm style={{marginBottom:14}}>← Volver</Btn>
-        <UsuariosYPermisos users={users} setUsers={setUsers} stores={stores} lideres={juntaLideres}/>
+        <UsuariosYPermisos users={users} setUsers={setUsers} stores={stores} lideres={juntaLideres} setLideres={setJuntaLideres} user={user}/>
       </div>
     </div>
   );
@@ -13188,7 +14228,7 @@ export default function App() {
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
   const mostrarTienda = esAreaVentas && (tab==="registrar" || tab==="caja");
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
-  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:logout, onRefresh:refreshAll, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
+  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
   const panel = <div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div>;
 
   if(isMobile) return (
