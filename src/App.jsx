@@ -3690,6 +3690,9 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   // hacer wrap en el mismo lugar (sin duplicar el texto en otro bloque aparte).
   const [expandidas, setExpandidas] = useState(new Set());
   const toggleExpandida = (id) => setExpandidas(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
+  // Tarea vencida a la que se le está eligiendo nueva fecha (se abre un calendario ahí mismo).
+  const [reabriendo, setReabriendo] = useState(null);
+  const [fechaReabrir, setFechaReabrir] = useState("");
 
   const nombreLider = (id) => lideres.find(l=>l.id===id)?.nombre || "— sin asignar";
   const monitor = getMonitorActual(lideres);
@@ -3841,19 +3844,31 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   // para poder marcarla en la reunión real. Queda registrado quién la reabrió y cuándo — y a
   // diferencia de antes, se guarda el HISTORIAL completo (no solo la última vez), para poder ver
   // si una tarea se ha ido aplazando varias veces en vez de resolverse.
-  const reabrirVencida = (g) => {
-    const respuesta = window.prompt("Esta tarea venció antes de poder revisarla. ¿En qué fecha cae la semana en la que le damos más tiempo? (aaaa-mm-dd, cualquier día de esa semana)", sumarDias(todayStr, 1));
-    if (!respuesta) return;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(respuesta)) { alert("Fecha inválida — usa el formato aaaa-mm-dd."); return; }
+  const reabrirVencida = (g, fecha) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha||"")) { alert("Elige una fecha."); return; }
     // Se normaliza al martes de esa semana (mismo formato que fecha_estimada siempre ha tenido) —
     // así el nuevo plazo (hasta el domingo de esa semana) queda bien calculado sin importar qué
-    // día exacto se haya escrito.
-    const nueva = martesDeSemana(respuesta);
+    // día exacto se haya elegido.
+    const nueva = martesDeSemana(fecha);
     const ahora = new Date().toISOString();
     g.forEach(m => {
       const historial = [...(m.reaperturas||[]), { fecha_anterior:m.fecha_estimada||null, fecha_nueva:nueva, por:user.name, en:ahora }];
       actualizar(m.id, { fecha_estimada:nueva, reabierta_por:user.name, reabierta_en:ahora, reaperturas:historial });
     });
+    setReabriendo(null);
+  };
+  // "Marcar como realizada" (pedido de Santiago, nov 2026): la tarea sí se hizo a tiempo, pero venció
+  // porque no hubo reunión para marcarla. Antes la única salida era reabrirla y marcarla, y eso la
+  // contaba como "no a tiempo". Ahora se cierra de una vez como cumplida EN SU FECHA (el martes de
+  // su semana, igual que si se hubiera marcado en la reunión) — sin reapertura, así que cuenta como
+  // a tiempo y para el mes al que pertenece. Si ese mes ya se congeló, la foto publicada NO cambia
+  // (a propósito: no hacer la reunión es una falla del equipo y se debe ver en el indicador).
+  // Queda registrado quién la marcó y cuándo de verdad.
+  const marcarRealizadaVencida = (g) => {
+    const base = g[0];
+    if (!window.confirm(`¿Marcar esta tarea como realizada el ${base.fecha_estimada}?\n\nÚsalo solo si de verdad se hizo a tiempo y venció porque no hubo reunión para marcarla. Queda registrado que la marcaste tú hoy.`)) return;
+    const hoyTxt = new Date().toLocaleDateString("es-CO",{ day:"numeric", month:"short" });
+    g.forEach(m => actualizar(m.id, { completado:true, completado_en:`${m.fecha_estimada}T12:00:00-05:00`, completado_por:`${user.name} (vencida, marcada el ${hoyTxt})` }));
   };
   const eliminarGrupo = async (g) => {
     if (!window.confirm(g.length>1 ? "¿Eliminar esta tarea compartida? Se borra para todos los asignados. Esto no se puede deshacer." : "¿Eliminar esta tarea? Esto no se puede deshacer.")) return;
@@ -3970,7 +3985,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
           const checkTitle = completadoGrupo
             ? (enGracia ? "Marcada como hecha — se puede desmarcar unos minutos más" : "Ya marcada como hecha — no se puede desmarcar")
             : vencida
-            ? (autorreportadoGrupo ? `Vencida — ${base.autorreportado_por} la había autorreportado, pero no se confirmó a tiempo. Reábrela para poder confirmarla.` : "Vencida — ya pasó el plazo, no se puede marcar")
+            ? (autorreportadoGrupo ? `Vencida — ${base.autorreportado_por} la había autorreportado, pero no se confirmó a tiempo. Usa "Marcar como realizada" o "Reabrir a una nueva fecha".` : "Vencida — ya pasó el plazo. Si se hizo a tiempo usa \"Marcar como realizada\"; si no, \"Reabrir a una nueva fecha\".")
             : puedeConfirmar
             ? (autorreportadoGrupo ? `Autorreportada por ${base.autorreportado_por} — clic para confirmarla` : "Marcar como hecha")
             : puedeAutorreportar
@@ -3996,7 +4011,8 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
                 {completadoGrupo && <Badge color={C.green} sm>Cumplida</Badge>}
                 {autorreportadoGrupo && <Badge color={C.blue} sm title="Marcada por su responsable, falta que el monitor la confirme">Autorreportada</Badge>}
                 {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
-                {vencida && puedeGestionar && <button onClick={()=>reabrirVencida(g)} title="La reunión se corrió de fecha — reabrir con nuevo plazo" style={{ background:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir</button>}
+                {vencida && puedeGestionar && <button onClick={()=>{ if(reabriendo===toggleId){ setReabriendo(null); return; } setReabriendo(toggleId); setFechaReabrir(sumarDias(todayStr, 1)); }} title="La tarea todavía no se ha hecho — darle un nuevo plazo" style={{ background:reabriendo===toggleId?`${C.amber}18`:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir a una nueva fecha</button>}
+                {vencida && puedeGestionar && <button onClick={()=>marcarRealizadaVencida(g)} title="Se hizo a tiempo pero no hubo reunión para marcarla — queda cumplida en su fecha, sin reabrirla" style={{ background:"none", border:`1px solid ${C.green}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Marcar como realizada</button>}
                 {completadoGrupo && base.completado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· marcada por {base.completado_por}</div>}
                 {autorreportadoGrupo && base.autorreportado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· por {base.autorreportado_por}</div>}
                 {base.reabierta_por && (
@@ -4010,6 +4026,16 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
                   </HoverTooltip>
                 )}
               </div>
+              {vencida && puedeGestionar && reabriendo===toggleId && (
+                <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", padding:"8px 10px", borderRadius:8, background:`${C.amber}10`, border:`1px solid ${C.amber}55` }}>
+                  <span style={{ fontFamily:font.body, fontSize:12, color:C.text }}>Nueva fecha:</span>
+                  <input type="date" autoFocus value={fechaReabrir} min={todayStr} onChange={e=>setFechaReabrir(e.target.value)} onFocus={e=>{ try{ e.target.showPicker?.(); }catch{ /* algunos navegadores no lo permiten */ } }} style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:13, fontFamily:font.body }}/>
+                  <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>vence el domingo de esa semana</span>
+                  <span style={{ flex:1 }}/>
+                  <button onClick={()=>setReabriendo(null)} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:12, fontFamily:font.body }}>Cancelar</button>
+                  <button onClick={()=>reabrirVencida(g, fechaReabrir)} disabled={!fechaReabrir} style={{ background:C.amber, border:"none", borderRadius:6, color:"#fff", cursor:"pointer", fontSize:12, fontWeight:700, padding:"5px 12px", fontFamily:font.body }}>Reabrir</button>
+                </div>
+              )}
               {/* Línea 2: check + tarea (ancho libre) + ver más al final */}
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <button onClick={puedeMarcar?marcar:undefined} disabled={!puedeMarcar} title={checkTitle} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${completadoGrupo?C.green:vencida?C.amber:autorreportadoGrupo?C.blue:C.border}`, background:completadoGrupo?C.green:autorreportadoGrupo?`${C.blue}30`:"transparent", cursor:puedeMarcar?"pointer":"default", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:completadoGrupo?"#fff":vencida?C.amber:C.blue, fontSize:11 }}>{completadoGrupo?"✓":vencida?"✕":autorreportadoGrupo?"✓":""}</button>
