@@ -4190,18 +4190,16 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
     });
     setReabriendo(null);
   };
-  // "Marcar como realizada" (pedido de Santiago, nov 2026): la tarea sí se hizo a tiempo, pero venció
-  // porque no hubo reunión para marcarla. Antes la única salida era reabrirla y marcarla, y eso la
-  // contaba como "no a tiempo". Ahora se cierra de una vez como cumplida EN SU FECHA (el martes de
-  // su semana, igual que si se hubiera marcado en la reunión) — sin reapertura, así que cuenta como
-  // a tiempo y para el mes al que pertenece. Si ese mes ya se congeló, la foto publicada NO cambia
-  // (a propósito: no hacer la reunión es una falla del equipo y se debe ver en el indicador).
-  // Queda registrado quién la marcó y cuándo de verdad.
+  // "Marcar como realizada" (pedido de Santiago, nov 2026): la tarea sí se hizo, pero venció porque
+  // no hubo reunión para marcarla. Antes la única salida era reabrirla y marcarla (y quedaba como
+  // "no a tiempo" por la reapertura). Ahora se cierra de una vez como cumplida HOY, igual que una
+  // marcada en la reunión: sin reapertura, así que cuenta como cumplida a tiempo, y cuenta en el mes
+  // en que se cerró (mesDeCierre usa completado_en). Si el mes en que venció ya se congeló, esa foto
+  // no cambia — ahí sigue como vencida, a propósito: no hacer la reunión es falla del equipo.
   const marcarRealizadaVencida = (g) => {
-    const base = g[0];
-    if (!window.confirm(`¿Marcar esta tarea como realizada el ${base.fecha_estimada}?\n\nÚsalo solo si de verdad se hizo a tiempo y venció porque no hubo reunión para marcarla. Queda registrado que la marcaste tú hoy.`)) return;
-    const hoyTxt = new Date().toLocaleDateString("es-CO",{ day:"numeric", month:"short" });
-    g.forEach(m => actualizar(m.id, { completado:true, completado_en:`${m.fecha_estimada}T12:00:00-05:00`, completado_por:`${user.name} (vencida, marcada el ${hoyTxt})` }));
+    if (!window.confirm("¿Marcar esta tarea como realizada?\n\nQueda cumplida hoy, sin reabrirla.")) return;
+    const ahora = new Date().toISOString();
+    g.forEach(m => actualizar(m.id, { completado:true, completado_en:ahora, completado_por:user.name }));
   };
   const eliminarGrupo = async (g) => {
     if (!window.confirm(g.length>1 ? "¿Eliminar esta tarea compartida? Se borra para todos los asignados. Esto no se puede deshacer." : "¿Eliminar esta tarea? Esto no se puede deshacer.")) return;
@@ -4344,7 +4342,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
                 {autorreportadoGrupo && <Badge color={C.blue} sm title="Marcada por su responsable, falta que el monitor la confirme">Autorreportada</Badge>}
                 {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
                 {vencida && puedeGestionar && <button onClick={()=>{ if(reabriendo===toggleId){ setReabriendo(null); return; } setReabriendo(toggleId); setFechaReabrir(sumarDias(todayStr, 1)); }} title="La tarea todavía no se ha hecho — darle un nuevo plazo" style={{ background:reabriendo===toggleId?`${C.amber}18`:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir a una nueva fecha</button>}
-                {vencida && puedeGestionar && <button onClick={()=>marcarRealizadaVencida(g)} title="Se hizo a tiempo pero no hubo reunión para marcarla — queda cumplida en su fecha, sin reabrirla" style={{ background:"none", border:`1px solid ${C.green}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Marcar como realizada</button>}
+                {vencida && puedeGestionar && <button onClick={()=>marcarRealizadaVencida(g)} title="Se hizo, pero no hubo reunión para marcarla — queda cumplida hoy, sin reabrirla" style={{ background:"none", border:`1px solid ${C.green}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Marcar como realizada</button>}
                 {completadoGrupo && base.completado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· marcada por {base.completado_por}</div>}
                 {autorreportadoGrupo && base.autorreportado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· por {base.autorreportado_por}</div>}
                 {base.reabierta_por && (
