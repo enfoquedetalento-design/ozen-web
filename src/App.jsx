@@ -889,9 +889,11 @@ const eligeModulo = (user) => puedeUsarAreas(user) || user.role==="advisor";
 const puedeUsarVentasArea = (user) => user.role==="master" || user.role==="admin_finanzas" || user.role==="admin" || user.role==="visualizador" || user.role==="admin_turnos";
 // Quién solo puede VER Ventas (lista, métricas, caja) sin registrar ni corregir nada.
 const ventasSoloLectura = (user) => user.role==="admin" || user.role==="visualizador" || user.role==="admin_turnos";
-// Admin (no admin_finanzas) sí puede ENTRAR a la pantalla de Registrar venta para verla, pero
-// en modo solo lectura — no puede guardar. Visualizador ni siquiera ve esa pestaña.
-const puedeVerRegistrar = (user) => user.role!=="visualizador";
+// Todo el que entra a Ventas ve la pestaña Registrar venta. Admin, Admin Turnos y Visualizador
+// entran en modo solo lectura: pueden llenar el formulario para ver cómo funciona, pero no
+// guardar (ver puedeRegistrarVenta). Antes el Visualizador ni veía la pestaña — pedido de Santiago
+// (nov 2026, revisión del inventario de Permisos): que la vea igual que un Admin.
+const puedeVerRegistrar = (user) => puedeUsarVentasArea(user) || esCuentaTienda(user);
 const puedeRegistrarVenta = (user) => user.role==="master" || user.role==="admin_finanzas";
 // Cuentas de tienda: login compartido, van directo a Ventas sin selector de área
 const esCuentaTienda = (user) => user.role==="tienda";
@@ -1524,10 +1526,10 @@ const ROLE_LABEL = { master:"Master", admin:"Administrador", admin_finanzas:"Adm
 const ROLE_COLOR = { master:C.red, admin:C.gold, admin_finanzas:C.blue, admin_turnos:C.green, visualizador:C.amber, advisor:C.blue, tienda:C.textMuted };
 const ROLE_PERMISOS = {
   master: "Acceso total: Asistencia, Junta, Ventas y el módulo de Usuarios (ve y cambia todas las contraseñas).",
-  admin: "Asistencia y Junta completos (panel, registros, turnos —incluye crear/editar/eliminar asesores y tiendas—, informes). En Ventas solo puede ver (lista, métricas, caja) — no puede registrar ni corregir nada.",
+  admin: "Asistencia y Junta completos (panel, registros, informes); en Turnos solo puede ver la malla. En Ventas solo puede ver (lista, métricas, caja, y la pantalla de Registrar para ver cómo funciona) — no puede guardar ni corregir nada.",
   admin_finanzas: "Todo lo de un Administrador (Asistencia y Junta), más Ventas completo: registrar, lista, métricas, asignar metas, aprobar notas crédito y corregir por error.",
-  admin_turnos: "Todo lo de un Administrador (Asistencia y Junta, Ventas solo lectura), más acceso completo a Turnos: editar el Borrador y entrar a Administrar (asesores, tiendas, turnos especiales, horarios).",
-  visualizador: "Puede ver Asistencia, Junta y Ventas, sin poder editar ni registrar nada en ninguno de los tres.",
+  admin_turnos: "Todo lo de un Administrador (Asistencia y Junta, Ventas solo lectura), más acceso completo a Turnos: editar el Borrador, publicar y entrar a Administrar (crear/editar/retirar asesores, tiendas, turnos especiales, horarios).",
+  visualizador: "Puede ver Asistencia, Junta y Ventas, sin poder editar ni registrar nada en ninguno de los tres. Lo único propio que hace: marcar su asistencia y firmar documentos.",
   advisor: "Marca su propia asistencia y ve su historial/malla. Si se usa para vender, aparece para elegir como quién hizo la venta.",
   tienda: "Login compartido de una tienda: solo entra a Ventas (Registrar, Lista, Métricas, Caja) de esa tienda, con la fecha fija en hoy.",
 };
@@ -1638,7 +1640,7 @@ const PERM_SI_MONITOR = "si es Monitor";
 const PERM_SI_SU_TAREA = "si es su tarea";
 const PERM_GRUPOS = [{ id:"ventas_registrar", label:"Ventas · Registrar venta" }, { id:"ventas_lista", label:"Ventas · Lista y correcciones" }, { id:"ventas_metricas", label:"Ventas · Métricas" }, { id:"ventas_caja", label:"Ventas · Caja" }, { id:"asistencia", label:"Asistencia" }, { id:"turnos", label:"Turnos" }, { id:"junta", label:"La Junta" }, { id:"escuela", label:"Escuela OZEN" }, { id:"cuenta", label:"Cuenta y usuarios" }];
 const PERMISOS = [
-  { id:"ventas.registrar.ver", g:"ventas_registrar", label:"Ver la pantalla Registrar venta", r:{ master:1, admin_finanzas:1, admin:"solo ver", admin_turnos:"solo ver", tienda:"su tienda" }, nota:"Admin y Admin Turnos pueden llenar el formulario pero no guardar. El Visualizador ni ve la pestaña." },
+  { id:"ventas.registrar.ver", g:"ventas_registrar", label:"Ver la pantalla Registrar venta", r:{ master:1, admin_finanzas:1, admin:"solo ver", admin_turnos:"solo ver", visualizador:"solo ver", tienda:"su tienda" }, nota:"Admin, Admin Turnos y Visualizador pueden llenar el formulario para ver cómo funciona, pero no guardar." },
   { id:"ventas.registrar.guardar", g:"ventas_registrar", label:"Guardar una venta", r:{ master:1, admin_finanzas:1, tienda:"su tienda" }, nota:"La cuenta de tienda solo registra en su tienda y con fecha de hoy." },
   { id:"ventas.fecha_libre", g:"ventas_registrar", label:"Usar una fecha distinta a hoy (venta, abono o ajuste)", r:{ master:1, admin_finanzas:1 } },
   { id:"ventas.vendedor", g:"ventas_registrar", label:"Aparecer como vendedor («quién hizo la venta»)", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, advisor:1 }, nota:"Solo si la cuenta está activa. No es algo que la persona haga: es que su nombre sale en la lista de vendedores." },
@@ -1652,10 +1654,10 @@ const PERMISOS = [
   { id:"ventas.correccion.solicitar", g:"ventas_lista", label:"Pedir una corrección (solicitud de Notacrédito)", r:{ tienda:"días anteriores" }, nota:"Es el camino de la tienda para ventas de días anteriores. Master y Admin Finanzas no lo usan porque corrigen directo." },
   { id:"ventas.correccion.resolver", g:"ventas_lista", label:"Aprobar o rechazar solicitudes de corrección", r:{ master:1, admin_finanzas:1 }, sensible:true },
   { id:"ventas.correccion.aplicar", g:"ventas_lista", label:"Aplicar una corrección ya aprobada", r:{ master:"con aprobación", admin_finanzas:"con aprobación", tienda:"con aprobación" }, nota:"Incluye corregir solo el medio de pago. Solo aparece cuando la venta tiene una solicitud aprobada sin aplicar." },
-  { id:"ventas.metricas.ver", g:"ventas_metricas", label:"Ver Métricas", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, tienda:"vista de tienda" }, nota:"La cuenta de tienda entra con su tienda primero y sin la sección de Consultas." },
+  { id:"ventas.metricas.ver", g:"ventas_metricas", label:"Ver Métricas", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, tienda:1 }, nota:"La cuenta de tienda entra con su tienda primero. No ve el «Ingreso total» (el que suma servicios) ni la sección de Consultas." },
   { id:"ventas.metricas.consultas", g:"ventas_metricas", label:"Usar Consultas y exportarlas", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
   { id:"ventas.metas.asignar", g:"ventas_metricas", label:"Asignar metas mensuales", r:{ master:1, admin_finanzas:1 }, sensible:true },
-  { id:"caja.ver", g:"ventas_caja", label:"Ver Caja e historial", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, tienda:"su tienda" }, nota:"Admin, Admin Turnos y Visualizador solo ven el Historial." },
+  { id:"caja.ver", g:"ventas_caja", label:"Ver Caja e historial", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, tienda:"su tienda" }, nota:"Admin, Admin Turnos y Visualizador ven Caja y el Historial, pero la parte de registrar les sale apagada: no pueden tocar nada." },
   { id:"caja.registrar", g:"ventas_caja", label:"Registrar apertura, cierre y novedad", r:{ master:1, admin_finanzas:1, tienda:"su tienda, hoy" } },
   { id:"caja.fecha_libre", g:"ventas_caja", label:"Usar una fecha distinta a hoy en Caja", r:{ master:1, admin_finanzas:1 } },
   { id:"caja.recoleccion.registrar", g:"ventas_caja", label:"Registrar una recolección de efectivo", r:{ master:1, admin_finanzas:1, tienda:"su tienda" } },

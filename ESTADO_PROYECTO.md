@@ -617,6 +617,21 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
   y en realidad solo master y admin_turnos pueden). La entrada va escondida junto a Usuarios.
 - Inventario para que Santiago lo revise y comente: documento "Inventario de permisos — OZEN-WEB
   (Fase 1)" → https://claude.ai/artifact/XQpDVq6WPUMC7H3vpnohGa
+- **Revisión del inventario por Santiago (9 nov 2026, noche):** subió la Fase 1 a `staging`
+  (commit `1f21166`) y corrigió el documento. Ya aplicado en `staging`: el Visualizador ahora VE
+  la pestaña Registrar venta en modo solo ver, igual que un Admin (`puedeVerRegistrar`); se
+  corrigieron los textos de `ROLE_PERMISOS` (Administrador, Admin Turnos, Visualizador); y el
+  inventario quedó al día. Confirmó que quiere dejar así: Admin y Admin Turnos pueden llenar
+  Registrar venta sin guardar ("me gusta que vean cómo funciona"), ven Caja sin poder tocar y sí
+  reciben recolecciones; el Visualizador marca asistencia y firma documentos.
+- **Pedidos de Santiago que necesitan base de datos (van con el SQL de la Fase 2, pendientes de
+  su visto bueno):** (1) enlazar cada líder de La Junta con su cuenta de usuario en vez de
+  comparar nombres (Monitor y autorreporte); (2) botón para que el Monitor SOLICITE borrar una
+  tarea vencida o cumplida y el master apruebe (hoy esas solo las borra master).
+- **Paolo / "Equipo admin" en Métricas:** el Top junta en una sola fila a los administrativos que
+  tienen meta ese mes; Paolo queda por fuera (aparece solo, como un asesor) porque cubre un turno
+  completo de asesor. Los otros 4 ya no cubren turnos, así que esa fila ya casi no aparece. Sigue
+  escrito por nombre en el código (`FUERA_DE_EQUIPO_ADMIN`); no se cambió nada.
 - **Fase 2 (pendiente):** tablas en Supabase (rol↔permiso, excepciones por persona, historial),
   sembradas con exactamente lo que dice `PERMISOS`. Se entregan como `.sql` con `if not exists`.
 - **Fase 3 (pendiente):** función única `puede(user, "permiso")`; migrar un módulo a la vez
