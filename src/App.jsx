@@ -12474,46 +12474,94 @@ export default function App() {
   // hace nada (cada carga completa baja todas las tablas, y el refresco automático ya había hecho
   // que Supabase pasara del tope gratis de transferencia: 5 GB/mes, con 5,07 GB usados).
   const ultimaCargaRef = useRef(0);
+  // ── "Pulso" de cambios ──────────────────────────────────────────────────────────────────────
+  // La base lleva una tarjetita de versión por tabla (`tabla_versiones`, ver sql/pulso_versiones.sql):
+  // un disparador le suma 1 cada vez que alguien inserta/edita/borra en esa tabla. La página lee
+  // esas tarjetas (pesan bytes) y SOLO vuelve a descargar las tablas cuya versión cambió, en vez de
+  // bajar todo cada 5 minutos. Si las tarjetas no existen o no se pueden leer, se vuelve al modo
+  // anterior (descarga completa, como máximo cada 5 min). Además hay una descarga completa de
+  // respaldo cada 30 min por si algún cambio se hubiera escapado. Nunca se recorta el historial.
+  const versionesRef = useRef({});   // tabla -> versión con la que quedó cargada
+  const cargaTablaRef = useRef({});  // tabla -> momento (ms) de su última descarga
+  const pulsoOcupadoRef = useRef(false);
+  const ultimoPulsoRef = useRef(0);
+  const FUENTES = {
+    tiendas:{ consulta:()=>supabase.from("tiendas").select("*"), poner:(d)=>{ const sm={}; d.forEach(s=>sm[s.id]=s); setStores(sm); } },
+    usuarios:{ consulta:()=>supabase.from("usuarios").select("*"), poner:setUsers },
+    registros:{ consulta:()=>traerTodo("registros",[["date",false]]), poner:setRecords },
+    junta_lideres:{ consulta:()=>supabase.from("junta_lideres").select("*").order("orden",{ascending:true}), poner:setJuntaLideres },
+    junta_compromisos:{ consulta:()=>traerTodo("junta_compromisos",[["semana",false]]), poner:setJuntaCompromisos },
+    junta_acuerdos:{ consulta:()=>supabase.from("junta_acuerdos").select("*").order("fecha",{ascending:false}), poner:setJuntaAcuerdos },
+    junta_areas:{ consulta:()=>supabase.from("junta_areas").select("*").order("nombre",{ascending:true}), poner:setJuntaAreas },
+    junta_lider_areas:{ consulta:()=>supabase.from("junta_lider_areas").select("*"), poner:setJuntaLiderAreas },
+    junta_indicadores_congelados:{ consulta:()=>supabase.from("junta_indicadores_congelados").select("*"), poner:setJuntaIndicadoresCongelados },
+    ventas:{ consulta:()=>traerTodo("ventas",[["fecha",false]]), poner:setVentas },
+    ventas_items:{ consulta:()=>traerTodo("ventas_items"), poner:setVentasItems },
+    ventas_metas:{ consulta:()=>supabase.from("ventas_metas").select("*"), poner:setVentasMetas },
+    ventas_metas_asesor:{ consulta:()=>supabase.from("ventas_metas_asesor").select("*"), poner:setVentasMetasAsesor },
+    ventas_abonos:{ consulta:()=>traerTodo("ventas_abonos"), poner:setVentasAbonos },
+    ventas_caja_aperturas:{ consulta:()=>traerTodo("ventas_caja_aperturas",[["created_at",false]]), poner:setCajaAperturas },
+    ventas_caja_cierres:{ consulta:()=>traerTodo("ventas_caja_cierres",[["created_at",false]]), poner:setCajaCierres },
+    ventas_caja_recolecciones:{ consulta:()=>traerTodo("ventas_caja_recolecciones",[["created_at",false]]), poner:setCajaRecolecciones },
+    ventas_caja_gastos:{ consulta:()=>traerTodo("ventas_caja_gastos",[["created_at",false]]), poner:setCajaGastos },
+    ventas_ajustes:{ consulta:()=>traerTodo("ventas_ajustes"), poner:setVentasAjustes },
+    ventas_caja_solicitudes_borrado:{ consulta:()=>supabase.from("ventas_caja_solicitudes_borrado").select("*").order("fecha_solicitud",{ascending:false}), poner:setCajaSolicitudesBorrado },
+    turnos_globales:{ consulta:()=>supabase.from("turnos_globales").select("*"), poner:setTurnosGlobales },
+    turnos_asignaciones:{ consulta:()=>traerTodo("turnos_asignaciones"), poner:setTurnosAsignaciones },
+    turnos_horarios:{ consulta:()=>supabase.from("turnos_horarios").select("*"), poner:setTurnosHorarios },
+    capacitacion_cursos:{ consulta:()=>supabase.from("capacitacion_cursos").select("*"), poner:setCapCursos },
+    capacitacion_lecciones:{ consulta:()=>supabase.from("capacitacion_lecciones").select("*"), poner:setCapLecciones },
+    capacitacion_preguntas:{ consulta:()=>supabase.from("capacitacion_preguntas").select("*"), poner:setCapPreguntas },
+    capacitacion_lecciones_vistas:{ consulta:()=>traerTodo("capacitacion_lecciones_vistas"), poner:setCapVistas },
+    capacitacion_intentos:{ consulta:()=>traerTodo("capacitacion_intentos",[["created_at",true]]), poner:setCapIntentos },
+  };
+  // Tiempo mínimo entre dos descargas de la MISMA tabla aunque cambie seguido: las pesadas esperan
+  // más para que, en horas de mucho movimiento, no se descargue más que con el sistema anterior.
+  const ESPERA_TABLA_MS = { ventas:180000, ventas_items:180000, ventas_abonos:180000, registros:300000, capacitacion_intentos:300000, capacitacion_lecciones_vistas:300000, ventas_caja_aperturas:120000, ventas_caja_cierres:120000, ventas_caja_recolecciones:120000, ventas_caja_gastos:120000, ventas_ajustes:120000, turnos_asignaciones:120000 };
+  const leerVersiones = async () => {
+    try {
+      const { data, error } = await supabase.from("tabla_versiones").select("tabla,version");
+      if (error || !data || !data.length) return null;
+      const m = {}; data.forEach(r => { m[r.tabla] = Number(r.version); });
+      return m;
+    } catch(e) { return null; }
+  };
+  // Descarga las tablas pedidas y las pone en el estado. Si una falla, se deja lo que ya había
+  // (no se borra con una lista vacía) y su versión no se marca como cargada, así se reintenta.
+  const cargarTablas = async (claves, vers) => {
+    const res = await Promise.all(claves.map(async k => { try { return [k, await FUENTES[k].consulta()]; } catch(e) { return [k, { data:null, error:e }]; } }));
+    const datos = {};
+    res.forEach(([k, r]) => {
+      if (!r || r.error || !Array.isArray(r.data)) return;
+      datos[k] = r.data;
+      FUENTES[k].poner(r.data);
+      cargaTablaRef.current[k] = Date.now();
+      if (vers && vers[k] !== undefined) versionesRef.current[k] = vers[k]; else delete versionesRef.current[k];
+    });
+    return datos;
+  };
+  const revisarCambios = async () => {
+    if (pulsoOcupadoRef.current || Date.now() - ultimoPulsoRef.current < 10000) return;
+    pulsoOcupadoRef.current = true; ultimoPulsoRef.current = Date.now();
+    try {
+      if (Date.now() - ultimaCargaRef.current > 30*60000) { await refreshAll(); return; }   // respaldo
+      const vers = await leerVersiones();
+      if (!vers) { await refreshAll(5*60000); return; }                                     // sin pulso: modo anterior
+      const ahora = Date.now();
+      const cambiadas = Object.keys(FUENTES).filter(k => {
+        const edad = ahora - (cargaTablaRef.current[k] || 0);
+        const cambio = vers[k] === undefined ? edad > 5*60000 : vers[k] !== versionesRef.current[k];
+        return cambio && edad >= (ESPERA_TABLA_MS[k] || 60000);
+      });
+      if (cambiadas.length) await cargarTablas(cambiadas, vers);
+    } finally { pulsoOcupadoRef.current = false; }
+  };
+
   const loadAll=async()=>{
     ultimaCargaRef.current = Date.now();
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:jic},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj},{data:csb},{data:tg},{data:tas},{data:th},{data:kc},{data:kl},{data:kp},{data:kv},{data:ki}]=await Promise.all([
-      supabase.from("tiendas").select("*"),
-      supabase.from("usuarios").select("*"),
-      traerTodo("registros",[["date",false]]),
-      supabase.from("junta_lideres").select("*").order("orden",{ascending:true}),
-      traerTodo("junta_compromisos",[["semana",false]]),
-      supabase.from("junta_acuerdos").select("*").order("fecha",{ascending:false}),
-      supabase.from("junta_areas").select("*").order("nombre",{ascending:true}),
-      supabase.from("junta_lider_areas").select("*"),
-      supabase.from("junta_indicadores_congelados").select("*"),
-      traerTodo("ventas",[["fecha",false]]),
-      traerTodo("ventas_items"),
-      supabase.from("ventas_metas").select("*"),
-      supabase.from("ventas_metas_asesor").select("*"),
-      traerTodo("ventas_abonos"),
-      traerTodo("ventas_caja_aperturas",[["created_at",false]]),
-      traerTodo("ventas_caja_cierres",[["created_at",false]]),
-      traerTodo("ventas_caja_recolecciones",[["created_at",false]]),
-      traerTodo("ventas_caja_gastos",[["created_at",false]]),
-      traerTodo("ventas_ajustes"),
-      supabase.from("ventas_caja_solicitudes_borrado").select("*").order("fecha_solicitud",{ascending:false}),
-      supabase.from("turnos_globales").select("*"),
-      traerTodo("turnos_asignaciones"),
-      supabase.from("turnos_horarios").select("*"),
-      supabase.from("capacitacion_cursos").select("*"),
-      supabase.from("capacitacion_lecciones").select("*"),
-      supabase.from("capacitacion_preguntas").select("*"),
-      traerTodo("capacitacion_lecciones_vistas"),
-      traerTodo("capacitacion_intentos",[["created_at",true]]),
-    ]);
-    const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
-    setStores(sm);setUsers(u||[]);setRecords(r||[]);
-    setJuntaLideres(jl||[]);
-    setJuntaCompromisos(jc||[]);
-    setJuntaAcuerdos(ja||[]);
-    setJuntaAreas(jar||[]);
-    setJuntaLiderAreas(jla||[]);
-    setJuntaIndicadoresCongelados(jic||[]);
+    const vers = await leerVersiones();   // se lee ANTES de descargar: si algo cambia mientras tanto, el próximo pulso lo recoge
+    const datos = await cargarTablas(Object.keys(FUENTES), vers);
+    const jl = datos.junta_lideres, jc = datos.junta_compromisos, jic = datos.junta_indicadores_congelados;
     // Corte automático del mes de La Junta — antes dependía de una tarea programada por fuera de
     // la página (que solo corría si quedaba un computador prendido para ejecutarla), así que ahora
     // lo hace la página misma: cada vez que alguien la abre, revisa si el mes candidato (el
@@ -12529,6 +12577,7 @@ export default function App() {
     // (pg_cron) corriendo dentro de la propia base de datos de Supabase, que no depende de que
     // nadie abra la página ni de ningún computador (ver corte-automatico-pgcron.sql).
     (async () => {
+      if (!jl || !jc || !jic) return;   // si alguna de las tres tablas no se pudo bajar, no se decide nada con datos incompletos
       const ahoraCol = toColombiaDate();
       let anioCand = ahoraCol.getFullYear(), mesCand = ahoraCol.getMonth() - 1;
       if (mesCand < 0) { mesCand = 11; anioCand -= 1; }
@@ -12550,25 +12599,6 @@ export default function App() {
       // Si hay error (ej. choque con la restricción única porque alguien más ya lo congeló justo
       // antes), no hace falta avisar — es el comportamiento esperado, no un fallo real.
     })();
-    setVentas(v||[]);
-    setVentasItems(vi||[]);
-    setVentasMetas(vm||[]);
-    setVentasMetasAsesor(vma||[]);
-    setVentasAbonos(vab||[]);
-    setCajaAperturas(ca||[]);
-    setCajaCierres(cc||[]);
-    setCajaRecolecciones(cr||[]);
-    setCajaGastos(cg||[]);
-    setVentasAjustes(vaj||[]);
-    setCajaSolicitudesBorrado(csb||[]);
-    setTurnosGlobales(tg||[]);
-    setTurnosAsignaciones(tas||[]);
-    setTurnosHorarios(th||[]);
-    setCapCursos(kc||[]);
-    setCapLecciones(kl||[]);
-    setCapPreguntas(kp||[]);
-    setCapVistas(kv||[]);
-    setCapIntentos(ki||[]);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
@@ -12602,8 +12632,10 @@ export default function App() {
   // mientras quede abierta y visible — pero nunca si ya se cargó hace menos de 2 minutos.
   useEffect(()=>{
     if(!user) return;
-    const refrescarSiVisible = () => { if(document.visibilityState==="visible") refreshAll(2*60000); };
-    const intervalo = setInterval(refrescarSiVisible, 5*60000);
+    // Ya no se baja todo cada 5 min: cada minuto (y al volver a la pestaña) se revisa el "pulso"
+    // de versiones y solo se descargan las tablas que cambiaron — ver revisarCambios.
+    const refrescarSiVisible = () => { if(document.visibilityState==="visible") revisarCambios(); };
+    const intervalo = setInterval(refrescarSiVisible, 60000);
     document.addEventListener("visibilitychange", refrescarSiVisible);
     window.addEventListener("focus", refrescarSiVisible);
     return () => {
