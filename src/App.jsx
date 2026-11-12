@@ -5325,7 +5325,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
   // solo color de acento (Base) — antes cada módulo tenía un color propio fuera de la paleta.
   const modulos = [
     { id:"ventas", icon:<Icon n="receipt" s={24}/>, titulo:"Ventas", desc:ventasSoloLectura(user) ? "Solo para ver — no se puede registrar ni corregir nada" : "Registro de ventas, caja, metas y métricas por tienda", accent:C.gold, mostrar:puedeUsarVentasArea(user) },
-    { id:"operaciones", icon:<Icon n="box" s={24}/>, titulo:"Operaciones", desc:user.role==="visualizador" ? "Solo para ver — órdenes de arreglos, marcaciones, garantías, traslados y pedidos" : "Órdenes de clientes: arreglos, marcaciones, garantías, traslados y pedidos", accent:C.gold, mostrar:puedeUsarAreas(user) && puedeOper(user, "operaciones.ver") },
+    { id:"operaciones", icon:<Icon n="box" s={24}/>, titulo:"Operaciones", desc:user.role==="visualizador" ? "Solo para ver — órdenes de arreglos, marcaciones y garantías" : "Órdenes de clientes: arreglos, marcaciones y garantías", accent:C.gold, mostrar:puedeUsarAreas(user) && puedeOper(user, "operaciones.ver") },
     { id:"asistencia", icon:<Icon n="clock" s={24}/>, titulo:"Registro de Asistencia", desc:user.role==="advisor" ? "Marca tu asistencia, revisa tu historial y tus turnos" : "Panel, registros, turnos, asesores, tiendas e informes", accent:C.gold, mostrar:true },
     { id:"junta", icon:<Icon n="users" s={24}/>, titulo:"La Junta Administrativa", desc:"Equipo, seguimiento semanal y guion de la reunión", accent:C.gold, mostrar:puedeUsarAreas(user) },
     { id:"capacitacion", icon:<Icon n="book" s={24}/>, titulo:"Escuela OZEN", desc:user.role==="visualizador" ? "Progreso del equipo en cada curso" : user.role==="advisor" ? "Tus cursos de inducción y capacitación, con sus quizzes" : "Cursos de inducción y capacitación — y el progreso de cada persona", accent:C.gold, mostrar:true },
@@ -7458,7 +7458,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   );
 }
 
-function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
+function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, tiendaActiva, onVerLista, user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   // OJO: el valor por defecto debe salir de tiendasVenta() (las que sí venden), no de todas las
   // tiendas — si no, el dropdown solo MUESTRA tiendas válidas pero el valor de por debajo puede
@@ -7504,6 +7504,17 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
   const [vueloBats, setVueloBats] = useState(0); // Halloween: distinto de 0 mientras vuelan los murciélagos
 
   const asesores = users.filter(esVendedorPosible);
+
+  // Cobro de una orden de Operaciones (botón "Cobrar" de la orden): se deja listo el renglón con
+  // el tipo y el valor de la orden — solo falta elegir el medio de pago, agregarlo y registrar.
+  useEffect(()=>{
+    if(!ordenACobrar) return;
+    setItems([]); setItemPagos([]); setItemDescuento(""); setItemDescuentoTipo("valor");
+    setItemTipo(ordenACobrar.tipo==="marcacion" ? "marcacion" : "arreglo");
+    setItemValor(String(Math.round(Number(ordenACobrar.valor)||0)));
+    setObservacion(`Orden ${operReferencia(ordenACobrar)} · ${ordenACobrar.cliente_nombre||""}`.trim());
+    setMsg("");
+  }, [ordenACobrar?.id]);
 
   // Busca si este documento ya compró antes y autocompleta nombre/teléfono
   useEffect(()=>{
@@ -7604,7 +7615,9 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
     setGuardando(true);
     const vendedor = users.find(u=>u.id===vendedorId);
     const { data:venta, error } = await supabase.from("ventas").insert({
-      fecha, numero_factura:requiereSiigo?numeroFactura.trim():(numeroFactura.trim()||null), tienda_id:tiendaId, vendedor_id:vendedorId, vendedor_nombre:vendedor?.name||"",
+      // Cobro de una orden de Operaciones: el N.º de factura queda como OP-0000 (así se encuentra
+      // en la Lista de ventas). Si en el mismo recibo va un producto, manda el número de Siigo.
+      fecha, numero_factura:requiereSiigo?numeroFactura.trim():(ordenACobrar?operReferencia(ordenACobrar):(numeroFactura.trim()||null)), tienda_id:tiendaId, vendedor_id:vendedorId, vendedor_nombre:vendedor?.name||"",
       registrado_por:user.name,
       cliente_tipo_doc:esFlexipago?clienteTipoDoc:null, cliente_documento:esFlexipago?clienteDocumento.trim():null,
       cliente_nombre:esFlexipago?clienteNombre.trim():null, cliente_telefono:esFlexipago?clienteTelefono.trim():null,
@@ -7618,14 +7631,27 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
     if(esFlexipago && Number(abonoInicialValor||0) > 0){
       await supabase.from("ventas_abonos").insert({ venta_id:venta.id, fecha, valor:Number(abonoInicialValor), registrado_por:user.name, medio_pago:abonoInicialMedio, numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(abonoInicialMedio)?abonoInicialAutorizacion.trim():null });
     }
+    // Si esta venta era el cobro de una orden de Operaciones, la orden pasa a "Pago" y queda
+    // enlazada con la venta. Si este paso falla, la venta ya quedó guardada: se avisa para que el
+    // líder corrija el pago a mano en la orden.
+    let avisoOrden = "";
+    if(ordenACobrar){
+      const ref = venta.numero_factura || operReferencia(ordenACobrar);
+      const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(venta.id));
+      const { data:actual } = await supabase.from("operaciones_externas").select("historial").eq("id", ordenACobrar.id).single();
+      const historial = [...((actual&&actual.historial)||ordenACobrar.historial||[]), { en:new Date().toISOString(), por:vendedor?.name||user.name, cuenta:user.name, accion:"cobro", nota:`${fmtCOP(total)} · venta ${ref}`, venta_id:String(venta.id) }];
+      const { data:ordenes, error:errorOrden } = await supabase.from("operaciones_externas").update({ estado_pago:"pago", venta_id:esUuid?venta.id:null, historial }).eq("id", ordenACobrar.id).select();
+      if(errorOrden || !ordenes || !ordenes.length){ avisoOrden = ` — OJO: la orden ${operReferencia(ordenACobrar)} no quedó marcada como paga; avísale al líder de Operaciones.`; if(onOrdenCobrada) onOrdenCobrada(null); }
+      else if(onOrdenCobrada) onOrdenCobrada({ ...ordenes[0], venta_ref:ref });
+    }
     setGuardando(false);
     setVentas(prev=>[venta, ...prev]);
     const numeroMsg = venta.numero_factura ? ` #${venta.numero_factura}` : "";
     limpiarTodo();
-    setMsg(HALLOWEEN ? `✓ ¡Dulce venta! 🎃 Venta${numeroMsg} registrada` : `✓ Venta${numeroMsg} registrada`);
+    setMsg((HALLOWEEN ? `✓ ¡Dulce venta! 🎃 Venta${numeroMsg} registrada` : `✓ Venta${numeroMsg} registrada`) + avisoOrden);
     sonidoVenta();
     if(HALLOWEEN){ const k = Date.now(); setVueloBats(k); setTimeout(()=>setVueloBats(v=>v===k?0:v), 3200); }
-    setTimeout(()=>setMsg(""), 3000);
+    setTimeout(()=>setMsg(""), avisoOrden ? 12000 : 3000);
   };
 
   const ventasHoy = ventas.filter(v=>v.fecha===fecha && v.tienda_id===tiendaId);
@@ -7747,6 +7773,13 @@ function VentasRegistrarScreen({ tiendaActiva, onVerLista, user, stores, users, 
     <>
     {vueloBats>0 && <VueloMurcielagos key={vueloBats}/>}
     <div>
+      {ordenACobrar && (
+        <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", background:C.blueDim, border:`1px solid ${C.borderGold}`, borderRadius:12, padding:"11px 14px", marginBottom:16, fontFamily:font.body, fontSize:13.5, color:C.text }}>
+          <Icon n="wrench" s={18} style={{ color:C.gold }}/>
+          <span style={{ flex:1, minWidth:200 }}>Cobrando la orden <strong>{operReferencia(ordenACobrar)}</strong> de {ordenACobrar.cliente_nombre} — <span style={{ fontFamily:font.mono, fontWeight:700 }}>{fmtCOP(ordenACobrar.valor)}</span>. Elige el medio de pago, agrégalo al recibo y registra la venta: la orden quedará como Pago.</span>
+          <Btn sm variant="ghost" onClick={()=>{ if(onOrdenCobrada) onOrdenCobrada(null); limpiarTodo(); }} style={{ background:"#fff" }}>No cobrar ahora</Btn>
+        </div>
+      )}
       {/* Encabezado: título + tienda/fecha, y la campana de Flexipagos por recordar. */}
       <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:18 }}>
         <div>
@@ -13147,7 +13180,10 @@ const OPER_PERMISOS = {
   "operaciones.ver":               (u) => OPER_ROLES_VEN.includes(u.role),
   "operaciones.externas.crear":    operRegistra,
   "operaciones.externas.avanzar":  operRegistra,
-  "operaciones.externas.pago":     operRegistra,
+  // El pago ya no se cambia a mano: se cobra en Registrar venta (botón "Cobrar" de la orden) y la
+  // orden pasa sola a Pago. Solo el líder o Master pueden corregirlo a mano si algo quedó mal.
+  "operaciones.externas.pago":     operManda,
+  "operaciones.externas.cobrar":   (u) => puedeRegistrarVenta(u) || esCuentaTienda(u),
   "operaciones.externas.devolver": operManda,
   "operaciones.externas.cancelar": operManda,
   "operaciones.garantias.decidir": operManda,
@@ -13159,10 +13195,12 @@ const OPER_TIPOS_EXT = [
   { value:"arreglo",   label:"Arreglo",   ic:"wrench" },
   { value:"marcacion", label:"Marcación", ic:"nib" },
   { value:"garantia",  label:"Garantía",  ic:"check" },
-  { value:"traslado",  label:"Traslado",  ic:"truck" },
-  { value:"pedido",    label:"Pedido",    ic:"box" },
 ];
-const operTipoLabel = (tipo) => OPER_TIPOS_EXT.find(t=>t.value===tipo)?.label || tipo;
+// Traslado y Pedido salieron del módulo el 10 nov 2026 (Santiago): ya se manejan en OZEN Club, la
+// página de catálogo e inventarios. Sus etapas siguen abajo solo para que una orden vieja de esos
+// tipos (las de prueba) se siga viendo bien; ya no se pueden crear.
+const OPER_TIPOS_VIEJOS = { traslado:"Traslado", pedido:"Pedido" };
+const operTipoLabel = (tipo) => OPER_TIPOS_EXT.find(t=>t.value===tipo)?.label || OPER_TIPOS_VIEJOS[tipo] || tipo;
 // Las 4 etapas de cada tipo, en orden. La última siempre es "entregada" (así "cerrada" significa lo
 // mismo en todos los tipos). "cancelada" no es una etapa del camino: es una salida aparte.
 const operEtapasPieza = (medio, medioCorto) => [
@@ -13223,6 +13261,52 @@ const OPER_PAGOS = [{ value:"pago", label:"Pago" }, { value:"debe", label:"Debe"
 const OPER_PAGO_COLOR = { pago:C.green, debe:C.red, no_aplica:C.textMuted };
 const OPER_PAGO_DEFECTO = { arreglo:"debe", marcacion:"debe", garantia:"no_aplica", traslado:"no_aplica", pedido:"no_aplica" };
 const operPagoLabel = (v) => OPER_PAGOS.find(p=>p.value===v)?.label || v;
+// ── Días hábiles de Colombia ─────────────────────────────────────────────────
+// Hábil = lunes a viernes que NO sea festivo en Colombia (decisión de Santiago, 10 nov 2026). Los
+// festivos se calculan para cualquier año (no hay lista que se venza): fijos, los que la ley
+// Emiliani corre al lunes siguiente, y los que dependen de la Pascua.
+const operFestivosCache = {};
+const festivosColombia = (anio) => {
+  if(operFestivosCache[anio]) return operFestivosCache[anio];
+  const f = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const alLunes = (d) => { const x = new Date(d); const dow = x.getDay(); if(dow!==1) x.setDate(x.getDate() + ((8-dow)%7)); return x; };
+  const set = new Set();
+  [[1,1],[5,1],[7,20],[8,7],[12,8],[12,25]].forEach(([m,d])=>set.add(f(new Date(anio,m-1,d,12))));
+  [[1,6],[3,19],[6,29],[8,15],[10,12],[11,1],[11,11]].forEach(([m,d])=>set.add(f(alLunes(new Date(anio,m-1,d,12)))));
+  // Domingo de Pascua (algoritmo de Butcher)
+  const a=anio%19, b=Math.floor(anio/100), c=anio%100, d2=Math.floor(b/4), e=b%4, g=Math.floor((8*b+13)/25), h=(19*a+b-d2-g+15)%30, i=Math.floor(c/4), k=c%4, l=(32+2*e+2*i-h-k)%7, m2=Math.floor((a+11*h+19*l)/433);
+  const mesP=Math.floor((h+l-7*m2+90)/25), diaP=(h+l-7*m2+33*mesP+19)%32;
+  const pascua = new Date(anio, mesP-1, diaP, 12);
+  // Jueves y Viernes Santo; Ascensión, Corpus Christi y Sagrado Corazón (ya caen en lunes)
+  [-3,-2,43,64,71].forEach(n=>{ const x = new Date(pascua); x.setDate(x.getDate()+n); set.add(f(x)); });
+  operFestivosCache[anio] = set;
+  return set;
+};
+const esDiaHabil = (fechaStr) => { const d = new Date(fechaStr+"T12:00:00"); const dow = d.getDay(); return dow!==0 && dow!==6 && !festivosColombia(d.getFullYear()).has(fechaStr); };
+// Fecha que queda `n` días hábiles después de `fechaStr` (sin contar el día de partida).
+const sumarDiasHabiles = (fechaStr, n) => { let f = fechaStr, faltan = n; while(faltan>0){ f = sumarDias(f, 1); if(esDiaHabil(f)) faltan--; } return f; };
+// Cuántos días hábiles han pasado desde `desdeStr` hasta `hastaStr` (para las alertas de atraso, parte 3).
+const diasHabilesEntre = (desdeStr, hastaStr) => { let n = 0, f = desdeStr; while(f < hastaStr){ f = sumarDias(f, 1); if(esDiaHabil(f)) n++; } return n; };
+const OPER_DIAS_ENTREGA = 15; // la fecha estimada de entrega se sugiere a 15 días hábiles
+const OPER_DIAS_ATRASO = 5;   // atraso = 5 días hábiles sin moverse (alertas, parte 3)
+// Cómo queda escrita una orden en Registrar venta / Lista de ventas (campo N.º de factura). Lleva
+// el prefijo OP- para que nunca se confunda con un número de factura de Siigo.
+const operReferencia = (op) => `OP-${op.numero}`;
+// Clientes ya conocidos (órdenes cargadas + Flexipagos), para sugerirlos al escribir el nombre o
+// el teléfono en una orden nueva. Sin repetidos; los más recientes primero.
+const operClientesConocidos = (ops, ventas) => {
+  const vistos = new Set(), lista = [];
+  const meter = (nombre, telefono) => {
+    const n = (nombre||"").trim(), t = (telefono||"").trim();
+    if(!n) return;
+    const k = `${sinTildes(n)}|${t.replace(/\D/g,"")}`;
+    if(vistos.has(k)) return;
+    vistos.add(k); lista.push({ nombre:n, telefono:t });
+  };
+  (ops||[]).forEach(o=>meter(o.cliente_nombre, o.cliente_telefono));
+  (ventas||[]).forEach(v=>meter(v.cliente_nombre, v.cliente_telefono));
+  return lista;
+};
 const OPER_AVISO_60 = "No nos hacemos responsables por mercancías o piezas dejadas en la tienda después de 60 días calendario desde la fecha de este recibo.";
 // La cuenta de tienda ve lo suyo y los traslados donde es origen o destino; los demás ven todo.
 const operVisiblePara = (op, user) => !esCuentaTienda(user) || op.tienda_id===user.tienda_id || op.tienda_origen_id===user.tienda_id;
@@ -13235,6 +13319,7 @@ const operTextoMov = (h, op) => {
   if(h.accion==="cancelada") return `Cancelada${h.nota?` — ${h.nota}`:""}`;
   if(h.accion==="garantia")  return `Garantía: ${h.nota||""}`;
   if(h.accion==="pago")      return `Pago cambiado a "${h.nota||""}"`;
+  if(h.accion==="cobro")     return `Cobrada en Registrar venta${h.nota?` — ${h.nota}`:""}`;
   return h.accion||"";
 };
 const operChip = (on) => ({ display:"inline-flex", alignItems:"center", gap:7, height:34, padding:"0 13px", borderRadius:10, border:`1px solid ${on?C.gold:C.border}`, background:on?"rgba(38,93,127,0.08)":"#fff", fontFamily:font.body, fontSize:13, fontWeight:600, color:on?C.goldDark:C.textSub, whiteSpace:"nowrap", cursor:"pointer", flex:"0 0 auto" });
@@ -13335,7 +13420,7 @@ function OperOrdenCliente({ op, stores, onCerrar }) {
 
 // Formulario "Nueva orden". Mismos datos que pedía el Excel (OP EXTERNO), más la fecha estimada
 // de entrega (el campo que en el Excel estaba roto).
-function OperNuevaOrden({ user, users, stores, onCreada, onCancelar, isMobile }) {
+function OperNuevaOrden({ user, users, stores, clientes, onCreada, onCancelar, isMobile }) {
   const tiendaFija = esCuentaTienda(user) ? (user.tienda_id||"") : "";
   const [tipo, setTipo] = useState("arreglo");
   const [tiendaId, setTiendaId] = useState(tiendaFija);
@@ -13346,9 +13431,18 @@ function OperNuevaOrden({ user, users, stores, onCreada, onCancelar, isMobile })
   const [descripcion, setDescripcion] = useState("");
   const [valor, setValor] = useState("");
   const [pago, setPago] = useState(OPER_PAGO_DEFECTO.arreglo);
-  const [fechaEst, setFechaEst] = useState("");
+  const [fechaEst, setFechaEst] = useState(()=>sumarDiasHabiles(todayStr, OPER_DIAS_ENTREGA));
   const [guardando, setGuardando] = useState(false);
   const [msg, setMsg] = useState("");
+  // Sugerencias de clientes que ya existen: aparecen desde 2 caracteres, buscando por nombre o por
+  // teléfono (lo que se esté escribiendo). Al tocar una, se llenan los dos campos.
+  const [sugerir, setSugerir] = useState(true);
+  const sugerencias = useMemo(()=>{
+    if(!sugerir) return [];
+    const n = sinTildes(cliente.trim()), t = telefono.replace(/\D/g,"");
+    if(n.length<2 && t.length<2) return [];
+    return (clientes||[]).filter(c=>(n.length<2 || sinTildes(c.nombre).includes(n)) && (t.length<2 || c.telefono.replace(/\D/g,"").includes(t))).slice(0,6);
+  }, [clientes, cliente, telefono, sugerir]);
   const tiendas = tiendasVenta(stores).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   const asesores = users.filter(esVendedorPosible).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   const esTraslado = tipo==="traslado";
@@ -13363,6 +13457,8 @@ function OperNuevaOrden({ user, users, stores, onCreada, onCancelar, isMobile })
     if(!telefono.trim()){ setMsg("Falta el teléfono del cliente."); return; }
     if(!descripcion.trim()){ setMsg("Falta la descripción de la pieza y de lo que hay que hacer."); return; }
     if(fechaEst && fechaEst < todayStr){ setMsg("La fecha estimada de entrega no puede ser anterior a hoy."); return; }
+    // Una orden no puede quedar en $0: o lleva valor, o se marca "No aplica" (pedido de Santiago).
+    if(pago!=="no_aplica" && Number(valor||0)<=0){ setMsg("Falta el valor. Si esta orden no se cobra, marca \"No aplica\"."); return; }
     setGuardando(true);
     const asesor = users.find(u=>String(u.id)===String(asesorId));
     const ahora = new Date().toISOString();
@@ -13371,7 +13467,7 @@ function OperNuevaOrden({ user, users, stores, onCreada, onCancelar, isMobile })
       fecha:todayStr, tipo, tienda_id:tiendaId, tienda_origen_id:esTraslado?origenId:null,
       asesor_id:String(asesorId), asesor_nombre:asesor?.name||"", registrado_por:user.name, registrado_por_id:String(user.id),
       cliente_nombre:cliente.trim(), cliente_telefono:telefono.trim(), descripcion:descripcion.trim(),
-      valor:Number(valor||0), estado_pago:pago, fecha_estimada_entrega:fechaEst||null,
+      valor:pago==="no_aplica"?0:Number(valor||0), estado_pago:pago==="no_aplica"?"no_aplica":"debe", fecha_estimada_entrega:fechaEst||null,
       etapa:etapa0, etapa_desde:ahora,
       historial:[{ en:ahora, por:asesor?.name||user.name, cuenta:user.name, accion:"creada", etapa:etapa0 }],
     }).select().single();
@@ -13398,15 +13494,33 @@ function OperNuevaOrden({ user, users, stores, onCreada, onCancelar, isMobile })
       </div>
       {esTraslado && <Field label="Quién atiende al cliente" value={asesorId} onChange={setAsesorId} options={[{ value:"", label:"Elige a la persona…" }, ...asesores.map(a=>({ value:String(a.id), label:a.name }))]}/>}
       <div style={dosCol}>
-        <Field label="Nombre y apellido del cliente" value={cliente} onChange={setCliente} autoComplete="off"/>
-        <Field label="Teléfono" value={telefono} onChange={v=>setTelefono(v.replace(/[^\d+\s]/g,""))} type="tel" autoComplete="off"/>
+        <Field label="Nombre y apellido del cliente" value={cliente} onChange={v=>{ setCliente(v); setSugerir(true); }} autoComplete="off"/>
+        <Field label="Teléfono" value={telefono} onChange={v=>{ setTelefono(v.replace(/[^\d+\s]/g,"")); setSugerir(true); }} type="tel" autoComplete="off"/>
       </div>
+      {sugerencias.length>0 && (
+        <div style={{ border:`1px solid ${C.borderGold}`, borderRadius:10, background:C.surfaceAlt, padding:6, margin:"-6px 0 14px" }}>
+          <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.1em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, padding:"4px 8px 6px" }}>Clientes que ya existen — toca uno para llenar los datos</div>
+          {sugerencias.map((c,i)=>(
+            <button key={i} type="button" className="ozen-menu-item" onClick={()=>{ setCliente(c.nombre); setTelefono(c.telefono); setSugerir(false); }} style={{ display:"flex", width:"100%", justifyContent:"space-between", gap:12, alignItems:"center", background:"transparent", border:"none", borderRadius:8, padding:"8px 10px", cursor:"pointer", fontFamily:font.body, fontSize:13.5, color:C.text, textAlign:"left" }}>
+              <span style={{ fontWeight:600, overflowWrap:"anywhere" }}>{c.nombre}</span>
+              <span style={{ fontFamily:font.mono, fontSize:12.5, color:C.textSub, flexShrink:0 }}>{c.telefono || "sin teléfono"}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <Field label="Descripción" value={descripcion} onChange={setDescripcion} multiline rows={3} placeholder={esTraslado ? "Qué pieza se pide: referencia, código, talla, material…" : "El mayor detalle posible de la pieza y de lo que hay que hacer"}/>
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr", gap:isMobile?0:14 }}>
-        <CurrencyField label="Valor" value={valor} onChange={setValor}/>
-        <Field label="Estado de pago" value={pago} onChange={setPago} options={OPER_PAGOS}/>
-        <Field label="Fecha estimada de entrega (opcional)" type="date" value={fechaEst} onChange={setFechaEst}/>
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>¿Se cobra?</div>
+          <div style={{ display:"flex", gap:8 }}>
+            <button type="button" onClick={()=>setPago("debe")} style={operChip(pago!=="no_aplica")}>Sí, tiene valor</button>
+            <button type="button" onClick={()=>{ setPago("no_aplica"); setValor(""); }} style={operChip(pago==="no_aplica")}>No aplica</button>
+          </div>
+        </div>
+        <CurrencyField label="Valor" value={pago==="no_aplica"?"":valor} onChange={setValor} disabled={pago==="no_aplica"} placeholder={pago==="no_aplica"?"No aplica":""}/>
+        <Field label={`Entrega estimada (sugerida: ${OPER_DIAS_ENTREGA} días hábiles)`} type="date" value={fechaEst} onChange={setFechaEst}/>
       </div>
+      {pago!=="no_aplica" && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, margin:"-6px 0 14px" }}>La orden queda como <strong>Debe</strong>. Se cobra en cualquier momento con el botón "Cobrar" de la orden, que lleva a Registrar venta.</div>}
       {msg && <div style={{ fontFamily:font.body, fontSize:13, color:C.red, background:C.redDim, borderRadius:8, padding:"9px 12px", marginBottom:12 }}>{msg}</div>}
       <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
         <Btn onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Guardar orden"}</Btn>
@@ -13418,7 +13532,7 @@ function OperNuevaOrden({ user, users, stores, onCreada, onCancelar, isMobile })
 
 // Una orden en la lista. Cerrada muestra el resumen; al tocarla se abre el detalle con las etapas,
 // las acciones (según permisos) y el historial de movimientos.
-function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, onCambio, onRecargar, onVerOrden, quienId, setQuienId, isMobile }) {
+function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, onCambio, onRecargar, onVerOrden, onCobrar, quienId, setQuienId, isMobile }) {
   const [modo, setModo] = useState(null); // null | "avanzar" | "devolver" | "cancelar" | "garantia"
   const [texto, setTexto] = useState("");
   const [decision, setDecision] = useState("");
@@ -13517,7 +13631,7 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
               <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:2 }}>Estado de pago</div>
               {puede("operaciones.externas.pago") && op.etapa!=="cancelada"
                 ? <select value={op.estado_pago} disabled={ocupado} onChange={e=>cambiarPago(e.target.value)} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 8px", color:OPER_PAGO_COLOR[op.estado_pago]||C.text, fontSize:13, fontWeight:700, fontFamily:font.body, outline:"none" }}>{OPER_PAGOS.map(p=><option key={p.value} value={p.value}>{p.label}</option>)}</select>
-                : <div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:OPER_PAGO_COLOR[op.estado_pago]||C.text }}>{operPagoLabel(op.estado_pago)}</div>}
+                : <div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:OPER_PAGO_COLOR[op.estado_pago]||C.text }}>{operPagoLabel(op.estado_pago)}{op.estado_pago==="pago" && op.venta_ref ? <span style={{ fontWeight:500, color:C.textMuted }}> · {op.venta_ref}</span> : null}</div>}
             </div>
             {dato("Registró", op.registrado_por || "—")}
           </div>
@@ -13543,13 +13657,14 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
             {siguiente && !garantiaPendiente && puede("operaciones.externas.avanzar") && <Btn sm onClick={()=>abrirModo("avanzar")} disabled={ocupado}><Icon n="right" s={14}/>Pasar a: {siguiente.label}</Btn>}
             {garantiaPendiente && puede("operaciones.garantias.decidir") && <Btn sm onClick={()=>abrirModo("garantia")} disabled={ocupado}><Icon n="check" s={14}/>Decidir la garantía</Btn>}
             <Btn sm variant="ghost" onClick={onVerOrden}><Icon n="receipt" s={14}/>Orden para el cliente</Btn>
+            {op.estado_pago==="debe" && Number(op.valor)>0 && op.etapa!=="cancelada" && puede("operaciones.externas.cobrar") && <Btn sm variant="success" onClick={()=>onCobrar(op)} disabled={ocupado}><Icon n="cash" s={14}/>Cobrar {fmtCOP(op.valor)}</Btn>}
             {anterior && puede("operaciones.externas.devolver") && <Btn sm variant="ghost" onClick={()=>abrirModo("devolver")} disabled={ocupado}>Devolver una etapa</Btn>}
             {!cerrada && puede("operaciones.externas.cancelar") && <Btn sm variant="danger" onClick={()=>abrirModo("cancelar")} disabled={ocupado}>Cancelar orden</Btn>}
           </div>
           {modo==="avanzar" && siguiente && (
             <div style={cajaAccion}>
               <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, marginBottom:10 }}>¿Confirmas que la orden <strong>{op.numero}</strong> pasa a <strong>{siguiente.label}</strong>?</div>
-              {siguiente.id==="entregada" && op.estado_pago==="debe" && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.red, marginBottom:10 }}>Ojo: esta orden figura como <strong>DEBE</strong>. Si el cliente ya pagó, cambia primero el estado de pago.</div>}
+              {siguiente.id==="entregada" && op.estado_pago==="debe" && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.red, marginBottom:10 }}>Ojo: esta orden figura como <strong>DEBE</strong>. Antes de entregar, cóbrala con el botón "Cobrar".</div>}
               <div style={{ display:"flex", gap:8 }}><Btn sm variant="success" onClick={avanzar} disabled={ocupado}>{ocupado ? "Guardando…" : "Sí, confirmar"}</Btn><Btn sm variant="ghost" onClick={()=>setModo(null)} disabled={ocupado}>No</Btn></div>
             </div>
           )}
@@ -13616,7 +13731,7 @@ function OperLider({ user, users, liderId, onGuardar }) {
 }
 
 // ── SCREEN: Operaciones · Externas ───────────────────────────────────────────
-function OperacionesExternasScreen({ user, users, stores, ops, setOps, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
+function OperacionesExternasScreen({ user, users, stores, ops, setOps, ventas, onCobrar, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
   const liderId = config.find(c=>c.clave==="lider_usuario_id")?.valor || "";
   const [creando, setCreando] = useState(false);
   const [abiertoId, setAbiertoId] = useState(null);
@@ -13638,6 +13753,7 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, config, s
   }, []);
   const esTienda = esCuentaTienda(user);
   const visibles = useMemo(()=>ops.filter(op=>operVisiblePara(op, user)), [ops, user]);
+  const clientes = useMemo(()=>operClientesConocidos(visibles, ventas), [visibles, ventas]);
   const cuenta = useMemo(()=>{
     const c = { abiertas:0, por_empezar:0, en_proceso:0, para_entregar:0, cerradas:0, todas:visibles.length };
     visibles.forEach(op=>{ const f = operFase(op); c[f]++; if(f!=="cerradas") c.abiertas++; });
@@ -13664,7 +13780,7 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, config, s
   const mostrandoCerradas = fase==="cerradas" || fase==="todas";
   if(estado==="error") return (
     <div>
-      <PageHeader title="Operaciones externas" subtitle="Arreglos, marcaciones, garantías, traslados y pedidos de clientes"/>
+      <PageHeader title="Operaciones externas" subtitle="Arreglos, marcaciones y garantías de clientes"/>
       <Card>
         <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.red, marginBottom:6 }}>No se pudieron cargar las operaciones</div>
         <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, lineHeight:1.5, marginBottom:14 }}>Puede ser la conexión. Si es la primera vez que se abre Operaciones en esta base de datos, falta correr el archivo <strong>sql/operaciones.sql</strong> en Supabase.</div>
@@ -13674,10 +13790,10 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, config, s
   );
   return (
     <div style={{ maxWidth:1100, margin:"0 auto" }}>
-      <PageHeader title="Operaciones externas" subtitle="Arreglos, marcaciones, garantías, traslados y pedidos de clientes"
+      <PageHeader title="Operaciones externas" subtitle="Arreglos, marcaciones y garantías de clientes"
         action={puedeOper(user, "operaciones.externas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva orden</Btn> : null}/>
       <OperLider user={user} users={users} liderId={liderId} onGuardar={guardarLider}/>
-      {creando && <OperNuevaOrden user={user} users={users} stores={stores} isMobile={isMobile} onCancelar={()=>setCreando(false)} onCreada={(fila)=>{ setOps(prev=>[fila, ...prev]); setCreando(false); setFase("abiertas"); setAbiertoId(fila.id); setOrdenVista(fila); }}/>}
+      {creando && <OperNuevaOrden user={user} users={users} stores={stores} clientes={clientes} isMobile={isMobile} onCancelar={()=>setCreando(false)} onCreada={(fila)=>{ setOps(prev=>[fila, ...prev]); setCreando(false); setFase("abiertas"); setAbiertoId(fila.id); setOrdenVista(fila); }}/>}
       <div className="ozen-sin-barra" style={{ display:"flex", gap:8, marginBottom:10, overflowX:"auto", paddingBottom:2 }}>
         {OPER_FASES.map(f=><button key={f.id} type="button" onClick={()=>{ setFase(f.id); setLimite(40); }} style={operChip(fase===f.id)}>{f.label}<span style={{ background:fase===f.id?C.goldDark:C.surfaceHover, color:fase===f.id?C.tinta:C.textSub, borderRadius:99, fontSize:11, padding:"1px 7px", lineHeight:"16px" }}>{cuenta[f.id]}</span></button>)}
       </div>
@@ -13704,7 +13820,7 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, config, s
           : filtradas.slice(0, limite).map(op=>(
               <OperOrdenCard key={op.id} op={op} stores={stores} user={user} users={users} liderId={liderId} isMobile={isMobile}
                 abierto={abiertoId===op.id} onToggle={()=>setAbiertoId(prev=>prev===op.id?null:op.id)}
-                onCambio={actualizarOrden} onRecargar={()=>onCargar()} onVerOrden={()=>setOrdenVista(op)}
+                onCambio={actualizarOrden} onRecargar={()=>onCargar()} onVerOrden={()=>setOrdenVista(op)} onCobrar={onCobrar}
                 quienId={quienId} setQuienId={setQuienId}/>
             ))}
       {filtradas.length>limite && <div style={{ textAlign:"center", marginTop:6 }}><Btn sm variant="ghost" onClick={()=>setLimite(l=>l+40)}>Ver más ({filtradas.length-limite})</Btn></div>}
@@ -13751,6 +13867,11 @@ export default function App() {
   // superior y la usan Registrar venta y Caja — antes cada pantalla tenía su propio selector. La
   // cuenta de tienda siempre queda fija en su propia tienda.
   const [tiendaElegida,setTiendaActiva]=useState("");
+  // Orden de Operaciones que se está cobrando: el botón "Cobrar" de la orden trae a Registrar venta
+  // con sus datos ya puestos; al guardar la venta, la orden pasa sola a "Pago".
+  const [ordenACobrar,setOrdenACobrar]=useState(null);
+  const cobrarOrden=(op)=>{ setOrdenACobrar(op); if(!esCuentaTienda(user)){ setTiendaActiva(op.tienda_id); setArea("ventas"); } setTab("registrar"); };
+  const ordenCobrada=(fila)=>{ if(fila) setOpExternas(prev=>prev.map(o=>o.id===fila.id?fila:o)); setOrdenACobrar(null); };
 
   // `todayStr` se calcula UNA sola vez cuando carga la página (no es reactivo). Si alguien deja
   // una pestaña abierta de un día para otro sin recargar, todo lo que depende de "hoy" (fecha por
@@ -13817,46 +13938,94 @@ export default function App() {
   // hace nada (cada carga completa baja todas las tablas, y el refresco automático ya había hecho
   // que Supabase pasara del tope gratis de transferencia: 5 GB/mes, con 5,07 GB usados).
   const ultimaCargaRef = useRef(0);
+  // ── "Pulso" de cambios ──────────────────────────────────────────────────────────────────────
+  // La base lleva una tarjetita de versión por tabla (`tabla_versiones`, ver sql/pulso_versiones.sql):
+  // un disparador le suma 1 cada vez que alguien inserta/edita/borra en esa tabla. La página lee
+  // esas tarjetas (pesan bytes) y SOLO vuelve a descargar las tablas cuya versión cambió, en vez de
+  // bajar todo cada 5 minutos. Si las tarjetas no existen o no se pueden leer, se vuelve al modo
+  // anterior (descarga completa, como máximo cada 5 min). Además hay una descarga completa de
+  // respaldo cada 30 min por si algún cambio se hubiera escapado. Nunca se recorta el historial.
+  const versionesRef = useRef({});   // tabla -> versión con la que quedó cargada
+  const cargaTablaRef = useRef({});  // tabla -> momento (ms) de su última descarga
+  const pulsoOcupadoRef = useRef(false);
+  const ultimoPulsoRef = useRef(0);
+  const FUENTES = {
+    tiendas:{ consulta:()=>supabase.from("tiendas").select("*"), poner:(d)=>{ const sm={}; d.forEach(s=>sm[s.id]=s); setStores(sm); } },
+    usuarios:{ consulta:()=>supabase.from("usuarios").select("*"), poner:setUsers },
+    registros:{ consulta:()=>traerTodo("registros",[["date",false]]), poner:setRecords },
+    junta_lideres:{ consulta:()=>supabase.from("junta_lideres").select("*").order("orden",{ascending:true}), poner:setJuntaLideres },
+    junta_compromisos:{ consulta:()=>traerTodo("junta_compromisos",[["semana",false]]), poner:setJuntaCompromisos },
+    junta_acuerdos:{ consulta:()=>supabase.from("junta_acuerdos").select("*").order("fecha",{ascending:false}), poner:setJuntaAcuerdos },
+    junta_areas:{ consulta:()=>supabase.from("junta_areas").select("*").order("nombre",{ascending:true}), poner:setJuntaAreas },
+    junta_lider_areas:{ consulta:()=>supabase.from("junta_lider_areas").select("*"), poner:setJuntaLiderAreas },
+    junta_indicadores_congelados:{ consulta:()=>supabase.from("junta_indicadores_congelados").select("*"), poner:setJuntaIndicadoresCongelados },
+    ventas:{ consulta:()=>traerTodo("ventas",[["fecha",false]]), poner:setVentas },
+    ventas_items:{ consulta:()=>traerTodo("ventas_items"), poner:setVentasItems },
+    ventas_metas:{ consulta:()=>supabase.from("ventas_metas").select("*"), poner:setVentasMetas },
+    ventas_metas_asesor:{ consulta:()=>supabase.from("ventas_metas_asesor").select("*"), poner:setVentasMetasAsesor },
+    ventas_abonos:{ consulta:()=>traerTodo("ventas_abonos"), poner:setVentasAbonos },
+    ventas_caja_aperturas:{ consulta:()=>traerTodo("ventas_caja_aperturas",[["created_at",false]]), poner:setCajaAperturas },
+    ventas_caja_cierres:{ consulta:()=>traerTodo("ventas_caja_cierres",[["created_at",false]]), poner:setCajaCierres },
+    ventas_caja_recolecciones:{ consulta:()=>traerTodo("ventas_caja_recolecciones",[["created_at",false]]), poner:setCajaRecolecciones },
+    ventas_caja_gastos:{ consulta:()=>traerTodo("ventas_caja_gastos",[["created_at",false]]), poner:setCajaGastos },
+    ventas_ajustes:{ consulta:()=>traerTodo("ventas_ajustes"), poner:setVentasAjustes },
+    ventas_caja_solicitudes_borrado:{ consulta:()=>supabase.from("ventas_caja_solicitudes_borrado").select("*").order("fecha_solicitud",{ascending:false}), poner:setCajaSolicitudesBorrado },
+    turnos_globales:{ consulta:()=>supabase.from("turnos_globales").select("*"), poner:setTurnosGlobales },
+    turnos_asignaciones:{ consulta:()=>traerTodo("turnos_asignaciones"), poner:setTurnosAsignaciones },
+    turnos_horarios:{ consulta:()=>supabase.from("turnos_horarios").select("*"), poner:setTurnosHorarios },
+    capacitacion_cursos:{ consulta:()=>supabase.from("capacitacion_cursos").select("*"), poner:setCapCursos },
+    capacitacion_lecciones:{ consulta:()=>supabase.from("capacitacion_lecciones").select("*"), poner:setCapLecciones },
+    capacitacion_preguntas:{ consulta:()=>supabase.from("capacitacion_preguntas").select("*"), poner:setCapPreguntas },
+    capacitacion_lecciones_vistas:{ consulta:()=>traerTodo("capacitacion_lecciones_vistas"), poner:setCapVistas },
+    capacitacion_intentos:{ consulta:()=>traerTodo("capacitacion_intentos",[["created_at",true]]), poner:setCapIntentos },
+  };
+  // Tiempo mínimo entre dos descargas de la MISMA tabla aunque cambie seguido: las pesadas esperan
+  // más para que, en horas de mucho movimiento, no se descargue más que con el sistema anterior.
+  const ESPERA_TABLA_MS = { ventas:180000, ventas_items:180000, ventas_abonos:180000, registros:300000, capacitacion_intentos:300000, capacitacion_lecciones_vistas:300000, ventas_caja_aperturas:120000, ventas_caja_cierres:120000, ventas_caja_recolecciones:120000, ventas_caja_gastos:120000, ventas_ajustes:120000, turnos_asignaciones:120000 };
+  const leerVersiones = async () => {
+    try {
+      const { data, error } = await supabase.from("tabla_versiones").select("tabla,version");
+      if (error || !data || !data.length) return null;
+      const m = {}; data.forEach(r => { m[r.tabla] = Number(r.version); });
+      return m;
+    } catch(e) { return null; }
+  };
+  // Descarga las tablas pedidas y las pone en el estado. Si una falla, se deja lo que ya había
+  // (no se borra con una lista vacía) y su versión no se marca como cargada, así se reintenta.
+  const cargarTablas = async (claves, vers) => {
+    const res = await Promise.all(claves.map(async k => { try { return [k, await FUENTES[k].consulta()]; } catch(e) { return [k, { data:null, error:e }]; } }));
+    const datos = {};
+    res.forEach(([k, r]) => {
+      if (!r || r.error || !Array.isArray(r.data)) return;
+      datos[k] = r.data;
+      FUENTES[k].poner(r.data);
+      cargaTablaRef.current[k] = Date.now();
+      if (vers && vers[k] !== undefined) versionesRef.current[k] = vers[k]; else delete versionesRef.current[k];
+    });
+    return datos;
+  };
+  const revisarCambios = async () => {
+    if (pulsoOcupadoRef.current || Date.now() - ultimoPulsoRef.current < 10000) return;
+    pulsoOcupadoRef.current = true; ultimoPulsoRef.current = Date.now();
+    try {
+      if (Date.now() - ultimaCargaRef.current > 30*60000) { await refreshAll(); return; }   // respaldo
+      const vers = await leerVersiones();
+      if (!vers) { await refreshAll(5*60000); return; }                                     // sin pulso: modo anterior
+      const ahora = Date.now();
+      const cambiadas = Object.keys(FUENTES).filter(k => {
+        const edad = ahora - (cargaTablaRef.current[k] || 0);
+        const cambio = vers[k] === undefined ? edad > 5*60000 : vers[k] !== versionesRef.current[k];
+        return cambio && edad >= (ESPERA_TABLA_MS[k] || 60000);
+      });
+      if (cambiadas.length) await cargarTablas(cambiadas, vers);
+    } finally { pulsoOcupadoRef.current = false; }
+  };
+
   const loadAll=async()=>{
     ultimaCargaRef.current = Date.now();
-    const[{data:t},{data:u},{data:r},{data:jl},{data:jc},{data:ja},{data:jar},{data:jla},{data:jic},{data:v},{data:vi},{data:vm},{data:vma},{data:vab},{data:ca},{data:cc},{data:cr},{data:cg},{data:vaj},{data:csb},{data:tg},{data:tas},{data:th},{data:kc},{data:kl},{data:kp},{data:kv},{data:ki}]=await Promise.all([
-      supabase.from("tiendas").select("*"),
-      supabase.from("usuarios").select("*"),
-      traerTodo("registros",[["date",false]]),
-      supabase.from("junta_lideres").select("*").order("orden",{ascending:true}),
-      traerTodo("junta_compromisos",[["semana",false]]),
-      supabase.from("junta_acuerdos").select("*").order("fecha",{ascending:false}),
-      supabase.from("junta_areas").select("*").order("nombre",{ascending:true}),
-      supabase.from("junta_lider_areas").select("*"),
-      supabase.from("junta_indicadores_congelados").select("*"),
-      traerTodo("ventas",[["fecha",false]]),
-      traerTodo("ventas_items"),
-      supabase.from("ventas_metas").select("*"),
-      supabase.from("ventas_metas_asesor").select("*"),
-      traerTodo("ventas_abonos"),
-      traerTodo("ventas_caja_aperturas",[["created_at",false]]),
-      traerTodo("ventas_caja_cierres",[["created_at",false]]),
-      traerTodo("ventas_caja_recolecciones",[["created_at",false]]),
-      traerTodo("ventas_caja_gastos",[["created_at",false]]),
-      traerTodo("ventas_ajustes"),
-      supabase.from("ventas_caja_solicitudes_borrado").select("*").order("fecha_solicitud",{ascending:false}),
-      supabase.from("turnos_globales").select("*"),
-      traerTodo("turnos_asignaciones"),
-      supabase.from("turnos_horarios").select("*"),
-      supabase.from("capacitacion_cursos").select("*"),
-      supabase.from("capacitacion_lecciones").select("*"),
-      supabase.from("capacitacion_preguntas").select("*"),
-      traerTodo("capacitacion_lecciones_vistas"),
-      traerTodo("capacitacion_intentos",[["created_at",true]]),
-    ]);
-    const sm={}; (t||[]).forEach(s=>sm[s.id]=s);
-    setStores(sm);setUsers(u||[]);setRecords(r||[]);
-    setJuntaLideres(jl||[]);
-    setJuntaCompromisos(jc||[]);
-    setJuntaAcuerdos(ja||[]);
-    setJuntaAreas(jar||[]);
-    setJuntaLiderAreas(jla||[]);
-    setJuntaIndicadoresCongelados(jic||[]);
+    const vers = await leerVersiones();   // se lee ANTES de descargar: si algo cambia mientras tanto, el próximo pulso lo recoge
+    const datos = await cargarTablas(Object.keys(FUENTES), vers);
+    const jl = datos.junta_lideres, jc = datos.junta_compromisos, jic = datos.junta_indicadores_congelados;
     // Corte automático del mes de La Junta — antes dependía de una tarea programada por fuera de
     // la página (que solo corría si quedaba un computador prendido para ejecutarla), así que ahora
     // lo hace la página misma: cada vez que alguien la abre, revisa si el mes candidato (el
@@ -13869,6 +14038,7 @@ export default function App() {
     // (ver agregar-constraint-unico-congelados.sql): como mucho una inserción se queda, la otra
     // falla calladamente sin avisarle a nadie, que es justo lo que se espera que pase.
     (async () => {
+      if (!jl || !jc || !jic) return;   // si alguna de las tres tablas no se pudo bajar, no se decide nada con datos incompletos
       const ahoraCol = toColombiaDate();
       let anioCand = ahoraCol.getFullYear(), mesCand = ahoraCol.getMonth() - 1;
       if (mesCand < 0) { mesCand = 11; anioCand -= 1; }
@@ -13890,25 +14060,6 @@ export default function App() {
       // Si hay error (ej. choque con la restricción única porque alguien más ya lo congeló justo
       // antes), no hace falta avisar — es el comportamiento esperado, no un fallo real.
     })();
-    setVentas(v||[]);
-    setVentasItems(vi||[]);
-    setVentasMetas(vm||[]);
-    setVentasMetasAsesor(vma||[]);
-    setVentasAbonos(vab||[]);
-    setCajaAperturas(ca||[]);
-    setCajaCierres(cc||[]);
-    setCajaRecolecciones(cr||[]);
-    setCajaGastos(cg||[]);
-    setVentasAjustes(vaj||[]);
-    setCajaSolicitudesBorrado(csb||[]);
-    setTurnosGlobales(tg||[]);
-    setTurnosAsignaciones(tas||[]);
-    setTurnosHorarios(th||[]);
-    setCapCursos(kc||[]);
-    setCapLecciones(kl||[]);
-    setCapPreguntas(kp||[]);
-    setCapVistas(kv||[]);
-    setCapIntentos(ki||[]);
   };
 
   useEffect(()=>{ loadAll().then(()=>setBooting(false)); },[]);
@@ -13917,7 +14068,7 @@ export default function App() {
   // en un dispositivo compartido donde una cuenta entra justo después de que otra salió, sin esto
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
   const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll(60000);};
-  const logout=()=>{setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOpExternas([]);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
+  const logout=()=>{setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOrdenACobrar(null);setOpExternas([]);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
   const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="operaciones"?"op_externas":a==="ventas"?"metricas":a==="capacitacion"?(tomaCapacitaciones(user)?"mis_cursos":"progreso"):user.role==="advisor"?"checkin":"dashboard");};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   // Sin argumento (botón 🔄) siempre recarga. Con `maxEdadMs` solo recarga si la última carga es
@@ -13967,8 +14118,10 @@ export default function App() {
   // mientras quede abierta y visible — pero nunca si ya se cargó hace menos de 2 minutos.
   useEffect(()=>{
     if(!user) return;
-    const refrescarSiVisible = () => { if(document.visibilityState==="visible") refreshAll(2*60000); };
-    const intervalo = setInterval(refrescarSiVisible, 5*60000);
+    // Ya no se baja todo cada 5 min: cada minuto (y al volver a la pestaña) se revisa el "pulso"
+    // de versiones y solo se descargan las tablas que cambiaron — ver revisarCambios.
+    const refrescarSiVisible = () => { if(document.visibilityState==="visible") revisarCambios(); };
+    const intervalo = setInterval(refrescarSiVisible, 60000);
     document.addEventListener("visibilitychange", refrescarSiVisible);
     window.addEventListener("focus", refrescarSiVisible);
     return () => {
@@ -14061,7 +14214,7 @@ export default function App() {
   // a Ventas todos los admin arrancan en Métricas.
   const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : "");
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
-  const propsOperaciones = { user, users, stores, ops:opExternas, setOps:setOpExternas, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
+  const propsOperaciones = { user, users, stores, ventas, onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
       if(area==="junta"){
@@ -14071,7 +14224,7 @@ export default function App() {
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
-        if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
+        if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
         if(tab==="caja")      return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
@@ -14089,7 +14242,7 @@ export default function App() {
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
     } else if(esCuentaTienda(user)){
-      if(tab==="registrar") return <VentasRegistrarScreen tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
+      if(tab==="registrar") return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
       if(tab==="caja")      return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
