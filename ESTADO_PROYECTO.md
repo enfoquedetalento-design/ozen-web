@@ -665,7 +665,14 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
     (no es permiso todavía): entrar al área Ventas (`puedeUsarVentasArea`, `areasPara`).
   - Decisión de Santiago (13 nov): seguir migrando en `staging` y pasar TODO a `main` al terminar
     la Fase 3, no por partes.
-  - Módulos que faltan por migrar, uno a la vez: Asistencia, Turnos, La Junta, Escuela, Cuenta. El tablero todavía pinta desde `PERMISOS` (código).
+  - Santiago probó Ventas el 13 nov (revisión rápida con las tres cuentas): bien.
+  - **Asistencia y Turnos migrados el 13 nov 2026 (en `staging`, falta que Santiago los pruebe):**
+    pestañas con `PERMISO_DE_TAB_ASISTENCIA` (`tabsAsistencia`, `tabsAsesor`); corregir
+    marcaciones = `asistencia.registros.corregir`; avisos de marcación = `asistencia.avisos`.
+    Turnos ya no usa un solo "puedeGestionar": `permisosTurnos(user)` da editar, publicar,
+    asesores, tiendas, especiales, horarios y mallaActivos por separado, y `TurnosScreen`,
+    `TurnosEditarScreen` y `TurnosAdminScreen` reciben `permisos`. Cero diferencias rol por rol.
+  - Módulos que faltan por migrar: La Junta, Escuela, Cuenta (y la navegación entre áreas). El tablero todavía pinta desde `PERMISOS` (código).
   - **13 nov 2026 — Santiago probó Caja en `staging` (11 pasos, 3 tipos de cuenta): equivalente.**
     Ajustes que pidió ese día: (1) quien solo mira Caja (admin, admin turnos, visualizador) ahora
     entra por Registrar, sin el velo transparente ni el aviso: puede llenar los campos pero

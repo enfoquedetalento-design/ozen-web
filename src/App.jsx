@@ -959,7 +959,7 @@ const esAdminAsignableATurnos = (u) => ["master","admin","admin_finanzas","admin
 // master y admin_turnos (un admin normal con acceso completo a Turnos, y solo a eso). admin_finanzas
 // es un admin normal con acceso extra a VENTAS, no a Turnos, así que ahí se comporta igual que
 // "admin"/"visualizador": solo puede ver la rejilla.
-const puedeGestionarTurnos = (user) => user.role==="master" || user.role==="admin_turnos";
+// (Aquí vivía `puedeGestionarTurnos`; desde la Fase 3 de Permisos es `permisosTurnos(user)`, acción por acción.)
 const ROLE_ORDEN_TURNOS = ["master","admin","admin_finanzas","admin_turnos","visualizador"];
 const esUsuarioDeTurnos = (u) => u.role==="advisor" || esAdminAsignableATurnos(u);
 // Los asesores usan el campo general `active` (ya existente). Los admin usan un campo propio
@@ -1015,9 +1015,18 @@ const esAdminDeVentas = (user) => user.role==="master" || user.role==="admin_fin
 // Pestañas de Ventas que le tocan a cada quien. Caja ya se decide con puede() (Permisos, Fase 3).
 const PERMISO_DE_TAB_VENTAS = { registrar:"ventas.registrar.ver", lista:"ventas.lista.ver", metricas:"ventas.metricas.ver", caja:"caja.ver" };
 const tabsVentas = (user) => ADMIN_TABS_VENTAS.filter(t => puede(user, PERMISO_DE_TAB_VENTAS[t.id]));
+// Asistencia y Turnos (Permisos, Fase 3): cada pestaña sale si la persona tiene su permiso.
+const PERMISO_DE_TAB_ASISTENCIA = { dashboard:"asistencia.panel", records:"asistencia.registros.ver", turnos:"turnos.ver", mi_asistencia:"asistencia.marcar", reports:"asistencia.informes", checkin:"asistencia.marcar", history:"asistencia.historial", schedule:"turnos.ver" };
+const tabsAsistencia = (user) => ADMIN_TABS_ASISTENCIA.filter(t => puede(user, PERMISO_DE_TAB_ASISTENCIA[t.id]));
+const tabsAsesor = (user) => ADVISOR_TABS.filter(t => puede(user, PERMISO_DE_TAB_ASISTENCIA[t.id]));
+// Qué puede hacer en Turnos, acción por acción. `algo` = tiene al menos una (para mostrar Editar/⚙).
+const permisosTurnos = (user) => {
+  const t = { editar:puede(user, "turnos.editar"), publicar:puede(user, "turnos.publicar"), asesores:puede(user, "turnos.asesores"), tiendas:puede(user, "turnos.tiendas"), especiales:puede(user, "turnos.especiales"), horarios:puede(user, "turnos.horarios"), mallaActivos:puede(user, "turnos.malla_activos") };
+  return { ...t, administrar: t.asesores || t.tiendas || t.especiales || t.horarios, algo: Object.values(t).some(Boolean) };
+};
 const tabsPara = (user, area) => !puedeUsarAreas(user)
-  ? (esCuentaTienda(user) ? [...tabsVentas(user), { id:"turnos", icon:"📅", label:"Turnos" }, { id:"op_externas", icon:"🧰", label:"Operaciones" }] : area==="capacitacion" ? tabsCapacitacion(user) : ADVISOR_TABS)
-  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="operaciones" ? ADMIN_TABS_OPERACIONES : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : ADMIN_TABS_ASISTENCIA);
+  ? (esCuentaTienda(user) ? [...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : []), { id:"op_externas", icon:"🧰", label:"Operaciones" }] : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
+  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="operaciones" ? ADMIN_TABS_OPERACIONES : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -1166,7 +1175,7 @@ function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, o
         </div>
         {!esCuentaTienda(user) && <MenuItem ic={<Icon n="pen" s={16}/>} onClick={cerrarY(onAbrirFirmas)}>Firmar documento</MenuItem>}
         {esAdminFinanzas(user) && <MenuItem ic={<Icon n="store" s={16}/>} onClick={cerrarY(onAbrirAccesoTiendas)}>Acceso tiendas</MenuItem>}
-        {puedeGestionarTurnos(user) && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <MenuItem ic={<Icon n="bell" s={16}/>} onClick={cerrarY(onActivarNotificaciones)}>Activar notificaciones</MenuItem>}
+        {puede(user, "asistencia.avisos") && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <MenuItem ic={<Icon n="bell" s={16}/>} onClick={cerrarY(onActivarNotificaciones)}>Activar notificaciones</MenuItem>}
         {user.role!=="master" && !esCuentaTienda(user) && <MenuItem ic={<Icon n="key" s={16}/>} onClick={cerrarY(onCambiarPassword)}>Mi contraseña</MenuItem>}
         <MenuItem ic={<Icon n="logout" s={16}/>} color={C.red} onClick={cerrarY(onLogout)}>Cerrar sesión</MenuItem>
       </MenuFlotante>
@@ -1336,7 +1345,7 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
   // tiene caso hacerla repetir el proceso completo con foto). Es una edición directa a la base de
   // datos, sin pasar por las validaciones normales del flujo de Marcar Asistencia — a propósito,
   // porque es Santiago corrigiendo un caso puntual que ya sabe que es real.
-  const isMaster = user?.role==="master";
+  const isMaster = puede(user, "asistencia.registros.corregir");   // Permisos, Fase 3 (el nombre se quedó de cuando era solo master)
   const [editingKey,setEditingKey]=useState(null),[editValue,setEditValue]=useState("");
   const guardarHora=async(j,eventKey,existingId)=>{
     if(!editValue) return;
@@ -1694,7 +1703,7 @@ function UsuariosScreen({ users, setUsers, stores }) {
 // agrega o cambia una fila aquí, hay que regenerar ese SQL. Desde la Fase 3 el código empieza a
 // preguntarle a esas tablas con una sola función `puede(user, "permiso")`.
 // Fase 3 (en curso): los módulos ya migrados preguntan con `puede()` (más abajo) y obedecen a la
-// base; hoy Caja y Ventas (Registrar, Lista y Métricas). Para el resto esta lista sigue siendo una foto de sus comprobaciones.
+// base; hoy Caja, Ventas (Registrar, Lista y Métricas), Asistencia y Turnos. Para el resto esta lista sigue siendo una foto de sus comprobaciones.
 // Cada permiso: `r` = qué rol lo tiene (1 = sí; un texto = sí, pero con esa condición).
 const PERM_ROLES = ["master","admin","admin_finanzas","admin_turnos","visualizador","advisor","tienda"];
 const PERM_ROL_CORTO = { master:"Master", admin:"Admin", admin_finanzas:"Finanzas", admin_turnos:"Turnos", visualizador:"Visual.", advisor:"Asesor", tienda:"Tienda" };
@@ -1894,7 +1903,8 @@ const permCompararConBase = (filasBase) => {
 // Dos seguros: un permiso que no existe en PERMISOS nunca se concede; y un permiso SENSIBLE que
 // existe en el código pero todavía no está sembrado en la base solo lo tiene master (lo sensible no
 // se concede "por defecto"). Master nunca pierde Usuarios ni Permisos, diga lo que diga la base.
-// Módulos ya migrados (leen de aquí): Caja y Ventas (Registrar, Lista y correcciones, Métricas). Los demás siguen con sus comprobaciones de siempre
+// Módulos ya migrados (leen de aquí): Caja, Ventas (Registrar, Lista y correcciones, Métricas),
+// Asistencia y Turnos. Los demás siguen con sus comprobaciones de siempre
 // hasta que les toque — se migra un módulo a la vez y se prueba en staging antes del siguiente.
 const PERM_PROTEGIDOS = new Set(["cuenta.permisos","cuenta.usuarios"]);
 const PERM_CACHE_KEY = "ozen_permisos_v1";
@@ -2786,9 +2796,10 @@ function TurnosHorariosScreen({ stores, turnosHorarios, setTurnosHorarios }) {
 }
 
 // ── SCREEN: Turnos · Administrar (asesores + tiendas + turnos especiales + horarios) ──
-function TurnosAdminScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, turnosHorarios, setTurnosHorarios }) {
-  const [sub,setSub]=useState("asesores");
-  const subTabs=[{id:"asesores",label:"Asesores"},{id:"tiendas",label:"Tiendas"},{id:"especiales",label:"Turnos especiales"},{id:"horarios",label:"Horarios"}];
+function TurnosAdminScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, turnosHorarios, setTurnosHorarios, permisos }) {
+  const subTabs=[{id:"asesores",label:"Asesores"},{id:"tiendas",label:"Tiendas"},{id:"especiales",label:"Turnos especiales"},{id:"horarios",label:"Horarios"}].filter(t=>!permisos || permisos[t.id]);
+  const [subElegida,setSub]=useState("asesores");
+  const sub = subTabs.some(t=>t.id===subElegida) ? subElegida : subTabs[0]?.id;
   return (
     <div>
       <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
@@ -3372,7 +3383,9 @@ function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asigna
 const CAMPOS_TURNO = ["turno_global_id","tienda_id","shift","entrada_custom","salida_custom","nota_custom"];
 const copiaParaBorrador = (a) => ({ asesor_id:a.asesor_id, fecha:a.fecha, turno_global_id:a.turno_global_id||null, tienda_id:a.tienda_id||null, shift:a.shift||null, entrada_custom:a.entrada_custom||null, salida_custom:a.salida_custom||null, nota_custom:a.nota_custom||null });
 const turnoIgual = (x, y) => CAMPOS_TURNO.every(c => (x[c]||null) === (y[c]||null));
-function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHorarios, asignaciones, setAsignaciones, userName, anio, mes }) {
+function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHorarios, asignaciones, setAsignaciones, userName, anio, mes, permisos }) {
+  const puedePublicar = !permisos || !!permisos.publicar;
+  const puedeMallaActivos = !permisos || !!permisos.mallaActivos;
   const advisors = advisorsOrdenTurnos(users);
   const dias = fechasDelMesTurnos(anio, mes);
   const mesKey = `${anio}-${String(mes+1).padStart(2,"0")}`;
@@ -3451,6 +3464,7 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
   const totalDe = (sel) => sel.nuevos.length + sel.modificados.length + sel.quitados.length;
 
   const publicar = async (sel, etiqueta) => {
+    if(!puedePublicar) return;
     if(totalDe(sel)===0) return;
     if(!await confirmar(`¿Publicar ${etiqueta}?\n\nA partir de ahora todos verán estos turnos (${sel.nuevos.length} nuevos, ${sel.modificados.length} modificados, ${sel.quitados.length} quitados). Lo demás del borrador sigue sin publicarse.`)) return;
     setPublicando(true);
@@ -3562,7 +3576,7 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
   return (
     <div style={{ paddingBottom:8 }}>
       <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} resaltado={resaltado} onResaltar={setResaltado}/>
-      <GestionAsesoresActivosTurnos users={users} setUsers={setUsers}/>
+      {puedeMallaActivos && <GestionAsesoresActivosTurnos users={users} setUsers={setUsers}/>}
       <SeccionTurnos titulo="🖌 Pincel" nota={pincel ? "Toca o arrastra sobre los días de la malla para pintarlos" : "Elige un turno y pinta varios días seguidos de un solo gesto"}
         derecha={pincel && <button onClick={()=>setPincel(null)} style={{ background:"none", border:"none", cursor:"pointer", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.gold }}>Quitar pincel ✕</button>}>
         <div className="ozen-sin-barra" style={{ display:"flex", gap:8, flexWrap:isMobile?"nowrap":"wrap", overflowX:isMobile?"auto":"visible", padding:"4px 2px 6px" }}>
@@ -3590,7 +3604,7 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
                 <button onClick={()=>setVerCambios(v=>!v)} style={{ background:"none", border:"none", cursor:"pointer", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.gold, padding:0 }}>{verCambios?"Ocultar cambios ▾":"Ver cambios ▴"}</button>
                 <span style={{ flex:1 }}/>
                 <Btn onClick={()=>descartar(selDe(items), "todos los cambios")} variant="ghost" sm disabled={publicando}>Descartar todo</Btn>
-                <Btn onClick={()=>publicar(selDe(items), "todos los cambios")} sm disabled={publicando}>{publicando ? "Publicando..." : "📣 Publicar todo"}</Btn>
+                <Btn onClick={()=>publicar(selDe(items), "todos los cambios")} sm disabled={publicando || !puedePublicar}>{publicando ? "Publicando..." : "📣 Publicar todo"}</Btn>
               </div>
               {verCambios && (
                 <div style={{ marginTop:8 }}>
@@ -3600,7 +3614,7 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
               <button onClick={()=>setSeleccion(new Set())} style={{ background:"none", border:"none", color:C.goldLight, cursor:"pointer", fontFamily:font.body, fontSize:12, padding:0 }}>Quitar marcas</button>
               <span style={{ flex:1 }}/>
               <Btn onClick={()=>descartar(selDe(itemsMarcados), `los ${itemsMarcados.length} cambios marcados`)} variant="ghost" sm disabled={publicando || itemsMarcados.length===0}>Descartar marcados</Btn>
-              <Btn onClick={()=>publicar(selDe(itemsMarcados), `${itemsMarcados.length===1?"el cambio marcado":`los ${itemsMarcados.length} cambios marcados`}`)} sm disabled={publicando || itemsMarcados.length===0}>{publicando ? "Publicando..." : `📣 Publicar marcados (${itemsMarcados.length})`}</Btn>
+              <Btn onClick={()=>publicar(selDe(itemsMarcados), `${itemsMarcados.length===1?"el cambio marcado":`los ${itemsMarcados.length} cambios marcados`}`)} sm disabled={!puedePublicar || publicando || itemsMarcados.length===0}>{publicando ? "Publicando..." : `📣 Publicar marcados (${itemsMarcados.length})`}</Btn>
             </div>
             <div style={{ maxHeight:320, overflowY:"auto", border:`1px solid ${C.border}`, borderRadius:8 }}>
               {listaSemanas.map(sem=>(
@@ -3638,7 +3652,8 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
 }
 
 // ── SCREEN: Turnos (contenedor con sub-pestañas Ver / Editar / Administrar) ────
-function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, turnosHorarios, setTurnosHorarios, puedeGestionar, onSubChange, userName }) {
+function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, turnosHorarios, setTurnosHorarios, puedeGestionar, permisos, onSubChange, userName }) {
+  const pt = permisos || {};   // sin permisos (tienda, asesor): solo ver
   const [sub,setSub]=useState("ver");
   const isMobile = useIsMobile();
   // Un solo mes para Ver y Editar: cambiar de modo no te saca del mes que estabas mirando.
@@ -3680,18 +3695,18 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
         )}
         <span style={{ flex:1 }}/>
         {sub==="ver" && publicado && !isMobile && <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Publicado el {fechaPub}{publicado.publicado_por ? ` · por ${primerNombre(publicado.publicado_por)}` : ""}</span>}
-        {puedeGestionar && sub!=="administrar" && (
+        {pt.editar && sub!=="administrar" && (
           <div style={{ display:"inline-flex", gap:2, padding:3, borderRadius:10, background:C.surfaceAlt, border:`1px solid ${C.border}` }}>
             {seg("ver","Ver")}{seg("editar","✎ Editar")}
           </div>
         )}
-        {puedeGestionar && sub!=="administrar" && <button aria-label="Administrar turnos" title="Administrar tiendas, turnos y horarios" onClick={()=>setSub("administrar")} style={{ ...flechaMes, fontSize:15 }}>⚙</button>}
+        {pt.administrar && sub!=="administrar" && <button aria-label="Administrar turnos" title="Administrar tiendas, turnos y horarios" onClick={()=>setSub("administrar")} style={{ ...flechaMes, fontSize:15 }}>⚙</button>}
       </div>
       {sub==="ver" && publicado && isMobile && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, margin:"-10px 0 14px" }}>Publicado el {fechaPub}{publicado.publicado_por ? ` · por ${primerNombre(publicado.publicado_por)}` : ""}</div>}
       <div key={sub} className="ozen-pane-anim-tab">
         {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} anio={anio} mes={mes}/>}
-        {sub==="editar"      && puedeGestionar && <TurnosEditarScreen key={mesKey} users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} setAsignaciones={setAsignaciones} userName={userName} anio={anio} mes={mes}/>}
-        {sub==="administrar" && puedeGestionar && <TurnosAdminScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
+        {sub==="editar"      && pt.editar && <TurnosEditarScreen permisos={pt} key={mesKey} users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} setAsignaciones={setAsignaciones} userName={userName} anio={anio} mes={mes}/>}
+        {sub==="administrar" && pt.administrar && <TurnosAdminScreen permisos={pt} users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
       </div>
     </div>
   );
@@ -14381,7 +14396,7 @@ export default function App() {
       } else {
         if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
         if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones} user={user} onRecordDeleted={onRecordDeletedAdmin} onRecordUpdated={onRecordUpdatedAdmin}/>;
-        if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={puedeGestionarTurnos(user)} onSubChange={setTurnosSub} userName={user.name}/>;
+        if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={permisosTurnos(user).algo} permisos={permisosTurnos(user)} onSubChange={setTurnosSub} userName={user.name}/>;
         if(tab==="mi_asistencia") return <MiAsistenciaScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} onRecordUpdated={onRecordUpdatedAdmin} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
