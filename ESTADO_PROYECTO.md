@@ -644,8 +644,29 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
   - **Pedir borrado de tareas:** columnas `borrado_solicitado_por` / `_en` en
     `junta_compromisos`. El monitor pide borrar una tarea vencida o cumplida; master ve los
     pedidos arriba en Seguimiento y aprueba (borra) o rechaza.
-- **Fase 3 (pendiente):** función única `puede(user, "permiso")`; migrar un módulo a la vez
-  empezando por Caja. Si falla la lectura: comportamiento actual, y lo sensible NO se concede.
+- **Fase 3 (en curso — Caja migrada en `staging` el 12 nov 2026, falta que Santiago la pruebe):**
+  - Santiago cerró la Fase 2 el 12 nov: base al día (200 de 200), probó enlazar líderes y pedir
+    borrado, y el tablero nuevo le gustó.
+  - Función única `puede(user, "permiso", hechos?)` en `src/App.jsx` (después de
+    `permCompararConBase`). Orden: excepción personal → rol en `permisos_roles` → si la base no se
+    pudo leer, última copia buena en el navegador y, si no hay, el código (`PERMISOS`). Un
+    permiso desconocido nunca se concede; uno SENSIBLE sin sembrar en la base solo lo tiene
+    master; master nunca pierde `cuenta.permisos` ni `cuenta.usuarios`.
+  - `permisos_roles` y `permisos_excepciones` entran a `FUENTES` (se cargan al abrir, con el pulso
+    de versiones). `sql/permisos_fase3.sql` les instala el disparador del pulso.
+  - **Caja ya pregunta con `puede()`**: pestaña, registrar, fecha libre, recolección (registrar y
+    quién recibe), aprobar/editar novedades, borrar, pedir y resolver borrados, detalle del
+    cálculo. Probado rol por rol contra las comprobaciones viejas: cero diferencias. Lo de "su
+    tienda" de la cuenta de tienda sigue amarrado a `esCuentaTienda` (no es un permiso).
+  - Módulos que faltan por migrar, uno a la vez: Ventas (Registrar, Lista, Métricas), Asistencia,
+    Turnos, La Junta, Escuela, Cuenta. El tablero todavía pinta desde `PERMISOS` (código).
+- **REGLA PARA TODOS LOS CHATS — permisos de módulos nuevos:** un módulo nuevo NO edita la lista
+  `PERMISOS`. Declara sus permisos junto a su propio código con
+  `registrarPermisos({ grupo, label, ic, permisos:[{ id, label, r:{ rol:1 | "condición" },
+  sensible?, soloVer?, pedir?, pasivo?, nota? }] })` (tiene que ir más abajo de donde se define
+  esa función) y pregunta con `puede(user, "modulo.accion")` en vez de `user.role===...`. El
+  tablero de Permisos los muestra solo y avisa si falta sembrarlos en la base. Operaciones aún
+  usa su propio `OPER_PERMISOS`; pasarlo a este formato le toca al chat de Operaciones.
 - **Fase 4 (pendiente):** editar con interruptores, "Ver como", historial y alertas. Master nunca
   debe poder quitarse a sí mismo el permiso `cuenta.permisos`.
 - Las ramas `main` y `staging` tienen historias distintas (100 y 37 commits propios) aunque el
@@ -706,9 +727,25 @@ probada en práctica antes de seguir.
   cuenta de tienda se elige el nombre de quien hace el movimiento.
 - Revisado el 10 nov 2026: parseo con `@babel/parser` OK y `eslint` sin errores de `no-undef`.
 
+**Ajustes tras la primera prueba de Santiago (10 nov 2026, en `staging`, sin SQL nuevo):**
+- **Traslado y Pedido salieron del módulo**: ya se manejan en OZEN Club (página de catálogo e
+  inventarios, https://catalogo.ozenjoyeria.com/catalogo). Externas = Arreglo, Marcación y
+  Garantía. Las etapas de traslado/pedido siguen en `OPER_ETAPAS` solo para mostrar órdenes viejas.
+- **Días hábiles = lunes a viernes sin festivos de Colombia** (`festivosColombia`, `esDiaHabil`,
+  `sumarDiasHabiles`, `diasHabilesEntre`; los festivos se calculan para cualquier año). La fecha
+  estimada de entrega se sugiere a 15 días hábiles; el atraso (parte 3) son 5 días hábiles.
+- **Cliente**: solo nombre y teléfono (sin documento). Al escribir 2 o más caracteres en
+  cualquiera de los dos se sugieren clientes que ya existen (órdenes cargadas + Flexipagos).
+- **Una orden no puede quedar en $0**: o lleva valor (nace "Debe") o se marca "No aplica".
+- **Cobro (reemplaza la "parte 4")**: la orden tiene un botón "Cobrar" que lleva a Registrar venta
+  con tipo, valor y observación ya puestos (`ordenACobrar` en `App`). Al registrar la venta, el N.º
+  de factura queda como `OP-<numero>` (si en el recibo va un producto, manda el de Siigo), y la
+  orden pasa sola a "Pago" con `venta_id` y un movimiento "cobro" en su historial. Cobran quienes
+  ya pueden guardar ventas: cuentas de tienda, Master y Admin Finanzas
+  (`operaciones.externas.cobrar`). El pago a mano solo lo corrige el líder o Master.
+
 **Lo que sigue:** parte 2 = pantalla de Internas (la tabla ya existe). Parte 3 = Indicadores y
-alertas de atraso. Parte 4 = enlazar el cobro de Registrar venta con la orden (`venta_id`); va de
-última porque toca una pantalla que mueve plata.
+alertas de atraso.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 

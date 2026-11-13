@@ -963,12 +963,15 @@ const puedeAsignarMetas = (user) => user.role==="master" || user.role==="admin_f
 // Quién puede registrar una recolección de efectivo: master/admin finanzas, y la cuenta de la
 // tienda (porque son quienes ven la caja físicamente y confirman si estaba completa o no).
 // Ojo: NO incluye a los usuarios individuales de "advisor" (esos son solo para Asistencia).
-const puedeHacerRecoleccion = (user) => user.role==="master" || user.role==="admin_finanzas" || user.role==="tienda";
+// (Antes aquí vivía `puedeHacerRecoleccion`. Desde la Fase 3 de Permisos esa pregunta es
+// `puede(user, "caja.recoleccion.registrar")` — con los mismos tres roles sembrados en la base.)
 // Qué pestañas le corresponden a cada quien, según su rol y el área elegida. La cuenta de tienda
 // no elige área (va directo a Ventas), así que Operaciones le llega como una pestaña más.
+// Pestañas de Ventas que le tocan a cada quien. Caja ya se decide con puede() (Permisos, Fase 3).
+const tabsVentas = (user) => ADMIN_TABS_VENTAS.filter(t => (t.id!=="registrar" || puedeVerRegistrar(user)) && (t.id!=="caja" || puede(user, "caja.ver")));
 const tabsPara = (user, area) => !puedeUsarAreas(user)
-  ? (esCuentaTienda(user) ? [...ADMIN_TABS_VENTAS, { id:"turnos", icon:"📅", label:"Turnos" }, { id:"op_externas", icon:"🧰", label:"Operaciones" }] : area==="capacitacion" ? tabsCapacitacion(user) : ADVISOR_TABS)
-  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="operaciones" ? ADMIN_TABS_OPERACIONES : area==="ventas" ? (puedeVerRegistrar(user) ? ADMIN_TABS_VENTAS : ADMIN_TABS_VENTAS.filter(t=>t.id!=="registrar")) : area==="capacitacion" ? tabsCapacitacion(user) : ADMIN_TABS_ASISTENCIA);
+  ? (esCuentaTienda(user) ? [...tabsVentas(user), { id:"turnos", icon:"📅", label:"Turnos" }, { id:"op_externas", icon:"🧰", label:"Operaciones" }] : area==="capacitacion" ? tabsCapacitacion(user) : ADVISOR_TABS)
+  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="operaciones" ? ADMIN_TABS_OPERACIONES : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : ADMIN_TABS_ASISTENCIA);
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -1644,6 +1647,8 @@ function UsuariosScreen({ users, setUsers, stores }) {
 // (sql/permisos_fase2.sql) y el tablero avisa si la tabla y esta lista dejan de coincidir — si se
 // agrega o cambia una fila aquí, hay que regenerar ese SQL. Desde la Fase 3 el código empieza a
 // preguntarle a esas tablas con una sola función `puede(user, "permiso")`.
+// Fase 3 (en curso): los módulos ya migrados preguntan con `puede()` (más abajo) y obedecen a la
+// base; hoy solo Caja. Para el resto esta lista sigue siendo una foto de sus comprobaciones.
 // Cada permiso: `r` = qué rol lo tiene (1 = sí; un texto = sí, pero con esa condición).
 const PERM_ROLES = ["master","admin","admin_finanzas","admin_turnos","visualizador","advisor","tienda"];
 const PERM_ROL_CORTO = { master:"Master", admin:"Admin", admin_finanzas:"Finanzas", admin_turnos:"Turnos", visualizador:"Visual.", advisor:"Asesor", tienda:"Tienda" };
@@ -1830,6 +1835,88 @@ const permCompararConBase = (filasBase) => {
   });
   enBase.forEach((_, k) => { if (!esperado.has(k)) difs.push(`Sobra en la base: ${nombre(k)}`); });
   return { total:esperado.size, difs };
+};
+
+// ── PERMISOS · Fase 3: la función única `puede(user, "permiso")` ────────────────
+// Desde aquí las pantallas dejan de preguntar "¿es master o admin_finanzas?" y preguntan
+// `puede(user, "caja.novedad.aprobar")`. La respuesta sale, en este orden:
+//   1. Excepción personal (tabla permisos_excepciones): "extra" lo concede, "quitado" lo niega.
+//   2. Lo que diga su rol en la tabla permisos_roles.
+//   3. Si la base NO se pudo leer: la última copia buena guardada en este navegador y, si no hay,
+//      lo que dice PERMISOS aquí en el código — o sea, el comportamiento de siempre. Nadie se queda
+//      sin acceso por un error de lectura.
+// Dos seguros: un permiso que no existe en PERMISOS nunca se concede; y un permiso SENSIBLE que
+// existe en el código pero todavía no está sembrado en la base solo lo tiene master (lo sensible no
+// se concede "por defecto"). Master nunca pierde Usuarios ni Permisos, diga lo que diga la base.
+// Módulos ya migrados (leen de aquí): Caja. Los demás siguen con sus comprobaciones de siempre
+// hasta que les toque — se migra un módulo a la vez y se prueba en staging antes del siguiente.
+const PERM_PROTEGIDOS = new Set(["cuenta.permisos","cuenta.usuarios"]);
+const PERM_CACHE_KEY = "ozen_permisos_v1";
+const PERM_BASE = { roles:null, sembrados:null, excepciones:null };   // null = aún no se leyó de la base
+const permArmarBase = (filasRoles, filasExc) => {
+  if (Array.isArray(filasRoles)) {
+    PERM_BASE.roles = new Map(filasRoles.map(f => [`${f.permiso}|${f.rol}`, f.condicion || null]));
+    PERM_BASE.sembrados = new Set(filasRoles.map(f => f.permiso));
+  }
+  if (Array.isArray(filasExc)) PERM_BASE.excepciones = new Map(filasExc.map(f => [`${String(f.usuario_id)}|${f.permiso}`, { tipo:f.tipo, condicion:f.condicion || null }]));
+};
+// Copia en este navegador de la última lectura buena — respaldo si un día la base no responde.
+const permGuardarCopia = (clave, filas) => { try { const c = JSON.parse(localStorage.getItem(PERM_CACHE_KEY) || "{}"); c[clave] = filas; localStorage.setItem(PERM_CACHE_KEY, JSON.stringify(c)); } catch(e) { /* sin almacenamiento: no pasa nada */ } };
+try { const c = JSON.parse((typeof localStorage!=="undefined" && localStorage.getItem(PERM_CACHE_KEY)) || "null"); if (c && Array.isArray(c.roles) && c.roles.length) permArmarBase(c.roles, Array.isArray(c.excepciones) ? c.excepciones : null); } catch(e) { /* copia dañada: se ignora */ }
+const permPonerRoles = (filas) => { permArmarBase(filas, null); permGuardarCopia("roles", filas); };
+const permPonerExcepciones = (filas) => { permArmarBase(null, filas); permGuardarCopia("excepciones", filas); };
+
+let permIndice = null;
+const permPorId = (id) => { if (!permIndice) permIndice = new Map(PERMISOS.map(p => [p.id, p])); return permIndice.get(id); };
+// undefined = no puede · null = puede siempre · un texto = puede, pero con esa condición.
+const permCondicion = (user, id) => {
+  if (!user) return undefined;
+  if (user.role==="master" && PERM_PROTEGIDOS.has(id)) return null;
+  const p = permPorId(id);
+  if (!p) return undefined;
+  const exc = PERM_BASE.excepciones && PERM_BASE.excepciones.get(`${String(user.id)}|${id}`);
+  if (exc) return exc.tipo==="quitado" ? undefined : exc.condicion;
+  const v = p.r[user.role];
+  const deCodigo = v===undefined ? undefined : (v===1 ? null : v);
+  if (!PERM_BASE.roles) return deCodigo;
+  if (!PERM_BASE.sembrados.has(id)) return (p.sensible && user.role!=="master") ? undefined : deCodigo;
+  const k = `${id}|${user.role}`;
+  return PERM_BASE.roles.has(k) ? PERM_BASE.roles.get(k) : undefined;
+};
+// `hechos` sirve para las condiciones que dependen del caso: hoy solo { hoy:true|false } — un
+// permiso con condición "solo hoy" se niega cuando el registro NO es de hoy.
+const puede = (user, id, hechos) => {
+  const c = permCondicion(user, id);
+  if (c === undefined) return false;
+  if (c && hechos && hechos.hoy===false && /\bhoy\b/i.test(c)) return false;
+  return true;
+};
+
+// PARA MÓDULOS NUEVOS (regla para todos los chats, ver ESTADO_PROYECTO.md): cada módulo declara
+// sus permisos junto a SU PROPIO código, con una llamada a registrarPermisos — no se edita la
+// lista PERMISOS de arriba. El tablero de Permisos los muestra solo, y avisa si falta sembrarlos
+// en la base. Tiene que llamarse más abajo de este punto del archivo. Ejemplo:
+//   registrarPermisos({ grupo:"operaciones", label:"Operaciones", ic:"box", permisos:[
+//     { id:"operaciones.ver", label:"Ver Operaciones", soloVer:true, r:{ master:1, admin:1 } },
+//     { id:"operaciones.externas.cancelar", label:"Cancelar una orden", sensible:true, r:{ master:1 } },
+//   ]});
+// `r` = qué rol lo tiene de entrada (1 = sí; un texto = sí, con esa condición). Marcas opcionales:
+// sensible (toca plata, borra o cambia accesos), soloVer (es solo mirar), pedir (es "pedir
+// permiso" a otro), pasivo (la persona solo aparece en una lista), nota (explicación corta).
+// eslint-disable-next-line no-unused-vars -- todavía ningún módulo lo usa; queda listo para el primero
+const registrarPermisos = ({ grupo, label, area, ic="box", permisos }) => {
+  if (!PERM_GRUPOS.some(g => g.id===grupo)) PERM_GRUPOS.push({ id:grupo, label });
+  const a = PERM_AREAS.find(x => x.id===(area||grupo));
+  if (a) { if (!a.grupos.includes(grupo)) a.grupos.push(grupo); } else PERM_AREAS.push({ id:area||grupo, label, ic, grupos:[grupo] });
+  (permisos||[]).forEach(p => {
+    if (PERMISOS.some(x => x.id===p.id)) return;
+    const { soloVer, pedir, pasivo, ...resto } = p;
+    PERMISOS.push({ ...resto, g:grupo });
+    if (soloVer) PERM_SOLO_VER.add(p.id);
+    if (pedir) PERM_PEDIR.add(p.id);
+    if (pasivo) PERM_PASIVO.add(p.id);
+  });
+  permIndice = null;
 };
 
 const PermCandado = () => <span title="Acción sensible: toca plata, borra algo o cambia accesos" style={{ display:"inline-flex", verticalAlign:"-2px", marginLeft:5, color:C.red }}><Icon n="lock" s={13}/></span>;
@@ -11116,10 +11203,10 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   const [histDias, setHistDias] = useState(7);          // cuántos días se muestran (botón "Ver días anteriores")
   const [histMenu, setHistMenu] = useState(null);       // registro con el menú ⋯ abierto
   const asesores = users.filter(esVendedorPosible);
-  const posiblesRecibe = users.filter(u=>(u.role==="master"||u.role==="admin"||u.role==="admin_finanzas"||u.role==="admin_turnos") && u.active);
+  const posiblesRecibe = users.filter(u=>puede(u, "caja.recoleccion.recibir") && u.active);
 
   // Master o admin de finanzas pueden registrar con una fecha distinta a hoy (para poner al día algo atrasado).
-  const puedeFechaLibre = esAdminDeVentas(user);
+  const puedeFechaLibre = puede(user, "caja.fecha_libre");
 
   const [apAsesorId, setApAsesorId] = useState("");
   const [apFecha, setApFecha] = useState(todayStr);
@@ -11136,7 +11223,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   // que la digita) y de "quién aprueba" (master/admin_finanzas, después, desde el Historial).
   const [gaAutorizoLiderId, setGaAutorizoLiderId] = useState("");
   const lideresActivos = (lideres||[]).filter(l=>l.nombre && l.nombre.trim()).sort((a,b)=>(a.orden??999)-(b.orden??999));
-  const puedeAprobarNovedad = user.role==="master" || user.role==="admin_finanzas";
+  const puedeAprobarNovedad = puede(user, "caja.novedad.aprobar");
   const [guardandoGa, setGuardandoGa] = useState(false);
 
   // Editar/borrar novedades desde el Historial — la tienda solo puede tocar las de HOY (por si se
@@ -11545,7 +11632,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   };
 
   // La tienda solo puede editar/borrar las novedades de HOY; master/admin_finanzas cualquier día.
-  const puedeTocarGasto = (g) => esAdminDeVentas(user) || (esCuentaTienda(user) && g.fecha===todayStr);
+  const puedeTocarGasto = (g) => puede(user, "caja.novedad.editar", { hoy:g.fecha===todayStr });
   const empezarEditarGasto = (g) => { setGastoEditandoId(g.id); setGeValor(String(g.valor||"")); setGeMotivo(g.motivo||""); setGeTipo(g.tipo||"costo"); setGeAutorizoLiderId(lideresActivos.find(l=>l.nombre===g.autorizado_por)?.id || ""); };
   const cancelarEditarGasto = () => { setGastoEditandoId(null); setGeValor(""); setGeMotivo(""); setGeTipo("costo"); setGeAutorizoLiderId(""); };
   const guardarEdicionGasto = async (g) => {
@@ -11653,7 +11740,8 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
 
   // Borrar registros de caja — solo master/admin_finanzas, y con confirmación (son registros
   // financieros, así que hay que estar seguro antes de borrar).
-  const puedeBorrarCaja = esAdminDeVentas(user);
+  const puedeBorrarCaja = puede(user, "caja.borrar");
+  const puedeResolverBorrado = puede(user, "caja.borrado.resolver");
   const borrarApertura = async (a) => {
     if(!window.confirm(`¿Borrar esta apertura (${fmtFechaHora(a.created_at)} · ${a.asesor_nombre})? Esta acción no se puede deshacer.`)) return;
     const { error } = await supabase.from("ventas_caja_aperturas").delete().eq("id", a.id);
@@ -11674,7 +11762,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   };
 
   // ── Cuenta de tienda: solicitar borrado (no puede borrar directo) — master/admin_finanzas aprueban ──
-  const puedeSolicitarBorradoCaja = esCuentaTienda(user);
+  const puedeSolicitarBorradoCaja = puede(user, "caja.borrado.solicitar");
   const solicitudesTienda = (solicitudesBorrado||[]).filter(s=>s.tienda_id===tiendaId);
   const solicitudPendientePara = (tabla, registroId) => solicitudesTienda.find(s=>s.tabla===tabla && s.registro_id===registroId && s.estado==="pendiente");
   const solicitudesPendientes = solicitudesTienda.filter(s=>s.estado==="pendiente");
@@ -11833,7 +11921,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
                   {baseDeficit>0 && <div style={{ fontFamily:font.body, fontSize:10, color:C_DARK.red, marginTop:2 }}>Base afectada por gastos sin cubrir — se completa al recoger efectivo.</div>}
                   {apFecha!==todayStr && <div style={{ fontFamily:font.body, fontSize:10, color:puedeFechaLibre?C_DARK.amber:C_DARK.red, marginTop:2 }}>{puedeFechaLibre?"Fecha distinta a hoy.":"Solo el master o admin de finanzas puede usar una fecha distinta a hoy."}</div>}
                   <CajaReciboLinea compact label="Efectivo" value={fmtCOP(Math.max(0, efectivoPendienteTotal))}/>
-                  {esAdminDeVentas(user) && (
+                  {puede(user, "caja.detalle_calculo") && (
                     <div style={{ marginTop:2 }}>
                       <button className="ozen-no-foto" onClick={()=>setVerDetalleCalculo(v=>!v)} style={{ background:"none", border:"none", color:C_DARK.textMuted, cursor:"pointer", fontSize:10, textDecoration:"underline", padding:0 }}>{verDetalleCalculo?"Ocultar detalle del cálculo":"Ver detalle del cálculo"}</button>
                       {verDetalleCalculo && (
@@ -12059,7 +12147,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
               novedades, cierres y recolecciones juntas, en orden de hora), con pestañas para ver un
               solo tipo, el resumen del cierre arriba de cada día y las acciones en un menú ⋯. Los
               permisos (borrar / pedir borrado / editar novedades) son exactamente los de antes. */}
-          {puedeBorrarCaja && solicitudesPendientes.length>0 && (
+          {puedeResolverBorrado && solicitudesPendientes.length>0 && (
             <div style={{ background:"#fff", border:`1px solid ${C_DARK.amber}55`, borderLeft:`4px solid ${C_DARK.amber}`, borderRadius:14, padding:"14px 18px", marginBottom:14 }}>
               <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:14, fontWeight:700, color:C_DARK.text, marginBottom:6 }}><span style={{ width:7, height:7, borderRadius:"50%", background:C_DARK.amber }}/>{solicitudesPendientes.length} solicitud{solicitudesPendientes.length!==1?"es":""} de borrado esperando aprobación</div>
               {solicitudesPendientes.map(s=>(
@@ -13945,6 +14033,7 @@ export default function App() {
   // bajar todo cada 5 minutos. Si las tarjetas no existen o no se pueden leer, se vuelve al modo
   // anterior (descarga completa, como máximo cada 5 min). Además hay una descarga completa de
   // respaldo cada 30 min por si algún cambio se hubiera escapado. Nunca se recorta el historial.
+  const [, setPermTick] = useState(0); // se mueve cuando llegan los permisos de la base, para que la pantalla se vuelva a pintar
   const versionesRef = useRef({});   // tabla -> versión con la que quedó cargada
   const cargaTablaRef = useRef({});  // tabla -> momento (ms) de su última descarga
   const pulsoOcupadoRef = useRef(false);
@@ -13978,6 +14067,9 @@ export default function App() {
     capacitacion_preguntas:{ consulta:()=>supabase.from("capacitacion_preguntas").select("*"), poner:setCapPreguntas },
     capacitacion_lecciones_vistas:{ consulta:()=>traerTodo("capacitacion_lecciones_vistas"), poner:setCapVistas },
     capacitacion_intentos:{ consulta:()=>traerTodo("capacitacion_intentos",[["created_at",true]]), poner:setCapIntentos },
+    // Permisos (Fase 3): tablas chiquitas. Si aún no existen o fallan, puede() sigue con el código.
+    permisos_roles:{ consulta:()=>supabase.from("permisos_roles").select("permiso,rol,condicion"), poner:(d)=>{ permPonerRoles(d); setPermTick(t=>t+1); } },
+    permisos_excepciones:{ consulta:()=>supabase.from("permisos_excepciones").select("usuario_id,permiso,tipo,condicion"), poner:(d)=>{ permPonerExcepciones(d); setPermTick(t=>t+1); } },
   };
   // Tiempo mínimo entre dos descargas de la MISMA tabla aunque cambie seguido: las pesadas esperan
   // más para que, en horas de mucho movimiento, no se descargue más que con el sistema anterior.
@@ -14227,7 +14319,7 @@ export default function App() {
         if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
         if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
-        if(tab==="caja")      return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={ventasSoloLectura(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
+        if(tab==="caja" && puede(user, "caja.ver")) return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
       } else if(area==="operaciones"){
         if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesExternasScreen {...propsOperaciones}/>;
       } else if(area==="capacitacion"){
@@ -14245,7 +14337,7 @@ export default function App() {
       if(tab==="registrar") return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
       if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
-      if(tab==="caja")      return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puedeHacerRecoleccion(user)} soloLectura={false} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
+      if(tab==="caja" && puede(user, "caja.ver")) return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
       if(tab==="op_externas") return <OperacionesExternasScreen {...propsOperaciones}/>;
       // La misma pantalla de Turnos que ven todos (encabezado de mes incluido), pero sin Editar ni
       // Administrar — la cuenta de tienda ve quién tiene turno sin poder cambiar nada.
