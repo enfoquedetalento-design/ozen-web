@@ -658,8 +658,14 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
     quién recibe), aprobar/editar novedades, borrar, pedir y resolver borrados, detalle del
     cálculo. Probado rol por rol contra las comprobaciones viejas: cero diferencias. Lo de "su
     tienda" de la cuenta de tienda sigue amarrado a `esCuentaTienda` (no es un permiso).
-  - Módulos que faltan por migrar, uno a la vez: Ventas (Registrar, Lista, Métricas), Asistencia,
-    Turnos, La Junta, Escuela, Cuenta. El tablero todavía pinta desde `PERMISOS` (código).
+  - **Ventas migrada el 13 nov 2026 (en `staging`, falta que Santiago la pruebe):** Registrar,
+    Lista y correcciones (dentro de `VentaCard`) y Métricas preguntan con `puede()`; las pestañas
+    salen de `PERMISO_DE_TAB_VENTAS`; `esVendedorPosible` usa `ventas.vendedor`. Para "solo hoy"
+    se pasa `{ hoy: v.fecha===todayStr }`. Probado rol por rol: cero diferencias. Sigue por rol
+    (no es permiso todavía): entrar al área Ventas (`puedeUsarVentasArea`, `areasPara`).
+  - Decisión de Santiago (13 nov): seguir migrando en `staging` y pasar TODO a `main` al terminar
+    la Fase 3, no por partes.
+  - Módulos que faltan por migrar, uno a la vez: Asistencia, Turnos, La Junta, Escuela, Cuenta. El tablero todavía pinta desde `PERMISOS` (código).
   - **13 nov 2026 — Santiago probó Caja en `staging` (11 pasos, 3 tipos de cuenta): equivalente.**
     Ajustes que pidió ese día: (1) quien solo mira Caja (admin, admin turnos, visualizador) ahora
     entra por Registrar, sin el velo transparente ni el aviso: puede llenar los campos pero

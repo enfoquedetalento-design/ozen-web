@@ -947,7 +947,7 @@ const ventasSoloLectura = (user) => user.role==="admin" || user.role==="visualiz
 // entran en modo solo lectura: pueden llenar el formulario para ver cómo funciona, pero no
 // guardar (ver puedeRegistrarVenta). Antes el Visualizador ni veía la pestaña — pedido de Santiago
 // (nov 2026, revisión del inventario de Permisos): que la vea igual que un Admin.
-const puedeVerRegistrar = (user) => puedeUsarVentasArea(user) || esCuentaTienda(user);
+// (Aquí vivía `puedeVerRegistrar`; desde la Fase 3 de Permisos es `puede(user, "ventas.registrar.ver")`.)
 const puedeRegistrarVenta = (user) => user.role==="master" || user.role==="admin_finanzas";
 // Cuentas de tienda: login compartido, van directo a Ventas sin selector de área
 const esCuentaTienda = (user) => user.role==="tienda";
@@ -1000,11 +1000,11 @@ const esAdminFinanzas = (user) => user.role==="admin_finanzas";
 // normal, que ahí solo puede ver) — por eso también aparecen como opción de "quién hizo la venta"
 // / asesor en Registrar venta, Lista de ventas, Métricas y Caja, sin importar su rol en Ventas.
 const ROLES_ADMIN_VENDEDOR = ["master","admin","admin_finanzas","admin_turnos"];
-const esVendedorPosible = (u) => (u.role==="advisor" || ROLES_ADMIN_VENDEDOR.includes(u.role)) && u.active;
+const esVendedorPosible = (u) => puede(u, "ventas.vendedor") && u.active;   // Permisos, Fase 3
 // Quién puede aprobar/rechazar notas crédito dentro de Ventas
 const esAdminDeVentas = (user) => user.role==="master" || user.role==="admin_finanzas";
 // Quién puede asignar las metas mensuales en Métricas
-const puedeAsignarMetas = (user) => user.role==="master" || user.role==="admin_finanzas";
+// (Aquí vivía `puedeAsignarMetas`; desde la Fase 3 de Permisos es `puede(user, "ventas.metas.asignar")`.)
 // Quién puede registrar una recolección de efectivo: master/admin finanzas, y la cuenta de la
 // tienda (porque son quienes ven la caja físicamente y confirman si estaba completa o no).
 // Ojo: NO incluye a los usuarios individuales de "advisor" (esos son solo para Asistencia).
@@ -1013,7 +1013,8 @@ const puedeAsignarMetas = (user) => user.role==="master" || user.role==="admin_f
 // Qué pestañas le corresponden a cada quien, según su rol y el área elegida. La cuenta de tienda
 // no elige área (va directo a Ventas), así que Operaciones le llega como una pestaña más.
 // Pestañas de Ventas que le tocan a cada quien. Caja ya se decide con puede() (Permisos, Fase 3).
-const tabsVentas = (user) => ADMIN_TABS_VENTAS.filter(t => (t.id!=="registrar" || puedeVerRegistrar(user)) && (t.id!=="caja" || puede(user, "caja.ver")));
+const PERMISO_DE_TAB_VENTAS = { registrar:"ventas.registrar.ver", lista:"ventas.lista.ver", metricas:"ventas.metricas.ver", caja:"caja.ver" };
+const tabsVentas = (user) => ADMIN_TABS_VENTAS.filter(t => puede(user, PERMISO_DE_TAB_VENTAS[t.id]));
 const tabsPara = (user, area) => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? [...tabsVentas(user), { id:"turnos", icon:"📅", label:"Turnos" }, { id:"op_externas", icon:"🧰", label:"Operaciones" }] : area==="capacitacion" ? tabsCapacitacion(user) : ADVISOR_TABS)
   : (area==="junta" ? ADMIN_TABS_JUNTA : area==="operaciones" ? ADMIN_TABS_OPERACIONES : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : ADMIN_TABS_ASISTENCIA);
@@ -1693,7 +1694,7 @@ function UsuariosScreen({ users, setUsers, stores }) {
 // agrega o cambia una fila aquí, hay que regenerar ese SQL. Desde la Fase 3 el código empieza a
 // preguntarle a esas tablas con una sola función `puede(user, "permiso")`.
 // Fase 3 (en curso): los módulos ya migrados preguntan con `puede()` (más abajo) y obedecen a la
-// base; hoy solo Caja. Para el resto esta lista sigue siendo una foto de sus comprobaciones.
+// base; hoy Caja y Ventas (Registrar, Lista y Métricas). Para el resto esta lista sigue siendo una foto de sus comprobaciones.
 // Cada permiso: `r` = qué rol lo tiene (1 = sí; un texto = sí, pero con esa condición).
 const PERM_ROLES = ["master","admin","admin_finanzas","admin_turnos","visualizador","advisor","tienda"];
 const PERM_ROL_CORTO = { master:"Master", admin:"Admin", admin_finanzas:"Finanzas", admin_turnos:"Turnos", visualizador:"Visual.", advisor:"Asesor", tienda:"Tienda" };
@@ -1893,7 +1894,7 @@ const permCompararConBase = (filasBase) => {
 // Dos seguros: un permiso que no existe en PERMISOS nunca se concede; y un permiso SENSIBLE que
 // existe en el código pero todavía no está sembrado en la base solo lo tiene master (lo sensible no
 // se concede "por defecto"). Master nunca pierde Usuarios ni Permisos, diga lo que diga la base.
-// Módulos ya migrados (leen de aquí): Caja. Los demás siguen con sus comprobaciones de siempre
+// Módulos ya migrados (leen de aquí): Caja y Ventas (Registrar, Lista y correcciones, Métricas). Los demás siguen con sus comprobaciones de siempre
 // hasta que les toque — se migra un módulo a la vez y se prueba en staging antes del siguiente.
 const PERM_PROTEGIDOS = new Set(["cuenta.permisos","cuenta.usuarios"]);
 const PERM_CACHE_KEY = "ozen_permisos_v1";
@@ -6244,7 +6245,7 @@ function TablaVentas({ filas, stores, isMobile, conFecha, conTienda, vacio, limi
 // Siigo, Corregir factura, abonos, corrección de medio de pago, solicitudes, borrar, reabrir
 // Flexipago vencido). Es el MISMO componente en Lista de ventas y en "Ventas de hoy" — así ambos
 // lados se ven y funcionan exactamente igual, con detalle desplegable al hacer click en los dos.
-function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdmin, soloLectura, isMobile, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes }) {
+function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdmin, isMobile, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes }) {
   const v = venta; // alias — el resto de esta lógica viene tal cual de Lista de ventas
 
   const [expandido, setExpandido] = useState(!!inicialExpandido);
@@ -6295,7 +6296,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   // días y se está registrando apenas ahora). Solo master/admin_finanzas pueden cambiarla —
   // igual que con abonoFecha — el resto siempre queda con la fecha de hoy.
   const [ajusteFecha, setAjusteFecha] = useState(todayStr);
-  const puedeEditarFechaAjuste = ["master","admin_finanzas"].includes(user.role);
+  const puedeEditarFechaAjuste = puede(user, "ventas.fecha_libre");
 
   // Cambio de producto, mismo valor: para Siigo ESTO ES una Notacrédito (mismo mecanismo, genera
   // un N.º de factura nuevo), así que vive DENTRO del flujo de "Notacrédito Siigo" — un check que
@@ -6352,7 +6353,12 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   //   libremente, sin necesitar número de factura nuevo, sin registro espejo, sin necesitar
   //   solicitud aprobada. Master/admin_finanzas en cualquier fecha, o la cuenta de tienda para lo
   //   registrado hoy mismo.
-  const puedeCorregirError = !soloLectura && ["master","admin_finanzas"].includes(user.role);
+  // Permisos, Fase 3: cada acción de la venta pregunta con puede(). `{ hoy:false }` = "aunque la
+  // venta NO sea de hoy": lo cumple quien tiene el permiso sin condición (master, admin finanzas)
+  // y no la cuenta de tienda, que lo tiene "solo hoy".
+  const puedeCorregirError = puede(user, "ventas.factura.corregir", { hoy:false });
+  const puedeNotacredito = puede(user, "ventas.notacredito.hacer");
+  const puedeFechaLibreVenta = puede(user, "ventas.fecha_libre");
   const [modoErrorId, setModoErrorId] = useState(false);
   // true = la sesión de corrección abierta ahora mismo es "Notacrédito Siigo"; false = es
   // "Corregir factura". Se fija al abrir cada sesión (según qué botón se usó), no por rol solo.
@@ -6360,7 +6366,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
 
   // Reabrir un Flexipago vencido (pasados los 60 días) — solo si la tienda decide honrarlo con
   // el cliente igual. Deja rastro de quién lo reabrió y cuándo, igual que en Junta.
-  const puedeReabrirVencido = !soloLectura && ["master","admin_finanzas"].includes(user.role);
+  const puedeReabrirVencido = puede(user, "ventas.flexipago.reabrir");
   const reabrirFlexipagoVencido = async (venta) => {
     if(!await confirmarEscribiendo(`Vas a REABRIR el Flexipago vencido de la factura #${venta.numero_factura||"—"}${venta.cliente_nombre?` (cliente: ${venta.cliente_nombre})`:""}.\n\nEsto permite seguir abonando y completar la venta aunque ya pasaron los ${FLEXIPAGO_PLAZO_DIAS} días. Úsalo solo si la tienda decidió honrarlo con el cliente.\n\nEscribe REABRIR para confirmar.`, "REABRIR")) return;
     const { data } = await supabase.from("ventas").update({ flexipago_reabierto_por:user.name, flexipago_reabierto_en:new Date().toISOString() }).eq("id",venta.id).select().single();
@@ -6868,7 +6874,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
     }
     // Solo master/admin_finanzas pueden poner una fecha distinta a hoy (para abonos atrasados
     // que se registran después de que pasaron). El resto siempre abona con la fecha de hoy.
-    const fechaAbono = (esAdmin && abonoFecha) ? abonoFecha : todayStr;
+    const fechaAbono = (puedeFechaLibreVenta && abonoFecha) ? abonoFecha : todayStr;
     // `medio_pago`/`numero_autorizacion` (columnas viejas) quedan con el primer medio, solo por
     // compatibilidad con algún código que todavía no lea `pagos` — lo que manda de verdad es
     // `pagos`, el desglose completo por medio.
@@ -6989,7 +6995,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   };
 
   const abiertoEdicion = editando;
-  const puedeEditar = !soloLectura && (d?.solicitudes||[]).some(s=>s.estado==="aprobada" && !s.aplicada_at);
+  const puedeEditar = puede(user, "ventas.correccion.aplicar") && (d?.solicitudes||[]).some(s=>s.estado==="aprobada" && !s.aplicada_at);
   // Los totales/estado del Flexipago se calculan desde ventasItems/ventasAbonos (siempre
   // cargados) en vez del detalle (que solo se carga al abrir la tarjeta) — así el badge de
   // estado y el bloqueo de edición son correctos aunque todavía no se haya abierto.
@@ -7021,9 +7027,9 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   }
   // La cuenta de tienda puede corregir por error y eliminar SIN pedir permiso, pero solo
   // para lo que se registró hoy mismo. Para días anteriores, tiene que pedir Notacrédito.
-  const esHoyTienda = esCuentaTienda(user) && v.fecha===todayStr && !soloLectura;
-  const puedeCorregirErrorAqui = puedeCorregirError || esHoyTienda;
-  const puedeEliminarAqui = esAdmin || esHoyTienda;
+  const esHoyTienda = esCuentaTienda(user) && v.fecha===todayStr;   // solo para los textos de ayuda
+  const puedeCorregirErrorAqui = puede(user, "ventas.factura.corregir", { hoy:v.fecha===todayStr });
+  const puedeEliminarAqui = puede(user, "ventas.eliminar", { hoy:v.fecha===todayStr });
   // Lo que realmente ingresó el día de la venta es valor_original — el excedente de una
   // Nota crédito posterior se muestra aparte, sin agrandar la fila (cuenta en Métricas en
   // su propia fecha, no en la fecha de esta venta).
@@ -7455,14 +7461,14 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
                             {/* El abono INICIAL (idx 0, el más antiguo) nunca se puede corregir desde
                                 acá — Santiago pidió que ese quede intocable. Los siguientes sí, y ya
                                 soportan varios medios de pago a la vez (ver eaPagos arriba). */}
-                            {esAdmin && idx!==0 && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
+                            {puede(user, "ventas.abono.corregir") && idx!==0 && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
                           </span>
                         </div>
                       )
                     ))}
                     {(d?.abonos||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin abonos todavía.</div>}
                   </div>
-                  {saldoPendiente>0 && !soloLectura && (
+                  {saldoPendiente>0 && puede(user, "ventas.abono.registrar") && (
                     flexipagoVencido ? (
                       <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"8px 10px", fontFamily:font.body, fontSize:12, color:C.red }}>
                         ⛔ Pasaron {diasDesdeAbono} días desde el primer abono (máximo {FLEXIPAGO_PLAZO_DIAS}, según el aviso legal). No se puede abonar más ni completar esta venta — el cliente pierde lo abonado y el producto.
@@ -7476,7 +7482,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
                       <div style={{ marginBottom:6 }}>
                         <div style={{ display:"flex", gap:8, alignItems:"end", flexWrap:"wrap" }}>
                           <div style={{ flex:1, minWidth:110 }}><CurrencyField label="Valor del abono" value={abonoValor} onChange={setAbonoValor}/></div>
-                          {esAdmin && (
+                          {puedeFechaLibreVenta && (
                             <div style={{ flex:1, minWidth:130 }}><Field label="Fecha del abono" type="date" value={abonoFecha} onChange={setAbonoFecha}/></div>
                           )}
                         </div>
@@ -7539,7 +7545,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
                           <Badge color={s.estado==="pendiente"?C.amber:s.estado==="aprobada"?C.green:C.red} sm>{s.estado}{s.aplicada_at?" · aplicada":""}</Badge>
                         </div>
                         <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2 }}>Pidió: {s.solicitado_por} · {fmtFechaHora(s.fecha_solicitud)}{s.resuelto_por?` · Resolvió: ${s.resuelto_por}`:""}</div>
-                        {esAdmin && s.estado==="pendiente" && (
+                        {puede(user, "ventas.correccion.resolver") && s.estado==="pendiente" && (
                           <div style={{ display:"flex", gap:6, marginTop:6 }}>
                             <Btn onClick={()=>resolverSolicitud(s,"aprobada")} variant="success" sm>Aprobar</Btn>
                             <Btn onClick={()=>resolverSolicitud(s,"rechazada")} variant="danger" sm>Rechazar</Btn>
@@ -7563,10 +7569,10 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
               <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:6 }}>
                 {v.es_flexipago && <Btn onClick={()=>imprimirVenta(v,d)} variant="ghost" sm>🖨️ Imprimir</Btn>}
                 {puedeEditar && !abiertoEdicion && !flexipagoVencido && !flexipagoCompletado && <Btn onClick={()=>iniciarEdicion(v)} sm title="Ya te aprobaron el Notacrédito — usa este botón para aplicarlo.">📝 Aplicar Notacrédito</Btn>}
-                {puedeCorregirError && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarNotacredito(v)} variant="ghost" sm style={{ color:C.amber }} title="Usa esto cuando la corrección SÍ genera un número de factura nuevo en Siigo (incluye cambio de producto por el mismo valor). El valor no puede bajar del ya registrado, y necesitas el N.º de factura nuevo.">🧾 Notacrédito Siigo</Btn>}
+                {puedeNotacredito && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarNotacredito(v)} variant="ghost" sm style={{ color:C.amber }} title="Usa esto cuando la corrección SÍ genera un número de factura nuevo en Siigo (incluye cambio de producto por el mismo valor). El valor no puede bajar del ya registrado, y necesitas el N.º de factura nuevo.">🧾 Notacrédito Siigo</Btn>}
                 {puedeCorregirErrorAqui && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarCorregirFactura(v)} variant="ghost" sm style={{ color:C.textMuted }} title={esHoyTienda && !puedeCorregirError ? "Puedes corregir libremente lo registrado hoy mismo (sube o baja el valor sin límite). Para días anteriores, pide Notacrédito." : "Usa esto cuando NO cambió nada en Siigo — fue un error al registrar. Sube o baja el valor libremente, sin necesitar número de factura nuevo."}>🛠️ Corregir factura</Btn>}
                 {puedeEliminarAqui && <Btn onClick={()=>eliminarVenta(v)} variant="ghost" sm style={{ color:C.red }} title={esHoyTienda && !esAdmin ? "Puedes eliminar lo registrado hoy mismo." : undefined}>🗑️ Eliminar venta</Btn>}
-                {!soloLectura && !puedeCorregirErrorAqui && !flexipagoCompletado && (mostrarSolicitud ? (
+                {puede(user, "ventas.correccion.solicitar") && !puedeCorregirErrorAqui && !flexipagoCompletado && (mostrarSolicitud ? (
                   <div style={{ display:"flex", gap:8, flex:1, minWidth:220, alignItems:"end" }}>
                     <div style={{ flex:1 }}><Field label="¿Qué hay que corregir y por qué?" value={motivoSolicitud} onChange={setMotivoSolicitud} multiline rows={2}/></div>
                     <div style={{ marginBottom:14, display:"flex", gap:6 }}>
@@ -7880,7 +7886,7 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, tiendaActiva, onV
   const esHoyVenta = fecha===todayStr;
   const tiendaActual = stores[tiendaId];
   const vendedorSel = asesores.find(a=>a.id===vendedorId);
-  const puedeCambiarFecha = user.role==="master" || user.role==="admin_finanzas";
+  const puedeCambiarFecha = puede(user, "ventas.fecha_libre");
   const agregarDeshabilitado = itemEsFlexipago ? !itemFlexipagoValido : (itemValorNum<=0 || itemPagos.length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT);
   const pagadoPorMedio = (m) => itemPagos.filter(p=>p.medio_pago===m).reduce((a,p)=>a+Number(p.valor||0),0);
   const reciboRef = useRef(null);
@@ -8225,7 +8231,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   const [hojaAbierta, setHojaAbierta] = useState(false);
   const setFil = (k, v) => setF(prev=>({ ...prev, [k]:v }));
   const toggle = (k, v) => setF(prev=>({ ...prev, [k]: prev[k].includes(v) ? prev[k].filter(x=>x!==v) : [...prev[k], v] }));
-  const asesores = users.filter(u=>u.role==="advisor" || ROLES_ADMIN_VENDEDOR.includes(u.role)).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const asesores = users.filter(u=>puede(u, "ventas.vendedor")).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   const tiendas = tiendasVenta(stores);
   const rango = lvRango(f);
   const enRango = (fecha) => !rango || (fecha && fecha>=rango[0] && fecha<=rango[1]);
@@ -10300,7 +10306,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
 
   // Consultas: cualquier admin (master, admin, admin_finanzas, admin_turnos) y visualizador — es
   // solo lectura, no toca datos. Cuentas de tienda y asesores no la ven.
-  const puedeConsultas = puedeUsarAreas(user) && !vistaAsesor;
+  const puedeConsultas = puede(user, "ventas.metricas.consultas");
   const selectorVistaMet = puedeConsultas && (
     <div style={{ display:"inline-flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, marginBottom:16 }}>
       {[["resumen","Resumen","chart"],["consultas","Consultas","search"]].map(([k,l,ic])=>(
@@ -14362,9 +14368,9 @@ export default function App() {
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
-        if(tab==="registrar" && puedeVerRegistrar(user)) return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puedeRegistrarVenta(user)} isMobile={isMobile}/>;
-        if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
-        if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
+        if(tab==="registrar" && puede(user, "ventas.registrar.ver")) return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/>;
+        if(tab==="lista" && puede(user, "ventas.lista.ver")) return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
+        if(tab==="metricas" && puede(user, "ventas.metricas.ver")) return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puede(user, "ventas.metas.asignar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
         if(tab==="caja" && puede(user, "caja.ver")) return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
       } else if(area==="operaciones"){
         if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesExternasScreen {...propsOperaciones}/>;
@@ -14380,9 +14386,9 @@ export default function App() {
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
     } else if(esCuentaTienda(user)){
-      if(tab==="registrar") return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} isMobile={isMobile}/>;
-      if(tab==="lista")     return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
-      if(tab==="metricas")  return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puedeAsignarMetas(user)} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
+      if(tab==="registrar") return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/>;
+      if(tab==="lista" && puede(user, "ventas.lista.ver")) return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
+      if(tab==="metricas" && puede(user, "ventas.metricas.ver")) return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puede(user, "ventas.metas.asignar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
       if(tab==="caja" && puede(user, "caja.ver")) return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
       if(tab==="op_externas") return <OperacionesExternasScreen {...propsOperaciones}/>;
       // La misma pantalla de Turnos que ven todos (encabezado de mes incluido), pero sin Editar ni
