@@ -9,6 +9,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mi
 
 // ── Contexto de solo-lectura (rol "visualizador") ───────────────────────────────
 const ReadOnlyContext = createContext(false);
+// ¿Puede editar Perfiles y áreas de La Junta? (Permisos, Fase 3: junta.equipo.editar)
+const JuntaEquipoEditarContext = createContext(false);
 const useReadOnly = () => useContext(ReadOnlyContext);
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
@@ -933,7 +935,7 @@ const ADMIN_TABS_CAPACITACION = [{ id:"mis_cursos",icon:"📚",label:"Mis cursos
 // Operaciones (área "operaciones"): por ahora solo Externas (parte 1). Internas e Indicadores son
 // las partes 2 y 3 — ver "OPERACIONES" más abajo.
 const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas" }];
-const tabsCapacitacion = (user) => ADMIN_TABS_CAPACITACION.filter(t => t.id==="mis_cursos" ? tomaCapacitaciones(user) : t.id==="cursos_admin" ? puedeEditarCapacitacion(user) : puedeUsarAreas(user));
+const tabsCapacitacion = (user) => ADMIN_TABS_CAPACITACION.filter(t => t.id==="mis_cursos" ? tomaCapacitaciones(user) : t.id==="cursos_admin" ? puedeEditarCapacitacion(user) : puede(user, "escuela.progreso"));
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas" || user.role==="admin_turnos";
 // Quién ve la pantalla de módulos al entrar y el selector de áreas arriba: los admins (puedeUsarAreas)
 // y los asesores (solo Asistencia y Escuela OZEN). La cuenta de tienda no: va directo a Ventas.
@@ -994,7 +996,7 @@ const columnasMallaMes = (users, activos, asignacionesMes, { mesPasado=false, to
 const esMesPasadoTurnos = (anio, mes) => { const h = toColombiaDate(); return anio < h.getFullYear() || (anio===h.getFullYear() && mes < h.getMonth()); };
 // Admin Finanzas: hace todo lo de un Administrador normal (Asistencia/Junta), más Ventas completo
 // (registrar, lista, métricas, asignar metas, aprobar notas crédito y corregir por error).
-const esAdminFinanzas = (user) => user.role==="admin_finanzas";
+// (Aquí vivía `esAdminFinanzas`; el menú "Acceso tiendas" ahora sale de `cuenta.acceso_tiendas`.)
 // Cualquier admin (master, admin, admin finanzas, admin turnos) puede vender cuando está en una
 // tienda, aunque su cuenta no tenga permiso para REGISTRAR la venta desde Ventas (ej. un Admin
 // normal, que ahí solo puede ver) — por eso también aparecen como opción de "quién hizo la venta"
@@ -1026,7 +1028,7 @@ const permisosTurnos = (user) => {
 };
 const tabsPara = (user, area) => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? [...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : []), { id:"op_externas", icon:"🧰", label:"Operaciones" }] : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
-  : (area==="junta" ? ADMIN_TABS_JUNTA : area==="operaciones" ? ADMIN_TABS_OPERACIONES : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
+  : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -1173,10 +1175,10 @@ function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, o
           <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{nombre}</div>
           <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginTop:2 }}>{ROLE_LABEL[user.role] || "Asesor"}</div>
         </div>
-        {!esCuentaTienda(user) && <MenuItem ic={<Icon n="pen" s={16}/>} onClick={cerrarY(onAbrirFirmas)}>Firmar documento</MenuItem>}
-        {esAdminFinanzas(user) && <MenuItem ic={<Icon n="store" s={16}/>} onClick={cerrarY(onAbrirAccesoTiendas)}>Acceso tiendas</MenuItem>}
+        {puede(user, "cuenta.firmar") && <MenuItem ic={<Icon n="pen" s={16}/>} onClick={cerrarY(onAbrirFirmas)}>Firmar documento</MenuItem>}
+        {permCondicion(user, "cuenta.acceso_tiendas")===null && <MenuItem ic={<Icon n="store" s={16}/>} onClick={cerrarY(onAbrirAccesoTiendas)}>Acceso tiendas</MenuItem>}
         {puede(user, "asistencia.avisos") && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <MenuItem ic={<Icon n="bell" s={16}/>} onClick={cerrarY(onActivarNotificaciones)}>Activar notificaciones</MenuItem>}
-        {user.role!=="master" && !esCuentaTienda(user) && <MenuItem ic={<Icon n="key" s={16}/>} onClick={cerrarY(onCambiarPassword)}>Mi contraseña</MenuItem>}
+        {permCondicion(user, "cuenta.password")===null && <MenuItem ic={<Icon n="key" s={16}/>} onClick={cerrarY(onCambiarPassword)}>Mi contraseña</MenuItem>}
         <MenuItem ic={<Icon n="logout" s={16}/>} color={C.red} onClick={cerrarY(onLogout)}>Cerrar sesión</MenuItem>
       </MenuFlotante>
     </div>
@@ -1186,10 +1188,11 @@ function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, o
 // Marca: el logo, para master, también es la entrada a Usuarios — a propósito sin ningún aviso
 // visual, y hay que mantenerlo presionado (no un clic normal) para entrar.
 function MarcaOzen({ user, onAbrirUsuarios, compact }) {
+  const puedeUsuarios = puede(user, "cuenta.usuarios");   // Permisos, Fase 3 (master nunca lo pierde)
   const presionarLogo = useLongPress(onAbrirUsuarios);
   // Logo real de la marca (solo "OZEN", sin "momento presente") — recortado del logo oficial.
   const logo = (
-    <img src="/logo-wordmark.png" alt="OZEN" draggable={false} onContextMenu={e=>user.role==="master"&&e.preventDefault()} {...(user.role==="master"?presionarLogo:{})} style={{ height:compact?22:26, width:"auto", display:"block", flexShrink:0, cursor:user.role==="master"?"pointer":"default", userSelect:"none", WebkitTouchCallout:"none" }} />
+    <img src="/logo-wordmark.png" alt="OZEN" draggable={false} onContextMenu={e=>puedeUsuarios&&e.preventDefault()} {...(puedeUsuarios?presionarLogo:{})} style={{ height:compact?22:26, width:"auto", display:"block", flexShrink:0, cursor:puedeUsuarios?"pointer":"default", userSelect:"none", WebkitTouchCallout:"none" }} />
   );
   if(!HALLOWEEN) return logo;
   // Octubre: dos murciélagos chiquitos revoloteando junto al logo — siempre visibles en todas las
@@ -1703,7 +1706,8 @@ function UsuariosScreen({ users, setUsers, stores }) {
 // agrega o cambia una fila aquí, hay que regenerar ese SQL. Desde la Fase 3 el código empieza a
 // preguntarle a esas tablas con una sola función `puede(user, "permiso")`.
 // Fase 3 (en curso): los módulos ya migrados preguntan con `puede()` (más abajo) y obedecen a la
-// base; hoy Caja, Ventas (Registrar, Lista y Métricas), Asistencia y Turnos. Para el resto esta lista sigue siendo una foto de sus comprobaciones.
+// base: Caja, Ventas, Asistencia, Turnos, La Junta, Escuela y Cuenta. Falta solo la navegación
+// entre áreas (puedeUsarAreas, areasPara), que sigue por rol. Para el resto esta lista sigue siendo una foto de sus comprobaciones.
 // Cada permiso: `r` = qué rol lo tiene (1 = sí; un texto = sí, pero con esa condición).
 const PERM_ROLES = ["master","admin","admin_finanzas","admin_turnos","visualizador","advisor","tienda"];
 const PERM_ROL_CORTO = { master:"Master", admin:"Admin", admin_finanzas:"Finanzas", admin_turnos:"Turnos", visualizador:"Visual.", advisor:"Asesor", tienda:"Tienda" };
@@ -1903,8 +1907,7 @@ const permCompararConBase = (filasBase) => {
 // Dos seguros: un permiso que no existe en PERMISOS nunca se concede; y un permiso SENSIBLE que
 // existe en el código pero todavía no está sembrado en la base solo lo tiene master (lo sensible no
 // se concede "por defecto"). Master nunca pierde Usuarios ni Permisos, diga lo que diga la base.
-// Módulos ya migrados (leen de aquí): Caja, Ventas (Registrar, Lista y correcciones, Métricas),
-// Asistencia y Turnos. Los demás siguen con sus comprobaciones de siempre
+// Módulos ya migrados (leen de aquí): Caja, Ventas, Asistencia, Turnos, La Junta, Escuela y Cuenta. Los demás siguen con sus comprobaciones de siempre
 // hasta que les toque — se migra un módulo a la vez y se prueba en staging antes del siguiente.
 const PERM_PROTEGIDOS = new Set(["cuenta.permisos","cuenta.usuarios"]);
 const PERM_CACHE_KEY = "ozen_permisos_v1";
@@ -1945,6 +1948,9 @@ const puede = (user, id, hechos) => {
   const c = permCondicion(user, id);
   if (c === undefined) return false;
   if (c && hechos && hechos.hoy===false && /\bhoy\b/i.test(c)) return false;
+  // "si es Monitor" / "si es su tarea" (La Junta): solo valen si quien pregunta confirma el hecho.
+  if (c === PERM_SI_MONITOR) return !!(hechos && hechos.monitor);
+  if (c === PERM_SI_SU_TAREA) return !!(hechos && hechos.suTarea);
   return true;
 };
 
@@ -2463,10 +2469,10 @@ function UsuariosYPermisos({ users, setUsers, stores, lideres, setLideres, user 
     <div>
       <div style={{ display:"flex", gap:6, marginBottom:18, flexWrap:"wrap" }}>
         <PermPildora activo={sub==="usuarios"} onClick={()=>setSub("usuarios")} ic="user">Usuarios</PermPildora>
-        <PermPildora activo={sub==="permisos"} onClick={()=>setSub("permisos")} ic="key">Permisos</PermPildora>
+        {puede(user, "cuenta.permisos") && <PermPildora activo={sub==="permisos"} onClick={()=>setSub("permisos")} ic="key">Permisos</PermPildora>}
       </div>
       <div style={{ display:sub==="usuarios"?"block":"none" }}><UsuariosScreen users={users} setUsers={setUsers} stores={stores}/></div>
-      {sub==="permisos" && <PermisosScreen users={users} stores={stores} lideres={lideres} setLideres={setLideres} user={user}/>}
+      {sub==="permisos" && puede(user, "cuenta.permisos") && <PermisosScreen users={users} stores={stores} lideres={lideres} setLideres={setLideres} user={user}/>}
     </div>
   );
 }
@@ -4245,7 +4251,7 @@ function JuntaEquipoTab({ lideres, setLideres, areas, setAreas, liderAreas, setL
 }
 
 function JuntaVistaPorLider({ lideres, setLideres, areas, setAreas, liderAreas, setLiderAreas, isMobile }) {
-  const soloLectura = useReadOnly();
+  const soloLectura = !useContext(JuntaEquipoEditarContext);
   const [editingId, setEditingId] = useState(null);
   const [editVal, setEditVal] = useState({ nombre:"", objetivo:"" });
   const [editAreas, setEditAreas] = useState({}); // { [areaId]: texto de procesos macro }
@@ -4407,7 +4413,7 @@ function JuntaVistaPorLider({ lideres, setLideres, areas, setAreas, liderAreas, 
 }
 
 function JuntaVistaPorArea({ areas, setAreas, lideres, liderAreas }) {
-  const soloLectura = useReadOnly();
+  const soloLectura = !useContext(JuntaEquipoEditarContext);
   const [nuevaArea, setNuevaArea] = useState("");
   const [editingAreaId, setEditingAreaId] = useState(null);
   const [editAreaNombre, setEditAreaNombre] = useState("");
@@ -4474,7 +4480,7 @@ function JuntaVistaPorArea({ areas, setAreas, lideres, liderAreas }) {
 
 // ── SCREEN: Junta Admin — Acuerdos y decisiones (registro permanente) ───────
 function JuntaAcuerdosTab({ user, acuerdos, setAcuerdos }) {
-  const soloLectura = useReadOnly();
+  const soloLectura = !puede(user, "junta.acuerdos.crear");
   const [showNuevo, setShowNuevo] = useState(false);
   const [f, setF] = useState({ fecha: todayStr, texto: "" });
 
@@ -4553,7 +4559,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   const esMonitor = esMonitorActual(user, lideres);
   // Solo el monitor de turno puede crear tareas y marcarlas completadas. Master queda como
   // respaldo por si el nombre del líder no coincide exactamente con el de la cuenta que entra.
-  const puedeGestionar = !soloLectura && (user.role==="master" || esMonitor);
+  const puedeGestionar = puede(user, "junta.tareas.gestionar", { monitor:esMonitor });
 
   // ── Mes → semanas del mes (martes) ─────────────────────────────────────────────
   const [anioSel, mesNumSel] = mesSel.split("-").map(Number);
@@ -4727,17 +4733,18 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   // El monitor solo puede borrar tareas activas; lo cerrado (vencida o cumplida) queda solo para
   // master — sin importar de qué mes sea (ya no hay congelamiento por período, ver arriba).
   const puedeBorrarGrupo = (g) => {
-    if (soloLectura) return false;
-    if (user.role==="master") return true;
+    const c = permCondicion(user, "junta.tareas.borrar");
+    if (c === undefined) return false;
+    if (c !== PERM_SI_MONITOR) return true;                       // sin condición (master): borra cualquiera
     const cerrada = esGrupoVencido(g) || esGrupoCompletado(g);
-    return esMonitor && !cerrada;
+    return esMonitor && !cerrada;                                  // el monitor: solo las activas
   };
   // Lo cerrado (vencida o cumplida) el monitor no lo puede borrar, pero sí PEDIR que se borre: la
   // tarea queda marcada con quién lo pidió y cuándo, y master lo aprueba (se borra) o lo rechaza
   // (se quita la marca). Columnas `borrado_solicitado_por` / `borrado_solicitado_en` de
   // junta_compromisos — ver sql/permisos_fase2.sql. Pedido de Santiago, nov 2026.
   const borradoPedido = (g) => g.find(m=>m.borrado_solicitado_en) || null;
-  const puedePedirBorrado = (g) => !soloLectura && user.role!=="master" && esMonitor && (esGrupoVencido(g) || esGrupoCompletado(g)) && !borradoPedido(g);
+  const puedePedirBorrado = (g) => puede(user, "junta.tareas.borrado.solicitar", { monitor:esMonitor }) && (esGrupoVencido(g) || esGrupoCompletado(g)) && !borradoPedido(g);
   const marcarBorrado = async (g, patch) => {
     const { error } = await supabase.from("junta_compromisos").update(patch).in("id", g.map(m=>m.id));
     if (error) { alert(`No se pudo guardar: ${error.message||"error desconocido"}${/borrado_solicitado/.test(error.message||"") ? "\n\nFalta correr el archivo sql/permisos_fase2.sql en Supabase." : ""}`); return; }
@@ -4749,7 +4756,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   };
   const quitarPedidoBorrado = (g) => marcarBorrado(g, { borrado_solicitado_por:null, borrado_solicitado_en:null });
   // Master ve arriba TODOS los pedidos pendientes, sin importar el mes o la semana que esté mirando.
-  const pedidosBorrado = user.role==="master" ? agrupar(compromisos).filter(g=>borradoPedido(g)) : [];
+  const pedidosBorrado = puede(user, "junta.tareas.borrado.resolver") ? agrupar(compromisos).filter(g=>borradoPedido(g)) : [];
 
   const selectStyle = { background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none" };
 
@@ -4853,7 +4860,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
           const puedeConfirmar = puedeGestionar && (completadoGrupo ? enGracia : !vencida);
           // Quien no es el monitor, pero sí es responsable de la tarea, puede prender/apagar su
           // propio "check visual" — es solo un autorreporte, no el check real.
-          const puedeAutorreportar = !soloLectura && !puedeGestionar && !completadoGrupo && !vencida && esTareaDelUsuario(g);
+          const puedeAutorreportar = !puedeGestionar && !completadoGrupo && !vencida && puede(user, "junta.tareas.autorreportar", { suTarea:esTareaDelUsuario(g) });
           const puedeMarcar = puedeConfirmar || puedeAutorreportar;
           const expandida = expandidas.has(compartida ? base.grupo_id : base.id);
           const toggleId = compartida ? base.grupo_id : base.id;
@@ -4927,7 +4934,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
               </div>
               {/* Línea 3: comentario (ancho libre) + eliminar */}
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <input placeholder="Comentario..." defaultValue={base.comentarios||""} disabled={soloLectura} onBlur={e=>{ if(e.target.value!==base.comentarios) (compartida?actualizarComentarioGrupo(g,e.target.value):actualizar(base.id,{comentarios:e.target.value})); }} style={{ flex:1, minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+                <input placeholder="Comentario..." defaultValue={base.comentarios||""} disabled={!puede(user, "junta.tareas.comentar")} onBlur={e=>{ if(e.target.value!==base.comentarios) (compartida?actualizarComentarioGrupo(g,e.target.value):actualizar(base.id,{comentarios:e.target.value})); }} style={{ flex:1, minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:11, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
                 {puedePedirBorrado(g) && <button onClick={()=>pedirBorrado(g)} title="Esta tarea ya está cerrada: solo master la puede borrar. Con esto se lo pides." style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:6, color:C.textMuted, cursor:"pointer", flexShrink:0, padding:"3px 8px", fontFamily:font.body, fontSize:10.5, whiteSpace:"nowrap" }}>Pedir borrado</button>}
                 {borradoPedido(g) && esMonitor && user.role!=="master" && !soloLectura && <button onClick={()=>quitarPedidoBorrado(g)} title="Quitar el pedido de borrado" style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:6, color:C.textMuted, cursor:"pointer", flexShrink:0, padding:"3px 8px", fontFamily:font.body, fontSize:10.5, whiteSpace:"nowrap" }}>Cancelar pedido</button>}
                 {puedeBorrar && <button onClick={()=>eliminarGrupo(g)} title="Eliminar" style={{ background:"none", border:"none", color:C.red, cursor:"pointer", flexShrink:0, padding:2, display:"grid" }}><Icon n="x" s={15}/></button>}
@@ -5039,7 +5046,7 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
               </select>
               {selMesIdx===0 && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>· mes en curso</div>}
               {congeladoSel && <Badge color={C.textMuted} sm title={`Foto fija guardada el ${fmtFechaHora(congeladoSel.congelado_en)}${congeladoSel.congelado_por?" · "+congeladoSel.congelado_por:""} — no se vuelve a calcular.`}>🔒 Congelado</Badge>}
-              {!congeladoSel && selMesIdx>0 && user.role==="master" && (mesSelTerminoDeVerdad ? (
+              {!congeladoSel && selMesIdx>0 && puede(user, "junta.indicadores.congelar") && (mesSelTerminoDeVerdad ? (
                 <button onClick={()=>congelarMesAhora(seleccionado.anio, seleccionado.mes)} disabled={congelando} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"3px 8px", fontFamily:font.body }}>{congelando?"...":"Congelar este mes ahora"}</button>
               ) : (
                 <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }} title="Su última semana todavía tiene plazo hasta esa fecha — no se puede congelar antes, para no dejar tareas activas sin oportunidad de cerrar.">Se podrá congelar desde el {finRealMesSel}</div>
@@ -12398,8 +12405,8 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
 // ══════════════════════════════════════════════════════════════════════════════
 // Crean y editan cursos todos los admins (pedido de Santiago, 8 oct 2026: cualquier líder). El
 // visualizador solo mira el progreso.
-const puedeEditarCapacitacion = (user) => ROLES_ADMIN_VENDEDOR.includes(user.role);
-const tomaCapacitaciones = (user) => user.role!=="visualizador" && user.role!=="tienda";
+const puedeEditarCapacitacion = (user) => puede(user, "escuela.administrar");   // Permisos, Fase 3
+const tomaCapacitaciones = (user) => puede(user, "escuela.cursar");               // Permisos, Fase 3
 const BUCKET_CAPACITACION = "capacitacion-pdfs";
 const MAX_PDF_MB = 50;
 const TIPO_LECCION = { presentacion:{ label:"Presentación", ic:"slides" }, video:{ label:"Video", ic:"play" }, pdf:{ label:"PDF", ic:"file" }, texto:{ label:"Texto", ic:"note" } };
@@ -14377,7 +14384,7 @@ export default function App() {
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
       if(area==="junta"){
-        if(tab==="equipo")       return <JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} areas={juntaAreas} setAreas={setJuntaAreas} liderAreas={juntaLiderAreas} setLiderAreas={setJuntaLiderAreas} isMobile={isMobile}/>;
+        if(tab==="equipo")       return <JuntaEquipoEditarContext.Provider value={puede(user, "junta.equipo.editar")}><JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} areas={juntaAreas} setAreas={setJuntaAreas} liderAreas={juntaLiderAreas} setLiderAreas={setJuntaLiderAreas} isMobile={isMobile}/></JuntaEquipoEditarContext.Provider>;
         if(tab==="seguimiento")  return <JuntaSeguimientoScreen user={user} lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos} isMobile={isMobile}/>;
         if(tab==="indicadores")  return <JuntaIndicadoresTab user={user} lideres={juntaLideres} compromisos={juntaCompromisos} congelados={juntaIndicadoresCongelados} setCongelados={setJuntaIndicadoresCongelados} isMobile={isMobile}/>;
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;

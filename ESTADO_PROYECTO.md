@@ -672,7 +672,18 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
     Turnos ya no usa un solo "puedeGestionar": `permisosTurnos(user)` da editar, publicar,
     asesores, tiendas, especiales, horarios y mallaActivos por separado, y `TurnosScreen`,
     `TurnosEditarScreen` y `TurnosAdminScreen` reciben `permisos`. Cero diferencias rol por rol.
-  - Módulos que faltan por migrar: La Junta, Escuela, Cuenta (y la navegación entre áreas). El tablero todavía pinta desde `PERMISOS` (código).
+  - Santiago probó Asistencia y Turnos el 13 nov (revisión rápida): bien.
+  - **La Junta, Escuela y Cuenta migrados el 13 nov 2026 (en `staging`, falta que los pruebe):**
+    `puede()` ahora entiende las condiciones "si es Monitor" y "si es su tarea" con
+    `{ monitor:… }` / `{ suTarea:… }`. Perfiles y áreas usa `JuntaEquipoEditarContext`. En el
+    menú de la cuenta, "Acceso tiendas" y "Mi contraseña" salen solo si el permiso es sin
+    condición (`permCondicion(...)===null`), para que master siga sin verlos (los maneja desde
+    Usuarios). El logo abre Usuarios con `cuenta.usuarios` y la pestaña Permisos con
+    `cuenta.permisos`. Cero diferencias rol por rol (147 comparaciones).
+  - **Lo único que sigue por rol:** la navegación entre áreas (`puedeUsarAreas`, `areasPara`,
+    `eligeModulo`, `puedeUsarVentasArea`, `AreaSelector`) y "Operaciones" (su chat). Con eso la
+    Fase 3 queda lista para pasar a `main` cuando Santiago lo apruebe: ANTES correr en la base
+    real `sql/permisos_fase2.sql` y `sql/permisos_fase3.sql`. El tablero todavía pinta desde `PERMISOS` (código).
   - **13 nov 2026 — Santiago probó Caja en `staging` (11 pasos, 3 tipos de cuenta): equivalente.**
     Ajustes que pidió ese día: (1) quien solo mira Caja (admin, admin turnos, visualizador) ahora
     entra por Registrar, sin el velo transparente ni el aviso: puede llenar los campos pero
