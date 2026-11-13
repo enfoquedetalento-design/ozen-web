@@ -1675,7 +1675,7 @@ const PERMISOS = [
   { id:"ventas.metricas.ver", g:"ventas_metricas", label:"Ver Métricas", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, tienda:1 }, nota:"La cuenta de tienda entra con su tienda primero. No ve el «Ingreso total» (el que suma servicios) ni la sección de Consultas." },
   { id:"ventas.metricas.consultas", g:"ventas_metricas", label:"Usar Consultas y exportarlas", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
   { id:"ventas.metas.asignar", g:"ventas_metricas", label:"Asignar metas mensuales", r:{ master:1, admin_finanzas:1 }, sensible:true },
-  { id:"caja.ver", g:"ventas_caja", label:"Ver Caja e historial", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, tienda:"su tienda" }, nota:"Admin, Admin Turnos y Visualizador ven Caja y el Historial, pero la parte de registrar les sale apagada: no pueden tocar nada." },
+  { id:"caja.ver", g:"ventas_caja", label:"Ver Caja e historial", r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, tienda:"su tienda" }, nota:"Admin, Admin Turnos y Visualizador ven Caja igual que los demás y pueden llenar los campos para entender el flujo, pero no pueden guardar nada." },
   { id:"caja.registrar", g:"ventas_caja", label:"Registrar apertura, cierre y novedad", r:{ master:1, admin_finanzas:1, tienda:"su tienda, hoy" } },
   { id:"caja.fecha_libre", g:"ventas_caja", label:"Usar una fecha distinta a hoy en Caja", r:{ master:1, admin_finanzas:1 } },
   { id:"caja.recoleccion.registrar", g:"ventas_caja", label:"Registrar una recolección de efectivo", r:{ master:1, admin_finanzas:1, tienda:"su tienda" } },
@@ -8041,7 +8041,7 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, tiendaActiva, onV
               {tiendaActual && <EtiquetaTienda store={tiendaActual}/>}
             </div>
             <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginTop:4, marginBottom:12 }}>
-              {[esHoyVenta?"Hoy":fecha, vendedorSel?.name, esFlexipago && clienteNombre ? clienteNombre : null].filter(Boolean).join(" · ")}
+              {[(()=>{ const t = new Date(fecha+"T12:00:00").toLocaleDateString("es-CO",{ weekday:"long", day:"numeric", month:"long" }); return t.charAt(0).toUpperCase()+t.slice(1); })(), vendedorSel?.name, esFlexipago && clienteNombre ? clienteNombre : null].filter(Boolean).join(" · ")}
             </div>
             {items.length===0 && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, padding:"10px 0" }}>Todavía no has agregado nada.</div>}
             {items.map((it,idx)=>(
@@ -11188,7 +11188,17 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   const tiendaId = tiendaFija || tiendaActiva || tiendaIdLocal;
   // Color asignado a la tienda que se está viendo — se usa para pintar los cuadros de Caja.
   const tiendaColor = stores[tiendaId]?.color;
-  const [cajaVista, setCajaVista] = useState(soloLectura ? "historial" : "registrar"); // 'registrar' | 'historial'
+  // Todos entran por Registrar, también quien solo puede mirar (admin, admin turnos, visualizador):
+  // ven la misma pantalla viva que la tienda y pueden llenar los campos para entender el flujo,
+  // pero ningún "guardar" les funciona (ver avisoSoloVer). Antes se les abría el Historial y
+  // Registrar les salía apagado y sin poder tocarlo — pedido de Santiago, nov 2026.
+  const [cajaVista, setCajaVista] = useState("registrar"); // 'registrar' | 'historial'
+  const avisoSoloVer = "Puedes llenar todo para ver cómo funciona, pero tu cuenta no tiene permiso para guardar movimientos de Caja.";
+  // Confirmación propia de la app para borrar / pedir borrados: no depende de las ventanitas del
+  // navegador (window.confirm), que en algunos navegadores no salen y dejaban borrar sin preguntar.
+  const [confirma, setConfirma] = useState(null); // { texto, res }
+  const pedirConfirmacion = (texto) => new Promise(res => setConfirma({ texto, res }));
+  const responderConfirmacion = (si) => { if(confirma){ confirma.res(si); setConfirma(null); } };
   // Refs de las 3 tarjetas que se pueden "fotografiar" con el botón 📸 (ver CajaCapturaBtn /
   // capturarTarjetaCaja) + el toast chiquito que confirma "Copiado" o avisa si tocó descargar.
   const aperturaCardRef = useRef(null);
@@ -11574,6 +11584,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   const listarFaltantes = (arr) => arr.length<=1 ? (arr[0]||"") : `${arr.slice(0,-1).join(", ")} y ${arr[arr.length-1]}`;
 
   const guardarApertura = async () => {
+    if(soloLectura){ setMsg(avisoSoloVer); return; }
     if(!tiendaId || !apAsesorId){
       const falt = []; if(!tiendaId) falt.push("la tienda"); if(!apAsesorId) falt.push("quién abre");
       setMsg(`Falta elegir ${listarFaltantes(falt)}.`); return;
@@ -11611,6 +11622,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   };
 
   const guardarGasto = async () => {
+    if(soloLectura){ setMsg(avisoSoloVer); return; }
     if(!tiendaId || !gaValor || !gaMotivo.trim() || !gaAsesorId || !gaAutorizoLiderId){ setMsg("Falta el valor, el motivo, quién registra y quién autorizó la novedad."); return; }
     setGuardandoGa(true); setMsg("");
     const nombreAsesorGa = asesores.find(a=>a.id===gaAsesorId)?.name || user.name;
@@ -11643,13 +11655,14 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
     else if(error){ setMsg(`No se pudo guardar la edición: ${error.message||"error desconocido"}`); }
   };
   const borrarGasto = async (g) => {
-    if(!window.confirm(`¿Borrar esta novedad (${g.motivo})? Esta acción no se puede deshacer.`)) return;
+    if(!(await pedirConfirmacion(`¿Borrar esta novedad (${g.motivo})? Esta acción no se puede deshacer.`))) return;
     const { error } = await supabase.from("ventas_caja_gastos").delete().eq("id", g.id);
     if(error){ setMsg(`No se pudo borrar: ${error.message||"error desconocido"}`); return; }
     setGastos(prev=>prev.filter(x=>x.id!==g.id));
   };
 
   const guardarCierre = async () => {
+    if(soloLectura){ setMsg(avisoSoloVer); return; }
     if(!tiendaId || !ciAsesorId){
       const falt = []; if(!tiendaId) falt.push("la tienda"); if(!ciAsesorId) falt.push("quién cierra");
       setMsg(`Falta elegir ${listarFaltantes(falt)}.`); return;
@@ -11689,6 +11702,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   };
 
   const guardarRecoleccion = async () => {
+    if(!puedeRecoleccion){ setMsg("Tu cuenta no tiene permiso para registrar recolecciones."); return; }
     if(!tiendaId || !reEntregaId || !reRecibeId || !reValor){
       const falt = [];
       if(!tiendaId) falt.push("la tienda");
@@ -11743,19 +11757,19 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   const puedeBorrarCaja = puede(user, "caja.borrar");
   const puedeResolverBorrado = puede(user, "caja.borrado.resolver");
   const borrarApertura = async (a) => {
-    if(!window.confirm(`¿Borrar esta apertura (${fmtFechaHora(a.created_at)} · ${a.asesor_nombre})? Esta acción no se puede deshacer.`)) return;
+    if(!(await pedirConfirmacion(`¿Borrar esta apertura (${fmtFechaHora(a.created_at)} · ${a.asesor_nombre})? Esta acción no se puede deshacer.`))) return;
     const { error } = await supabase.from("ventas_caja_aperturas").delete().eq("id", a.id);
     if(error){ setMsg(`No se pudo borrar: ${error.message||"error desconocido"}`); return; }
     setAperturas(prev=>prev.filter(x=>x.id!==a.id));
   };
   const borrarCierre = async (c) => {
-    if(!window.confirm(`¿Borrar este cierre (${fmtFechaHora(c.created_at)} · ${c.asesor_nombre})? Esta acción no se puede deshacer.`)) return;
+    if(!(await pedirConfirmacion(`¿Borrar este cierre (${fmtFechaHora(c.created_at)} · ${c.asesor_nombre})? Esta acción no se puede deshacer.`))) return;
     const { error } = await supabase.from("ventas_caja_cierres").delete().eq("id", c.id);
     if(error){ setMsg(`No se pudo borrar: ${error.message||"error desconocido"}`); return; }
     setCierres(prev=>prev.filter(x=>x.id!==c.id));
   };
   const borrarRecoleccion = async (r) => {
-    if(!window.confirm(`¿Borrar esta recolección (${fmtFechaHora(r.created_at)} · ${r.entrega_nombre} → ${r.recibe_nombre})? Esta acción no se puede deshacer.`)) return;
+    if(!(await pedirConfirmacion(`¿Borrar esta recolección (${fmtFechaHora(r.created_at)} · ${r.entrega_nombre} → ${r.recibe_nombre})? Esta acción no se puede deshacer.`))) return;
     const { error } = await supabase.from("ventas_caja_recolecciones").delete().eq("id", r.id);
     if(error){ setMsg(`No se pudo borrar: ${error.message||"error desconocido"}`); return; }
     setRecolecciones(prev=>prev.filter(x=>x.id!==r.id));
@@ -11768,7 +11782,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   const solicitudesPendientes = solicitudesTienda.filter(s=>s.estado==="pendiente");
 
   const solicitarBorrado = async (tabla, registro, resumen) => {
-    if(!window.confirm(`¿Solicitar el borrado de este registro (${resumen})? Un master o admin_finanzas debe aprobarlo.`)) return;
+    if(!(await pedirConfirmacion(`¿Solicitar el borrado de este registro (${resumen})? Un master o admin_finanzas debe aprobarlo.`))) return;
     const { data, error } = await supabase.from("ventas_caja_solicitudes_borrado").insert({
       tienda_id:tiendaId, tabla, registro_id:registro.id, resumen, solicitado_por:user.name, estado:"pendiente",
     }).select().single();
@@ -11778,7 +11792,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
 
   const resolverSolicitudBorrado = async (solicitud, nuevoEstado) => {
     if(nuevoEstado==="aprobada"){
-      if(!window.confirm(`¿Aprobar y borrar (${solicitud.resumen})? Esta acción no se puede deshacer.`)) return;
+      if(!(await pedirConfirmacion(`¿Aprobar y borrar (${solicitud.resumen})? Esta acción no se puede deshacer.`))) return;
       const tablaReal = solicitud.tabla==="apertura"?"ventas_caja_aperturas":solicitud.tabla==="cierre"?"ventas_caja_cierres":"ventas_caja_recolecciones";
       const { error:errBorrar } = await supabase.from(tablaReal).delete().eq("id", solicitud.registro_id);
       if(errBorrar){ setMsg(`No se pudo borrar: ${errBorrar.message||"error desconocido"}`); return; }
@@ -11889,16 +11903,22 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
           </div>
       )}
 
+      {confirma && createPortal(
+        <div onClick={()=>responderConfirmacion(false)} style={{ position:"fixed", inset:0, zIndex:3000, background:"rgba(26,59,82,0.38)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderRadius:14, border:`1px solid ${C.border}`, padding:"20px 22px", maxWidth:420, width:"100%", fontFamily:font.body }}>
+            <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:8 }}>¿Seguro?</div>
+            <div style={{ fontSize:13.5, color:C.textSub, lineHeight:1.5, marginBottom:18 }}>{confirma.texto}</div>
+            <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+              <Btn onClick={()=>responderConfirmacion(false)} variant="ghost" sm>Cancelar</Btn>
+              <Btn onClick={()=>responderConfirmacion(true)} variant="danger" sm>Sí, continuar</Btn>
+            </div>
+          </div>
+        </div>, document.body)}
       {msg && <div style={{ background:C_DARK.redDim, border:`1px solid ${C_DARK.red}44`, borderRadius:7, padding:"7px 10px", color:C_DARK.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{msg}</div>}
 
       <div key={cajaVista} className="ozen-pane-anim-tab">
       {cajaVista==="registrar" ? (
-        <div style={soloLectura ? { pointerEvents:"none", opacity:0.55 } : undefined}>
-          {soloLectura && (
-            <div style={{ background:`${C_DARK.amber}18`, border:`1px solid ${C_DARK.amber}55`, borderRadius:8, padding:"8px 12px", marginBottom:12, color:C_DARK.amber, fontSize:12, fontFamily:font.body }}>
-              👁 Solo puedes ver esta pantalla — no tienes permiso para registrar movimientos de Caja.
-            </div>
-          )}
+        <div>
           {/* Rediseño Felipe (v2, fiel al mockup real): columna izquierda = una sola tarjeta Cierre
               (con el selector Parcial/Final en el encabezado, tabla combinada de "dinero recibido
               por método de pago", Ventas, Servicios, Descuentos, Nota crédito, Novedades del día).

@@ -660,6 +660,16 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
     tienda" de la cuenta de tienda sigue amarrado a `esCuentaTienda` (no es un permiso).
   - Módulos que faltan por migrar, uno a la vez: Ventas (Registrar, Lista, Métricas), Asistencia,
     Turnos, La Junta, Escuela, Cuenta. El tablero todavía pinta desde `PERMISOS` (código).
+  - **13 nov 2026 — Santiago probó Caja en `staging` (11 pasos, 3 tipos de cuenta): equivalente.**
+    Ajustes que pidió ese día: (1) quien solo mira Caja (admin, admin turnos, visualizador) ahora
+    entra por Registrar, sin el velo transparente ni el aviso: puede llenar los campos pero
+    ningún guardar le funciona (`avisoSoloVer`); (2) borrar y pedir/aprobar borrados en Caja usan
+    una confirmación propia de la app (`pedirConfirmacion`) en vez de `window.confirm`, porque en
+    su navegador la ventanita no salía y borraba sin preguntar; (3) en Registrar venta, el
+    "Recibo en curso" muestra la fecha completa en vez de "Hoy".
+  - Para probar hay datos falsos en práctica: `sql/staging_datos_prueba.sql` (15 días de ventas y
+    caja marcados con [PRUEBA]; se detiene solo si la base tiene movimiento real reciente) y
+    `sql/staging_datos_prueba_borrar.sql`. No hace falta subirlos con git.
 - **REGLA PARA TODOS LOS CHATS — permisos de módulos nuevos:** un módulo nuevo NO edita la lista
   `PERMISOS`. Declara sus permisos junto a su propio código con
   `registrarPermisos({ grupo, label, ic, permisos:[{ id, label, r:{ rol:1 | "condición" },
