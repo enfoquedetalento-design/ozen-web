@@ -670,6 +670,17 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
   - Para probar hay datos falsos en práctica: `sql/staging_datos_prueba.sql` (15 días de ventas y
     caja marcados con [PRUEBA]; se detiene solo si la base tiene movimiento real reciente) y
     `sql/staging_datos_prueba_borrar.sql`. No hace falta subirlos con git.
+- **REGLA PARA TODOS LOS CHATS — confirmaciones:** ya NO se usa `window.confirm`. Para preguntar
+  "¿seguro?" se usa `confirmar("texto")` (definida antes de `Card` en `src/App.jsx`), dentro de una
+  función `async`: `if(!await confirmar("¿Borrar esto?")) return;`. Muestra un recuadro propio de
+  la app (`ConfirmacionGlobal`, montado en `App`). Motivo: en el navegador de Santiago la ventanita
+  del navegador no salía y la acción seguía sin preguntar. El 13 nov 2026 se cambiaron las 20 que
+  había en toda la app (Asistencia, Usuarios, Turnos, La Junta, Escuela) y las 6 de Caja.
+  Tampoco se usa `window.prompt`: cuando hay que ESCRIBIR una palabra para confirmar se usa
+  `if(!await confirmarEscribiendo("texto", "BORRAR")) return;` (mismo recuadro, con un campo; no
+  importan mayúsculas). Así quedaron las 4 de Ventas: reabrir Flexipago (REABRIR), Notacrédito y
+  Corregir factura (CORREGIR) y Eliminar venta (BORRAR). Nota: en la máquina de práctica ESLint
+  sobre `src/App.jsx` ya tarda unos 3 minutos; si se corta, correrlo otra vez o por fuera.
 - **REGLA PARA TODOS LOS CHATS — permisos de módulos nuevos:** un módulo nuevo NO edita la lista
   `PERMISOS`. Declara sus permisos junto a su propio código con
   `registrarPermisos({ grupo, label, ic, permisos:[{ id, label, r:{ rol:1 | "condición" },

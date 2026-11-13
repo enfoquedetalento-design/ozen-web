@@ -487,6 +487,51 @@ const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={
   return <button style={{...base,...styles[variant],...style}} onClick={disabled?undefined:onClick} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}>{children}</button>;
 };
 
+// ── Confirmación propia de la app ────────────────────────────────────────────────
+// Reemplaza a window.confirm en TODA la app (pedido de Santiago, nov 2026): en algunos navegadores
+// la ventanita del navegador no sale y la acción seguía de largo sin preguntar — borraba sin
+// confirmar. Uso, dentro de una función async:  if(!await confirmar("¿Borrar esto?")) return;
+// Si por alguna razón el recuadro no está montado, cae a la ventanita del navegador de siempre.
+let confirmarHost = null;
+const confirmar = (texto) => confirmarHost ? new Promise(res => confirmarHost({ texto, res })) : Promise.resolve(window.confirm(texto));
+// Igual, pero para lo más delicado: hay que ESCRIBIR una palabra para poder continuar (reemplaza a
+// window.prompt). Uso:  if(!await confirmarEscribiendo("…Escribe BORRAR para confirmar.", "BORRAR")) return;
+const confirmarEscribiendo = (texto, palabra) => confirmarHost ? new Promise(res => confirmarHost({ texto, res, palabra })) : Promise.resolve(window.prompt(texto) === palabra);
+function ConfirmacionGlobal() {
+  const [c, setC] = useState(null);
+  const [escrito, setEscrito] = useState("");
+  useEffect(() => {
+    const host = (nuevo) => { setEscrito(""); setC(prev => { if (prev) prev.res(false); return nuevo; }); };
+    confirmarHost = host;
+    return () => { if (confirmarHost === host) confirmarHost = null; };
+  }, []);
+  useEffect(() => {
+    if (!c) return;
+    const tecla = (e) => { if (e.key === "Escape") { c.res(false); setC(null); } };
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  }, [c]);
+  if (!c) return null;
+  // Con palabra: solo deja continuar cuando lo escrito coincide (sin importar mayúsculas ni espacios).
+  const listo = !c.palabra || escrito.trim().toUpperCase() === c.palabra.toUpperCase();
+  const responder = (si) => { if (si && !listo) return; c.res(si); setC(null); };
+  return createPortal(
+    <div onClick={()=>responder(false)} style={{ position:"fixed", inset:0, zIndex:5000, background:"rgba(26,59,82,0.38)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderRadius:14, border:`1px solid ${C.border}`, padding:"20px 22px", maxWidth:c.palabra?480:440, width:"100%", maxHeight:"86vh", overflowY:"auto", fontFamily:font.body }}>
+        <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:8 }}>¿Seguro?</div>
+        <div style={{ fontSize:13.5, color:C.textSub, lineHeight:1.5, marginBottom:c.palabra?12:18, whiteSpace:"pre-line" }}>{c.texto}</div>
+        {c.palabra && (
+          <input autoFocus value={escrito} onChange={e=>setEscrito(e.target.value)} onKeyDown={e=>{ if (e.key === "Enter") responder(true); }} placeholder={`Escribe ${c.palabra}`} autoComplete="off" autoCapitalize="characters" spellCheck={false}
+            style={{ width:"100%", boxSizing:"border-box", background:C.surfaceAlt, border:`1px solid ${listo?C.green:C.border}`, borderRadius:9, padding:"10px 12px", color:C.text, fontSize:14, fontFamily:font.body, fontWeight:600, letterSpacing:"0.04em", outline:"none", marginBottom:18 }}/>
+        )}
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+          <Btn onClick={()=>responder(false)} variant="ghost" sm>Cancelar</Btn>
+          <Btn onClick={()=>responder(true)} variant="danger" sm disabled={!listo}>Sí, continuar</Btn>
+        </div>
+      </div>
+    </div>, document.body);
+}
+
 // "Minimalista plano" — es el componente base con el que están armadas las fichas/burbujas de
 // cada módulo (~55 pantallas), así que este único cambio se propaga a toda la app. Se probaron
 // dos intentos con profundidad (vidrio esmerilado, luego sombra de elevación) y ninguno se notó
@@ -1303,7 +1348,7 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
     }
   };
   const eliminarRegistro=async(id,descripcion)=>{
-    if(!window.confirm(`¿Eliminar ${descripcion}? La persona podrá volver a marcarlo (o usa "✏️" para dejarlo con la hora correcta sin borrarlo).`)) return;
+    if(!await confirmar(`¿Eliminar ${descripcion}? La persona podrá volver a marcarlo (o usa "✏️" para dejarlo con la hora correcta sin borrarlo).`)) return;
     const{error}=await supabase.from("registros").delete().eq("id",id);
     if(!error) onRecordDeleted(id); else alert(`No se pudo eliminar: ${error.message}`);
   };
@@ -1474,13 +1519,13 @@ const retirarOEliminarUsuario = async (u, setUsers) => {
   const h = await contarHistorialUsuario(u.id);
   if(h.total>0){
     if(u.active===false){ alert(`${u.name} ya está retirado. Su historial (${textoHistorial(h)}) se conserva; no se puede eliminar para no perderlo.`); return; }
-    if(!window.confirm(`${u.name} tiene historial: ${textoHistorial(h)}.\n\nPara no perderlo no se elimina: se RETIRA. Queda inactivo (no puede ingresar ni aparece para asignar), pero sus turnos, asistencia y ventas se conservan y se siguen viendo en los meses en que trabajó. Si vuelve, lo reactivas con ✓.\n\n¿Retirar a ${u.name}?`)) return;
+    if(!await confirmar(`${u.name} tiene historial: ${textoHistorial(h)}.\n\nPara no perderlo no se elimina: se RETIRA. Queda inactivo (no puede ingresar ni aparece para asignar), pero sus turnos, asistencia y ventas se conservan y se siguen viendo en los meses en que trabajó. Si vuelve, lo reactivas con ✓.\n\n¿Retirar a ${u.name}?`)) return;
     const { data, error } = await supabase.from("usuarios").update({ active:false }).eq("id", u.id).select().single();
     if(error){ alert(`No se pudo retirar: ${error.message}`); return; }
     if(data) setUsers(prev=>prev.map(x=>x.id===u.id?data:x));
     return;
   }
-  if(!window.confirm(`${u.name} no tiene ningún historial (ni turnos, ni asistencia, ni ventas). ¿Eliminarlo definitivamente? Esto no se puede deshacer.`)) return;
+  if(!await confirmar(`${u.name} no tiene ningún historial (ni turnos, ni asistencia, ni ventas). ¿Eliminarlo definitivamente? Esto no se puede deshacer.`)) return;
   await supabase.from("turnos_borrador").delete().eq("asesor_id", u.id);
   const { error } = await supabase.from("usuarios").delete().eq("id", u.id);
   if(error){ alert(`No se pudo eliminar: ${error.message}`); return; }
@@ -1566,7 +1611,7 @@ function UsuariosScreen({ users, setUsers, stores }) {
   const deleteUsuario=async(id)=>{ const u = users.find(x=>x.id===id); if(u) await retirarOEliminarUsuario(u, setUsers); };
   const [verRetirados,setVerRetirados]=useState(false);
   const guardarPassword=async(id)=>{ if(!nuevaPass.trim())return; const{data,error}=await supabase.from("usuarios").update({password:nuevaPass.trim(),password_updated_at:new Date().toISOString()}).eq("id",id).select().single(); if(!error&&data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setCambiandoPass(null);setNuevaPass("");alert("Contraseña actualizada.");} };
-  const liberarDispositivo=async(u)=>{ if(!window.confirm(`¿Liberar el dispositivo autorizado de "${u.name}"? El próximo dispositivo que ingrese con esta cuenta quedará autorizado.`))return; const{data}=await supabase.from("usuarios").update({device_token:null}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
+  const liberarDispositivo=async(u)=>{ if(!await confirmar(`¿Liberar el dispositivo autorizado de "${u.name}"? El próximo dispositivo que ingrese con esta cuenta quedará autorizado.`))return; const{data}=await supabase.from("usuarios").update({device_token:null}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
   const tarjetaUsuario = (u) => (
           <Card key={u.id} p="14px" style={{opacity:u.active?1:0.6}}>
             {editing===u.id?(
@@ -2428,7 +2473,7 @@ function TiendasAccesoScreen({ users, setUsers, stores }) {
   const tiendas=users.filter(u=>u.role==="tienda").sort((a,b)=>a.name.localeCompare(b.name));
   const saveEdit=async(id)=>{ if(!editVal.name.trim()||!editVal.documento.trim())return; const{data}=await supabase.from("usuarios").update({name:editVal.name.trim(),documento:editVal.documento.trim()}).eq("id",id).select().single(); if(data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setEditing(null);} };
   const guardarPassword=async(id)=>{ if(!nuevaPass.trim())return; const{data,error}=await supabase.from("usuarios").update({password:nuevaPass.trim(),password_updated_at:new Date().toISOString()}).eq("id",id).select().single(); if(!error&&data){setUsers(prev=>prev.map(u=>u.id===id?data:u));setCambiandoPass(null);setNuevaPass("");alert("Contraseña actualizada.");} };
-  const liberarDispositivo=async(u)=>{ if(!window.confirm(`¿Liberar el dispositivo autorizado de "${u.name}"? El próximo dispositivo que ingrese con esta cuenta quedará autorizado.`))return; const{data}=await supabase.from("usuarios").update({device_token:null}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
+  const liberarDispositivo=async(u)=>{ if(!await confirmar(`¿Liberar el dispositivo autorizado de "${u.name}"? El próximo dispositivo que ingrese con esta cuenta quedará autorizado.`))return; const{data}=await supabase.from("usuarios").update({device_token:null}).eq("id",u.id).select().single(); if(data)setUsers(prev=>prev.map(x=>x.id===u.id?data:x)); };
   return (
     <div>
       <PageHeader title="Acceso de tiendas" subtitle={`${tiendas.length} cuentas de tienda · liberar dispositivo, usuario y contraseña`} action={
@@ -2505,7 +2550,7 @@ function StoresScreen({ stores, setStores }) {
   const deleteStore=async(id)=>{
     const { count } = await supabase.from("registros").select("id", { count: "exact", head: true }).eq("store", id);
     if (count > 0) { alert(`Esta tienda tiene ${count} registro(s) de asistencia asociados. Eliminarla podría borrar ese historial para siempre. Si ya no está operando, simplemente deja de asignarle turnos nuevos en vez de eliminarla.`); return; }
-    if (!window.confirm("Esta tienda no tiene registros de asistencia. ¿Eliminarla de todas formas? Esto no se puede deshacer.")) return;
+    if (!await confirmar("Esta tienda no tiene registros de asistencia. ¿Eliminarla de todas formas? Esto no se puede deshacer.")) return;
     await supabase.from("tiendas").delete().eq("id",id); setStores(prev=>{const c={...prev};delete c[id];return c;});
   };
   const saveEdit=async(id)=>{ if(!editVal.name.trim())return; const{data,error}=await supabase.from("tiendas").update({name:editVal.name.trim(),color:editVal.color||"#6b7280"}).eq("id",id).select().single(); if(data){setStores(prev=>({...prev,[id]:data}));setEditing(null);} else if(error){ alert(`No se pudo guardar: ${error.message}`); } };
@@ -2586,7 +2631,7 @@ function TurnosEspecialesScreen({ turnosGlobales, setTurnosGlobales }) {
     const { count: countBor } = await supabase.from("turnos_borrador").select("id",{ count:"exact", head:true }).eq("turno_global_id",id);
     const count = (countPub||0) + (countBor||0);
     if(count>0){ alert(`Este código está asignado en ${count} día(s) de la rejilla (publicada o en el borrador). Quítalo de esas asignaciones antes de eliminarlo.`); return; }
-    if(!window.confirm("¿Eliminar este código? Esto no se puede deshacer.")) return;
+    if(!await confirmar("¿Eliminar este código? Esto no se puede deshacer.")) return;
     await supabase.from("turnos_globales").delete().eq("id",id); setTurnosGlobales(prev=>prev.filter(t=>t.id!==id));
   };
   return (
@@ -2639,7 +2684,7 @@ function TurnosHorariosScreen({ stores, turnosHorarios, setTurnosHorarios }) {
     if(!error&&data){ setTurnosHorarios(prev=>[...prev,data]); setForm(vacio); setShowForm(false); } else if(error){ alert(`No se pudo guardar: ${error.message}`); }
   };
   const eliminar=async(id)=>{
-    if(!window.confirm("¿Eliminar este cambio de horario? Los registros ya evaluados no cambian, pero deja de aplicar hacia adelante.")) return;
+    if(!await confirmar("¿Eliminar este cambio de horario? Los registros ya evaluados no cambian, pero deja de aplicar hacia adelante.")) return;
     const{error}=await supabase.from("turnos_horarios").delete().eq("id",id);
     if(!error) setTurnosHorarios(prev=>prev.filter(h=>h.id!==id)); else alert(`No se pudo eliminar: ${error.message}`);
   };
@@ -3406,7 +3451,7 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
 
   const publicar = async (sel, etiqueta) => {
     if(totalDe(sel)===0) return;
-    if(!window.confirm(`¿Publicar ${etiqueta}?\n\nA partir de ahora todos verán estos turnos (${sel.nuevos.length} nuevos, ${sel.modificados.length} modificados, ${sel.quitados.length} quitados). Lo demás del borrador sigue sin publicarse.`)) return;
+    if(!await confirmar(`¿Publicar ${etiqueta}?\n\nA partir de ahora todos verán estos turnos (${sel.nuevos.length} nuevos, ${sel.modificados.length} modificados, ${sel.quitados.length} quitados). Lo demás del borrador sigue sin publicarse.`)) return;
     setPublicando(true);
     try {
       if(sel.quitados.length){
@@ -3435,7 +3480,7 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
   // Descartar = que el borrador vuelva a ser igual a lo publicado, solo para las celdas de `sel`.
   const descartar = async (sel, etiqueta) => {
     if(totalDe(sel)===0) return;
-    if(!window.confirm(`¿Descartar los ${totalDe(sel)} cambios sin publicar de ${etiqueta}?\n\nEl borrador de esas fechas vuelve a ser igual a lo publicado. Esto no se puede deshacer.`)) return;
+    if(!await confirmar(`¿Descartar los ${totalDe(sel)} cambios sin publicar de ${etiqueta}?\n\nEl borrador de esas fechas vuelve a ser igual a lo publicado. Esto no se puede deshacer.`)) return;
     setPublicando(true);
     try {
       if(sel.nuevos.length){
@@ -4198,7 +4243,7 @@ function JuntaVistaPorLider({ lideres, setLideres, areas, setAreas, liderAreas, 
     if (!error && data) setLideres(prev=>[...prev, data]);
   };
   const quitar = async (id) => {
-    if (!window.confirm("¿Quitar este liderazgo de la Junta? Esto no se puede deshacer.")) return;
+    if (!await confirmar("¿Quitar este liderazgo de la Junta? Esto no se puede deshacer.")) return;
     await supabase.from("junta_lideres").delete().eq("id", id);
     setLideres(prev=>prev.filter(l=>l.id!==id));
     setLiderAreas(prev=>prev.filter(la=>la.lider_id!==id));
@@ -4362,7 +4407,7 @@ function JuntaVistaPorArea({ areas, setAreas, lideres, liderAreas }) {
     if (!error && data) { setAreas(prev=>prev.map(a=>a.id===id?data:a)); setEditingAreaId(null); }
   };
   const quitarArea = async (id) => {
-    if (!window.confirm("¿Quitar esta área? También se quitará de los líderes que la tengan asignada. Esto no se puede deshacer.")) return;
+    if (!await confirmar("¿Quitar esta área? También se quitará de los líderes que la tengan asignada. Esto no se puede deshacer.")) return;
     await supabase.from("junta_areas").delete().eq("id", id);
     setAreas(prev=>prev.filter(a=>a.id!==id));
   };
@@ -4653,13 +4698,13 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   // marcada en la reunión: sin reapertura, así que cuenta como cumplida a tiempo, y cuenta en el mes
   // en que se cerró (mesDeCierre usa completado_en). Si el mes en que venció ya se congeló, esa foto
   // no cambia — ahí sigue como vencida, a propósito: no hacer la reunión es falla del equipo.
-  const marcarRealizadaVencida = (g) => {
-    if (!window.confirm("¿Marcar esta tarea como realizada?\n\nQueda cumplida hoy, sin reabrirla.")) return;
+  const marcarRealizadaVencida = async (g) => {
+    if (!await confirmar("¿Marcar esta tarea como realizada?\n\nQueda cumplida hoy, sin reabrirla.")) return;
     const ahora = new Date().toISOString();
     g.forEach(m => actualizar(m.id, { completado:true, completado_en:ahora, completado_por:user.name }));
   };
   const eliminarGrupo = async (g) => {
-    if (!window.confirm(g.length>1 ? "¿Eliminar esta tarea compartida? Se borra para todos los asignados. Esto no se puede deshacer." : "¿Eliminar esta tarea? Esto no se puede deshacer.")) return;
+    if (!await confirmar(g.length>1 ? "¿Eliminar esta tarea compartida? Se borra para todos los asignados. Esto no se puede deshacer." : "¿Eliminar esta tarea? Esto no se puede deshacer.")) return;
     await supabase.from("junta_compromisos").delete().in("id", g.map(m=>m.id));
     setCompromisos(prev=>prev.filter(c=>!g.some(m=>m.id===c.id)));
   };
@@ -4682,8 +4727,8 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
     if (error) { alert(`No se pudo guardar: ${error.message||"error desconocido"}${/borrado_solicitado/.test(error.message||"") ? "\n\nFalta correr el archivo sql/permisos_fase2.sql en Supabase." : ""}`); return; }
     setCompromisos(prev=>prev.map(c=>g.some(m=>m.id===c.id) ? { ...c, ...patch } : c));
   };
-  const pedirBorrado = (g) => {
-    if (!window.confirm("¿Pedir que se borre esta tarea? Master tiene que aprobarlo; mientras tanto la tarea sigue ahí.")) return;
+  const pedirBorrado = async (g) => {
+    if (!await confirmar("¿Pedir que se borre esta tarea? Master tiene que aprobarlo; mientras tanto la tarea sigue ahí.")) return;
     marcarBorrado(g, { borrado_solicitado_por:user.name, borrado_solicitado_en:new Date().toISOString() });
   };
   const quitarPedidoBorrado = (g) => marcarBorrado(g, { borrado_solicitado_por:null, borrado_solicitado_en:null });
@@ -4901,7 +4946,7 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
   // programada automática (por si no llegó a correr), no como el camino normal. Una vez guardada,
   // ese mes ya no se vuelve a recalcular nunca, sin importar qué pase después con sus tareas.
   const congelarMesAhora = async (anio, mes) => {
-    if (!window.confirm(`¿Guardar la foto fija de ${MESES[mes]} ${anio}? Después de esto, el indicador de ese mes queda congelado para siempre, aunque se reabran o cambien tareas suyas más adelante.`)) return;
+    if (!await confirmar(`¿Guardar la foto fija de ${MESES[mes]} ${anio}? Después de esto, el indicador de ese mes queda congelado para siempre, aunque se reabran o cambien tareas suyas más adelante.`)) return;
     setCongelando(true);
     const s = statsDelMes(compromisos, anio, mes);
     const porLider = statsPorLiderDelMes(compromisos, lideres, anio, mes)
@@ -6317,8 +6362,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   // el cliente igual. Deja rastro de quién lo reabrió y cuándo, igual que en Junta.
   const puedeReabrirVencido = !soloLectura && ["master","admin_finanzas"].includes(user.role);
   const reabrirFlexipagoVencido = async (venta) => {
-    const confirmacion = window.prompt(`Vas a REABRIR el Flexipago vencido de la factura #${venta.numero_factura||"—"}${venta.cliente_nombre?` (cliente: ${venta.cliente_nombre})`:""}.\n\nEsto permite seguir abonando y completar la venta aunque ya pasaron los ${FLEXIPAGO_PLAZO_DIAS} días. Úsalo solo si la tienda decidió honrarlo con el cliente.\n\nEscribe REABRIR para confirmar.`);
-    if(confirmacion!=="REABRIR") return;
+    if(!await confirmarEscribiendo(`Vas a REABRIR el Flexipago vencido de la factura #${venta.numero_factura||"—"}${venta.cliente_nombre?` (cliente: ${venta.cliente_nombre})`:""}.\n\nEsto permite seguir abonando y completar la venta aunque ya pasaron los ${FLEXIPAGO_PLAZO_DIAS} días. Úsalo solo si la tienda decidió honrarlo con el cliente.\n\nEscribe REABRIR para confirmar.`, "REABRIR")) return;
     const { data } = await supabase.from("ventas").update({ flexipago_reabierto_por:user.name, flexipago_reabierto_en:new Date().toISOString() }).eq("id",venta.id).select().single();
     if(data) setVentas(prev=>prev.map(v2=>v2.id===venta.id?data:v2));
   };
@@ -6494,14 +6538,12 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
     setEditItemFecha(todayStr);
     setEditingItemIdx(null);
   };
-  const iniciarNotacredito = (venta) => {
-    const confirmacion = window.prompt(`Vas a hacer una Notacrédito Siigo sobre la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nUsa esto SOLO si en Siigo la corrección genera un número de factura nuevo. Puedes corregir el tipo, valor y medio de pago de cada renglón, o agregar un renglón nuevo con su propia fecha. El valor total no puede quedar por debajo de lo ya registrado, y vas a necesitar el N.º de factura (Siigo) NUEVO — es obligatorio, la factura original no cambia.\n\nEscribe CORREGIR para confirmar.`);
-    if(confirmacion!=="CORREGIR") return;
+  const iniciarNotacredito = async (venta) => {
+    if(!await confirmarEscribiendo(`Vas a hacer una Notacrédito Siigo sobre la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nUsa esto SOLO si en Siigo la corrección genera un número de factura nuevo. Puedes corregir el tipo, valor y medio de pago de cada renglón, o agregar un renglón nuevo con su propia fecha. El valor total no puede quedar por debajo de lo ya registrado, y vas a necesitar el N.º de factura (Siigo) NUEVO — es obligatorio, la factura original no cambia.\n\nEscribe CORREGIR para confirmar.`, "CORREGIR")) return;
     abrirModoCorreccion(venta, true);
   };
-  const iniciarCorregirFactura = (venta) => {
-    const confirmacion = window.prompt(`Vas a corregir la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nUsa esto cuando NO cambió nada en Siigo — fue un error al registrar en nuestro sistema. El valor puede subir o bajar libremente, sin necesitar un número de factura nuevo ni aprobación.\n\nEscribe CORREGIR para confirmar.`);
-    if(confirmacion!=="CORREGIR") return;
+  const iniciarCorregirFactura = async (venta) => {
+    if(!await confirmarEscribiendo(`Vas a corregir la factura #${venta.numero_factura||"—"} (hoy dice $${Number(venta.total).toLocaleString("es-CO")}).\n\nUsa esto cuando NO cambió nada en Siigo — fue un error al registrar en nuestro sistema. El valor puede subir o bajar libremente, sin necesitar un número de factura nuevo ni aprobación.\n\nEscribe CORREGIR para confirmar.`, "CORREGIR")) return;
     abrirModoCorreccion(venta, false);
   };
 
@@ -6782,8 +6824,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   };
 
   const eliminarVenta = async (venta) => {
-    const confirmacion = window.prompt(`Esto borra para siempre la venta #${venta.numero_factura||"—"} (${venta.vendedor_nombre}, $${Number(venta.total).toLocaleString("es-CO")}) y todo lo que tenga: renglones, abonos y solicitudes. No se puede deshacer.\n\nEscribe BORRAR para confirmar.`);
-    if(confirmacion!=="BORRAR") return;
+    if(!await confirmarEscribiendo(`Esto borra para siempre la venta #${venta.numero_factura||"—"} (${venta.vendedor_nombre}, $${Number(venta.total).toLocaleString("es-CO")}) y todo lo que tenga: renglones, abonos y solicitudes. No se puede deshacer.\n\nEscribe BORRAR para confirmar.`, "BORRAR")) return;
     await supabase.from("ventas_solicitudes_correccion").delete().eq("venta_id",venta.id);
     await supabase.from("ventas_abonos").delete().eq("venta_id",venta.id);
     await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
@@ -11194,11 +11235,7 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
   // Registrar les salía apagado y sin poder tocarlo — pedido de Santiago, nov 2026.
   const [cajaVista, setCajaVista] = useState("registrar"); // 'registrar' | 'historial'
   const avisoSoloVer = "Puedes llenar todo para ver cómo funciona, pero tu cuenta no tiene permiso para guardar movimientos de Caja.";
-  // Confirmación propia de la app para borrar / pedir borrados: no depende de las ventanitas del
-  // navegador (window.confirm), que en algunos navegadores no salen y dejaban borrar sin preguntar.
-  const [confirma, setConfirma] = useState(null); // { texto, res }
-  const pedirConfirmacion = (texto) => new Promise(res => setConfirma({ texto, res }));
-  const responderConfirmacion = (si) => { if(confirma){ confirma.res(si); setConfirma(null); } };
+  const pedirConfirmacion = confirmar; // el recuadro "¿Seguro?" común a toda la app
   // Refs de las 3 tarjetas que se pueden "fotografiar" con el botón 📸 (ver CajaCapturaBtn /
   // capturarTarjetaCaja) + el toast chiquito que confirma "Copiado" o avisa si tocó descargar.
   const aperturaCardRef = useRef(null);
@@ -11903,17 +11940,6 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
           </div>
       )}
 
-      {confirma && createPortal(
-        <div onClick={()=>responderConfirmacion(false)} style={{ position:"fixed", inset:0, zIndex:3000, background:"rgba(26,59,82,0.38)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderRadius:14, border:`1px solid ${C.border}`, padding:"20px 22px", maxWidth:420, width:"100%", fontFamily:font.body }}>
-            <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:8 }}>¿Seguro?</div>
-            <div style={{ fontSize:13.5, color:C.textSub, lineHeight:1.5, marginBottom:18 }}>{confirma.texto}</div>
-            <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
-              <Btn onClick={()=>responderConfirmacion(false)} variant="ghost" sm>Cancelar</Btn>
-              <Btn onClick={()=>responderConfirmacion(true)} variant="danger" sm>Sí, continuar</Btn>
-            </div>
-          </div>
-        </div>, document.body)}
       {msg && <div style={{ background:C_DARK.redDim, border:`1px solid ${C_DARK.red}44`, borderRadius:7, padding:"7px 10px", color:C_DARK.red, fontSize:12, marginBottom:10, fontFamily:font.body }}>{msg}</div>}
 
       <div key={cajaVista} className="ozen-pane-anim-tab">
@@ -13081,13 +13107,13 @@ function EditorCurso({ curso, setCursos, lecciones, setLecciones, preguntas, set
   };
   const cambiarActivo = async () => {
     const activo = curso.activo===false;
-    if(!activo && !window.confirm("¿Archivar este curso? Deja de aparecer para el equipo, pero se conserva todo el historial de quién lo completó. Lo puedes reactivar cuando quieras.")) return;
+    if(!activo && !await confirmar("¿Archivar este curso? Deja de aparecer para el equipo, pero se conserva todo el historial de quién lo completó. Lo puedes reactivar cuando quieras.")) return;
     const { data } = await supabase.from("capacitacion_cursos").update({ activo, updated_at:new Date().toISOString() }).eq("id", curso.id).select().single();
     if(data) setCursos(prev=>prev.map(c=>c.id===data.id?data:c));
   };
   const eliminarCurso = async () => {
     if(tieneAvance) return alert("Este curso ya tiene avance de alguien (lecciones vistas o intentos de quiz). Para no perder ese historial no se puede eliminar — usa \"Archivar\" en su lugar.");
-    if(!window.confirm(`¿Eliminar el curso "${curso.titulo}" con todas sus lecciones y preguntas? Esto no se puede deshacer.`)) return;
+    if(!await confirmar(`¿Eliminar el curso "${curso.titulo}" con todas sus lecciones y preguntas? Esto no se puede deshacer.`)) return;
     const paths = lecs.map(l=>l.pdf_path).filter(Boolean), imgs = pregsCurso.map(p=>p.imagen_path).filter(Boolean);
     const { error } = await supabase.from("capacitacion_cursos").delete().eq("id", curso.id);
     if(error) return alert("No se pudo eliminar el curso.");
@@ -13102,7 +13128,7 @@ function EditorCurso({ curso, setCursos, lecciones, setLecciones, preguntas, set
     if(intentos.some(i=>i.leccion_id===l.id)) return alert("Alguien ya presentó el quiz de esta lección. Para no perder ese historial no se puede eliminar. Si ya no aplica, archiva el curso y crea uno nuevo, o edita la lección.");
     const cuantas = vistas.filter(v=>v.leccion_id===l.id).length;
     const nPreg = pregsCurso.filter(p=>p.leccion_id===l.id).length;
-    if(!window.confirm(`¿Eliminar la lección "${l.titulo}"?${nPreg?` Se borran también las ${nPreg} preguntas de su quiz.`:""}${cuantas?` ${cuantas} persona(s) ya la habían marcado como vista; esas marcas se borran con la lección.`:""} Esto no se puede deshacer.`)) return;
+    if(!await confirmar(`¿Eliminar la lección "${l.titulo}"?${nPreg?` Se borran también las ${nPreg} preguntas de su quiz.`:""}${cuantas?` ${cuantas} persona(s) ya la habían marcado como vista; esas marcas se borran con la lección.`:""} Esto no se puede deshacer.`)) return;
     const imgs = pregsCurso.filter(p=>p.leccion_id===l.id).map(p=>p.imagen_path).filter(Boolean);
     const { error } = await supabase.from("capacitacion_lecciones").delete().eq("id", l.id);
     if(error) return alert("No se pudo eliminar la lección.");
@@ -13113,7 +13139,7 @@ function EditorCurso({ curso, setCursos, lecciones, setLecciones, preguntas, set
     if(quizDe===l.id) setQuizDe("");
   };
   const eliminarPregunta = async (p) => {
-    if(!window.confirm("¿Eliminar esta pregunta? Los intentos que ya se presentaron conservan su copia de la pregunta.")) return;
+    if(!await confirmar("¿Eliminar esta pregunta? Los intentos que ya se presentaron conservan su copia de la pregunta.")) return;
     const { error } = await supabase.from("capacitacion_preguntas").delete().eq("id", p.id);
     if(error) return alert("No se pudo eliminar la pregunta.");
     if(p.imagen_path) supabase.storage.from(BUCKET_IMAGENES_CAPACITACION).remove([p.imagen_path]);
@@ -14500,6 +14526,7 @@ export default function App() {
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden",fontFamily:font.body}}>
         {globalAnimStyles}
+        <ConfirmacionGlobal/>
         <TopeEstado color="#ffffff"/>
         <BarraSuperiorMovil {...propsBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
         {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
@@ -14518,6 +14545,7 @@ export default function App() {
     <ReadOnlyContext.Provider value={soloLectura}>
       <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
         {globalAnimStyles}
+        <ConfirmacionGlobal/>
         <TopeEstado color="#ffffff"/>
         <BarraSuperior {...propsBarra}/>
         <BarraPestanas tabs={tabsVisibles} tab={tab} setTab={setTab} derecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
