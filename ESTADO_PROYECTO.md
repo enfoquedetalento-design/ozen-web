@@ -976,6 +976,25 @@ fichas con ícono (`IndFicha`), barras de 2 series de 3 meses (`IndBarrasPar`), 
 (`IndDona`, colores fijos `OPER_COLOR_TIPO`).
 Permiso `operaciones.tienda.ver` (tiendas, admins, Visualizador; los asesores no entran a Operaciones).
 
+**Ajustes del 18 nov 2026 (tarde):**
+- **Venta eliminada → la orden vuelve a Debe:** `eliminarVenta` (Ventas) llama a `operVentaEliminada`,
+  que busca la orden por `venta_id` o por el N.º `OP-<numero>` y la pasa a Debe con un movimiento
+  "Cobro anulado". Corregir una factura (Notacrédito / Corregir) NO toca la orden (decisión de Santiago).
+- **Garantía que no se cubre** (requiere `sql/operaciones_04_garantia_arreglo.sql`): al decidir "No
+  se cubre" se elige si se hace arreglo. Sin arreglo → No aplica y salta a Lista en tienda. Con
+  arreglo (`garantia_con_arreglo`) → sigue como un arreglo y se elige: con valor (Debe) / Valor por
+  definir / No aplica. Cubierta → No aplica.
+- **Avisar por WhatsApp:** en una orden Lista en tienda, botón que abre WhatsApp al cliente con el
+  mensaje listo (`operMensajeListo`; número de 10 dígitos → +57) y deja "Se le avisó al cliente por
+  WhatsApp" en los movimientos. Santiago quiere lo mismo para Flexipagos (es de Ventas).
+- **Excel:** el SQL de carga enlaza el asesor (y quien pidió, en internas) con su cuenta por nombre
+  (sin tildes; igual o comienzo del nombre; solo si hay UNA cuenta que coincide).
+- Avisos push a Edwin: no (el sistema de push de Turnos nunca funcionó bien). Foto de la pieza: no
+  por ahora (los PC de mesa no tienen buena cámara y la cuenta solo abre en un dispositivo).
+- **Orden para publicar en la REAL:** `operaciones.sql` → `operaciones_02` → `operaciones_03` →
+  `operaciones_04` → publicar código → elegir a Edwin como líder → cargar el Excel
+  (`operaciones_importar_excel.sql`, una sola vez).
+
 **Datos reales del Excel (18 nov 2026):** Santiago cambió la decisión de "empezar en limpio": los
 datos del Excel se pasan a la app, en práctica para probar y en la REAL justo después de publicar.
 `sql/operaciones_importar_excel.sql` (⚠️ NO va a git: tiene nombres y teléfonos de clientes) carga

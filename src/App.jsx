@@ -7039,6 +7039,8 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
     await supabase.from("ventas_items").delete().eq("venta_id",venta.id);
     const { error } = await supabase.from("ventas").delete().eq("id",venta.id);
     if(!error){
+      // Si esta venta era el cobro de una orden de Operaciones, la orden vuelve a "Debe" (Santiago, 18 nov 2026).
+      await operVentaEliminada(venta, user);
       setVentas(prev=>prev.filter(x=>x.id!==venta.id));
       setDetalle(null);
     }
@@ -13565,7 +13567,10 @@ const operIdxEtapa = (op) => operEtapasDe(op.tipo).findIndex(e=>e.id===op.etapa)
 const operEtiquetaEtapa = (op) => op.etapa==="cancelada" ? "Cancelada" : (operEtapasDe(op.tipo).find(e=>e.id===op.etapa)?.label || op.etapa);
 // Garantía que NO se cubre: no pasa por "En gestión" — de "Recibida" salta a "Lista en tienda"
 // (la pieza queda lista para devolvérsela al cliente).
-const operGarantiaSinGestion = (op) => op.tipo==="garantia" && op.garantia_decision==="no_cubre";
+// Garantía que NO se cubre: si NO se le hace arreglo, salta de "Recibida" a "Lista en tienda" (se le
+// devuelve la pieza al cliente). Si se le hace arreglo (`garantia_con_arreglo`), sigue el camino de
+// un arreglo normal, con o sin cobro (decisión de Santiago, 18 nov 2026).
+const operGarantiaSinGestion = (op) => op.tipo==="garantia" && op.garantia_decision==="no_cubre" && !op.garantia_con_arreglo;
 const operSiguienteEtapa = (op) => {
   if(operCerrada(op)) return null;
   const etapas = operEtapasDe(op.tipo), i = operIdxEtapa(op);
@@ -13588,6 +13593,32 @@ const operFase = (op) => operCerrada(op) ? "cerradas" : (["por_empezar","en_proc
 const OPER_PAGOS = [{ value:"pago", label:"Pago" }, { value:"debe", label:"Debe" }, { value:"por_definir", label:"Valor por definir" }, { value:"no_aplica", label:"No aplica" }];
 const OPER_PAGO_COLOR = { pago:C.green, debe:C.red, por_definir:C.amber, no_aplica:C.textMuted };
 const operDebePlata = (op) => op.estado_pago==="debe" || op.estado_pago==="por_definir";
+// WhatsApp al cliente (18 nov 2026): número colombiano de 10 dígitos que empieza por 3 → +57.
+const operNumeroWhatsApp = (tel) => { const d = String(tel||"").replace(/\D/g,""); if(!d) return ""; if(d.length===10) return `57${d}`; return d; };
+const operMensajeListo = (op, stores) => {
+  const nombre = primerNombre(op.cliente_nombre||"").toLowerCase().replace(/^./, c=>c.toUpperCase());
+  const tienda = nombreTiendaCorto(stores[op.tienda_id]);
+  const cobro = op.estado_pago==="debe" && Number(op.valor)>0 ? ` El valor a pagar es ${fmtCOP(op.valor)}.` : "";
+  return `Hola ${nombre}, te saludamos de OZEN ${tienda}. Tu ${operTipoLabel(op.tipo).toLowerCase()} (orden N° ${op.numero}) ya está lista para recoger.${cobro} Te esperamos. Recuerda que guardamos las piezas hasta por ${OPER_DIAS_RECLAMAR} días desde la fecha del recibo.`;
+};
+// Avisa a Operaciones que algo cambió por fuera (p. ej. Ventas borró una venta): la próxima carga no
+// espera los 5 minutos.
+let operHayCambiosFuera = false;
+const operVentaEliminada = async (venta, user) => {
+  try {
+    const m = String(venta.numero_factura||"").match(/^OP-(\d+)$/i);
+    const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(venta.id));
+    if(!m && !esUuid) return;
+    let q = supabase.from("operaciones_externas").select("id,historial").eq("estado_pago","pago");
+    q = (m && esUuid) ? q.or(`venta_id.eq.${venta.id},numero.eq.${m[1]}`) : m ? q.eq("numero", Number(m[1])) : q.eq("venta_id", venta.id);
+    const { data } = await q;
+    for(const o of (data||[])){
+      const historial = [...(o.historial||[]), { en:new Date().toISOString(), por:user?.name||"", cuenta:user?.name||"", accion:"cobro_anulado", nota:`se eliminó la venta ${venta.numero_factura||""} en Ventas` }];
+      await supabase.from("operaciones_externas").update({ estado_pago:"debe", venta_id:null, historial }).eq("id", o.id);
+      operHayCambiosFuera = true;
+    }
+  } catch(e) { /* si falla, la orden queda como estaba; se corrige a mano en la base */ }
+};
 const operValorTexto = (op) => op.estado_pago==="por_definir" ? "Por definir" : fmtCOP(op.valor);
 const OPER_PAGO_DEFECTO = { arreglo:"debe", marcacion:"debe", garantia:"no_aplica", traslado:"no_aplica", pedido:"no_aplica" };
 const operPagoLabel = (v) => OPER_PAGOS.find(p=>p.value===v)?.label || v;
@@ -13671,6 +13702,8 @@ const operTextoMov = (h, op) => {
   if(h.accion==="pago")      return `Pago cambiado a "${h.nota||""}"`;
   if(h.accion==="valor")     return `Se le puso el valor: ${h.nota||""}`;
   if(h.accion==="fecha")     return `Cambió la fecha de entrega: ${h.nota||""} (queda No a tiempo)`;
+  if(h.accion==="whatsapp")  return "Se le avisó al cliente por WhatsApp";
+  if(h.accion==="cobro_anulado") return `Cobro anulado${h.nota?` — ${h.nota}`:""}: vuelve a Debe`;
   if(h.accion==="cobro")     return `Cobrada en Registrar venta${h.nota?` — ${h.nota}`:""}`;
   return h.accion||"";
 };
@@ -13951,6 +13984,13 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
     await guardarCambio({ etapa:anterior.id, etapa_desde:new Date().toISOString(), cerrada_en:null, ...(op.etapa==="lista"?{ lista_en:null }:{}) }, { accion:"devuelta", etapa:anterior.id, nota:texto.trim() });
   };
   const [nuevoValor, setNuevoValor] = useState("");
+  // Abre WhatsApp con el mensaje listo y deja constancia en los movimientos (sin pedir quién: es solo un aviso).
+  const avisarWhatsApp = async () => {
+    window.open(`https://wa.me/${operNumeroWhatsApp(op.cliente_telefono)}?text=${encodeURIComponent(operMensajeListo(op, stores))}`, "_blank", "noopener");
+    const historial = [...(op.historial||[]), { en:new Date().toISOString(), por:quien||user.name, cuenta:user.name, accion:"whatsapp" }];
+    const { data } = await supabase.from("operaciones_externas").update({ historial }).eq("id", op.id).select();
+    if(data && data[0]) onCambio(data[0]);
+  };
   const ponerValor = async () => {
     const v = Number(String(nuevoValor||"").replace(/[^\d]/g,""));
     if(!v){ setMsg("Escribe el valor."); return; }
@@ -13969,11 +14009,22 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
     const ahora = new Date().toISOString();
     await guardarCambio({ etapa:"cancelada", etapa_desde:ahora, cerrada_en:ahora, cancelada_motivo:texto.trim() }, { accion:"cancelada", etapa:"cancelada", nota:texto.trim() });
   };
+  const [conArreglo, setConArreglo] = useState("");   // "si" | "no" (solo si NO se cubre)
+  const [cobroGar, setCobroGar] = useState("");       // "debe" | "por_definir" | "no_aplica"
+  const [valorGar, setValorGar] = useState("");
   const decidirGarantia = async () => {
     if(!decision){ setMsg("Elige si la garantía se cubre o no."); return; }
+    if(decision==="no_cubre" && !conArreglo){ setMsg("Elige si se le hace arreglo o no."); return; }
+    const arreglo = decision==="no_cubre" && conArreglo==="si";
+    if(arreglo && !cobroGar){ setMsg("Elige si el arreglo se cobra."); return; }
+    const v = Number(String(valorGar||"").replace(/[^\d]/g,""));
+    if(arreglo && cobroGar==="debe" && !v){ setMsg("Escribe el valor del arreglo."); return; }
     if(!texto.trim()){ setMsg("Escribe la respuesta para el cliente."); return; }
-    const etiqueta = decision==="cubre" ? "Se cubre" : "No se cubre";
-    await guardarCambio({ garantia_decision:decision, garantia_respuesta:texto.trim(), garantia_decidida_por:quien, garantia_decidida_en:new Date().toISOString() }, { accion:"garantia", nota:`${etiqueta} — ${texto.trim()}` });
+    // Garantía cubierta o sin arreglo: no se cobra nada. Con arreglo: lo que se elija. Si ya estaba
+    // paga (raro), no se toca el pago.
+    const pago = op.estado_pago==="pago" ? {} : arreglo ? { estado_pago:cobroGar, valor:cobroGar==="debe"?v:0 } : { estado_pago:"no_aplica", valor:0 };
+    const etiqueta = decision==="cubre" ? "Se cubre" : arreglo ? `No se cubre · se hace arreglo (${cobroGar==="debe"?`se cobra ${fmtCOP(v)}`:cobroGar==="por_definir"?"valor por definir":"sin cobro"})` : "No se cubre · sin arreglo";
+    await guardarCambio({ garantia_decision:decision, garantia_con_arreglo:arreglo, garantia_respuesta:texto.trim(), garantia_decidida_por:quien, garantia_decidida_en:new Date().toISOString(), ...pago }, { accion:"garantia", nota:`${etiqueta} — ${texto.trim()}` });
   };
   const dato = (k, v) => (
     <div style={{ minWidth:0 }}>
@@ -14034,7 +14085,7 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
           {op.tipo==="garantia" && (
             <div style={{ borderRadius:10, padding:"11px 14px", marginBottom:14, background:op.garantia_decision==="cubre"?C.greenDim:op.garantia_decision==="no_cubre"?C.redDim:C.amberDim }}>
               {op.garantia_decision
-                ? <><div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:op.garantia_decision==="cubre"?C.green:C.red }}>{op.garantia_decision==="cubre" ? "La garantía SE CUBRE" : "La garantía NO se cubre"}</div>
+                ? <><div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:op.garantia_decision==="cubre"?C.green:C.red }}>{op.garantia_decision==="cubre" ? "La garantía SE CUBRE" : op.garantia_con_arreglo ? "La garantía NO se cubre · se hace arreglo" : "La garantía NO se cubre · sin arreglo"}</div>
                     <div style={{ fontFamily:font.body, fontSize:13, color:C.text, marginTop:3, lineHeight:1.45, whiteSpace:"pre-wrap" }}>{op.garantia_respuesta}</div>
                     <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:4 }}>{op.garantia_decidida_por} · {fmtFechaHora(op.garantia_decidida_en)}</div></>
                 : <div style={{ fontFamily:font.body, fontSize:13, color:C.amber, fontWeight:600 }}>Falta que el líder de Operaciones decida si esta garantía se cubre. Mientras tanto la orden no puede avanzar.</div>}
@@ -14051,6 +14102,9 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
             {op.estado_pago==="por_definir" && op.etapa!=="cancelada" && puede("operaciones.externas.valor") && <Btn sm onClick={()=>{ abrirModo("valor"); setNuevoValor(""); }} disabled={ocupado}><Icon n="cash" s={14}/>Poner valor</Btn>}
             {garantiaPendiente && puede("operaciones.garantias.decidir") && <Btn sm onClick={()=>abrirModo("garantia")} disabled={ocupado}><Icon n="check" s={14}/>Decidir la garantía</Btn>}
             <Btn sm variant="ghost" onClick={onVerOrden}><Icon n="receipt" s={14}/>Orden para el cliente</Btn>
+            {!cerrada && OPER_ETAPAS_ESPERA_CLIENTE.has(op.etapa) && (operNumeroWhatsApp(op.cliente_telefono)
+              ? <Btn sm variant="success" onClick={avisarWhatsApp}><Icon n="phone" s={14}/>Avisar por WhatsApp</Btn>
+              : <span style={{ display:"inline-flex", alignItems:"center", fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin teléfono para avisar</span>)}
             {op.estado_pago==="debe" && Number(op.valor)>0 && op.etapa!=="cancelada" && puede("operaciones.externas.cobrar") && <Btn sm variant="success" onClick={()=>onCobrar(op)} disabled={ocupado}><Icon n="cash" s={14}/>Cobrar {fmtCOP(op.valor)}</Btn>}
             {!cerrada && !operCumplida(op) && puede("operaciones.externas.fecha") && <Btn sm variant="ghost" onClick={()=>{ abrirModo("fecha"); setNuevaFecha(vence); }} disabled={ocupado}><Icon n="cal" s={14}/>Cambiar fecha de entrega</Btn>}
             {anterior && puede("operaciones.externas.devolver") && <Btn sm variant="ghost" onClick={()=>abrirModo("devolver")} disabled={ocupado}>Devolver una etapa</Btn>}
@@ -14069,6 +14123,24 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
                 <button type="button" onClick={()=>setDecision("cubre")} style={operChip(decision==="cubre")}>Se cubre</button>
                 <button type="button" onClick={()=>setDecision("no_cubre")} style={operChip(decision==="no_cubre")}>No se cubre</button>
               </div>
+              {decision==="cubre" && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>Se hace el arreglo y no se le cobra nada al cliente.</div>}
+              {decision==="no_cubre" && <>
+                <OperTituloSec>¿Se le hace arreglo?</OperTituloSec>
+                <div style={{ display:"flex", gap:8, marginBottom:10, flexWrap:"wrap" }}>
+                  <button type="button" onClick={()=>setConArreglo("si")} style={operChip(conArreglo==="si")}>Sí, con arreglo</button>
+                  <button type="button" onClick={()=>{ setConArreglo("no"); setCobroGar(""); setValorGar(""); }} style={operChip(conArreglo==="no")}>No, sin arreglo</button>
+                </div>
+                {conArreglo==="no" && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>No se cobra nada: la pieza pasa a "Lista en tienda" para devolvérsela al cliente.</div>}
+                {conArreglo==="si" && <>
+                  <OperTituloSec>¿Se cobra el arreglo?</OperTituloSec>
+                  <div style={{ display:"flex", gap:8, marginBottom:10, flexWrap:"wrap", alignItems:"center" }}>
+                    <button type="button" onClick={()=>setCobroGar("debe")} style={operChip(cobroGar==="debe")}>Sí, tiene valor</button>
+                    <button type="button" onClick={()=>{ setCobroGar("por_definir"); setValorGar(""); }} style={operChip(cobroGar==="por_definir")}>Valor por definir</button>
+                    <button type="button" onClick={()=>{ setCobroGar("no_aplica"); setValorGar(""); }} style={operChip(cobroGar==="no_aplica")}>No aplica</button>
+                  </div>
+                  {cobroGar==="debe" && <div style={{ maxWidth:240 }}><CurrencyField label="Valor del arreglo" value={valorGar} onChange={setValorGar}/></div>}
+                </>}
+              </>}
               <Field label="Respuesta para el cliente" value={texto} onChange={setTexto} multiline rows={2} placeholder="Qué se va a hacer, o por qué no aplica la garantía"/>
               <div style={{ display:"flex", gap:8 }}><Btn sm onClick={decidirGarantia} disabled={ocupado}>{ocupado ? "Guardando…" : "Guardar decisión"}</Btn><Btn sm variant="ghost" onClick={()=>setModo(null)} disabled={ocupado}>Cerrar</Btn></div>
             </div>
@@ -15205,7 +15277,7 @@ export default function App() {
   const opCampanaRef = useRef(0);
   useEffect(()=>{
     if(!user || tab!=="registrar" || !puedeOper(user, "operaciones.ver")) return;
-    if(Date.now()-opCampanaRef.current < 5*60000) return;
+    if(!operHayCambiosFuera && Date.now()-opCampanaRef.current < 5*60000) return;
     opCampanaRef.current = Date.now();
     (async()=>{
       const { data, error } = await supabase.from("operaciones_externas")
@@ -15450,7 +15522,8 @@ export default function App() {
   const cargarOperaciones=async(maxEdadMs,todo)=>{
     if(!user) return;
     if(todo) opTodoRef.current = true;
-    else if(typeof maxEdadMs==="number" && Date.now()-opCargaRef.current < maxEdadMs) return;
+    else if(typeof maxEdadMs==="number" && !operHayCambiosFuera && Date.now()-opCargaRef.current < maxEdadMs) return;
+    operHayCambiosFuera = false;
     opCargaRef.current = Date.now();
     setOpEstado(e=>e==="listo"?e:"cargando");
     const tiendaPropia = esCuentaTienda(user) ? user.tienda_id : null;
