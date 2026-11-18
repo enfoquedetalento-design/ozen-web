@@ -892,6 +892,11 @@ con Externas en `cargarOperaciones` (abiertas + cerradas de 90 días). Permisos 
   promedio en días hábiles, y tablas por tipo × tienda). Usa los datos ya cargados (abiertas + 90
   días); para un mes más viejo ofrece "Traer todo el historial".
 
+**Estado de pago fijo (18 nov 2026):** una vez creada la orden, el estado de pago (Debe o No aplica)
+ya NO se puede cambiar a mano, ni siquiera el líder o Master: solo pasa a "Pago" al cobrarla en
+Registrar venta (pedido de Santiago). Se quitó el permiso `operaciones.externas.pago`. Al cobrar, se
+reintenta marcar la orden hasta 3 veces; si aun así falla, la venta queda guardada y avisa.
+
 **Datos reales del Excel (18 nov 2026):** Santiago cambió la decisión de "empezar en limpio": los
 datos del Excel se pasan a la app, en práctica para probar y en la REAL justo después de publicar.
 `sql/operaciones_importar_excel.sql` (⚠️ NO va a git: tiene nombres y teléfonos de clientes) carga

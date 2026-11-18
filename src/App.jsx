@@ -7984,8 +7984,12 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, tiendaActiva, onV
       const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(venta.id));
       const { data:actual } = await supabase.from("operaciones_externas").select("historial").eq("id", ordenACobrar.id).single();
       const historial = [...((actual&&actual.historial)||ordenACobrar.historial||[]), { en:new Date().toISOString(), por:vendedor?.name||user.name, cuenta:user.name, accion:"cobro", nota:`${fmtCOP(total)} · venta ${ref}`, venta_id:String(venta.id) }];
-      const { data:ordenes, error:errorOrden } = await supabase.from("operaciones_externas").update({ estado_pago:"pago", venta_id:esUuid?venta.id:null, historial }).eq("id", ordenACobrar.id).select();
-      if(errorOrden || !ordenes || !ordenes.length){ avisoOrden = ` — OJO: la orden ${operReferencia(ordenACobrar)} no quedó marcada como paga; avísale al líder de Operaciones.`; if(onOrdenCobrada) onOrdenCobrada(null); }
+      // Como el pago ya no se corrige a mano, se reintenta hasta 3 veces por si falla la conexión.
+      let ordenes = null, errorOrden = null;
+      for(let intento=0; intento<3 && !(ordenes && ordenes.length); intento++){
+        ({ data:ordenes, error:errorOrden } = await supabase.from("operaciones_externas").update({ estado_pago:"pago", venta_id:esUuid?venta.id:null, historial }).eq("id", ordenACobrar.id).select());
+      }
+      if(errorOrden || !ordenes || !ordenes.length){ avisoOrden = ` — OJO: la orden ${operReferencia(ordenACobrar)} no quedó marcada como paga (la venta sí se guardó). Avísale a Master para corregirla.`; if(onOrdenCobrada) onOrdenCobrada(null); }
       else if(onOrdenCobrada) onOrdenCobrada({ ...ordenes[0], venta_ref:ref });
     }
     setGuardando(false);
@@ -13536,7 +13540,8 @@ registrarPermisos({ grupo:"operaciones", label:"Operaciones", ic:"box", permisos
   { id:"operaciones.externas.avanzar", label:"Pasar una orden a la siguiente etapa", r:{ ...OPER_ROLES_REGISTRAN }, nota:OPER_NOTA_LIDER },
   { id:"operaciones.externas.cobrar", label:"Cobrar una orden (botón Cobrar → Registrar venta)",
     r:{ master:1, admin_finanzas:1, tienda:1 }, nota:"Guardar la venta depende además del permiso de registrar ventas" },
-  { id:"operaciones.externas.pago", label:"Corregir a mano el estado de pago de una orden", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
+  // (18 nov 2026) Ya no existe "corregir el pago a mano": el estado de pago se fija al crear la orden
+  // (Debe o No aplica) y SOLO cambia a "Pago" al cobrarla en Registrar venta (pedido de Santiago).
   { id:"operaciones.externas.devolver", label:"Devolver una orden a la etapa anterior", r:{ master:1 }, nota:OPER_NOTA_LIDER },
   { id:"operaciones.externas.cancelar", label:"Cancelar una orden", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
   { id:"operaciones.garantias.decidir", label:"Decidir si una garantía se cubre", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
@@ -13548,7 +13553,7 @@ registrarPermisos({ grupo:"operaciones", label:"Operaciones", ic:"box", permisos
   { id:"operaciones.indicadores.ver", label:"Ver los indicadores de Operaciones", soloVer:true, r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
 ]});
 const esLiderOperaciones = (user, liderId) => !!user && !!liderId && String(user.id)===String(liderId);
-const OPER_ACCIONES_LIDER = new Set(["operaciones.externas.crear","operaciones.externas.avanzar","operaciones.externas.pago","operaciones.externas.devolver","operaciones.externas.cancelar","operaciones.garantias.decidir","operaciones.internas.crear","operaciones.internas.gestionar"]);
+const OPER_ACCIONES_LIDER = new Set(["operaciones.externas.crear","operaciones.externas.avanzar","operaciones.externas.devolver","operaciones.externas.cancelar","operaciones.garantias.decidir","operaciones.internas.crear","operaciones.internas.gestionar"]);
 // Pregunta única de Operaciones: lo que diga el tablero (puede) o, para las acciones del líder, ser
 // el líder. `liderId` se pasa donde se conoce (pantalla de Operaciones); sin él, solo cuenta el rol.
 const puedeOper = (user, accion, liderId) => !!user && (puede(user, accion) || (OPER_ACCIONES_LIDER.has(accion) && esLiderOperaciones(user, liderId)));
@@ -13945,7 +13950,6 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
     const etiqueta = decision==="cubre" ? "Se cubre" : "No se cubre";
     await guardarCambio({ garantia_decision:decision, garantia_respuesta:texto.trim(), garantia_decidida_por:quien, garantia_decidida_en:new Date().toISOString() }, { accion:"garantia", nota:`${etiqueta} — ${texto.trim()}` });
   };
-  const cambiarPago = async (v) => { if(v!==op.estado_pago) await guardarCambio({ estado_pago:v }, { accion:"pago", nota:operPagoLabel(v) }); };
   const dato = (k, v) => (
     <div style={{ minWidth:0 }}>
       <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:2 }}>{k}</div>
@@ -13991,9 +13995,7 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
             {dato("Valor", <span style={{ fontFamily:font.mono, fontWeight:700 }}>{fmtCOP(op.valor)}</span>)}
             <div style={{ minWidth:0 }}>
               <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:2 }}>Estado de pago</div>
-              {puede("operaciones.externas.pago") && op.etapa!=="cancelada"
-                ? <select value={op.estado_pago} disabled={ocupado} onChange={e=>cambiarPago(e.target.value)} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 8px", color:OPER_PAGO_COLOR[op.estado_pago]||C.text, fontSize:13, fontWeight:700, fontFamily:font.body, outline:"none" }}>{OPER_PAGOS.map(p=><option key={p.value} value={p.value}>{p.label}</option>)}</select>
-                : <div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:OPER_PAGO_COLOR[op.estado_pago]||C.text }}>{operPagoLabel(op.estado_pago)}{op.estado_pago==="pago" && op.venta_ref ? <span style={{ fontWeight:500, color:C.textMuted }}> · {op.venta_ref}</span> : null}</div>}
+              <div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:OPER_PAGO_COLOR[op.estado_pago]||C.text }}>{operPagoLabel(op.estado_pago)}{op.estado_pago==="pago" && op.venta_ref ? <span style={{ fontWeight:500, color:C.textMuted }}> · {op.venta_ref}</span> : null}</div>
             </div>
             {dato("Registró", op.registrado_por || "—")}
           </div>
