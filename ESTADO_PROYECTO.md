@@ -712,8 +712,19 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
   esa función) y pregunta con `puede(user, "modulo.accion")` en vez de `user.role===...`. El
   tablero de Permisos los muestra solo y avisa si falta sembrarlos en la base. Operaciones aún
   usa su propio `OPER_PERMISOS`; pasarlo a este formato le toca al chat de Operaciones.
-- **Fase 4 (pendiente):** editar con interruptores, "Ver como", historial y alertas. Master nunca
-  debe poder quitarse a sí mismo el permiso `cuenta.permisos`.
+- **Fase 4 (en curso).** Santiago probó La Junta, Escuela y Cuenta (Fase 3 completa en `staging`)
+  y decidió pasar TODO a `main` junto, al final de la Fase 4.
+  - **Parte 1 — edición (17 nov 2026, en `staging`, falta que la pruebe):** el tablero ya lee de
+    la base (`permValorRol`, `permExcepcionDe`) y sus interruptores escriben en ella. En "Roles"
+    un interruptor da/quita el permiso a todo el rol (`permisos_roles`); en "Personas" crea o
+    quita una excepción solo para esa persona (`permisos_excepciones`, "Extra personal" en verde
+    o "Quitado a esta persona" en rojo). Todo pide confirmación (`confirmar`), queda en
+    `permisos_historial` y se ve en la pestaña nueva "Historial". Master nunca puede perder
+    `cuenta.permisos` ni `cuenta.usuarios` (interruptor bloqueado). Un permiso de módulo que aún
+    no esté en la base se siembra con lo del código antes de tocarlo. El chip de arriba ahora dice
+    "La base manda · N cambios frente al código" cuando hay cambios hechos desde el tablero.
+  - Pendiente de la Fase 4: "Ver como" otra persona o rol, y alertas de cosas raras.
+
 - Las ramas `main` y `staging` tienen historias distintas (100 y 37 commits propios) aunque el
   código es casi igual: revisar con cuidado antes de pasar este módulo a `main`.
 

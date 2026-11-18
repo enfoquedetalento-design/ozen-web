@@ -1705,7 +1705,8 @@ function UsuariosScreen({ users, setUsers, stores }) {
 // (sql/permisos_fase2.sql) y el tablero avisa si la tabla y esta lista dejan de coincidir — si se
 // agrega o cambia una fila aquí, hay que regenerar ese SQL. Desde la Fase 3 el código empieza a
 // preguntarle a esas tablas con una sola función `puede(user, "permiso")`.
-// Fase 3 (en curso): los módulos ya migrados preguntan con `puede()` (más abajo) y obedecen a la
+// Fase 4 (en curso): el tablero ya EDITA (interruptores por rol y excepciones por persona, con
+// historial). Fase 3: los módulos preguntan con `puede()` (más abajo) y obedecen a la
 // base: Caja, Ventas, Asistencia, Turnos, La Junta, Escuela y Cuenta. Falta solo la navegación
 // entre áreas (puedeUsarAreas, areasPara), que sigue por rol. Para el resto esta lista sigue siendo una foto de sus comprobaciones.
 // Cada permiso: `r` = qué rol lo tiene (1 = sí; un texto = sí, pero con esa condición).
@@ -1806,7 +1807,7 @@ const permCuentaDeLider = (l, users) => users.find(u => u.active!==false && lide
 
 // Qué puede hacer UN ROL (sin mirar a nadie en particular).
 const permDeRol = (rol) => PERMISOS.map(p => {
-  const v = p.r[rol];
+  const v = permValorRol(rol, p.id);
   return v === undefined ? { p, puede:false } : { p, puede:true, origen:"rol", cond: v===1 ? null : v };
 });
 // Qué puede hacer UNA persona hoy: lo de su rol, más los casos que dependen de quién es (Monitor
@@ -1815,7 +1816,10 @@ const permDePersona = (u, lideres) => {
   const esMonitor = esMonitorActual(u, lideres);
   const esLider = (lideres||[]).some(l => liderEsDeUsuario(l, u));
   return PERMISOS.map(p => {
-    const base = p.r[u.role];
+    const exc = !(u.role==="master" && PERM_PROTEGIDOS.has(p.id)) && permExcepcionDe(u, p.id);
+    if (exc && exc.tipo==="quitado") return { p, puede:false, origen:"quitado", exc };
+    if (exc) return { p, puede:true, origen:"extra", cond:exc.condicion || null, exc };
+    const base = permValorRol(u.role, p.id);
     if (base === undefined) return { p, puede:false };
     if (base === 1) return { p, puede:true, origen:"rol" };
     if (base === PERM_SI_MONITOR) return esMonitor
@@ -1911,12 +1915,14 @@ const permCompararConBase = (filasBase) => {
 // hasta que les toque — se migra un módulo a la vez y se prueba en staging antes del siguiente.
 const PERM_PROTEGIDOS = new Set(["cuenta.permisos","cuenta.usuarios"]);
 const PERM_CACHE_KEY = "ozen_permisos_v1";
-const PERM_BASE = { roles:null, sembrados:null, excepciones:null };   // null = aún no se leyó de la base
+const PERM_BASE = { roles:null, sembrados:null, excepciones:null, filasRoles:null, filasExc:null };   // null = aún no se leyó de la base
 const permArmarBase = (filasRoles, filasExc) => {
   if (Array.isArray(filasRoles)) {
     PERM_BASE.roles = new Map(filasRoles.map(f => [`${f.permiso}|${f.rol}`, f.condicion || null]));
     PERM_BASE.sembrados = new Set(filasRoles.map(f => f.permiso));
+    PERM_BASE.filasRoles = filasRoles;
   }
+  if (Array.isArray(filasExc)) PERM_BASE.filasExc = filasExc;
   if (Array.isArray(filasExc)) PERM_BASE.excepciones = new Map(filasExc.map(f => [`${String(f.usuario_id)}|${f.permiso}`, { tipo:f.tipo, condicion:f.condicion || null }]));
 };
 // Copia en este navegador de la última lectura buena — respaldo si un día la base no responde.
@@ -1942,6 +1948,22 @@ const permCondicion = (user, id) => {
   const k = `${id}|${user.role}`;
   return PERM_BASE.roles.has(k) ? PERM_BASE.roles.get(k) : undefined;
 };
+// Fase 4: qué dice HOY un rol sobre un permiso, ya con lo que se cambió desde el tablero (o, si la
+// base no se pudo leer, lo del código). Mismo formato que PERMISOS: undefined | 1 | "condición".
+const permValorRol = (rol, id) => {
+  const p = permPorId(id);
+  if (!p) return undefined;
+  if (rol==="master" && PERM_PROTEGIDOS.has(id)) return 1;
+  if (!PERM_BASE.roles) return p.r[rol];
+  if (!PERM_BASE.sembrados.has(id)) return (p.sensible && rol!=="master") ? undefined : p.r[rol];
+  const k = `${id}|${rol}`;
+  if (!PERM_BASE.roles.has(k)) return undefined;
+  const c = PERM_BASE.roles.get(k);
+  return c===null ? 1 : c;
+};
+const permExcepcionDe = (u, id) => (u && PERM_BASE.excepciones && PERM_BASE.excepciones.get(`${String(u.id)}|${id}`)) || null;
+// Cuando el tablero cambia un permiso, App se vuelve a pintar entera (la registra App al arrancar).
+let permAvisarCambio = () => {};
 // `hechos` sirve para las condiciones que dependen del caso: hoy solo { hoy:true|false } — un
 // permiso con condición "solo hoy" se niega cuando el registro NO es de hoy.
 const puede = (user, id, hechos) => {
@@ -1987,12 +2009,14 @@ const PermPildora = ({ activo, onClick, children, ic }) => (
   <button onClick={onClick} className="perm-pildora" style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"7px 15px", borderRadius:99, border:`1px solid ${activo?C.gold:C.border}`, background:activo?C.goldDark:"transparent", color:activo?C.tinta:C.textMuted, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>{ic && <Icon n={ic} s={14}/>}{children}</button>
 );
 // Interruptor (por ahora de adorno: se enciende de verdad en la Fase 4).
-const PermSwitch = ({ estado }) => {
+const PermSwitch = ({ estado, onClick, bloqueo, ocupado }) => {
   const on = estado!=="no";
+  const fondo = estado==="si"?C.green:estado==="cond"?C.amber:"rgba(26,59,82,0.16)";
+  const bola = <span style={{ position:"absolute", top:2, left:on?16:2, width:14, height:14, borderRadius:"50%", background:"#fff", transition:"left .25s cubic-bezier(.34,1.4,.5,1)" }}/>;
+  if (!onClick) return <span style={{ width:32, height:18, borderRadius:99, background:fondo, position:"relative", flexShrink:0, display:"inline-block", opacity:bloqueo?0.55:1 }} title={bloqueo||undefined}>{bola}</span>;
   return (
-    <span title="Por ahora solo se consulta — los interruptores se podrán mover en la Fase 4" style={{ width:32, height:18, borderRadius:99, background:estado==="si"?C.green:estado==="cond"?C.amber:"rgba(26,59,82,0.16)", position:"relative", flexShrink:0, display:"inline-block", transition:"background .25s" }}>
-      <span style={{ position:"absolute", top:2, left:on?16:2, width:14, height:14, borderRadius:"50%", background:"#fff", transition:"left .25s cubic-bezier(.34,1.4,.5,1)" }}/>
-    </span>
+    <button type="button" onClick={e=>{ e.stopPropagation(); if(!bloqueo && !ocupado) onClick(); }} title={bloqueo || (on ? "Quitar este permiso" : "Dar este permiso")} aria-pressed={on}
+      style={{ width:32, height:18, borderRadius:99, background:fondo, position:"relative", flexShrink:0, border:"none", padding:0, cursor:bloqueo?"not-allowed":ocupado?"wait":"pointer", opacity:bloqueo?0.55:1 }}>{bola}</button>
   );
 };
 // Barrita de un área: verde = puede siempre, ámbar = puede con condición, gris = no puede.
@@ -2030,7 +2054,7 @@ const PermEstilos = () => (
 
 // Detalle permiso por permiso, agrupado por área, con interruptores. Sirve igual para un rol y
 // para una persona (`conOrigen` agrega de dónde le viene cada permiso a la persona).
-function PermDetalle({ filas, conOrigen }) {
+function PermDetalle({ filas, conOrigen, alCambiar, bloqueoDe, ocupado }) {
   const [filtro, setFiltro] = useState("todo"); // 'todo' | 'puede' | 'no' | 'sensibles'
   // Las áreas arrancan plegadas (se ve el nivel de cada una y se abre la que interese). Con un
   // filtro puesto se abren todas, porque ahí ya se está buscando algo puntual.
@@ -2038,7 +2062,9 @@ function PermDetalle({ filas, conOrigen }) {
   const [notaAbierta, setNotaAbierta] = useState(null);
   const toggle = (id) => setAbiertas(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const pasa = (d) => filtro==="todo" || (filtro==="puede" && d.puede) || (filtro==="no" && !d.puede) || (filtro==="sensibles" && d.p.sensible);
-  const origenDe = (d) => d.origen==="monitor" ? <Badge color={C.blue} sm>Por ser Monitor este mes</Badge>
+  const origenDe = (d) => d.origen==="extra" ? <Badge color={C.green} sm>Extra personal</Badge>
+    : d.origen==="quitado" ? <Badge color={C.red} sm>Quitado a esta persona</Badge>
+    : d.origen==="monitor" ? <Badge color={C.blue} sm>Por ser Monitor este mes</Badge>
     : d.origen==="lider" ? <Badge color={C.blue} sm>Por ser líder de la Junta</Badge>
     : <Badge color={C.textMuted} sm>Por su rol</Badge>;
   const opciones = [["todo","Todo"],["puede",`Puede (${filas.filter(d=>d.puede).length})`],["no",`No puede (${filas.filter(d=>!d.puede).length})`],["sensibles",`Sensibles (${filas.filter(d=>d.p.sensible).length})`]];
@@ -2069,14 +2095,14 @@ function PermDetalle({ filas, conOrigen }) {
                 <Fragment key={d.p.id}>
                   {nuevoGrupo && <div style={{ padding:"9px 14px 3px", fontFamily:font.body, fontSize:10.5, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", borderTop:`1px solid ${C.border}` }}>{(PERM_GRUPOS.find(g=>g.id===d.p.g)?.label||"").replace("Ventas · ","")}</div>}
                   <div className="perm-fila" onClick={d.p.nota ? ()=>setNotaAbierta(notaAbierta===d.p.id?null:d.p.id) : undefined} style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"9px 14px", borderTop:nuevoGrupo?"none":`1px solid ${C.border}`, cursor:d.p.nota?"pointer":"default" }}>
-                    <PermSwitch estado={!d.puede ? "no" : d.cond ? "cond" : "si"}/>
-                    <span style={{ flex:1, minWidth:180, fontFamily:font.body, fontSize:13, lineHeight:1.35, color:d.puede?C.text:C.textMuted }}>
+                    <PermSwitch estado={!d.puede ? "no" : d.cond ? "cond" : "si"} onClick={alCambiar ? ()=>alCambiar(d) : undefined} bloqueo={alCambiar && bloqueoDe ? bloqueoDe(d) : null} ocupado={ocupado}/>
+                    <span style={{ flex:1, minWidth:180, fontFamily:font.body, fontSize:13, lineHeight:1.35, color:d.puede?C.text:C.textMuted, textDecoration:d.origen==="quitado"?"line-through":"none" }}>
                       {d.p.label}{d.p.sensible && <PermCandado/>}
                       {d.p.nota && <span style={{ marginLeft:6, fontSize:11, color:C.gold, textDecoration:"underline", whiteSpace:"nowrap" }}>{notaAbierta===d.p.id?"ocultar":"detalle"}</span>}
                     </span>
                     <span style={{ display:"inline-flex", gap:6, alignItems:"center", flexWrap:"wrap", justifyContent:"flex-end" }}>
                       {d.puede && d.cond && <PermCondicion>{d.cond}</PermCondicion>}
-                      {d.puede && conOrigen && origenDe(d)}
+                      {conOrigen && (d.puede || d.origen==="quitado") && origenDe(d)}
                       {!d.puede && d.falta && <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{d.falta}</span>}
                     </span>
                   </div>
@@ -2108,14 +2134,94 @@ function PermisosScreen({ users, stores, lideres, setLideres, user }) {
   // Fase 2: ¿la base de datos dice lo mismo que el código? Se consulta UNA vez al abrir el tablero.
   // permisos_roles es chiquita y no crece sola (permisos × roles), por eso no usa traerTodo.
   const [base, setBase] = useState(null); // null = consultando · { falta:true } · { total, difs }
+  // Fase 4 — edición. Solo con la base leída (si no, no hay dónde guardar) y con permiso de Permisos.
+  const [, setTick] = useState(0);
+  const [ocupado, setOcupado] = useState(false);
+  const [avisoEdicion, setAvisoEdicion] = useState(null); // { c, t }
+  const editable = !!PERM_BASE.roles && base && !base.falta && puede(user, "cuenta.permisos");
   useEffect(() => {
     let vivo = true;
     supabase.from("permisos_roles").select("permiso,rol,condicion").then(({ data, error }) => {
       if (!vivo) return;
+      if (!error && data) permPonerRoles(data);
       setBase(error || !data ? { falta:true } : permCompararConBase(data));
     });
     return () => { vivo = false; };
   }, []);
+
+  // ── Fase 4: cambiar permisos ───────────────────────────────────────────────
+  const rastro = (fila) => supabase.from("permisos_historial").insert({ hecho_por:user?.name||null, hecho_por_id:user?.id!=null?String(user.id):null, ...fila }).then(()=>{});
+  const recargar = async () => {
+    const [{ data:r }, { data:x }] = await Promise.all([
+      supabase.from("permisos_roles").select("permiso,rol,condicion"),
+      supabase.from("permisos_excepciones").select("usuario_id,permiso,tipo,condicion"),
+    ]);
+    if (Array.isArray(r)) { permPonerRoles(r); setBase(permCompararConBase(r)); }
+    if (Array.isArray(x)) permPonerExcepciones(x);
+    permAvisarCambio(); setTick(t=>t+1);
+  };
+  const fallo = (error) => { setAvisoEdicion({ c:C.red, t:`No se pudo guardar: ${error?.message||"error desconocido"}. No cambió nada.` }); };
+  // Un permiso nuevo (de un módulo) que aún no está en la base: antes de tocarlo se siembra con lo
+  // del código para todos los roles, así cambiar un rol no les quita el permiso a los demás.
+  const sembrarSiFalta = async (p) => {
+    if (PERM_BASE.sembrados && PERM_BASE.sembrados.has(p.id)) return true;
+    const filas = Object.entries(p.r).map(([rol, v]) => ({ permiso:p.id, rol, condicion: v===1 ? null : v, actualizado_por:user?.name||null }));
+    if (!filas.length) return true;
+    const { error } = await supabase.from("permisos_roles").upsert(filas, { onConflict:"permiso,rol", ignoreDuplicates:true });
+    if (error) { fallo(error); return false; }
+    return true;
+  };
+  const bloqueoRol = (rol) => (d) => (rol==="master" && PERM_PROTEGIDOS.has(d.p.id)) ? "Protegido: Master nunca puede perder este permiso" : null;
+  const bloqueoPersona = (u) => (d) => (u.role==="master" && PERM_PROTEGIDOS.has(d.p.id)) ? "Protegido: Master nunca puede perder este permiso" : null;
+  const cambiarRol = async (rol, d) => {
+    if (!editable || ocupado || bloqueoRol(rol)(d)) return;
+    const n = users.filter(u => u.role===rol && u.active!==false).length;
+    const quien = `${n} ${n===1?"persona activa":"personas activas"}`;
+    const texto = d.puede
+      ? `Vas a QUITARLE al rol ${ROLE_LABEL[rol]} el permiso «${d.p.label}».\n\nAfecta a ${quien} con ese rol, desde ya.`
+      : `Vas a DARLE al rol ${ROLE_LABEL[rol]} el permiso «${d.p.label}»${d.p.sensible ? " — es un permiso SENSIBLE" : ""}.\n\nAfecta a ${quien} con ese rol, desde ya.`;
+    if (!await confirmar(texto)) return;
+    setOcupado(true); setAvisoEdicion(null);
+    try {
+      if (!await sembrarSiFalta(d.p)) return;
+      const v = d.p.r[rol];
+      const condCodigo = typeof v==="string" ? v : null;   // si el código le daba el permiso con una condición, se conserva
+      const { error } = d.puede
+        ? await supabase.from("permisos_roles").delete().eq("permiso", d.p.id).eq("rol", rol)
+        : await supabase.from("permisos_roles").upsert({ permiso:d.p.id, rol, condicion:condCodigo, actualizado_por:user?.name||null, actualizado_en:new Date().toISOString() }, { onConflict:"permiso,rol" });
+      if (error) { fallo(error); return; }
+      rastro({ accion: d.puede ? "rol_quitar" : "rol_dar", permiso:d.p.id, rol, antes: d.puede ? { condicion:d.cond||null } : null, despues: d.puede ? null : { condicion:condCodigo } });
+      await recargar();
+      setAvisoEdicion({ c:C.green, t:`Listo: el rol ${ROLE_LABEL[rol]} ${d.puede?"ya no tiene":"ahora tiene"} «${d.p.label}».` });
+    } finally { setOcupado(false); }
+  };
+  const cambiarPersona = async (u, d) => {
+    if (!editable || ocupado || bloqueoPersona(u)(d)) return;
+    const nombre = u.name || "esta persona";
+    let texto, accion;
+    if (d.exc) { accion = "excepcion_borrar"; texto = `Vas a quitar la excepción de ${nombre} en «${d.p.label}». Va a quedar con lo que diga su rol (${ROLE_LABEL[u.role]||u.role}).`; }
+    else if (d.puede) { accion = "excepcion_quitado"; texto = `Vas a QUITARLE a ${nombre} el permiso «${d.p.label}», aunque su rol lo tiene.\n\nQueda como excepción solo para esta persona.`; }
+    else { accion = "excepcion_extra"; texto = `Vas a DARLE a ${nombre} el permiso «${d.p.label}»${d.p.sensible ? " — es un permiso SENSIBLE" : ""}, aunque su rol no lo tiene.\n\nQueda como excepción solo para esta persona.`; }
+    if (!await confirmar(texto)) return;
+    setOcupado(true); setAvisoEdicion(null);
+    try {
+      const { error } = accion==="excepcion_borrar"
+        ? await supabase.from("permisos_excepciones").delete().eq("usuario_id", String(u.id)).eq("permiso", d.p.id)
+        : await supabase.from("permisos_excepciones").upsert({ usuario_id:String(u.id), usuario_nombre:u.name||null, permiso:d.p.id, tipo: accion==="excepcion_extra" ? "extra" : "quitado", condicion:null, creado_por:user?.name||null }, { onConflict:"usuario_id,permiso" });
+      if (error) { fallo(error); return; }
+      rastro({ accion, permiso:d.p.id, rol:u.role, usuario_id:String(u.id), usuario_nombre:u.name||null, antes: d.exc ? { tipo:d.exc.tipo } : null, despues: accion==="excepcion_borrar" ? null : { tipo: accion==="excepcion_extra" ? "extra" : "quitado" } });
+      await recargar();
+      setAvisoEdicion({ c:C.green, t: accion==="excepcion_borrar" ? `Listo: ${nombre} vuelve a lo que dice su rol en «${d.p.label}».` : `Listo: ${nombre} ${accion==="excepcion_extra"?"ahora tiene":"ya no tiene"} «${d.p.label}» (excepción personal).` });
+    } finally { setOcupado(false); }
+  };
+
+  // ── Vista: Historial ───────────────────────────────────────────────────────
+  const [hist, setHist] = useState(null); // null = sin pedir · { cargando } · { filas } · { falta }
+  const verHistorial = async () => {
+    setHist({ cargando:true });
+    const { data, error } = await supabase.from("permisos_historial").select("*").order("created_at", { ascending:false }).limit(200);
+    setHist(error || !data ? { falta:true } : { filas:data });
+  };
 
   const activos = users.filter(u => u.active!==false);
   const ordenRol = (r) => PERM_ROLES.indexOf(r);
@@ -2183,7 +2289,8 @@ function PermisosScreen({ users, stores, lideres, setLideres, user }) {
               <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginRight:2 }}>{gente.length ? `${gente.length} ${gente.length===1?"persona":"personas"}` : "Nadie activo tiene este rol"}</span>
               {gente.map(u => <button key={u.id} onClick={()=>irAPersona(u)} className="perm-persona" title="Ver lo que puede hacer esta persona" style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"3px 10px 3px 3px", borderRadius:99, border:`1px solid ${C.border}`, background:"transparent", cursor:"pointer", fontFamily:font.body, fontSize:12, color:C.text }}><PermAvatar u={u} size={22}/>{u.name}</button>)}
             </div>
-            <PermDetalle filas={filas}/>
+            {editable && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:12 }}>Toca un interruptor para darle o quitarle ese permiso a todo el rol. Siempre pide confirmación y queda en el historial.</div>}
+            <PermDetalle filas={filas} alCambiar={editable ? (d)=>cambiarRol(rolSel, d) : undefined} bloqueoDe={bloqueoRol(rolSel)} ocupado={ocupado}/>
           </div>
         </Card>
       </div>
@@ -2234,8 +2341,8 @@ function PermisosScreen({ users, stores, lideres, setLideres, user }) {
                 </div>
               ); })}
             </div>
-            <PermDetalle filas={filas} conOrigen/>
-            <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, lineHeight:1.45, marginTop:6 }}>Hoy todo viene del rol o de ser Monitor o líder. Las excepciones personales (darle o quitarle algo a una sola persona) se editan desde la Fase 4 y saldrán aquí con otro color.</div>
+            {editable && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:12 }}>Toca un interruptor para darle o quitarle algo SOLO a esta persona (queda como excepción, en verde o en rojo). Si ya tiene una excepción, tocarlo la quita y vuelve a su rol.</div>}
+            <PermDetalle filas={filas} conOrigen alCambiar={editable ? (d)=>cambiarPersona(persona, d) : undefined} bloqueoDe={bloqueoPersona(persona)} ocupado={ocupado}/>
           </div>
         </Card>
       </div>
@@ -2277,7 +2384,7 @@ function PermisosScreen({ users, stores, lideres, setLideres, user }) {
           <div style={{ fontFamily:font.body, fontSize:19, fontWeight:700, color:C.text, margin:"3px 0 4px", lineHeight:1.3 }}>¿Quién puede {permisoSel.label.charAt(0).toLowerCase()+permisoSel.label.slice(1)}?{permisoSel.sensible && <PermCandado/>}</div>
           {permisoSel.nota && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, lineHeight:1.45 }}>{permisoSel.nota}</div>}
           <div style={{ display:"flex", gap:6, flexWrap:"wrap", margin:"14px 0 4px" }}>
-            {PERM_ROLES.map(r => { const v = permisoSel.r[r]; const col = v===undefined ? C.textMuted : v===1 ? C.green : C.amber; return (
+            {PERM_ROLES.map(r => { const v = permValorRol(r, permisoSel.id); const col = v===undefined ? C.textMuted : v===1 ? C.green : C.amber; return (
               <button key={r} onClick={()=>{ setRolSel(r); setVista("roles"); }} title="Ver este rol" style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"5px 11px", borderRadius:99, border:`1px solid ${v===undefined?C.border:col}`, background:v===undefined?"transparent":`${col}16`, color:col, fontFamily:font.body, fontSize:12, fontWeight:600, cursor:"pointer", opacity:v===undefined?0.6:1, textDecoration:v===undefined?"line-through":"none" }}>
                 {v!==undefined && <Icon n="check" s={13} sw={2.6}/>}{ROLE_LABEL[r]}{typeof v==="string" && <span style={{ fontWeight:400 }}>· {v}</span>}
               </button>
@@ -2354,7 +2461,7 @@ function PermisosScreen({ users, stores, lideres, setLideres, user }) {
   const th = { padding:"8px 4px", fontFamily:font.body, fontSize:11, fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.05em", textAlign:"center", borderBottom:`1px solid ${C.border}` };
   const td = { padding:"9px 4px", textAlign:"center", borderBottom:`1px solid ${C.border}`, verticalAlign:"middle" };
   const celda = (p, rol) => {
-    const v = p.r[rol];
+    const v = permValorRol(rol, p.id);
     if (v === undefined) return <span style={{ color:C.border, fontSize:15 }}>—</span>;
     if (v === 1) return <span style={{ display:"inline-flex", color:C.green }} title={p.id==="cuenta.permisos" ? "Protegido: no se le podrá quitar a Master" : undefined}><Icon n="check" s={17} sw={2.4}/></span>;
     return <PermCondicion>{v}</PermCondicion>;
@@ -2411,19 +2518,43 @@ function PermisosScreen({ users, stores, lideres, setLideres, user }) {
     </div>
   );
 
+  const ACCION_TXT = { rol_dar:"le dio al rol", rol_quitar:"le quitó al rol", excepcion_extra:"le dio como extra a", excepcion_quitado:"le quitó a", excepcion_borrar:"quitó la excepción de", lider_enlazar:"enlazó un líder con la cuenta de", lider_desenlazar:"quitó el enlace de un líder" };
+  const vistaHistorial = (
+    <Card>
+      <div style={{ fontFamily:font.body, fontSize:15, fontWeight:700, color:C.text, marginBottom:4 }}>Quién cambió qué y cuándo</div>
+      <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginBottom:10 }}>Los últimos 200 cambios hechos desde este tablero. Nada se borra de aquí.</div>
+      {!hist || hist.cargando ? <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>Cargando…</div>
+        : hist.falta ? <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>No se pudo leer el historial (falta sql/permisos_fase2.sql o no hay conexión).</div>
+        : !hist.filas.length ? <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>Todavía no hay cambios.</div>
+        : hist.filas.map(h => {
+          const p = permPorId(h.permiso);
+          const quien = h.accion && h.accion.startsWith("rol_") ? (ROLE_LABEL[h.rol]||h.rol) : (h.usuario_nombre || "—");
+          const color = /quitar|quitado|borrar|desenlazar/.test(h.accion||"") ? C.red : C.green;
+          return (
+            <div key={h.id} style={{ display:"flex", gap:10, alignItems:"flex-start", padding:"9px 0", borderTop:`1px solid ${C.border}`, fontFamily:font.body, fontSize:13, color:C.text, lineHeight:1.45 }}>
+              <span style={{ width:8, height:8, borderRadius:"50%", background:color, flexShrink:0, marginTop:6 }}/>
+              <span style={{ flex:1 }}><b>{h.hecho_por||"Alguien"}</b> {ACCION_TXT[h.accion]||h.accion} <b>{quien}</b>{h.permiso ? <> · «{p?.label || h.permiso}»{p?.sensible && <PermCandado/>}</> : null}</span>
+              <span style={{ fontSize:11.5, color:C.textMuted, whiteSpace:"nowrap" }}>{fmtFechaHora(h.created_at)}</span>
+            </div>
+          );
+        })}
+    </Card>
+  );
+
   const chipBase = base===null ? { c:C.textMuted, t:"Revisando la base de datos…" }
     : base.falta ? { c:C.textMuted, t:"Base de datos: tablas de la Fase 2 sin crear" }
-    : base.difs.length ? { c:C.amber, t:`Base de datos: ${base.difs.length} ${base.difs.length===1?"diferencia":"diferencias"} con el código` }
+    : base.difs.length ? { c:C.blue, t:`La base manda · ${base.difs.length} ${base.difs.length===1?"cambio":"cambios"} frente al código` }
     : { c:C.green, t:`Base de datos al día · ${base.total} de ${base.total}` };
 
   return (
     <div>
       <PermEstilos/>
-      <PageHeader title="Permisos" subtitle={`${PERMISOS.length} permisos · ${PERMISOS.filter(p=>p.sensible).length} sensibles · por ahora solo para consultar`} action={
-        <button onClick={()=>setVerDifs(v=>!v)} disabled={!base || !base.difs?.length} title={base?.falta ? "Falta correr sql/permisos_fase2.sql en Supabase" : "La tabla permisos_roles debe decir lo mismo que el código"} style={{ display:"inline-flex", alignItems:"center", gap:7, padding:"6px 12px", borderRadius:99, border:`1px solid ${chipBase.c}55`, background:`${chipBase.c}14`, color:chipBase.c, fontFamily:font.body, fontSize:12, fontWeight:600, cursor:base?.difs?.length?"pointer":"default" }}>
+      <PageHeader title="Permisos" subtitle={`${PERMISOS.length} permisos · ${PERMISOS.filter(p=>p.sensible).length} sensibles · ${editable ? "toca un interruptor para cambiar" : "solo para consultar (sin conexión con la base)"}`} action={
+        <button onClick={()=>setVerDifs(v=>!v)} disabled={!base || !base.difs?.length} title={base?.falta ? "Falta correr sql/permisos_fase2.sql en Supabase" : "Qué dice la base distinto a lo que trae el código: cambios hechos desde este tablero o permisos nuevos de un módulo"} style={{ display:"inline-flex", alignItems:"center", gap:7, padding:"6px 12px", borderRadius:99, border:`1px solid ${chipBase.c}55`, background:`${chipBase.c}14`, color:chipBase.c, fontFamily:font.body, fontSize:12, fontWeight:600, cursor:base?.difs?.length?"pointer":"default" }}>
           <span style={{ width:7, height:7, borderRadius:"50%", background:chipBase.c }}/>{chipBase.t}
         </button>
       } />
+      {avisoEdicion && <div style={{ background:`${avisoEdicion.c}14`, border:`1px solid ${avisoEdicion.c}55`, borderRadius:10, padding:"9px 14px", marginBottom:14, fontFamily:font.body, fontSize:13, color:avisoEdicion.c, display:"flex", alignItems:"center", gap:10 }}><span style={{ flex:1 }}>{avisoEdicion.t}</span><button onClick={()=>setAvisoEdicion(null)} style={{ background:"none", border:"none", color:"inherit", cursor:"pointer", display:"inline-flex" }} aria-label="Cerrar"><Icon n="x" s={14}/></button></div>}
       {verDifs && base?.difs?.length>0 && (
         <Card p="12px 16px" style={{ marginBottom:14 }}>
           <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, lineHeight:1.5 }}>{base.difs.slice(0,40).map(d => <div key={d}>{d}</div>)}{base.difs.length>40 && <div style={{ color:C.textMuted }}>… y {base.difs.length-40} más.</div>}</div>
@@ -2452,9 +2583,10 @@ function PermisosScreen({ users, stores, lideres, setLideres, user }) {
         <PermPildora activo={vista==="quien"} onClick={()=>verVista("quien")} ic="search">¿Quién puede…?</PermPildora>
         <PermPildora activo={vista==="monitor"} onClick={()=>verVista("monitor")} ic="flag">Monitor y líderes</PermPildora>
         <PermPildora activo={vista==="tabla"} onClick={()=>verVista("tabla")} ic="list">Tabla completa</PermPildora>
+        <PermPildora activo={vista==="historial"} onClick={()=>{ verVista("historial"); verHistorial(); }} ic="history">Historial</PermPildora>
       </div>
       <div key={vista} className="ozen-pane-anim-tab">
-        {vista==="roles" ? vistaRoles : vista==="personas" ? vistaPersonas : vista==="quien" ? vistaQuien : vista==="monitor" ? vistaMonitor : vistaTabla}
+        {vista==="roles" ? vistaRoles : vista==="personas" ? vistaPersonas : vista==="quien" ? vistaQuien : vista==="monitor" ? vistaMonitor : vista==="historial" ? vistaHistorial : vistaTabla}
       </div>
     </div>
   );
@@ -14108,6 +14240,7 @@ export default function App() {
   // anterior (descarga completa, como máximo cada 5 min). Además hay una descarga completa de
   // respaldo cada 30 min por si algún cambio se hubiera escapado. Nunca se recorta el historial.
   const [, setPermTick] = useState(0); // se mueve cuando llegan los permisos de la base, para que la pantalla se vuelva a pintar
+  useEffect(() => { permAvisarCambio = () => setPermTick(t=>t+1); return () => { permAvisarCambio = () => {}; }; }, []);
   const versionesRef = useRef({});   // tabla -> versión con la que quedó cargada
   const cargaTablaRef = useRef({});  // tabla -> momento (ms) de su última descarga
   const pulsoOcupadoRef = useRef(false);
