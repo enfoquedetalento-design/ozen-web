@@ -963,7 +963,7 @@ const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar ven
 const ADMIN_TABS_CAPACITACION = [{ id:"mis_cursos",icon:"📚",label:"Mis cursos" },{ id:"progreso",icon:"📊",label:"Progreso" },{ id:"cursos_admin",icon:"🛠️",label:"Administrar cursos" }];
 // Operaciones (área "operaciones"): por ahora solo Externas (parte 1). Internas e Indicadores son
 // las partes 2 y 3 — ver "OPERACIONES" más abajo.
-const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas" },{ id:"op_internas",icon:"📦",label:"Internas" },{ id:"op_tiendas",icon:"🏬",label:"Por tienda" },{ id:"op_indicadores",icon:"📊",label:"Indicadores" }];
+const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas" },{ id:"op_internas",icon:"📦",label:"Internas" },{ id:"op_indicadores",icon:"📊",label:"Indicadores" }];
 const tabsCapacitacion = (user) => ADMIN_TABS_CAPACITACION.filter(t => t.id==="mis_cursos" ? tomaCapacitaciones(user) : t.id==="cursos_admin" ? puedeEditarCapacitacion(user) : puede(user, "escuela.progreso"));
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas" || user.role==="admin_turnos";
 // Quién ve la pantalla de módulos al entrar y el selector de áreas arriba: los admins (puedeUsarAreas)
@@ -1057,7 +1057,7 @@ const permisosTurnos = (user) => {
 };
 const tabsPara = (user, area) => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? [...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : []), ...(puedeOper(user, "operaciones.ver") ? [{ id:"op_externas", icon:"🧰", label:"Operaciones" }] : [])] : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
-  : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>(t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) && (t.id!=="op_tiendas" || puedeOper(user, "operaciones.tienda.ver"))) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
+  : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver") || puedeOper(user, "operaciones.tienda.ver")) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -1073,7 +1073,7 @@ const passwordVencida = (u) => {
 // las pestañas del área con una línea que se desliza a la pestaña elegida, y bajo ellas una franja
 // fina del color de la tienda (cuando la pantalla trabaja sobre una tienda). En celular las
 // pestañas bajan a una barra inferior, como antes.
-const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench", op_externas:"wrench", op_internas:"box", op_indicadores:"chart", op_tiendas:"store" };
+const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench", op_externas:"wrench", op_internas:"box", op_indicadores:"chart" };
 const AREAS_NAV = [
   { id:"ventas", label:"Ventas", ic:"receipt" },
   { id:"operaciones", label:"Operaciones", ic:"box" },
@@ -14217,7 +14217,7 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ven
   useOperFoco(foco, "ext", onFocoUsado, (id)=>{ setFase("abiertas"); setTiposF([]); setTiendasF([]); setQ(""); setVista("lista"); setAbiertoId(id); });
   // Pedido desde el panel de la tienda: abrir la lista con ese filtro (y esa tienda).
   useEffect(()=>{
-    if(!pedidoFiltro) return;
+    if(!pedidoFiltro || pedidoFiltro.tipo==="int") return;
     setFase(pedidoFiltro.ficha); setTiendasF(pedidoFiltro.tienda ? [pedidoFiltro.tienda] : []); setTiposF([]); setQ(""); setVista("lista"); setLimite(40);
     if(onFiltroUsado) onFiltroUsado();
   }, [pedidoFiltro?.t]);
@@ -14528,7 +14528,7 @@ function OperSolicitudCard({ s, stores, user, users, liderId, abierto, onToggle,
 }
 
 // ── SCREEN: Operaciones · Internas ───────────────────────────────────────────
-function OperacionesInternasScreen({ user, users, stores, ops, sols, setSols, onIrA, foco, onFocoUsado, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
+function OperacionesInternasScreen({ user, users, stores, ops, sols, setSols, onIrA, foco, onFocoUsado, pedidoFiltro, onFiltroUsado, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
   const liderId = config.find(c=>c.clave==="lider_usuario_id")?.valor || "";
   const [creando, setCreando] = useState(false);
   const [abiertoId, setAbiertoId] = useState(null);
@@ -14540,6 +14540,11 @@ function OperacionesInternasScreen({ user, users, stores, ops, sols, setSols, on
   const [limite, setLimite] = useState(40);
   const [quienId, setQuienId] = useState("");
   useOperFoco(foco, "int", onFocoUsado, (id)=>{ setFiltro("abiertas"); setTiposF([]); setTiendasF([]); setQ(""); setVista("lista"); setAbiertoId(id); });
+  useEffect(()=>{
+    if(!pedidoFiltro || pedidoFiltro.tipo!=="int") return;
+    setFiltro(pedidoFiltro.ficha); setTiendasF(pedidoFiltro.tienda ? [pedidoFiltro.tienda] : []); setTiposF([]); setQ(""); setVista("lista"); setLimite(40);
+    if(onFiltroUsado) onFiltroUsado();
+  }, [pedidoFiltro?.t]);
   // Misma carga que Externas (una sola para todo el módulo): al entrar si tiene más de 5 minutos.
   useEffect(()=>{
     onCargar(5*60000);
@@ -14760,7 +14765,7 @@ const IndBarrasH = ({ filas }) => (
   </div>
 );
 
-function OperacionesIndicadoresScreen({ stores, isMobile }) {
+function OperacionesIndicadoresScreen({ stores, isMobile, embebido }) {
   const [tipo, setTipo] = useState("ext");
   const [periodo, setPeriodo] = useState("1");      // "1" | "3" | "6" | "YYYY-MM" (un mes elegido)
   const [datos, setDatos] = useState(operIndCache.ext ? { ext:operIndCache.ext, int:operIndCache.int } : null);
@@ -14829,7 +14834,8 @@ function OperacionesIndicadoresScreen({ stores, isMobile }) {
   const titulo = (t, nota) => <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, marginBottom:4 }}>{t}{nota && <span style={{ fontWeight:500, color:C.textMuted }}> · {nota}</span>}</div>;
   return (
     <div style={{ maxWidth:1100, margin:"0 auto" }}>
-      <PageHeader title="Indicadores de Operaciones" subtitle={`Cumplimiento a tiempo · meta ${OPER_META}%`}/>
+      {!embebido && <PageHeader title="Indicadores de Operaciones" subtitle={`Cumplimiento a tiempo · meta ${OPER_META}%`}/>}
+      {embebido && <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginBottom:12 }}>Qué tan a tiempo se entregan las órdenes y se responden las solicitudes · meta {OPER_META}%</div>}
       <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center", marginBottom:16 }}>
         <div style={caja}>
           <button type="button" onClick={()=>setTipo("ext")} style={seg(esExt)}><Icon n="wrench" s={14}/>Externas · clientes</button>
@@ -14971,86 +14977,205 @@ const useOperFoco = (foco, tipo, onFocoUsado, abrir) => {
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PANEL "MI TIENDA" (18 nov 2026, pedido de Santiago)
+// INDICADORES DE TIENDA (18 nov 2026, pedido de Santiago)
 // ══════════════════════════════════════════════════════════════════════════════
 // Para la tienda (y para los admins, por tienda): lo que la TIENDA tiene que hacer hoy y cómo le
-// fue este mes. A propósito NO muestra el % a tiempo ni comparaciones entre tiendas (eso mide al
-// líder de Operaciones y es solo para la junta). Usa los datos ya cargados (abiertas + 90 días).
-// Tocar un número de "Para hacer hoy" lleva a Externas con ese filtro.
+// va, separado en Externas / Internas. A propósito NO muestra el % a tiempo ni compara tiendas
+// (eso mide al líder y vive en Indicadores → "Tiempos"). Usa los datos ya cargados (abiertas +
+// 90 días), por eso las barras muestran los últimos 3 meses. Tocar una ficha abre la lista filtrada.
 const OPER_FILTROS_EXTRA = {
   por_llevar:  { label:"Por llevar al taller", f:op=>!operCerrada(op) && op.etapa==="recibida" },
   por_cobrar:  { label:"Por cobrar",           f:op=>!operCerrada(op) && op.estado_pago==="debe" },
   por_definir: { label:"Valor por definir",    f:op=>!operCerrada(op) && op.estado_pago==="por_definir" },
 };
-function OperPanelTienda({ ops, sols, tiendaId, onIr, isMobile }) {
-  const mes = todayStr.slice(0,7);
-  const enMes = (f) => !!f && String(f).slice(0,7)===mes;
-  const ext = (ops||[]).filter(op=>!tiendaId || op.tienda_id===tiendaId);
-  const int = (sols||[]).filter(s=>!tiendaId || s.tienda_id===tiendaId);
-  const porCobrar = ext.filter(OPER_FILTROS_EXTRA.por_cobrar.f);
-  const hoy = [
-    { id:"por_llevar",  l:"Por llevar al taller", n:ext.filter(OPER_FILTROS_EXTRA.por_llevar.f).length, nota:"Siguen en Recibida en tienda" },
-    { id:"listas",      l:"Listas para entregar", n:ext.filter(op=>!operCerrada(op) && OPER_ETAPAS_ESPERA_CLIENTE.has(op.etapa)).length, nota:"Llamar al cliente" },
-    { id:"por_cobrar",  l:"Por cobrar", n:porCobrar.length, nota:porCobrar.length ? fmtCOP(porCobrar.reduce((a,o)=>a+Number(o.valor||0),0)) : "Nada pendiente", c:C.amber },
-    { id:"por_definir", l:"Valor por definir", n:ext.filter(OPER_FILTROS_EXTRA.por_definir.f).length, nota:"Falta ponerles precio", c:C.amber },
-    { id:"sin_reclamar",l:"Sin reclamar", n:ext.filter(operSinReclamar).length, nota:`Más de ${OPER_DIAS_RECLAMAR} días en tienda`, c:C.red },
-  ];
-  const recibidas = ext.filter(op=>enMes(op.fecha));
-  const entregadas = ext.filter(op=>op.etapa==="entregada" && op.cerrada_en && enMes(operFechaCol(op.cerrada_en)));
-  const cobrado = ext.reduce((a,op)=>a + (op.historial||[]).filter(h=>h.accion==="cobro" && enMes(operFechaCol(h.en))).length * Number(op.valor||0), 0);
-  const conEspera = entregadas.filter(op=>op.lista_en);
-  const espera = conEspera.length ? conEspera.reduce((a,op)=>a+diasEntre(operFechaCol(op.lista_en), operFechaCol(op.cerrada_en)),0)/conEspera.length : null;
-  const solHechas = int.filter(s=>enMes(s.fecha));
-  const solResp = int.filter(s=>(s.estado==="completada"||s.estado==="rechazada") && s.cerrada_en && enMes(operFechaCol(s.cerrada_en)));
-  const resp = solResp.length ? solResp.reduce((a,s)=>a+diasHabilesEntre(s.fecha, operFechaCol(s.cerrada_en)),0)/solResp.length : null;
-  const dec = (x) => x.toFixed(1).replace(".",",");
-  const tipoN = (t) => recibidas.filter(op=>op.tipo===t).length;
-  const mesNombre = MESES_LARGO[+mes.slice(5,7)-1].toLowerCase();
-  const Mini = ({ l, v, nota }) => (
-    <div style={{ background:C.surfaceAlt, borderRadius:10, padding:"9px 11px", minWidth:0 }}>
-      <div style={{ fontFamily:font.mono, fontSize:20, fontWeight:700, color:C.text, lineHeight:1.15 }}>{v}</div>
-      <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub }}>{l}</div>
-      {nota && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:1 }}>{nota}</div>}
+// Colores por tipo (siempre el mismo color para el mismo tipo, en cualquier gráfica).
+const OPER_COLOR_TIPO = { arreglo:"#265D7F", marcacion:"#A85D00", garantia:"#1B7A41", insumos:"#265D7F", novedad:"#A85D00", arreglo_inventario:"#1B7A41", arreglo_punto:"#7A4E9E" };
+const IndDona = ({ partes, total, size=120 }) => {
+  const r = size/2-12, L = 2*Math.PI*r; let acc = 0;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true" style={{ flexShrink:0 }}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={C.surfaceHover} strokeWidth="14"/>
+      {total>0 && partes.filter(p=>p.n>0).map(p=>{ const largo = L*p.n/total; const el = <circle key={p.k} cx={size/2} cy={size/2} r={r} fill="none" stroke={p.color} strokeWidth="14" strokeDasharray={`${Math.max(0, largo-2)} ${L}`} strokeDashoffset={-acc} transform={`rotate(-90 ${size/2} ${size/2})`}/>; acc += largo; return el; })}
+      <text x={size/2} y={size/2+2} textAnchor="middle" fontSize="22" fontWeight="700" fill={C.text} fontFamily="'JetBrains Mono', monospace">{total}</text>
+      <text x={size/2} y={size/2+18} textAnchor="middle" fontSize="10.5" fill={C.textMuted} fontFamily="'Josefin Sans', sans-serif">este mes</text>
+    </svg>
+  );
+};
+// Barras de dos series por mes (p. ej. recibidas vs entregadas), con su número encima.
+function IndBarrasPar({ meses, series }) {
+  const [hover, setHover] = useState(null);
+  const W = 360, H = 140, base = 22, top = 16;
+  const max = Math.max(1, ...meses.flatMap(m=>series.map(s=>m[s.k])));
+  const grupo = (W-20)/meses.length, bw = Math.min(26, grupo/3);
+  const y = (v) => top + (H-base-top)*(1-v/max);
+  return (
+    <div style={{ position:"relative" }}>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={series.map(s=>s.label).join(" y ")+" por mes"} style={{ display:"block" }}>
+        <line x1="10" x2={W} y1={H-base} y2={H-base} stroke={C.border} strokeWidth="1"/>
+        {meses.map((m,i)=>{
+          const cx = 10 + grupo*i + grupo/2;
+          return (
+            <g key={m.k} onMouseEnter={()=>setHover(i)} onMouseLeave={()=>setHover(null)}>
+              <rect x={cx-grupo/2} y={top} width={grupo} height={H-base-top} fill="transparent"/>
+              {series.map((s,j)=>{ const x = cx + (j===0 ? -bw-1 : 1), v = m[s.k]; return (
+                <g key={s.k}>
+                  <rect x={x} y={y(v)} width={bw} height={Math.max(v?2:0, H-base-y(v))} rx="4" fill={s.color}/>
+                  <text x={x+bw/2} y={y(v)-4} fontSize="11" textAnchor="middle" fill={C.text} fontFamily="'JetBrains Mono', monospace">{v}</text>
+                </g>
+              ); })}
+              <text x={cx} y={H-6} fontSize="11.5" textAnchor="middle" fill={C.textSub} fontFamily="'Josefin Sans', sans-serif">{operNombreMes(m.k)}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ display:"flex", gap:14, justifyContent:"center", fontFamily:font.body, fontSize:12, color:C.textSub, marginTop:4 }}>
+        {series.map(s=><span key={s.k} style={{ display:"inline-flex", alignItems:"center", gap:6 }}><span style={{ width:10, height:10, borderRadius:3, background:s.color }}/>{s.label}</span>)}
+      </div>
+      {hover!==null && (
+        <div style={{ position:"absolute", top:-4, left:`${Math.min(62, hover*100/meses.length)}%`, background:"#fff", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 9px", fontFamily:font.body, fontSize:12, color:C.text, pointerEvents:"none", whiteSpace:"nowrap", boxShadow:"0 6px 18px rgba(26,59,82,0.12)" }}>
+          <strong>{operNombreMes(meses[hover].k, true)}</strong> · {series.map(s=>`${meses[hover][s.k]} ${s.label.toLowerCase()}`).join(" · ")}
+        </div>
+      )}
     </div>
   );
+}
+// Ficha de "Para hacer hoy": ícono en círculo, número grande y nota. Tocar = abrir la lista filtrada.
+const IndFicha = ({ ic, n, l, nota, color, onClick }) => {
+  const c = n ? (color||C.gold) : C.textMuted;
+  return (
+    <button type="button" onClick={onClick} disabled={!onClick} className="ozen-fila-venta" style={{ display:"flex", alignItems:"center", gap:11, textAlign:"left", cursor:onClick?"pointer":"default", background:"#fff", border:`1px solid ${C.border}`, borderRadius:12, padding:"11px 12px", fontFamily:font.body, minWidth:0 }}>
+      <span style={{ width:38, height:38, borderRadius:"50%", background:`${c}1F`, color:c, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n={ic} s={19}/></span>
+      <span style={{ minWidth:0 }}>
+        <span style={{ display:"block", fontFamily:font.mono, fontSize:22, fontWeight:700, lineHeight:1.05, color:n ? (color||C.text) : C.textMuted }}>{n}</span>
+        <span style={{ display:"block", fontSize:12.5, fontWeight:700, color:C.text }}>{l}</span>
+        {nota && <span style={{ display:"block", fontSize:11, color:C.textMuted, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{nota}</span>}
+      </span>
+    </button>
+  );
+};
+function OperPanelTienda({ ops, sols, tiendaId, tipo="ext", onIr, isMobile }) {
+  const mes = todayStr.slice(0,7), meses3 = operMesesAtras(3);
+  const enMes = (f, k=mes) => !!f && String(f).slice(0,7)===k;
+  const ext = (ops||[]).filter(op=>!tiendaId || op.tienda_id===tiendaId);
+  const int = (sols||[]).filter(s=>!tiendaId || s.tienda_id===tiendaId);
+  const dec = (x) => x.toFixed(1).replace(".",",");
+  const tarjeta = (titulo, hijos, extra) => (
+    <Card p="14px 16px" style={{ minWidth:0, ...extra }}>
+      <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, marginBottom:8 }}>{titulo}</div>
+      {hijos}
+    </Card>
+  );
+  const dato = (ic, v, l, nota) => (
+    <div style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 0" }}>
+      <span style={{ width:30, height:30, borderRadius:9, background:C.surfaceHover, color:C.gold, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n={ic} s={16}/></span>
+      <span style={{ minWidth:0, fontFamily:font.body }}>
+        <span style={{ display:"block", fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text, lineHeight:1.1 }}>{v}</span>
+        <span style={{ display:"block", fontSize:12, color:C.textMuted }}>{l}{nota ? ` · ${nota}` : ""}</span>
+      </span>
+    </div>
+  );
+  const leyendaTipos = (partes) => (
+    <div style={{ display:"flex", flexDirection:"column", gap:6, fontFamily:font.body, fontSize:12.5, minWidth:0 }}>
+      {partes.map(p=><span key={p.k} style={{ display:"flex", alignItems:"center", gap:7 }}><span style={{ width:10, height:10, borderRadius:3, background:p.color, flexShrink:0 }}/><span style={{ color:C.textSub, flex:1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.label}</span><strong style={{ fontFamily:font.mono, color:C.text }}>{p.n}</strong></span>)}
+    </div>
+  );
+  const grid3 = { display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(0,1.25fr) minmax(0,1fr) minmax(0,0.9fr)", gap:10 };
+  if(tipo==="int"){
+    const hechasMes = int.filter(s=>enMes(s.fecha));
+    const respMes = int.filter(s=>(s.estado==="completada"||s.estado==="rechazada") && s.cerrada_en && enMes(operFechaCol(s.cerrada_en)));
+    const prom = respMes.length ? respMes.reduce((a,s)=>a+diasHabilesEntre(s.fecha, operFechaCol(s.cerrada_en)),0)/respMes.length : null;
+    const partes = OPER_TIPOS_INT.map(t=>({ k:t.value, label:t.label, color:OPER_COLOR_TIPO[t.value], n:hechasMes.filter(s=>s.tipo===t.value).length }));
+    return (
+      <div style={{ marginBottom:18 }}>
+        <OperTituloSec>Para hacer hoy</OperTituloSec>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, minmax(0,1fr))", gap:8, marginBottom:12 }}>
+          <IndFicha ic="bell" n={int.filter(s=>s.estado==="nueva").length} l="Nuevas" nota="Esperando que las tomen" color={C.amber} onClick={onIr && (()=>onIr("nueva","int"))}/>
+          <IndFicha ic="wrench" n={int.filter(s=>s.estado==="en_gestion").length} l="En gestión" nota="Ya las están atendiendo" onClick={onIr && (()=>onIr("en_gestion","int"))}/>
+          <IndFicha ic="clock" n={int.filter(operIntAtrasada).length} l="Atrasadas" nota={`${OPER_DIAS_ATRASO}+ días háb. sin moverse`} color={C.red} onClick={onIr && (()=>onIr("atrasadas","int"))}/>
+          <IndFicha ic="check" n={respMes.length} l="Respondidas" nota="Este mes" color={C.green} onClick={onIr && (()=>onIr("completada","int"))}/>
+        </div>
+        <div style={grid3}>
+          {tarjeta("Hechas y respondidas", <IndBarrasPar meses={meses3.map(k=>({ k, a:int.filter(s=>enMes(s.fecha,k)).length, b:int.filter(s=>(s.estado==="completada"||s.estado==="rechazada") && s.cerrada_en && enMes(operFechaCol(s.cerrada_en),k)).length }))} series={[{ k:"a", label:"Hechas", color:"#265D7F" },{ k:"b", label:"Respondidas", color:"#1B7A41" }]}/>)}
+          {tarjeta("Qué se pidió este mes", <div style={{ display:"flex", alignItems:"center", gap:14 }}><IndDona partes={partes} total={hechasMes.length}/>{leyendaTipos(partes)}</div>)}
+          {tarjeta("Este mes", <>
+            {dato("note", hechasMes.length, "Solicitudes hechas")}
+            {dato("check", respMes.length, "Respondidas")}
+            {dato("clock", prom===null ? "—" : `${dec(prom)} días`, "Tardan en responder", "hábiles")}
+          </>)}
+        </div>
+      </div>
+    );
+  }
+  const porCobrar = ext.filter(OPER_FILTROS_EXTRA.por_cobrar.f);
+  const recibidasMes = ext.filter(op=>enMes(op.fecha));
+  const entregadas = (k) => ext.filter(op=>op.etapa==="entregada" && op.cerrada_en && enMes(operFechaCol(op.cerrada_en), k));
+  const entregadasMes = entregadas(mes);
+  const cobrado = ext.reduce((a,op)=>a + (op.historial||[]).filter(h=>h.accion==="cobro" && enMes(operFechaCol(h.en))).length * Number(op.valor||0), 0);
+  const conEspera = entregadasMes.filter(op=>op.lista_en);
+  const espera = conEspera.length ? conEspera.reduce((a,op)=>a+diasEntre(operFechaCol(op.lista_en), operFechaCol(op.cerrada_en)),0)/conEspera.length : null;
+  const partes = OPER_TIPOS_EXT.map(t=>({ k:t.value, label:t.label, color:OPER_COLOR_TIPO[t.value], n:recibidasMes.filter(op=>op.tipo===t.value).length }));
   return (
     <div style={{ marginBottom:18 }}>
       <OperTituloSec>Para hacer hoy</OperTituloSec>
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5, minmax(0,1fr))", gap:8, marginBottom:14 }}>
-        {hoy.map(h=>(
-          <button key={h.id} type="button" onClick={()=>onIr && onIr(h.id)} disabled={!onIr} style={{ textAlign:"left", cursor:onIr?"pointer":"default", background:"#fff", border:`1px solid ${(h.n && h.c===C.red)?C.red+"55":C.border}`, borderRadius:12, padding:"10px 12px", fontFamily:font.body }}>
-            <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, lineHeight:1.1, color:(h.n && h.c) ? h.c : C.text }}>{h.n}</div>
-            <div style={{ fontSize:12.5, fontWeight:700, color:C.text, marginTop:2 }}>{h.l}</div>
-            <div style={{ fontSize:11.5, color:C.textMuted, marginTop:1 }}>{h.nota}</div>
-          </button>
-        ))}
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5, minmax(0,1fr))", gap:8, marginBottom:12 }}>
+        <IndFicha ic="truck" n={ext.filter(OPER_FILTROS_EXTRA.por_llevar.f).length} l="Por llevar al taller" nota="Siguen en Recibida" onClick={onIr && (()=>onIr("por_llevar","ext"))}/>
+        <IndFicha ic="phone" n={ext.filter(op=>!operCerrada(op) && OPER_ETAPAS_ESPERA_CLIENTE.has(op.etapa)).length} l="Listas para entregar" nota="Llamar al cliente" color={C.green} onClick={onIr && (()=>onIr("listas","ext"))}/>
+        <IndFicha ic="cash" n={porCobrar.length} l="Por cobrar" nota={porCobrar.length ? fmtCOP(porCobrar.reduce((a,o)=>a+Number(o.valor||0),0)) : "Nada pendiente"} color={C.amber} onClick={onIr && (()=>onIr("por_cobrar","ext"))}/>
+        <IndFicha ic="tag" n={ext.filter(OPER_FILTROS_EXTRA.por_definir.f).length} l="Valor por definir" nota="Falta ponerles precio" color={C.amber} onClick={onIr && (()=>onIr("por_definir","ext"))}/>
+        <IndFicha ic="history" n={ext.filter(operSinReclamar).length} l="Sin reclamar" nota={`${OPER_DIAS_RECLAMAR}+ días en tienda`} color={C.red} onClick={onIr && (()=>onIr("sin_reclamar","ext"))}/>
       </div>
-      <OperTituloSec>Así va {tiendaId ? "la tienda" : "todo"} en {mesNombre}</OperTituloSec>
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5, minmax(0,1fr))", gap:8 }}>
-        <Mini l="Órdenes recibidas" v={recibidas.length} nota={`${tipoN("arreglo")} arreglos · ${tipoN("marcacion")} marcaciones · ${tipoN("garantia")} garantías`}/>
-        <Mini l="Entregadas a clientes" v={entregadas.length}/>
-        <Mini l="Cobrado por servicios" v={fmtCOP(cobrado)} nota="Desde el botón Cobrar"/>
-        <Mini l="Tardan en recoger" v={espera===null ? "—" : `${dec(espera)} días`} nota="De Lista en tienda a entregada"/>
-        <Mini l="Solicitudes internas" v={`${solResp.length} de ${solHechas.length}`} nota={resp===null ? "Respondidas · hechas este mes" : `Respondidas en ${dec(resp)} días háb. en promedio`}/>
+      <div style={grid3}>
+        {tarjeta("Recibidas y entregadas", <IndBarrasPar meses={meses3.map(k=>({ k, a:ext.filter(op=>enMes(op.fecha,k)).length, b:entregadas(k).length }))} series={[{ k:"a", label:"Recibidas", color:"#265D7F" },{ k:"b", label:"Entregadas", color:"#1B7A41" }]}/>)}
+        {tarjeta("Qué llegó este mes", <div style={{ display:"flex", alignItems:"center", gap:14 }}><IndDona partes={partes} total={recibidasMes.length}/>{leyendaTipos(partes)}</div>)}
+        {tarjeta("Este mes", <>
+          {dato("check", entregadasMes.length, "Entregadas a clientes")}
+          {dato("cash", fmtCOP(cobrado), "Cobrado por servicios")}
+          {dato("clock", espera===null ? "—" : `${dec(espera)} días`, "Tardan en recoger")}
+        </>)}
       </div>
     </div>
   );
 }
-// ── SCREEN: Operaciones · Por tienda (admins y Visualizador) ─────────────────
-function OperacionesTiendasScreen({ ops, sols, stores, estado, onCargar, onPedirFiltro, isMobile }) {
+// ── SCREEN: Operaciones · Indicadores (una sola pestaña con dos partes) ──────
+// "Tiendas" (se abre primero) y "Tiempos" (el % a tiempo de OperacionesIndicadoresScreen). Pedido
+// de Santiago: que el cumplimiento quede como una parte más de los indicadores, para suavizar el
+// cambio para el líder de Operaciones. Cada parte se ve según su permiso.
+function OperacionesIndicadoresHub(props) {
+  const { user, ops, sols, stores, estado, onCargar, onPedirFiltro, isMobile } = props;
+  const verTiendas = puedeOper(user, "operaciones.tienda.ver"), verTiempos = puedeOper(user, "operaciones.indicadores.ver");
+  const [seccion, setSeccion] = useState(verTiendas ? "tiendas" : "tiempos");
   const [tid, setTid] = useState("");
-  useEffect(()=>{ onCargar(5*60000); }, []);
+  const [tipo, setTipo] = useState("ext");
+  useEffect(()=>{ if(verTiendas) onCargar(5*60000); }, []);
   const tiendas = tiendasVenta(stores).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const seg = (on) => ({ display:"inline-flex", alignItems:"center", gap:6, height:34, padding:"0 14px", border:"none", cursor:"pointer", fontFamily:font.body, fontSize:13, fontWeight:on?700:500, background:on?C.goldDark:"#fff", color:on?C.tinta:C.textSub, whiteSpace:"nowrap" });
+  const caja = { display:"inline-flex", border:`1px solid ${C.border}`, borderRadius:10, overflow:"hidden" };
   return (
     <div style={{ maxWidth:1100, margin:"0 auto" }}>
-      <PageHeader title="Operaciones por tienda" subtitle="Lo que cada tienda tiene pendiente y cómo le va este mes"/>
-      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:16 }}>
-        <button type="button" onClick={()=>setTid("")} style={operPildora(tid==="")}>Todas</button>
-        {tiendas.map(t=><button key={t.id} type="button" onClick={()=>setTid(t.id)} style={operPildora(tid===t.id)}><span style={{ width:8, height:8, borderRadius:"50%", background:colorTienda(t) }}/>{nombreTiendaCorto(t)}</button>)}
-      </div>
-      {estado!=="listo" && !(ops||[]).length
-        ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>Cargando…</div></Card>
-        : <OperPanelTienda ops={ops} sols={sols} tiendaId={tid} isMobile={isMobile} onIr={(f)=>onPedirFiltro(f, tid)}/>}
+      <PageHeader title="Indicadores" subtitle="Cómo van las tiendas y los tiempos de Operaciones"/>
+      {verTiendas && verTiempos && (
+        <div style={{ ...caja, marginBottom:16 }}>
+          <button type="button" onClick={()=>setSeccion("tiendas")} style={seg(seccion==="tiendas")}><Icon n="store" s={14}/>Tiendas</button>
+          <button type="button" onClick={()=>setSeccion("tiempos")} style={seg(seccion==="tiempos")}><Icon n="clock" s={14}/>Tiempos</button>
+        </div>
+      )}
+      {seccion==="tiempos"
+        ? <OperacionesIndicadoresScreen {...props} embebido/>
+        : <>
+          <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center", marginBottom:16 }}>
+            <div style={caja}>
+              <button type="button" onClick={()=>setTipo("ext")} style={seg(tipo==="ext")}><Icon n="wrench" s={14}/>Externas · clientes</button>
+              <button type="button" onClick={()=>setTipo("int")} style={seg(tipo==="int")}><Icon n="box" s={14}/>Internas · tiendas</button>
+            </div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              <button type="button" onClick={()=>setTid("")} style={operPildora(tid==="")}>Todas</button>
+              {tiendas.map(t=><button key={t.id} type="button" onClick={()=>setTid(t.id)} style={operPildora(tid===t.id)}><span style={{ width:8, height:8, borderRadius:"50%", background:colorTienda(t) }}/>{nombreTiendaCorto(t)}</button>)}
+            </div>
+          </div>
+          {estado!=="listo" && !(ops||[]).length
+            ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>Cargando…</div></Card>
+            : <OperPanelTienda ops={ops} sols={sols} tiendaId={tid} tipo={tipo} isMobile={isMobile} onIr={(f,t)=>onPedirFiltro(f, tid, t)}/>}
+        </>}
     </div>
   );
 }
@@ -15060,12 +15185,12 @@ function OperacionesTiendasScreen({ ops, sols, stores, estado, onCargar, onPedir
 function OperacionesTiendaScreen(props) {
   const [sub, setSub] = useState(props.foco?.tipo==="int" ? "internas" : "externas");
   useEffect(()=>{ if(props.foco) setSub(props.foco.tipo==="int" ? "internas" : "externas"); }, [props.foco?.t]);
-  useEffect(()=>{ if(props.pedidoFiltro) setSub("externas"); }, [props.pedidoFiltro?.t]);
+  useEffect(()=>{ if(props.pedidoFiltro) setSub(props.pedidoFiltro.tipo==="int" ? "internas" : "externas"); }, [props.pedidoFiltro?.t]);
   return (
     <div>
       {puedeOper(props.user, "operaciones.tienda.ver") && (
         <div style={{ maxWidth:1100, margin:"0 auto" }}>
-          <OperPanelTienda ops={props.ops} sols={props.sols} tiendaId={props.user.tienda_id} isMobile={props.isMobile} onIr={(f)=>props.onPedirFiltro(f, "")}/>
+          <OperPanelTienda ops={props.ops} sols={props.sols} tiendaId={props.user.tienda_id} tipo={sub==="internas"?"int":"ext"} isMobile={props.isMobile} onIr={(f,t)=>props.onPedirFiltro(f, "", t)}/>
         </div>
       )}
       <div style={{ display:"flex", gap:8, marginBottom:16, maxWidth:1100, marginLeft:"auto", marginRight:"auto" }}>
@@ -15498,7 +15623,7 @@ export default function App() {
   // a Ventas todos los admin arrancan en Métricas.
   const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : "");
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
-  const propsOperaciones = { user, users, stores, ventas, onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, sols:opInternas, setSols:setOpInternas, foco:opFoco, onFocoUsado:()=>setOpFoco(null), pedidoFiltro:opPedido, onFiltroUsado:()=>setOpPedido(null), onPedirFiltro:(ficha,tienda)=>{ setOpPedido({ ficha, tienda, t:Date.now() }); if(!esCuentaTienda(user)) setTab("op_externas"); }, onIrA:(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
+  const propsOperaciones = { user, users, stores, ventas, onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, sols:opInternas, setSols:setOpInternas, foco:opFoco, onFocoUsado:()=>setOpFoco(null), pedidoFiltro:opPedido, onFiltroUsado:()=>setOpPedido(null), onPedirFiltro:(ficha,tienda,tipo="ext")=>{ setOpPedido({ ficha, tienda, tipo, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, onIrA:(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
       if(area==="junta"){
@@ -15515,8 +15640,7 @@ export default function App() {
       } else if(area==="operaciones"){
         if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesExternasScreen {...propsOperaciones}/>;
         if(tab==="op_internas" && puedeOper(user, "operaciones.ver")) return <OperacionesInternasScreen {...propsOperaciones}/>;
-        if(tab==="op_tiendas" && puedeOper(user, "operaciones.tienda.ver")) return <OperacionesTiendasScreen {...propsOperaciones}/>;
-        if(tab==="op_indicadores" && puedeOper(user, "operaciones.indicadores.ver")) return <OperacionesIndicadoresScreen {...propsOperaciones}/>;
+        if(tab==="op_indicadores" && (puedeOper(user, "operaciones.indicadores.ver") || puedeOper(user, "operaciones.tienda.ver"))) return <OperacionesIndicadoresHub {...propsOperaciones}/>;
       } else if(area==="capacitacion"){
         if(tab==="mis_cursos" && tomaCapacitaciones(user)) return <CapacitacionMisCursosScreen {...propsCapacitacion}/>;
         if(tab==="progreso")     return <CapacitacionProgresoScreen users={users} {...propsCapacitacion}/>;
@@ -15668,7 +15792,7 @@ export default function App() {
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
   const mostrarTienda = esAreaVentas && (tab==="registrar" || tab==="caja");
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
-  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas" || tab==="op_tiendas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
+  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
   const panel = <div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div>;
 
   if(isMobile) return (

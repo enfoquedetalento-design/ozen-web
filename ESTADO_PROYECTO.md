@@ -965,8 +965,15 @@ al líder) son solo para la junta. Para las tiendas se hizo `OperPanelTienda`: "
 reclamar — tocar uno abre Externas con ese filtro, `OPER_FILTROS_EXTRA` / `opPedido` en `App`) y
 "Así va en <mes>" (recibidas por tipo, entregadas, cobrado por servicios, cuánto tardan los
 clientes en recoger, solicitudes internas respondidas y en cuántos días). Sin % a tiempo ni
-comparación entre tiendas. La cuenta de tienda lo ve arriba de su Operaciones (solo su tienda); los
-admins y el Visualizador en la pestaña nueva **"Por tienda"** con selector de tienda o Todas.
+comparación entre tiendas. La cuenta de tienda lo ve arriba de su Operaciones (solo su tienda, y sigue su selector
+Externas / Internas). **Rediseño (18 nov, pedido de Santiago):** ya no hay pestaña "Por tienda": hay
+UNA pestaña **"Indicadores"** (`OperacionesIndicadoresHub`) con dos partes, **Tiendas** (se abre
+primero; selector Externas/Internas y tienda o Todas) y **Tiempos** (el % a tiempo de
+`OperacionesIndicadoresScreen`, con `embebido`). Motivo: suavizar el cambio para Edwin — que el
+cumplimiento sea una parte más de los indicadores. Más visual: fichas con ícono (`IndFicha`),
+barras de 2 series de los últimos 3 meses (`IndBarrasPar`: recibidas/entregadas o
+hechas/respondidas), dona por tipo (`IndDona`, colores fijos por tipo en `OPER_COLOR_TIPO`).
+Internas: Nuevas, En gestión, Atrasadas, Respondidas (tocar filtra Internas; `opPedido.tipo`).
 Permiso `operaciones.tienda.ver` (tiendas, admins, Visualizador; los asesores no entran a Operaciones).
 
 **Datos reales del Excel (18 nov 2026):** Santiago cambió la decisión de "empezar en limpio": los
