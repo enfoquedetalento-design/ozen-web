@@ -1048,6 +1048,10 @@ el líder los tiene por `OPER_ACCIONES_LIDER`).
   del Excel") y 2.120 filas (11.108 etiquetas). Próximo PLU: 3007. Se puede recargar mientras no haya
   lotes guardados desde la app. El reparto histórico no se cargó.
 - **Orden:** `operaciones_05_producto.sql` → `producto_importar_excel_1` → `_2` → `_3` → `_4` → probar en práctica.
+- **Felipe** (creó el Excel de etiquetas) también entra a Producto para probarlo y corregir:
+  `sql/operaciones_producto_felipe.sql` siembra los 4 permisos de Producto solo para Master y le da
+  a Felipe excepciones "extra" (operaciones.ver + los 4 de Producto). Santiago aprobó Producto en
+  práctica el 18 nov 2026 ("todo perfecto") y pidió publicarlo en `main`.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
