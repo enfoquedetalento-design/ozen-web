@@ -750,6 +750,8 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
     la tarjeta del selector de módulos y su pantalla. Sus tablas ya están creadas en la base real.
     **Cada vez que se pase `staging` a `main`, volver a poner este interruptor** hasta que Santiago
     diga que Operaciones está listo; ese día se cambia a `true` (o se quita).
+    **18 nov 2026: Operaciones LISTO (lo aprobó Santiago). Al publicarlo se lleva el `src/App.jsx`
+    de `staging` tal cual, SIN el interruptor (ya no hace falta esconderlo).**
   - El SQL de Permisos y de Operaciones ya se corrió en la base REAL el 17 nov (ver abajo).
   - (Lo que sigue era el plan anterior, cuando el paso a `main` esperaba a Operaciones.)
   - **Paso a `main`: EN ESPERA de Operaciones.** No se puede pasar solo Permisos: la Fase 2 de
@@ -777,7 +779,7 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
 - Las ramas `main` y `staging` tienen historias distintas (100 y 37 commits propios) aunque el
   código es casi igual: revisar con cuidado antes de pasar este módulo a `main`.
 
-## Módulo "Operaciones" (10 nov 2026) — Partes 1, 2 y 3 en `staging`
+## Módulo "Operaciones" (10 nov 2026) — TERMINADO en `staging`; listo para publicar (18 nov 2026)
 
 Reemplaza al Excel "Operaciones" de Google Sheets (hojas OP EXTERNO, OP INTERNO, ORDEN y Gestión
 de garantías). Alcance definido con Santiago el 10 nov 2026; se construye en 4 partes, cada una
@@ -975,6 +977,10 @@ el % a tiempo ("Tiempos de entrega y de respuesta", `OperacionesIndicadoresScree
 fichas con ícono (`IndFicha`), barras de 2 series de 3 meses (`IndBarrasPar`), dona por tipo
 (`IndDona`, colores fijos `OPER_COLOR_TIPO`).
 Permiso `operaciones.tienda.ver` (tiendas, admins, Visualizador; los asesores no entran a Operaciones).
+
+**18 nov 2026: Santiago probó todo en práctica (incluido el celular): bien. Operaciones queda LISTO
+para pasar a `main` junto con Permisos** (ver "Orden para publicar en la REAL" abajo y la sección
+de Permisos: el paso a `main` lo prepara ese chat, cuidando el `.env`).
 
 **Ajustes del 18 nov 2026 (tarde):**
 - **Venta eliminada → la orden vuelve a Debe:** `eliminarVenta` (Ventas) llama a `operVentaEliminada`,
