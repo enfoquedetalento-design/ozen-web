@@ -940,6 +940,17 @@ solicitud es más compacto (pasos más pequeños, datos en menos espacio, sin "R
 en un recuadro) y los Movimientos quedan plegados (`OperMovimientos`); la lista de clientes
 conocidos solo se arma al crear una orden.
 
+**Indicadores rediseñados (18 nov 2026):** miden el trabajo del líder con "¿se cumplió a tiempo?",
+**meta 90%** (verde ≥90, ámbar 70-89, rojo <70), separados en Externas / Internas, por periodo
+(este mes, 3, 6 meses, o tocando un mes en las barras). Arriba: % grande con anillo, cuántos de
+cuántos, cambio frente al periodo anterior y tiempo promedio; barras mes a mes con la meta; por
+tienda; por tipo; "Ahora mismo". **Externas:** cada orden cuenta en el mes en que debía estar lista
+(fecha original); a tiempo = `operTiempo` "a_tiempo"; las abiertas vencidas o reprogramadas cuentan
+como no a tiempo; las que aún no vencen no cuentan. **Internas (decisión de Santiago):** a tiempo =
+completada o rechazada dentro de 5 días hábiles desde su creación; cuenta en el mes en que se
+cumplían esos 5 días. Lo cerrado del Excel no se mide (sin fecha de Lista/cierre). Trae solo
+columnas necesarias, 12 meses + lo abierto, de a 1000 filas, con caché de 5 min (`operIndCache`).
+
 **Datos reales del Excel (18 nov 2026):** Santiago cambió la decisión de "empezar en limpio": los
 datos del Excel se pasan a la app, en práctica para probar y en la REAL justo después de publicar.
 `sql/operaciones_importar_excel.sql` (⚠️ NO va a git: tiene nombres y teléfonos de clientes) carga
