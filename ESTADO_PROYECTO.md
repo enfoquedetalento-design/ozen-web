@@ -735,10 +735,25 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
     Alertas nuevas en `permAvisos`: rol (no master) con un permiso sensible que el código no le
     daba; persona con un permiso sensible como extra personal; excepciones de cuentas inactivas
     o borradas.
-  - Con esto la Fase 4 queda completa en `staging`. Siguiente: pasar TODO a `main` (correr antes
-    en la base REAL, en orden: `sql/pulso_versiones.sql` si aún no está, `sql/permisos_fase2.sql`,
-    `sql/permisos_fase3.sql`). Ojo: `staging` también trae Operaciones y otros cambios de otros
-    chats; confirmar con Santiago antes de pasar.
+  - **17 nov 2026: Santiago probó "Ver como" y las alertas: bien. Módulo Permisos TERMINADO en
+    `staging` (Fases 1 a 4).**
+  - **Paso a `main`: EN ESPERA de Operaciones.** No se puede pasar solo Permisos: la Fase 2 de
+    Permisos subió en el mismo commit que Operaciones parte 1, y las dos tocan las mismas partes
+    de `src/App.jsx`. Santiago decidió (17 nov) que Operaciones todavía no se puede publicar, así
+    que TODO `staging` pasa a `main` junto, cuando el chat de Operaciones diga que su módulo está
+    listo. Mientras tanto, en producción siguen las ventanitas del navegador (`window.confirm`).
+  - **Cuando llegue el momento** (lo prepara el chat de Permisos, paso a paso, confirmando antes
+    en qué rama está la carpeta):
+    1. En la base REAL (proyecto OZEN), en este orden: `sql/permisos_fase2.sql`,
+       `sql/permisos_fase3.sql` y el SQL de Operaciones (`sql/operaciones.sql` y lo que ese chat
+       indique). `sql/pulso_versiones.sql` ya debería estar en la real (main ya tiene el pulso):
+       confirmarlo.
+    2. Pasar `staging` a `main` CUIDANDO EL `.env`: está guardado en git y es distinto en cada
+       rama (cada una apunta a su base). `main` debe quedarse con el suyo.
+    3. Probar en la real con Master: Permisos, Caja y una confirmación.
+  - Para el chat de Operaciones, antes de publicar: pasar `OPER_PERMISOS` al formato común
+    (`registrarPermisos` + `puede()`, ver la REGLA más arriba) para que sus permisos salgan en el
+    tablero. Es recomendable, no obligatorio.
 
 - Las ramas `main` y `staging` tienen historias distintas (100 y 37 commits propios) aunque el
   código es casi igual: revisar con cuidado antes de pasar este módulo a `main`.
