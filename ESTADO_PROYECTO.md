@@ -710,8 +710,8 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
   `registrarPermisos({ grupo, label, ic, permisos:[{ id, label, r:{ rol:1 | "condición" },
   sensible?, soloVer?, pedir?, pasivo?, nota? }] })` (tiene que ir más abajo de donde se define
   esa función) y pregunta con `puede(user, "modulo.accion")` en vez de `user.role===...`. El
-  tablero de Permisos los muestra solo y avisa si falta sembrarlos en la base. Operaciones aún
-  usa su propio `OPER_PERMISOS`; pasarlo a este formato le toca al chat de Operaciones.
+  tablero de Permisos los muestra solo y avisa si falta sembrarlos en la base. Operaciones ya usa
+  este formato (17 nov 2026, ver su sección).
 - **Fase 4 (en curso).** Santiago probó La Junta, Escuela y Cuenta (Fase 3 completa en `staging`)
   y decidió pasar TODO a `main` junto, al final de la Fase 4.
   - **Parte 1 — edición (17 nov 2026, en `staging`, falta que la pruebe):** el tablero ya lee de
@@ -737,6 +737,21 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
     o borradas.
   - **17 nov 2026: Santiago probó "Ver como" y las alertas: bien. Módulo Permisos TERMINADO en
     `staging` (Fases 1 a 4).**
+  - **17 nov 2026, noche: Permisos PUBLICADO en `main` (producción), sin esperar a Operaciones.**
+    Santiago cambió de idea: Permisos sale ya y cada módulo pasa a la real cuando esté listo.
+    Cómo se hizo: en una copia aparte de `main` (`git worktree add _publicar main`) se llevaron
+    desde `staging` (lo ya subido, no lo que Operaciones tenía a medias) `src/App.jsx`,
+    `ESTADO_PROYECTO.md` y `sql/{operaciones,permisos_fase2,permisos_fase3}.sql`. `main` conservó
+    su `.env` y `scripts/congelar-mes-junta.js` (apuntan a la base real). No se usó `git merge`:
+    las ramas tienen historias separadas y daba 26 choques; `main` no tenía nada que `staging` no
+    tuviera, salvo la fecha "creada" en las tareas de La Junta, que `staging` ya había quitado.
+  - **Operaciones está ESCONDIDO en `main`** con `const OPERACIONES_VISIBLE = false;` (SOLO existe
+    en `main`, junto a `ADMIN_TABS_OPERACIONES`): oculta el área, la pestaña de la cuenta de tienda,
+    la tarjeta del selector de módulos y su pantalla. Sus tablas ya están creadas en la base real.
+    **Cada vez que se pase `staging` a `main`, volver a poner este interruptor** hasta que Santiago
+    diga que Operaciones está listo; ese día se cambia a `true` (o se quita).
+  - El SQL de Permisos y de Operaciones ya se corrió en la base REAL el 17 nov (ver abajo).
+  - (Lo que sigue era el plan anterior, cuando el paso a `main` esperaba a Operaciones.)
   - **Paso a `main`: EN ESPERA de Operaciones.** No se puede pasar solo Permisos: la Fase 2 de
     Permisos subió en el mismo commit que Operaciones parte 1, y las dos tocan las mismas partes
     de `src/App.jsx`. Santiago decidió (17 nov) que Operaciones todavía no se puede publicar, así
@@ -744,6 +759,10 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
     listo. Mientras tanto, en producción siguen las ventanitas del navegador (`window.confirm`).
   - **Cuando llegue el momento** (lo prepara el chat de Permisos, paso a paso, confirmando antes
     en qué rama está la carpeta):
+    0. **YA HECHO el 17 nov 2026 (Santiago, en la base REAL):** `sql/pulso_versiones.sql` (28
+       tablas), `sql/permisos_fase2.sql` (200 filas), `sql/permisos_fase3.sql` (2 filas) y
+       `sql/operaciones.sql`. Ese día solo falta correr el SQL NUEVO que Operaciones haya agregado
+       después. Los pasos de abajo quedan como referencia.
     1. En la base REAL (proyecto OZEN), en este orden: `sql/permisos_fase2.sql`,
        `sql/permisos_fase3.sql` y el SQL de Operaciones (`sql/operaciones.sql` y lo que ese chat
        indique). `sql/pulso_versiones.sql` ya debería estar en la real (main ya tiene el pulso):
@@ -829,6 +848,19 @@ probada en práctica antes de seguir.
   orden pasa sola a "Pago" con `venta_id` y un movimiento "cobro" en su historial. Cobran quienes
   ya pueden guardar ventas: cuentas de tienda, Master y Admin Finanzas
   (`operaciones.externas.cobrar`). El pago a mano solo lo corrige el líder o Master.
+
+**Permisos en el formato común (17 nov 2026, en `staging`, sin SQL nuevo):** el antiguo
+`OPER_PERMISOS` se reemplazó por `registrarPermisos({ grupo:"operaciones", ... })` con 9 permisos
+(`operaciones.ver`, `.externas.crear`, `.externas.avanzar`, `.externas.cobrar`, `.externas.pago`,
+`.externas.devolver`, `.externas.cancelar`, `operaciones.garantias.decidir`,
+`operaciones.lider.asignar`); los 4 sensibles son solo de Master. `puedeOper(user, accion, liderId)`
+ahora es `puede(user, accion)` **o** ser el líder de Operaciones para las acciones de
+`OPER_ACCIONES_LIDER` (crear, avanzar, pago, devolver, cancelar, decidir garantías). El líder va
+aparte del tablero porque es una persona elegida en Operaciones, no un rol. Se comprobó con una
+prueba de todos los roles, con y sin líder: 0 diferencias en quién puede qué frente a antes. La
+pestaña "Operaciones" de la cuenta de tienda ahora también depende de `operaciones.ver`. Sin
+sembrar en la base todo funciona igual (lo del código manda); el tablero los siembra solo al
+tocarlos por primera vez.
 
 **Lo que sigue:** parte 2 = pantalla de Internas (la tabla ya existe). Parte 3 = Indicadores y
 alertas de atraso.

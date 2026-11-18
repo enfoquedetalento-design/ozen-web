@@ -1056,7 +1056,7 @@ const permisosTurnos = (user) => {
   return { ...t, administrar: t.asesores || t.tiendas || t.especiales || t.horarios, algo: Object.values(t).some(Boolean) };
 };
 const tabsPara = (user, area) => !puedeUsarAreas(user)
-  ? (esCuentaTienda(user) ? [...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : []), { id:"op_externas", icon:"🧰", label:"Operaciones" }] : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
+  ? (esCuentaTienda(user) ? [...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : []), ...(puedeOper(user, "operaciones.ver") ? [{ id:"op_externas", icon:"🧰", label:"Operaciones" }] : [])] : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
   : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
@@ -13511,28 +13511,33 @@ function CapacitacionAdminScreen({ cursos, setCursos, lecciones, setLecciones, p
 // defecto solo lo abierto + lo cerrado en los últimos 90 días (ver cargarOperaciones en App) — la
 // cuenta de Supabase ya pasó su tope de descarga.
 
-// Permisos de Operaciones por ACCIÓN con nombre — pensados para pasarlos tal cual al tablero de
-// Permisos (cada clave será una fila de PERMISOS cuando ese tablero mande). `l` = id de usuario
-// del líder de Operaciones (tabla operaciones_config, clave "lider_usuario_id").
-const OPER_ROLES_VEN = ["master","admin","admin_finanzas","admin_turnos","visualizador","tienda"];
-const OPER_ROLES_REGISTRAN = ["master","admin","admin_finanzas","admin_turnos","tienda"];
+// Permisos de Operaciones — formato común del tablero de Permisos (REGLA PARA TODOS LOS CHATS en
+// ESTADO_PROYECTO.md): se declaran aquí con registrarPermisos y se preguntan con puede(). Los roles
+// de `r` son EXACTAMENTE los que tenía el antiguo OPER_PERMISOS (17 nov 2026, sin cambiar quién
+// puede qué). Desde el tablero se pueden dar o quitar por rol o por persona.
+// El LÍDER de Operaciones va aparte, fuera del tablero: es una persona que Master elige en la
+// pantalla de Operaciones (tabla operaciones_config, clave "lider_usuario_id"), no un rol. Las
+// acciones de OPER_ACCIONES_LIDER las tiene el líder aunque su rol no las tenga.
+const OPER_ROLES_REGISTRAN = { master:1, admin:1, admin_finanzas:1, admin_turnos:1, tienda:1 };
+const OPER_NOTA_LIDER = "El líder de Operaciones también lo tiene, aunque su rol no (se elige en Operaciones)";
+registrarPermisos({ grupo:"operaciones", label:"Operaciones", ic:"box", permisos:[
+  { id:"operaciones.ver", label:"Entrar a Operaciones y ver las órdenes", soloVer:true,
+    r:{ ...OPER_ROLES_REGISTRAN, visualizador:1 }, nota:"La cuenta de tienda solo ve las órdenes de su tienda" },
+  { id:"operaciones.externas.crear", label:"Crear una orden (Nueva orden)", r:{ ...OPER_ROLES_REGISTRAN }, nota:OPER_NOTA_LIDER },
+  { id:"operaciones.externas.avanzar", label:"Pasar una orden a la siguiente etapa", r:{ ...OPER_ROLES_REGISTRAN }, nota:OPER_NOTA_LIDER },
+  { id:"operaciones.externas.cobrar", label:"Cobrar una orden (botón Cobrar → Registrar venta)",
+    r:{ master:1, admin_finanzas:1, tienda:1 }, nota:"Guardar la venta depende además del permiso de registrar ventas" },
+  { id:"operaciones.externas.pago", label:"Corregir a mano el estado de pago de una orden", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
+  { id:"operaciones.externas.devolver", label:"Devolver una orden a la etapa anterior", r:{ master:1 }, nota:OPER_NOTA_LIDER },
+  { id:"operaciones.externas.cancelar", label:"Cancelar una orden", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
+  { id:"operaciones.garantias.decidir", label:"Decidir si una garantía se cubre", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
+  { id:"operaciones.lider.asignar", label:"Elegir al líder de Operaciones", sensible:true, r:{ master:1 } },
+]});
 const esLiderOperaciones = (user, liderId) => !!user && !!liderId && String(user.id)===String(liderId);
-const operRegistra = (u, l) => OPER_ROLES_REGISTRAN.includes(u.role) || esLiderOperaciones(u, l);
-const operManda = (u, l) => u.role==="master" || esLiderOperaciones(u, l);
-const OPER_PERMISOS = {
-  "operaciones.ver":               (u) => OPER_ROLES_VEN.includes(u.role),
-  "operaciones.externas.crear":    operRegistra,
-  "operaciones.externas.avanzar":  operRegistra,
-  // El pago ya no se cambia a mano: se cobra en Registrar venta (botón "Cobrar" de la orden) y la
-  // orden pasa sola a Pago. Solo el líder o Master pueden corregirlo a mano si algo quedó mal.
-  "operaciones.externas.pago":     operManda,
-  "operaciones.externas.cobrar":   (u) => puedeRegistrarVenta(u) || esCuentaTienda(u),
-  "operaciones.externas.devolver": operManda,
-  "operaciones.externas.cancelar": operManda,
-  "operaciones.garantias.decidir": operManda,
-  "operaciones.lider.asignar":     (u) => u.role==="master",
-};
-const puedeOper = (user, accion, liderId) => !!user && !!OPER_PERMISOS[accion] && !!OPER_PERMISOS[accion](user, liderId);
+const OPER_ACCIONES_LIDER = new Set(["operaciones.externas.crear","operaciones.externas.avanzar","operaciones.externas.pago","operaciones.externas.devolver","operaciones.externas.cancelar","operaciones.garantias.decidir"]);
+// Pregunta única de Operaciones: lo que diga el tablero (puede) o, para las acciones del líder, ser
+// el líder. `liderId` se pasa donde se conoce (pantalla de Operaciones); sin él, solo cuenta el rol.
+const puedeOper = (user, accion, liderId) => !!user && (puede(user, accion) || (OPER_ACCIONES_LIDER.has(accion) && esLiderOperaciones(user, liderId)));
 
 const OPER_TIPOS_EXT = [
   { value:"arreglo",   label:"Arreglo",   ic:"wrench" },
@@ -14601,7 +14606,7 @@ export default function App() {
       if(tab==="lista" && puede(user, "ventas.lista.ver")) return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas" && puede(user, "ventas.metricas.ver")) return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puede(user, "ventas.metas.asignar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
       if(tab==="caja" && puede(user, "caja.ver")) return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
-      if(tab==="op_externas") return <OperacionesExternasScreen {...propsOperaciones}/>;
+      if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesExternasScreen {...propsOperaciones}/>;
       // La misma pantalla de Turnos que ven todos (encabezado de mes incluido), pero sin Editar ni
       // Administrar — la cuenta de tienda ve quién tiene turno sin poder cambiar nada.
       if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={false} userName={user.name}/>;
