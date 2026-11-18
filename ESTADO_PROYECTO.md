@@ -1016,6 +1016,39 @@ descargarlo no entra). Corrido en práctica el 18 nov: 395 + 318 cargadas.
 Cuando Santiago diga que Operaciones está listo, se publica en `main` junto con Permisos (ver la
 sección de Permisos: lo prepara ese chat).
 
+### Operaciones · Producto (18 nov 2026) — en `staging`, sin probar por Santiago
+
+Reemplaza el Excel **"Modelo Pricing"** (generador de etiquetas). Pestaña **Producto** dentro de
+Operaciones, solo para **Edwin (como líder) y Master** (decisión de Santiago). Código: bloque
+"Operaciones · Producto" en `src/App.jsx` (`OperacionesProductoScreen`, `ProdGenerar`, `ProdLotes`,
+`ProdProductos`, `ProdCodex`). Permisos: `operaciones.producto.ver/generar/codex/precio` (rol master;
+el líder los tiene por `OPER_ACCIONES_LIDER`).
+
+- **Cómo funciona el Excel (y la app igual):** hoja Codex = cada opción con código de 2 cifras y
+  valor. Referencia = códigos pegados en orden línea, modelo, categoría, material base, material
+  adicional, tamaño, talla, grosor, motivo (18 cifras; 19 si el motivo pasa de 99). Precio =
+  REDONDEAR.MAS((línea + mat. base + mat. adicional + modelo + tamaño + grosor) × factor de
+  categoría; -4) − 1.000. Categorías Golden (`por_costo`): costo × factor. Proveedor, talla y motivo
+  no suman. **PLU va por referencia** (no por proveedor); código de etiqueta = código proveedor + PLU
+  (14 + 2135 = 142135); en la etiqueta va el precio en miles (189). PLU nuevo = mayor + 1.
+- **Tablas** (`sql/operaciones_05_producto.sql`): `producto_codex`, `producto_productos`,
+  `producto_lotes`, `producto_entradas`. El lote se guarda con la función `producto_guardar_lote`
+  (asigna los PLU en la base con candado, para que dos personas no saquen el mismo).
+- **Decisiones de Santiago:** Edwin y Master editan el Codex (agregar opciones y cambiar valores; el
+  código lo pone la app). El precio de la fórmula se puede cambiar a mano con motivo. Una referencia
+  que ya existe conserva su precio (la app muestra lo que daría la fórmula hoy). Reparto solo entre
+  las tiendas OZEN que venden. Siigo maneja productos POR LÍNEA: el archivo para Siigo sale solo
+  para líneas nuevas (`siigo_codigo` vacío).
+- **Descargas por lote:** NiceLabel (mismas columnas y nombres del Consolidado; la impresora
+  DigitalPOS imprime con NiceLabel, la app no imprime), Excel para David / OZEN Club (sin costos) y
+  reparto por tienda (resumen + código por unidad, como "Asignación por punto"). Los .xlsx se arman
+  sin librerías (`prodXlsx`).
+- **Datos del Excel:** `sql/producto_importar_excel.sql` (⚠️ NO va a git: tiene costos) carga el
+  Codex (385 opciones), 2.007 productos, 9 lotes (por N° de pedido P0226-1…; lo demás en "Histórico
+  del Excel") y 2.120 filas (11.108 etiquetas). Próximo PLU: 3007. Se puede recargar mientras no haya
+  lotes guardados desde la app. El reparto histórico no se cargó.
+- **Orden:** `operaciones_05_producto.sql` → `producto_importar_excel.sql` → probar en práctica.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
