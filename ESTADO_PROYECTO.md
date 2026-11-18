@@ -1043,11 +1043,11 @@ el líder los tiene por `OPER_ACCIONES_LIDER`).
   DigitalPOS imprime con NiceLabel, la app no imprime), Excel para David / OZEN Club (sin costos) y
   reparto por tienda (resumen + código por unidad, como "Asignación por punto"). Los .xlsx se arman
   sin librerías (`prodXlsx`).
-- **Datos del Excel:** `sql/producto_importar_excel.sql` (⚠️ NO va a git: tiene costos) carga el
+- **Datos del Excel:** `sql/producto_importar_excel_1.sql` a `_4.sql`, en orden (⚠️ NO van a git: tienen costos; en un solo archivo de 800 KB el editor de Supabase no lo corría) cargan el
   Codex (385 opciones), 2.007 productos, 9 lotes (por N° de pedido P0226-1…; lo demás en "Histórico
   del Excel") y 2.120 filas (11.108 etiquetas). Próximo PLU: 3007. Se puede recargar mientras no haya
   lotes guardados desde la app. El reparto histórico no se cargó.
-- **Orden:** `operaciones_05_producto.sql` → `producto_importar_excel.sql` → probar en práctica.
+- **Orden:** `operaciones_05_producto.sql` → `producto_importar_excel_1` → `_2` → `_3` → `_4` → probar en práctica.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
