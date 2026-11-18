@@ -598,6 +598,256 @@ fusionar a `main`).
   módulo/pestaña: se abre desde el menú de la cuenta (la inicial, arriba a la derecha),
   para todos menos las cuentas de tienda.
 
+## Módulo "Permisos" (9 nov 2026) — Fase 1 en `staging`, sin probar por Santiago
+
+Tablero SOLO para master que muestra qué puede hacer cada rol y cada persona. Se construye en 4
+fases; cada una se cierra confirmando con Santiago antes de seguir.
+
+- **Fase 1 (hecha, solo lectura, no cambia ningún comportamiento):** en `src/App.jsx`, justo antes
+  de `TiendasAccesoScreen`, están `PERM_GRUPOS` y `PERMISOS` (59 permisos en 9 grupos, 18
+  sensibles), `permDePersona`, `permEtiquetasDe`, `permAvisos`, `PermisosScreen` y
+  `UsuariosYPermisos`. Se entra igual que a Usuarios (mantener presionado el logo): ahora hay dos
+  pestañas, Usuarios y Permisos. Permisos tiene "Matriz por rol" y "Por persona". No hace ninguna
+  consulta nueva a Supabase: usa `users` y `juntaLideres` que ya están cargados.
+- **Ojo:** `PERMISOS` es una FOTO de las comprobaciones repartidas por el código
+  (`user.role==="master"`, `esAdminDeVentas`, `puedeGestionarTurnos`, `soloLectura`...). Todavía
+  ninguna pantalla lee de ahí. Si se cambia una comprobación, hay que actualizar su fila.
+- Santiago decidió: el tablero muestra lo que el código HACE (no lo que dice el texto
+  `ROLE_PERMISOS`, que en "Administrador" está mal: dice que puede crear/editar asesores y tiendas
+  y en realidad solo master y admin_turnos pueden). La entrada va escondida junto a Usuarios.
+- Inventario para que Santiago lo revise y comente: documento "Inventario de permisos — OZEN-WEB
+  (Fase 1)" → https://claude.ai/artifact/XQpDVq6WPUMC7H3vpnohGa
+- **Revisión del inventario por Santiago (9 nov 2026, noche):** subió la Fase 1 a `staging`
+  (commit `1f21166`) y corrigió el documento. Ya aplicado en `staging`: el Visualizador ahora VE
+  la pestaña Registrar venta en modo solo ver, igual que un Admin (`puedeVerRegistrar`); se
+  corrigieron los textos de `ROLE_PERMISOS` (Administrador, Admin Turnos, Visualizador); y el
+  inventario quedó al día. Confirmó que quiere dejar así: Admin y Admin Turnos pueden llenar
+  Registrar venta sin guardar ("me gusta que vean cómo funciona"), ven Caja sin poder tocar y sí
+  reciben recolecciones; el Visualizador marca asistencia y firma documentos.
+- **Paolo / "Equipo admin" en Métricas:** el Top junta en una sola fila a los administrativos que
+  tienen meta ese mes; Paolo queda por fuera (aparece solo, como un asesor) porque cubre un turno
+  completo de asesor. Los otros 4 ya no cubren turnos, así que esa fila ya casi no aparece. Sigue
+  escrito por nombre en el código (`FUERA_DE_EQUIPO_ADMIN`); no se cambió nada.
+- **Fase 2 (hecha en `staging` el 9 nov 2026, falta que Santiago corra el SQL y la pruebe):**
+  - `sql/permisos_fase2.sql` crea `permisos_roles` (una fila = ese rol SÍ tiene ese permiso;
+    `condicion` vacía = siempre), `permisos_excepciones` y `permisos_historial`, y siembra
+    `permisos_roles` con exactamente lo que dice `PERMISOS` (61 permisos, 200 filas). Los
+    `usuario_id` van como texto y sin relación a `usuarios`, igual que en capacitaciones.
+    Si se cambia `PERMISOS` hay que regenerar ese archivo (sale del propio código).
+  - El tablero consulta `permisos_roles` UNA vez al abrirse y muestra si la base coincide con el
+    código (`permCompararConBase`). El código sigue mandando: nada lee todavía de la base.
+  - Tablero rediseñado (Santiago lo veía "ladrilludo"): pestañas Roles (tarjetas con nivel de
+    acceso por área), Personas, ¿Quién puede…?, Monitor y líderes, y Tabla completa.
+  - **Líder ↔ cuenta:** columna `junta_lideres.usuario_id`; se enlaza en Permisos → Monitor y
+    líderes (solo master). `liderEsDeUsuario` usa el enlace y, si no hay, compara por nombre como
+    antes. Cada enlace deja rastro en `permisos_historial`.
+  - **Pedir borrado de tareas:** columnas `borrado_solicitado_por` / `_en` en
+    `junta_compromisos`. El monitor pide borrar una tarea vencida o cumplida; master ve los
+    pedidos arriba en Seguimiento y aprueba (borra) o rechaza.
+- **Fase 3 (en curso — Caja migrada en `staging` el 12 nov 2026, falta que Santiago la pruebe):**
+  - Santiago cerró la Fase 2 el 12 nov: base al día (200 de 200), probó enlazar líderes y pedir
+    borrado, y el tablero nuevo le gustó.
+  - Función única `puede(user, "permiso", hechos?)` en `src/App.jsx` (después de
+    `permCompararConBase`). Orden: excepción personal → rol en `permisos_roles` → si la base no se
+    pudo leer, última copia buena en el navegador y, si no hay, el código (`PERMISOS`). Un
+    permiso desconocido nunca se concede; uno SENSIBLE sin sembrar en la base solo lo tiene
+    master; master nunca pierde `cuenta.permisos` ni `cuenta.usuarios`.
+  - `permisos_roles` y `permisos_excepciones` entran a `FUENTES` (se cargan al abrir, con el pulso
+    de versiones). `sql/permisos_fase3.sql` les instala el disparador del pulso.
+  - **Caja ya pregunta con `puede()`**: pestaña, registrar, fecha libre, recolección (registrar y
+    quién recibe), aprobar/editar novedades, borrar, pedir y resolver borrados, detalle del
+    cálculo. Probado rol por rol contra las comprobaciones viejas: cero diferencias. Lo de "su
+    tienda" de la cuenta de tienda sigue amarrado a `esCuentaTienda` (no es un permiso).
+  - **Ventas migrada el 13 nov 2026 (en `staging`, falta que Santiago la pruebe):** Registrar,
+    Lista y correcciones (dentro de `VentaCard`) y Métricas preguntan con `puede()`; las pestañas
+    salen de `PERMISO_DE_TAB_VENTAS`; `esVendedorPosible` usa `ventas.vendedor`. Para "solo hoy"
+    se pasa `{ hoy: v.fecha===todayStr }`. Probado rol por rol: cero diferencias. Sigue por rol
+    (no es permiso todavía): entrar al área Ventas (`puedeUsarVentasArea`, `areasPara`).
+  - Decisión de Santiago (13 nov): seguir migrando en `staging` y pasar TODO a `main` al terminar
+    la Fase 3, no por partes.
+  - Santiago probó Ventas el 13 nov (revisión rápida con las tres cuentas): bien.
+  - **Asistencia y Turnos migrados el 13 nov 2026 (en `staging`, falta que Santiago los pruebe):**
+    pestañas con `PERMISO_DE_TAB_ASISTENCIA` (`tabsAsistencia`, `tabsAsesor`); corregir
+    marcaciones = `asistencia.registros.corregir`; avisos de marcación = `asistencia.avisos`.
+    Turnos ya no usa un solo "puedeGestionar": `permisosTurnos(user)` da editar, publicar,
+    asesores, tiendas, especiales, horarios y mallaActivos por separado, y `TurnosScreen`,
+    `TurnosEditarScreen` y `TurnosAdminScreen` reciben `permisos`. Cero diferencias rol por rol.
+  - Santiago probó Asistencia y Turnos el 13 nov (revisión rápida): bien.
+  - **La Junta, Escuela y Cuenta migrados el 13 nov 2026 (en `staging`, falta que los pruebe):**
+    `puede()` ahora entiende las condiciones "si es Monitor" y "si es su tarea" con
+    `{ monitor:… }` / `{ suTarea:… }`. Perfiles y áreas usa `JuntaEquipoEditarContext`. En el
+    menú de la cuenta, "Acceso tiendas" y "Mi contraseña" salen solo si el permiso es sin
+    condición (`permCondicion(...)===null`), para que master siga sin verlos (los maneja desde
+    Usuarios). El logo abre Usuarios con `cuenta.usuarios` y la pestaña Permisos con
+    `cuenta.permisos`. Cero diferencias rol por rol (147 comparaciones).
+  - **Lo único que sigue por rol:** la navegación entre áreas (`puedeUsarAreas`, `areasPara`,
+    `eligeModulo`, `puedeUsarVentasArea`, `AreaSelector`) y "Operaciones" (su chat). Con eso la
+    Fase 3 queda lista para pasar a `main` cuando Santiago lo apruebe: ANTES correr en la base
+    real `sql/permisos_fase2.sql` y `sql/permisos_fase3.sql`. El tablero todavía pinta desde `PERMISOS` (código).
+  - **13 nov 2026 — Santiago probó Caja en `staging` (11 pasos, 3 tipos de cuenta): equivalente.**
+    Ajustes que pidió ese día: (1) quien solo mira Caja (admin, admin turnos, visualizador) ahora
+    entra por Registrar, sin el velo transparente ni el aviso: puede llenar los campos pero
+    ningún guardar le funciona (`avisoSoloVer`); (2) borrar y pedir/aprobar borrados en Caja usan
+    una confirmación propia de la app (`pedirConfirmacion`) en vez de `window.confirm`, porque en
+    su navegador la ventanita no salía y borraba sin preguntar; (3) en Registrar venta, el
+    "Recibo en curso" muestra la fecha completa en vez de "Hoy".
+  - Para probar hay datos falsos en práctica: `sql/staging_datos_prueba.sql` (15 días de ventas y
+    caja marcados con [PRUEBA]; se detiene solo si la base tiene movimiento real reciente) y
+    `sql/staging_datos_prueba_borrar.sql`. No hace falta subirlos con git.
+- **REGLA PARA TODOS LOS CHATS — confirmaciones:** ya NO se usa `window.confirm`. Para preguntar
+  "¿seguro?" se usa `confirmar("texto")` (definida antes de `Card` en `src/App.jsx`), dentro de una
+  función `async`: `if(!await confirmar("¿Borrar esto?")) return;`. Muestra un recuadro propio de
+  la app (`ConfirmacionGlobal`, montado en `App`). Motivo: en el navegador de Santiago la ventanita
+  del navegador no salía y la acción seguía sin preguntar. El 13 nov 2026 se cambiaron las 20 que
+  había en toda la app (Asistencia, Usuarios, Turnos, La Junta, Escuela) y las 6 de Caja.
+  Tampoco se usa `window.prompt`: cuando hay que ESCRIBIR una palabra para confirmar se usa
+  `if(!await confirmarEscribiendo("texto", "BORRAR")) return;` (mismo recuadro, con un campo; no
+  importan mayúsculas). Así quedaron las 4 de Ventas: reabrir Flexipago (REABRIR), Notacrédito y
+  Corregir factura (CORREGIR) y Eliminar venta (BORRAR). Nota: en la máquina de práctica ESLint
+  sobre `src/App.jsx` ya tarda unos 3 minutos; si se corta, correrlo otra vez o por fuera.
+- **REGLA PARA TODOS LOS CHATS — permisos de módulos nuevos:** un módulo nuevo NO edita la lista
+  `PERMISOS`. Declara sus permisos junto a su propio código con
+  `registrarPermisos({ grupo, label, ic, permisos:[{ id, label, r:{ rol:1 | "condición" },
+  sensible?, soloVer?, pedir?, pasivo?, nota? }] })` (tiene que ir más abajo de donde se define
+  esa función) y pregunta con `puede(user, "modulo.accion")` en vez de `user.role===...`. El
+  tablero de Permisos los muestra solo y avisa si falta sembrarlos en la base. Operaciones aún
+  usa su propio `OPER_PERMISOS`; pasarlo a este formato le toca al chat de Operaciones.
+- **Fase 4 (en curso).** Santiago probó La Junta, Escuela y Cuenta (Fase 3 completa en `staging`)
+  y decidió pasar TODO a `main` junto, al final de la Fase 4.
+  - **Parte 1 — edición (17 nov 2026, en `staging`, falta que la pruebe):** el tablero ya lee de
+    la base (`permValorRol`, `permExcepcionDe`) y sus interruptores escriben en ella. En "Roles"
+    un interruptor da/quita el permiso a todo el rol (`permisos_roles`); en "Personas" crea o
+    quita una excepción solo para esa persona (`permisos_excepciones`, "Extra personal" en verde
+    o "Quitado a esta persona" en rojo). Todo pide confirmación (`confirmar`), queda en
+    `permisos_historial` y se ve en la pestaña nueva "Historial". Master nunca puede perder
+    `cuenta.permisos` ni `cuenta.usuarios` (interruptor bloqueado). Un permiso de módulo que aún
+    no esté en la base se siembra con lo del código antes de tocarlo. El chip de arriba ahora dice
+    "La base manda · N cambios frente al código" cuando hay cambios hechos desde el tablero.
+  - Santiago probó la edición el 17 nov (quitar a un rol, dar a una persona, historial, deshacer): bien.
+  - **Parte 2 — "Ver como" y alertas (17 nov 2026, en `staging`, falta que la pruebe):**
+    En Permisos, al ver un rol o una persona hay un botón "Ver la app como…". En `App` el estado
+    de sesión ahora se llama `usuarioSesion` y `user = verComo || usuarioSesion`, así toda la app
+    se pinta como esa persona sin cerrar sesión. Mientras dura, NADA se guarda: `supabase.from`
+    (insert/update/delete/upsert), `supabase.storage` y `supabase.functions.invoke` responden con
+    un error (`permModoVerComo`, se activa con `permVerComoActivar`). Arriba sale una franja ámbar
+    con "Salir de «Ver como»", que vuelve a Usuarios/Permisos. Ver un ROL usa una cuenta de
+    ejemplo (`id: "rol:<rol>"`), sin excepciones personales.
+    Alertas nuevas en `permAvisos`: rol (no master) con un permiso sensible que el código no le
+    daba; persona con un permiso sensible como extra personal; excepciones de cuentas inactivas
+    o borradas.
+  - **17 nov 2026: Santiago probó "Ver como" y las alertas: bien. Módulo Permisos TERMINADO en
+    `staging` (Fases 1 a 4).**
+  - **17 nov 2026, noche: Permisos PUBLICADO en `main` (producción), sin esperar a Operaciones.**
+    Santiago cambió de idea: Permisos sale ya y cada módulo pasa a la real cuando esté listo.
+    Cómo se hizo: en una copia aparte de `main` (`git worktree add _publicar main`) se llevaron
+    desde `staging` (lo ya subido, no lo que Operaciones tenía a medias) `src/App.jsx`,
+    `ESTADO_PROYECTO.md` y `sql/{operaciones,permisos_fase2,permisos_fase3}.sql`. `main` conservó
+    su `.env` y `scripts/congelar-mes-junta.js` (apuntan a la base real). No se usó `git merge`:
+    las ramas tienen historias separadas y daba 26 choques; `main` no tenía nada que `staging` no
+    tuviera, salvo la fecha "creada" en las tareas de La Junta, que `staging` ya había quitado.
+  - **Operaciones está ESCONDIDO en `main`** con `const OPERACIONES_VISIBLE = false;` (SOLO existe
+    en `main`, junto a `ADMIN_TABS_OPERACIONES`): oculta el área, la pestaña de la cuenta de tienda,
+    la tarjeta del selector de módulos y su pantalla. Sus tablas ya están creadas en la base real.
+    **Cada vez que se pase `staging` a `main`, volver a poner este interruptor** hasta que Santiago
+    diga que Operaciones está listo; ese día se cambia a `true` (o se quita).
+  - El SQL de Permisos y de Operaciones ya se corrió en la base REAL el 17 nov (ver abajo).
+  - (Lo que sigue era el plan anterior, cuando el paso a `main` esperaba a Operaciones.)
+  - **Paso a `main`: EN ESPERA de Operaciones.** No se puede pasar solo Permisos: la Fase 2 de
+    Permisos subió en el mismo commit que Operaciones parte 1, y las dos tocan las mismas partes
+    de `src/App.jsx`. Santiago decidió (17 nov) que Operaciones todavía no se puede publicar, así
+    que TODO `staging` pasa a `main` junto, cuando el chat de Operaciones diga que su módulo está
+    listo. Mientras tanto, en producción siguen las ventanitas del navegador (`window.confirm`).
+  - **Cuando llegue el momento** (lo prepara el chat de Permisos, paso a paso, confirmando antes
+    en qué rama está la carpeta):
+    1. En la base REAL (proyecto OZEN), en este orden: `sql/permisos_fase2.sql`,
+       `sql/permisos_fase3.sql` y el SQL de Operaciones (`sql/operaciones.sql` y lo que ese chat
+       indique). `sql/pulso_versiones.sql` ya debería estar en la real (main ya tiene el pulso):
+       confirmarlo.
+    2. Pasar `staging` a `main` CUIDANDO EL `.env`: está guardado en git y es distinto en cada
+       rama (cada una apunta a su base). `main` debe quedarse con el suyo.
+    3. Probar en la real con Master: Permisos, Caja y una confirmación.
+  - Para el chat de Operaciones, antes de publicar: pasar `OPER_PERMISOS` al formato común
+    (`registrarPermisos` + `puede()`, ver la REGLA más arriba) para que sus permisos salgan en el
+    tablero. Es recomendable, no obligatorio.
+
+- Las ramas `main` y `staging` tienen historias distintas (100 y 37 commits propios) aunque el
+  código es casi igual: revisar con cuidado antes de pasar este módulo a `main`.
+
+## Módulo "Operaciones" (10 nov 2026) — Parte 1 en `staging`, sin probar por Santiago
+
+Reemplaza al Excel "Operaciones" de Google Sheets (hojas OP EXTERNO, OP INTERNO, ORDEN y Gestión
+de garantías). Alcance definido con Santiago el 10 nov 2026; se construye en 4 partes, cada una
+probada en práctica antes de seguir.
+
+**Decisiones de Santiago (no cambiar sin preguntarle):**
+- Área nueva "Operaciones". Entran las cuentas de tienda y los administradores; el Visualizador
+  solo mira; los asesores con su cuenta individual NO entran.
+- **Líder de Operaciones: Edwin**, de internas y de externas. No va amarrado al nombre en el
+  código: Master lo elige en la pantalla (tabla `operaciones_config`, clave `lider_usuario_id`).
+  El líder (y Master) es quien cancela, devuelve una etapa, decide las garantías y cierra internas.
+- **Externas** (todo lo que tiene que ver con un cliente): Arreglo, Marcación, Garantía, Traslado
+  y Pedido. Separado, Factura y Grabado NO entran: se quedan en Ventas.
+- **Toda orden nace en Operaciones** al recibir la pieza. El cobro en Registrar venta se enlazará
+  a la orden después (parte 4). Ojo: Registrar venta hoy solo guarda datos del cliente en Flexipago.
+- Etapas: arreglo / marcación / garantía = Recibida en tienda → En taller o gestión → Lista en
+  tienda → Entregada al cliente. Traslado = Solicitado → Enviado por la tienda de origen →
+  Recibido en la tienda destino → Entregado al cliente. Pedido = Solicitado → Pedido en gestión →
+  Llegó a tienda → Entregado al cliente. Cualquiera se puede Cancelar (con motivo; no se reabre).
+- Garantía: no avanza hasta que el líder marque "Se cubre" o "No se cubre" con su respuesta. Si no
+  se cubre, salta de Recibida a Lista en tienda (para devolverle la pieza al cliente).
+- Estado de pago: Pago, Debe o No aplica (como en el Excel).
+- **Internas** (lo que no tiene que ver con clientes): Insumos, Novedad, Arreglo del inventario,
+  Arreglo del punto; tienda o "Global". Estados: Nueva → En gestión → Completada o Rechazada (con
+  motivo). Se quitó "En revisión" del Excel. Toda solicitud nace "Nueva" (en el Excel se quedaban
+  sin estado y había 26 abiertas desde 2024-2025).
+- Primera versión incluye: orden para el cliente (con el aviso de los 60 días y la fecha estimada
+  de entrega), indicadores y alertas de atraso. La foto de la pieza quedó para después.
+- **Atraso = 5 días hábiles sin moverse** (internas y externas), más el aviso de pieza sin
+  reclamar a los 60 días. Falta confirmar con Santiago si el sábado cuenta como hábil.
+- Se empezó en limpio: no se pasa el historial del Excel; la numeración sigue desde **1802**.
+
+**Parte 1 — Externas (hecha en `staging`, falta que Santiago corra el SQL y la pruebe):**
+- `sql/operaciones.sql` crea `operaciones_externas`, `operaciones_internas` (ya queda lista para
+  la parte 2) y `operaciones_config`. Ids de usuario y tienda como texto, sin relación a
+  `usuarios`/`tiendas`. A propósito NO hay permiso de borrar: una orden se cancela, no se borra.
+- En `src/App.jsx`, justo antes de `export default function App`: bloque "OPERACIONES" con
+  `OPER_PERMISOS` / `puedeOper`, `OPER_ETAPAS`, `OperNuevaOrden`, `OperOrdenCard`,
+  `OperOrdenCliente`, `OperLider` y `OperacionesExternasScreen`. Área `operaciones` en
+  `AREAS_NAV` y `AreaSelector`, pestaña `op_externas`; la cuenta de tienda la ve como una pestaña
+  más ("Operaciones") junto a Ventas y Turnos.
+- **Permisos por acción con nombre** (para pasarlos luego al tablero de Permisos; hoy NO están en
+  `PERMISOS` ni en `permisos_roles`): `operaciones.ver`, `operaciones.externas.crear`,
+  `.externas.avanzar`, `.externas.pago`, `.externas.devolver`, `.externas.cancelar`,
+  `operaciones.garantias.decidir`, `operaciones.lider.asignar`.
+- **Consumo de Supabase:** Operaciones NO va en `loadAll`. `cargarOperaciones` (en `App`) solo
+  corre al entrar al área, trae lo abierto + lo cerrado en los últimos 90 días (la cuenta de
+  tienda, solo lo suyo y los traslados donde es origen o destino) y no repite si la última carga
+  tiene menos de 5 minutos. "Traer todo el historial" usa `traerTodo`.
+- Cada cambio se guarda solo si la orden sigue en la etapa que se estaba viendo (evita que dos
+  computadores se pisen). Cada movimiento queda en `historial` (jsonb) con quién y cuándo; en la
+  cuenta de tienda se elige el nombre de quien hace el movimiento.
+- Revisado el 10 nov 2026: parseo con `@babel/parser` OK y `eslint` sin errores de `no-undef`.
+
+**Ajustes tras la primera prueba de Santiago (10 nov 2026, en `staging`, sin SQL nuevo):**
+- **Traslado y Pedido salieron del módulo**: ya se manejan en OZEN Club (página de catálogo e
+  inventarios, https://catalogo.ozenjoyeria.com/catalogo). Externas = Arreglo, Marcación y
+  Garantía. Las etapas de traslado/pedido siguen en `OPER_ETAPAS` solo para mostrar órdenes viejas.
+- **Días hábiles = lunes a viernes sin festivos de Colombia** (`festivosColombia`, `esDiaHabil`,
+  `sumarDiasHabiles`, `diasHabilesEntre`; los festivos se calculan para cualquier año). La fecha
+  estimada de entrega se sugiere a 15 días hábiles; el atraso (parte 3) son 5 días hábiles.
+- **Cliente**: solo nombre y teléfono (sin documento). Al escribir 2 o más caracteres en
+  cualquiera de los dos se sugieren clientes que ya existen (órdenes cargadas + Flexipagos).
+- **Una orden no puede quedar en $0**: o lleva valor (nace "Debe") o se marca "No aplica".
+- **Cobro (reemplaza la "parte 4")**: la orden tiene un botón "Cobrar" que lleva a Registrar venta
+  con tipo, valor y observación ya puestos (`ordenACobrar` en `App`). Al registrar la venta, el N.º
+  de factura queda como `OP-<numero>` (si en el recibo va un producto, manda el de Siigo), y la
+  orden pasa sola a "Pago" con `venta_id` y un movimiento "cobro" en su historial. Cobran quienes
+  ya pueden guardar ventas: cuentas de tienda, Master y Admin Finanzas
+  (`operaciones.externas.cobrar`). El pago a mano solo lo corrige el líder o Master.
+
+**Lo que sigue:** parte 2 = pantalla de Internas (la tabla ya existe). Parte 3 = Indicadores y
+alertas de atraso.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
