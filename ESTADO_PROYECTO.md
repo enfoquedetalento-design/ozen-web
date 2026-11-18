@@ -710,8 +710,8 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
   `registrarPermisos({ grupo, label, ic, permisos:[{ id, label, r:{ rol:1 | "condición" },
   sensible?, soloVer?, pedir?, pasivo?, nota? }] })` (tiene que ir más abajo de donde se define
   esa función) y pregunta con `puede(user, "modulo.accion")` en vez de `user.role===...`. El
-  tablero de Permisos los muestra solo y avisa si falta sembrarlos en la base. Operaciones aún
-  usa su propio `OPER_PERMISOS`; pasarlo a este formato le toca al chat de Operaciones.
+  tablero de Permisos los muestra solo y avisa si falta sembrarlos en la base. Operaciones ya usa
+  este formato (17 nov 2026, ver su sección).
 - **Fase 4 (en curso).** Santiago probó La Junta, Escuela y Cuenta (Fase 3 completa en `staging`)
   y decidió pasar TODO a `main` junto, al final de la Fase 4.
   - **Parte 1 — edición (17 nov 2026, en `staging`, falta que la pruebe):** el tablero ya lee de
@@ -750,6 +750,8 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
     la tarjeta del selector de módulos y su pantalla. Sus tablas ya están creadas en la base real.
     **Cada vez que se pase `staging` a `main`, volver a poner este interruptor** hasta que Santiago
     diga que Operaciones está listo; ese día se cambia a `true` (o se quita).
+    **18 nov 2026: Operaciones LISTO (lo aprobó Santiago). Al publicarlo se lleva el `src/App.jsx`
+    de `staging` tal cual, SIN el interruptor (ya no hace falta esconderlo).**
   - El SQL de Permisos y de Operaciones ya se corrió en la base REAL el 17 nov (ver abajo).
   - (Lo que sigue era el plan anterior, cuando el paso a `main` esperaba a Operaciones.)
   - **Paso a `main`: EN ESPERA de Operaciones.** No se puede pasar solo Permisos: la Fase 2 de
@@ -759,6 +761,10 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
     listo. Mientras tanto, en producción siguen las ventanitas del navegador (`window.confirm`).
   - **Cuando llegue el momento** (lo prepara el chat de Permisos, paso a paso, confirmando antes
     en qué rama está la carpeta):
+    0. **YA HECHO el 17 nov 2026 (Santiago, en la base REAL):** `sql/pulso_versiones.sql` (28
+       tablas), `sql/permisos_fase2.sql` (200 filas), `sql/permisos_fase3.sql` (2 filas) y
+       `sql/operaciones.sql`. Ese día solo falta correr el SQL NUEVO que Operaciones haya agregado
+       después. Los pasos de abajo quedan como referencia.
     1. En la base REAL (proyecto OZEN), en este orden: `sql/permisos_fase2.sql`,
        `sql/permisos_fase3.sql` y el SQL de Operaciones (`sql/operaciones.sql` y lo que ese chat
        indique). `sql/pulso_versiones.sql` ya debería estar en la real (main ya tiene el pulso):
@@ -773,7 +779,7 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
 - Las ramas `main` y `staging` tienen historias distintas (100 y 37 commits propios) aunque el
   código es casi igual: revisar con cuidado antes de pasar este módulo a `main`.
 
-## Módulo "Operaciones" (10 nov 2026) — Parte 1 en `staging`, sin probar por Santiago
+## Módulo "Operaciones" (10 nov 2026) — TERMINADO en `staging`; listo para publicar (18 nov 2026)
 
 Reemplaza al Excel "Operaciones" de Google Sheets (hojas OP EXTERNO, OP INTERNO, ORDEN y Gestión
 de garantías). Alcance definido con Santiago el 10 nov 2026; se construye en 4 partes, cada una
@@ -834,7 +840,7 @@ probada en práctica antes de seguir.
   Garantía. Las etapas de traslado/pedido siguen en `OPER_ETAPAS` solo para mostrar órdenes viejas.
 - **Días hábiles = lunes a viernes sin festivos de Colombia** (`festivosColombia`, `esDiaHabil`,
   `sumarDiasHabiles`, `diasHabilesEntre`; los festivos se calculan para cualquier año). La fecha
-  estimada de entrega se sugiere a 15 días hábiles; el atraso (parte 3) son 5 días hábiles.
+  estimada de entrega se sugiere a 5 días hábiles (corregido el 17 nov; antes 15); el atraso (parte 3) son 5 días hábiles.
 - **Cliente**: solo nombre y teléfono (sin documento). Al escribir 2 o más caracteres en
   cualquiera de los dos se sugieren clientes que ya existen (órdenes cargadas + Flexipagos).
 - **Una orden no puede quedar en $0**: o lleva valor (nace "Debe") o se marca "No aplica".
@@ -845,8 +851,170 @@ probada en práctica antes de seguir.
   ya pueden guardar ventas: cuentas de tienda, Master y Admin Finanzas
   (`operaciones.externas.cobrar`). El pago a mano solo lo corrige el líder o Master.
 
-**Lo que sigue:** parte 2 = pantalla de Internas (la tabla ya existe). Parte 3 = Indicadores y
-alertas de atraso.
+**Cobro, ajustes tras la prueba del 17 nov 2026 (Santiago probó lo demás: bien):** al cobrar una
+orden, Registrar venta pone sola al asesor que ATENDIÓ la orden (bloqueado; si ya no está activo
+se deja elegir) y el N.º de factura fijo en `OP-<numero>` en su propio campo (ya no en Notas).
+Mientras se cobra una orden solo se pueden agregar servicios (arreglo, marcación, grabado): ni
+producto ni Flexipago, así el N.º de factura siempre es el de la orden.
+
+**Permisos en el formato común (17 nov 2026, en `staging`, sin SQL nuevo):** el antiguo
+`OPER_PERMISOS` se reemplazó por `registrarPermisos({ grupo:"operaciones", ... })` con 9 permisos
+(`operaciones.ver`, `.externas.crear`, `.externas.avanzar`, `.externas.cobrar`, `.externas.pago`,
+`.externas.devolver`, `.externas.cancelar`, `operaciones.garantias.decidir`,
+`operaciones.lider.asignar`); los 4 sensibles son solo de Master. `puedeOper(user, accion, liderId)`
+ahora es `puede(user, accion)` **o** ser el líder de Operaciones para las acciones de
+`OPER_ACCIONES_LIDER` (crear, avanzar, pago, devolver, cancelar, decidir garantías). El líder va
+aparte del tablero porque es una persona elegida en Operaciones, no un rol. Se comprobó con una
+prueba de todos los roles, con y sin líder: 0 diferencias en quién puede qué frente a antes. La
+pestaña "Operaciones" de la cuenta de tienda ahora también depende de `operaciones.ver`. Sin
+sembrar en la base todo funciona igual (lo del código manda); el tablero los siembra solo al
+tocarlos por primera vez.
+
+**Parte 2 — Internas (17 nov 2026, en `staging`, falta que Santiago la pruebe; sin SQL nuevo, la
+tabla `operaciones_internas` ya existía):** pestaña "Internas" en el área (los admins); la cuenta de
+tienda tiene UNA sola pestaña "Operaciones" con un selector Externas / Internas arriba
+(`OperacionesTiendaScreen`). Tipos: Insumos, Novedad, Arreglo del inventario, Arreglo del punto;
+tienda o "Global" (Global solo lo eligen los admins). La cuenta de tienda elige quién hace la
+solicitud. Estados: Nueva → En gestión → Completada (respuesta opcional) o Rechazada (motivo
+obligatorio); solo el líder o Master las mueven. La tienda ve lo suyo y lo Global. Se cargan junto
+con Externas en `cargarOperaciones` (abiertas + cerradas de 90 días). Permisos nuevos en el mismo
+`registrarPermisos`: `operaciones.internas.crear` (mismos roles que crear una orden) y
+`operaciones.internas.gestionar` (solo Master), los dos también del líder.
+
+**Parte 3 — Alertas e Indicadores (18 nov 2026, en `staging`, falta que Santiago la pruebe; sin SQL):**
+- **Atrasada** = abierta y 5 días hábiles sin moverse, contados desde que llegó a su etapa/estado
+  actual (`etapa_desde` / `estado_desde`). Una orden "Lista en tienda" NO cuenta como atrasada
+  (espera al cliente): para esas está **sin reclamar** = 60 días calendario desde la fecha del
+  recibo. Funciones `operExtAtrasada`, `operSinReclamar`, `operIntAtrasada`.
+- **Dónde salen (decisión de Santiago):** una franja roja arriba en Externas e Internas
+  (`OperAvisoAtrasos`) con el número y un botón "Ver" que filtra la lista; y en Indicadores.
+- **Pestaña Indicadores** (`OperacionesIndicadoresScreen`, permiso `operaciones.indicadores.ver`:
+  admins y Visualizador, no tiendas): "Ahora mismo" (abiertas, atrasadas, sin reclamar, por
+  cobrar), tabla de alertas por tienda, y "Por mes" (recibidas, entregadas/canceladas, tiempo
+  promedio en días hábiles, y tablas por tipo × tienda). Usa los datos ya cargados (abiertas + 90
+  días); para un mes más viejo ofrece "Traer todo el historial".
+
+**Estado de pago fijo (18 nov 2026):** una vez creada la orden, el estado de pago (Debe o No aplica)
+ya NO se puede cambiar a mano, ni siquiera el líder o Master: solo pasa a "Pago" al cobrarla en
+Registrar venta (pedido de Santiago). Se quitó el permiso `operaciones.externas.pago`. Al cobrar, se
+reintenta marcar la orden hasta 3 veces; si aun así falla, la venta queda guardada y avisa.
+
+**Fecha de entrega y "a tiempo" (18 nov 2026, en `staging`; requiere `sql/operaciones_02_fecha_entrega.sql`):**
+toda orden muestra su fecha de entrega en la lista y en el detalle. Al crearla se sugiere a 5 días
+hábiles y es obligatoria; quien la crea la puede cambiar ahí sin que cuente en contra. Después de
+creada solo el líder o Master la cambian (permiso `operaciones.externas.fecha`, con motivo) y la
+orden queda `reprogramada` = **No a tiempo** aunque se cumpla en la nueva fecha (como una tarea
+reabierta en La Junta). **Cumplida = llegó a "Lista en tienda"** (`lista_en`), decisión de
+Santiago: si el cliente tarda en recoger no cuenta en contra. Etiquetas (`operTiempo`): En plazo,
+Vence hoy, Vencida, Reprogramada · No a tiempo, A tiempo, No a tiempo. La franja de Externas
+suma "órdenes vencidas"; Indicadores suma "Vencidas" (ahora), "Cumplidas a tiempo" (% del mes) y
+"Tiempo hasta Lista". Columnas nuevas: `fecha_entrega_original`, `reprogramada`, `lista_en`. Las
+órdenes sin fecha guardada usan recibo + 5 días hábiles. **En la real: correr
+`operaciones_02_fecha_entrega.sql` ANTES de publicar el código** (si no, crear una orden falla).
+El SQL del Excel ya trae la fecha de entrega (recibo + 5 días hábiles) y necesita el 02 antes.
+
+**Campana de avisos (18 nov 2026, en `staging`):** las alertas ya no son una franja roja: son la
+misma campana 🔔 de Flexipagos (`CampanaAvisos`, con grupos). En **Registrar venta** la campana de
+la tienda muestra Flexipagos + "Órdenes de Operaciones" de esa tienda (toca código de Ventas, a
+pedido de Santiago); en **Operaciones** (Externas e Internas, junto a "Nueva …") muestra solo lo
+de Operaciones. Avisos de órdenes (`operItemsCampana`): vencidas, vencen hoy, vencen el próximo
+día hábil, y sin reclamar (60+ días, "llamar al cliente"); de internas (`operItemsCampanaInt`):
+atrasadas. Tocar un aviso lleva a esa orden/solicitud abierta (`opFoco` en `App`, `useOperFoco`).
+Para Registrar venta, `App` trae solo las órdenes ABIERTAS con pocas columnas, como mucho cada 5
+min y solo en esa pestaña (`opCampana`); si Operaciones ya está cargado, usa eso.
+
+**Filtros y tablero (18 nov 2026, propuesta aprobada por Santiago):** `OperFiltros` reemplaza los
+botones y listas desplegables: arriba fichas de estado con su número (Externas: Abiertas, Vencidas,
+Vencen hoy, Listas para entregar, Sin reclamar, Entregadas, Canceladas; Internas: Abiertas, Nuevas,
+En gestión, Atrasadas, Completadas, Rechazadas), debajo tiendas (con su color; en Internas también
+Global) y tipos (con ícono) que se combinan, buscador, y vista **Lista / Tablero** (`OperTablero`,
+columnas por etapa; Entregadas/Completadas muestran las 15 más recientes). Tocar una tarjeta del
+tablero abre esa orden en la lista. La cuenta de tienda no ve el filtro de tiendas.
+
+**Rendimiento y detalle compacto (18 nov 2026):** con los datos del Excel la página se congelaba
+varios segundos al entrar a Operaciones o cambiar de pestaña: `diasHabilesEntre`/`sumarDiasHabiles`
+avanzaban día por día con `sumarDias`/`fmt`, que usan `toLocaleString` con zona horaria (muy
+lento), cientos de miles de veces por pantalla. Ahora usan aritmética UTC pura + memo
+(`operMemoHabiles`), y `operFechaCol` también recuerda sus resultados. Comprobado: mismos
+resultados (186 fechas 2024-2027, 0 diferencias). OJO para cualquier cálculo nuevo de fechas en
+bucles: NO usar `fmt`/`sumarDias` dentro de un bucle grande. Además: el detalle de una orden o
+solicitud es más compacto (pasos más pequeños, datos en menos espacio, sin "Registró", descripción
+en un recuadro) y los Movimientos quedan plegados (`OperMovimientos`); la lista de clientes
+conocidos solo se arma al crear una orden.
+
+**Indicadores rediseñados (18 nov 2026):** miden el trabajo del líder con "¿se cumplió a tiempo?",
+**meta 90%** (verde ≥90, ámbar 70-89, rojo <70), separados en Externas / Internas, por periodo
+(este mes, 3, 6 meses, o tocando un mes en las barras). Arriba: % grande con anillo, cuántos de
+cuántos, cambio frente al periodo anterior y tiempo promedio; barras mes a mes con la meta; por
+tienda; por tipo; "Ahora mismo". **Externas:** cada orden cuenta en el mes en que debía estar lista
+(fecha original); a tiempo = `operTiempo` "a_tiempo"; las abiertas vencidas o reprogramadas cuentan
+como no a tiempo; las que aún no vencen no cuentan. **Internas (decisión de Santiago):** a tiempo =
+completada o rechazada dentro de 5 días hábiles desde su creación; cuenta en el mes en que se
+cumplían esos 5 días. Lo cerrado del Excel no se mide (sin fecha de Lista/cierre). Trae solo
+columnas necesarias, 12 meses + lo abierto, de a 1000 filas, con caché de 5 min (`operIndCache`).
+
+**Valor por definir (18 nov 2026, requiere `sql/operaciones_03_valor_por_definir.sql`):** al crear
+una orden, "¿Se cobra?" tiene tres opciones: Sí, tiene valor (Debe) / **Valor por definir** / No
+aplica. Una orden por definir muestra "Poner valor" (permiso `operaciones.externas.valor`: cuentas
+de tienda, Master y el líder — decisión de Santiago); al guardarlo pasa a Debe y ya no se cambia.
+**Ninguna orden en Debe o Valor por definir se puede pasar a "Entregada al cliente" sin cobrarla**
+(`operDebePlata`), para todas las órdenes con valor (decisión de Santiago). **En la real: correr el
+03 ANTES de publicar** (si no, crear una orden "por definir" falla).
+
+**Panel "Mi tienda" (18 nov 2026):** Santiago aclaró que los Indicadores (el % a tiempo, que mide
+al líder) son solo para la junta. Para las tiendas se hizo `OperPanelTienda`: "Para hacer hoy"
+(Por llevar al taller, Listas para entregar, Por cobrar con el total en $, Valor por definir, Sin
+reclamar — tocar uno abre Externas con ese filtro, `OPER_FILTROS_EXTRA` / `opPedido` en `App`) y
+"Así va en <mes>" (recibidas por tipo, entregadas, cobrado por servicios, cuánto tardan los
+clientes en recoger, solicitudes internas respondidas y en cuántos días). Sin % a tiempo ni
+comparación entre tiendas. La cuenta de tienda lo ve arriba de su Operaciones (solo su tienda, y sigue su selector
+Externas / Internas). **Orden final (18 nov, decisión de Santiago):** 1) Externas · clientes / Internas
+· tiendas (pestañas para admins; selector para la cuenta de tienda), 2) **Para hacer hoy**
+(`OperPanelTienda`, arriba de cada lista; las gráficas del mes van plegadas en "Ver cómo va el
+mes"), 3) la lista de Operaciones externas / internas. Tocar una ficha filtra la lista de abajo; en
+admins el panel sigue la tienda si hay UNA elegida en los filtros. La pestaña **Indicadores** es solo
+el % a tiempo ("Tiempos de entrega y de respuesta", `OperacionesIndicadoresScreen`). Más visual:
+fichas con ícono (`IndFicha`), barras de 2 series de 3 meses (`IndBarrasPar`), dona por tipo
+(`IndDona`, colores fijos `OPER_COLOR_TIPO`).
+Permiso `operaciones.tienda.ver` (tiendas, admins, Visualizador; los asesores no entran a Operaciones).
+
+**18 nov 2026: Santiago probó todo en práctica (incluido el celular): bien. Operaciones queda LISTO
+para pasar a `main` junto con Permisos** (ver "Orden para publicar en la REAL" abajo y la sección
+de Permisos: el paso a `main` lo prepara ese chat, cuidando el `.env`).
+
+**Ajustes del 18 nov 2026 (tarde):**
+- **Venta eliminada → la orden vuelve a Debe:** `eliminarVenta` (Ventas) llama a `operVentaEliminada`,
+  que busca la orden por `venta_id` o por el N.º `OP-<numero>` y la pasa a Debe con un movimiento
+  "Cobro anulado". Corregir una factura (Notacrédito / Corregir) NO toca la orden (decisión de Santiago).
+- **Garantía que no se cubre** (requiere `sql/operaciones_04_garantia_arreglo.sql`): al decidir "No
+  se cubre" se elige si se hace arreglo. Sin arreglo → No aplica y salta a Lista en tienda. Con
+  arreglo (`garantia_con_arreglo`) → sigue como un arreglo y se elige: con valor (Debe) / Valor por
+  definir / No aplica. Cubierta → No aplica.
+- **Avisar por WhatsApp:** en una orden Lista en tienda, botón que abre WhatsApp al cliente con el
+  mensaje listo (`operMensajeListo`; número de 10 dígitos → +57) y deja "Se le avisó al cliente por
+  WhatsApp" en los movimientos. Santiago quiere lo mismo para Flexipagos (es de Ventas).
+- **Excel:** el SQL de carga enlaza el asesor (y quien pidió, en internas) con su cuenta por nombre
+  (sin tildes; igual o comienzo del nombre; solo si hay UNA cuenta que coincide).
+- Avisos push a Edwin: no (el sistema de push de Turnos nunca funcionó bien). Foto de la pieza: no
+  por ahora (los PC de mesa no tienen buena cámara y la cuenta solo abre en un dispositivo).
+- **Orden para publicar en la REAL:** `operaciones.sql` → `operaciones_02` → `operaciones_03` →
+  `operaciones_04` → publicar código → elegir a Edwin como líder → cargar el Excel
+  (`operaciones_importar_excel.sql`, una sola vez).
+
+**Datos reales del Excel (18 nov 2026):** Santiago cambió la decisión de "empezar en limpio": los
+datos del Excel se pasan a la app, en práctica para probar y en la REAL justo después de publicar.
+`sql/operaciones_importar_excel.sql` (⚠️ NO va a git: tiene nombres y teléfonos de clientes) carga
+395 órdenes (solo arreglo, marcación y garantía, con su N° del Excel) y 318 solicitudes internas
+(las abiertas, aunque sean viejas, entran abiertas: decisión de Santiago). Llanogrande (tienda
+cerrada) NO se carga (decisión de Santiago, 18 nov). Todo queda con
+`registrado_por = '[EXCEL]'`; `sql/operaciones_importar_excel_borrar.sql` lo quita. Si un N° ya
+existe o está repetido, esa orden recibe uno nuevo; la numeración sigue después del mayor. En la
+real se corre UNA sola vez y con el Excel congelado (lo que se anote en el Excel después de
+descargarlo no entra). Corrido en práctica el 18 nov: 395 + 318 cargadas.
+
+**Lo que sigue:** Santiago prueba la parte 3. Pendiente para después: foto de la pieza al recibirla.
+Cuando Santiago diga que Operaciones está listo, se publica en `main` junto con Permisos (ver la
+sección de Permisos: lo prepara ese chat).
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
