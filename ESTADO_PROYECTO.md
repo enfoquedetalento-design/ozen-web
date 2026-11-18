@@ -892,6 +892,17 @@ con Externas en `cargarOperaciones` (abiertas + cerradas de 90 días). Permisos 
   promedio en días hábiles, y tablas por tipo × tienda). Usa los datos ya cargados (abiertas + 90
   días); para un mes más viejo ofrece "Traer todo el historial".
 
+**Datos reales del Excel (18 nov 2026):** Santiago cambió la decisión de "empezar en limpio": los
+datos del Excel se pasan a la app, en práctica para probar y en la REAL justo después de publicar.
+`sql/operaciones_importar_excel.sql` (⚠️ NO va a git: tiene nombres y teléfonos de clientes) carga
+395 órdenes (solo arreglo, marcación y garantía, con su N° del Excel) y 318 solicitudes internas
+(las abiertas, aunque sean viejas, entran abiertas: decisión de Santiago). Llanogrande (tienda
+cerrada) NO se carga (decisión de Santiago, 18 nov). Todo queda con
+`registrado_por = '[EXCEL]'`; `sql/operaciones_importar_excel_borrar.sql` lo quita. Si un N° ya
+existe o está repetido, esa orden recibe uno nuevo; la numeración sigue después del mayor. En la
+real se corre UNA sola vez y con el Excel congelado (lo que se anote en el Excel después de
+descargarlo no entra). Corrido en práctica el 18 nov: 395 + 318 cargadas.
+
 **Lo que sigue:** Santiago prueba la parte 3. Pendiente para después: foto de la pieza al recibirla.
 Cuando Santiago diga que Operaciones está listo, se publica en `main` junto con Permisos (ver la
 sección de Permisos: lo prepara ese chat).
