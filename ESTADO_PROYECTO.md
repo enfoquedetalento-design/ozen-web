@@ -723,7 +723,22 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
     `cuenta.permisos` ni `cuenta.usuarios` (interruptor bloqueado). Un permiso de módulo que aún
     no esté en la base se siembra con lo del código antes de tocarlo. El chip de arriba ahora dice
     "La base manda · N cambios frente al código" cuando hay cambios hechos desde el tablero.
-  - Pendiente de la Fase 4: "Ver como" otra persona o rol, y alertas de cosas raras.
+  - Santiago probó la edición el 17 nov (quitar a un rol, dar a una persona, historial, deshacer): bien.
+  - **Parte 2 — "Ver como" y alertas (17 nov 2026, en `staging`, falta que la pruebe):**
+    En Permisos, al ver un rol o una persona hay un botón "Ver la app como…". En `App` el estado
+    de sesión ahora se llama `usuarioSesion` y `user = verComo || usuarioSesion`, así toda la app
+    se pinta como esa persona sin cerrar sesión. Mientras dura, NADA se guarda: `supabase.from`
+    (insert/update/delete/upsert), `supabase.storage` y `supabase.functions.invoke` responden con
+    un error (`permModoVerComo`, se activa con `permVerComoActivar`). Arriba sale una franja ámbar
+    con "Salir de «Ver como»", que vuelve a Usuarios/Permisos. Ver un ROL usa una cuenta de
+    ejemplo (`id: "rol:<rol>"`), sin excepciones personales.
+    Alertas nuevas en `permAvisos`: rol (no master) con un permiso sensible que el código no le
+    daba; persona con un permiso sensible como extra personal; excepciones de cuentas inactivas
+    o borradas.
+  - Con esto la Fase 4 queda completa en `staging`. Siguiente: pasar TODO a `main` (correr antes
+    en la base REAL, en orden: `sql/pulso_versiones.sql` si aún no está, `sql/permisos_fase2.sql`,
+    `sql/permisos_fase3.sql`). Ojo: `staging` también trae Operaciones y otros cambios de otros
+    chats; confirmar con Santiago antes de pasar.
 
 - Las ramas `main` y `staging` tienen historias distintas (100 y 37 commits propios) aunque el
   código es casi igual: revisar con cuidado antes de pasar este módulo a `main`.

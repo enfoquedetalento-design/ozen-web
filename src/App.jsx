@@ -489,6 +489,35 @@ const Btn = ({ onClick, children, variant="primary", sm, disabled, full, style={
   return <button style={{...base,...styles[variant],...style}} onClick={disabled?undefined:onClick} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}>{children}</button>;
 };
 
+// ── "Ver como" (Permisos, Fase 4) ─────────────────────────────────────────────
+// Master puede ver la app tal como la ve otra persona o rol, sin cerrar sesión. Mientras dure,
+// NADA se guarda: toda escritura a la base (insert/update/delete/upsert), a los archivos (fotos,
+// PDFs) y a las funciones del servidor (avisos push) se responde con un error y no sale de aquí.
+// Así un clic por error no registra nada a nombre de otra persona.
+let permModoVerComo = false;
+const permVerComoActivar = (v) => { permModoVerComo = !!v; };
+const VER_COMO_NO_GUARDA = { data:null, error:{ message:"Estás en «Ver como»: nada se guarda. Sal de «Ver como» para hacer cambios." } };
+const verComoNulo = () => { const pr = new Proxy(function(){}, { get:(_, k) => k==="then" ? (ok, ko) => Promise.resolve(VER_COMO_NO_GUARDA).then(ok, ko) : () => pr, apply:() => pr }); return pr; };
+try {
+  const fromOrig = supabase.from.bind(supabase);
+  supabase.from = (t) => { const q = fromOrig(t); if (permModoVerComo) ["insert","update","delete","upsert"].forEach(m => { q[m] = () => verComoNulo(); }); return q; };
+  if (supabase.storage && supabase.storage.from) {
+    const stFrom = supabase.storage.from.bind(supabase.storage);
+    supabase.storage.from = (b) => { const q = stFrom(b); if (permModoVerComo) ["upload","update","remove","move","copy"].forEach(m => { q[m] = () => Promise.resolve(VER_COMO_NO_GUARDA); }); return q; };
+  }
+  let o = supabase, dFn = null;
+  while (o && !dFn) { dFn = Object.getOwnPropertyDescriptor(o, "functions"); o = Object.getPrototypeOf(o); }
+  if (dFn && dFn.get) Object.defineProperty(supabase, "functions", { configurable:true, get() { const f = dFn.get.call(supabase); if (permModoVerComo) f.invoke = () => Promise.resolve(VER_COMO_NO_GUARDA); return f; } });
+} catch(e) { console.warn("Ver como: no se pudo instalar el bloqueo de escrituras", e); }
+// Franja de arriba mientras se está en "Ver como".
+const BandaVerComo = ({ u, onSalir }) => (
+  <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"8px 14px", background:C.amber, color:"#fff", fontFamily:font.body, fontSize:13, fontWeight:600, flexShrink:0 }}>
+    <Icon n="user" s={15}/>
+    <span style={{ flex:1, minWidth:180 }}>Viendo como <b>{u.name}</b> · {ROLE_LABEL[u.role]||u.role} · nada de lo que hagas se guarda</span>
+    <button onClick={onSalir} style={{ background:"#fff", color:C.amber, border:"none", borderRadius:99, padding:"5px 14px", fontFamily:font.body, fontSize:12.5, fontWeight:700, cursor:"pointer" }}>Salir de «Ver como»</button>
+  </div>
+);
+
 // ── Confirmación propia de la app ────────────────────────────────────────────────
 // Reemplaza a window.confirm en TODA la app (pedido de Santiago, nov 2026): en algunos navegadores
 // la ventanita del navegador no sale y la acción seguía de largo sin preguntar — borraba sin
@@ -1881,6 +1910,24 @@ const permAvisos = (users, lideres) => {
   const porNombre = conNombre.filter(l => !l.usuario_id && permCuentaDeLider(l, users));
   if (porNombre.length) avisos.push({ c:C.textMuted, t:`${porNombre.length===1?"1 líder todavía se reconoce":`${porNombre.length} líderes todavía se reconocen`} solo por el nombre: ${porNombre.map(l=>l.nombre.trim()).join(", ")}. Enlazarlos con su cuenta evita que un cambio de nombre los deje por fuera.` });
   PERM_ROLES.filter(r => !activos.some(u => u.role===r)).forEach(r => avisos.push({ c:C.textMuted, t:`Nadie activo tiene el rol ${ROLE_LABEL[r]}.` }));
+  // Fase 4 — alertas de cosas raras (solo si la base ya se leyó):
+  if (PERM_BASE.roles) {
+    // (a) un rol (que no sea master) con un permiso SENSIBLE que el código no le daba
+    PERMISOS.filter(p => p.sensible).forEach(p => PERM_ROLES.filter(r => r!=="master").forEach(r => {
+      if (permValorRol(r, p.id)!==undefined && p.r[r]===undefined) avisos.push({ c:C.amber, t:`El rol ${ROLE_LABEL[r]} tiene «${p.label}» (sensible) y antes no lo tenía: se lo dieron desde este tablero.` });
+    }));
+  }
+  if (PERM_BASE.filasExc) {
+    // (b) una persona con un permiso SENSIBLE dado como extra personal
+    PERM_BASE.filasExc.filter(x => x.tipo==="extra").forEach(x => {
+      const p = permPorId(x.permiso); if (!p || !p.sensible) return;
+      const u = users.find(v => String(v.id)===String(x.usuario_id));
+      avisos.push({ c:C.amber, t:`${u?.name || x.usuario_nombre || "Alguien"} tiene «${p.label}» (sensible) como extra personal, aunque su rol no lo trae.` });
+    });
+    // (c) excepciones de cuentas inactivas o que ya no existen (no hacen nada, pero ensucian)
+    const huerfanas = PERM_BASE.filasExc.filter(x => { const u = users.find(v => String(v.id)===String(x.usuario_id)); return !u || u.active===false; });
+    if (huerfanas.length) avisos.push({ c:C.textMuted, t:`${huerfanas.length===1?"Hay 1 excepción":`Hay ${huerfanas.length} excepciones`} de cuentas inactivas o que ya no existen.` });
+  }
   return avisos;
 };
 
@@ -2117,7 +2164,7 @@ function PermDetalle({ filas, conOrigen, alCambiar, bloqueoDe, ocupado }) {
   );
 }
 
-function PermisosScreen({ users, stores, lideres, setLideres, user }) {
+function PermisosScreen({ users, stores, lideres, setLideres, user, onVerComo }) {
   const isMobile = useIsMobile();
   const [vista, setVista] = useState("roles"); // 'roles' | 'personas' | 'quien' | 'monitor' | 'tabla'
   const [rolSel, setRolSel] = useState(null);
@@ -2290,6 +2337,7 @@ function PermisosScreen({ users, stores, lideres, setLideres, user }) {
               {gente.map(u => <button key={u.id} onClick={()=>irAPersona(u)} className="perm-persona" title="Ver lo que puede hacer esta persona" style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"3px 10px 3px 3px", borderRadius:99, border:`1px solid ${C.border}`, background:"transparent", cursor:"pointer", fontFamily:font.body, fontSize:12, color:C.text }}><PermAvatar u={u} size={22}/>{u.name}</button>)}
             </div>
             {editable && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:12 }}>Toca un interruptor para darle o quitarle ese permiso a todo el rol. Siempre pide confirmación y queda en el historial.</div>}
+            {onVerComo && <div style={{ marginTop:12 }}><Btn variant="ghost" sm onClick={()=>onVerComo({ id:`rol:${rolSel}`, name:`${ROLE_LABEL[rolSel]} (de ejemplo)`, role:rolSel, active:true, tienda_id: rolSel==="tienda" ? (tiendasVenta(stores)[0]?.id || null) : null })}><Icon n="user" s={14}/>Ver la app como este rol</Btn></div>}
             <PermDetalle filas={filas} alCambiar={editable ? (d)=>cambiarRol(rolSel, d) : undefined} bloqueoDe={bloqueoRol(rolSel)} ocupado={ocupado}/>
           </div>
         </Card>
@@ -2342,6 +2390,7 @@ function PermisosScreen({ users, stores, lideres, setLideres, user }) {
               ); })}
             </div>
             {editable && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:12 }}>Toca un interruptor para darle o quitarle algo SOLO a esta persona (queda como excepción, en verde o en rojo). Si ya tiene una excepción, tocarlo la quita y vuelve a su rol.</div>}
+            {onVerComo && <div style={{ marginTop:12 }}><Btn variant="ghost" sm onClick={()=>onVerComo(persona)}><Icon n="user" s={14}/>Ver la app como {(persona.name||"").split(" ")[0] || "esta persona"}</Btn></div>}
             <PermDetalle filas={filas} conOrigen alCambiar={editable ? (d)=>cambiarPersona(persona, d) : undefined} bloqueoDe={bloqueoPersona(persona)} ocupado={ocupado}/>
           </div>
         </Card>
@@ -2595,7 +2644,7 @@ function PermisosScreen({ users, stores, lideres, setLideres, user }) {
 // Lo que se abre al mantener presionado el logo (solo master): Usuarios, y al lado Permisos.
 // Usuarios se deja montado aunque se esté viendo Permisos — así volver a su pestaña no repite la
 // descarga de la tabla de usuarios que hace al abrirse (cuidar la transferencia de Supabase).
-function UsuariosYPermisos({ users, setUsers, stores, lideres, setLideres, user }) {
+function UsuariosYPermisos({ users, setUsers, stores, lideres, setLideres, user, onVerComo }) {
   const [sub, setSub] = useState("usuarios");
   return (
     <div>
@@ -2604,7 +2653,7 @@ function UsuariosYPermisos({ users, setUsers, stores, lideres, setLideres, user 
         {puede(user, "cuenta.permisos") && <PermPildora activo={sub==="permisos"} onClick={()=>setSub("permisos")} ic="key">Permisos</PermPildora>}
       </div>
       <div style={{ display:sub==="usuarios"?"block":"none" }}><UsuariosScreen users={users} setUsers={setUsers} stores={stores}/></div>
-      {sub==="permisos" && puede(user, "cuenta.permisos") && <PermisosScreen users={users} stores={stores} lideres={lideres} setLideres={setLideres} user={user}/>}
+      {sub==="permisos" && puede(user, "cuenta.permisos") && <PermisosScreen users={users} stores={stores} lideres={lideres} setLideres={setLideres} user={user} onVerComo={onVerComo}/>}
     </div>
   );
 }
@@ -14129,7 +14178,11 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, ventas, o
 }
 
 export default function App() {
-  const [user,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
+  const [usuarioSesion,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
+  // "Ver como" (Permisos, Fase 4): mientras esté activo, toda la app se pinta con `user` = la persona
+  // elegida; quien de verdad inició sesión sigue en `usuarioSesion`.
+  const [verComo,setVerComo]=useState(null);
+  const user = verComo || usuarioSesion;
   // Para que el panel principal sepa si el cambio que se acaba de hacer fue de MÓDULO (área) o solo
   // de PESTAÑA dentro del mismo módulo — cada uno usa una animación distinta (ver globalAnimStyles).
   const prevAreaRef = useRef(area);
@@ -14366,8 +14419,11 @@ export default function App() {
   // Al iniciar sesión se refresca todo del servidor en segundo plano (sin bloquear la entrada) —
   // en un dispositivo compartido donde una cuenta entra justo después de que otra salió, sin esto
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
-  const login=(u)=>{setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll(60000);};
-  const logout=()=>{setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOrdenACobrar(null);setOpExternas([]);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
+  const login=(u)=>{permVerComoActivar(false);setVerComo(null);setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll(60000);};
+  const logout=()=>{permVerComoActivar(false);setVerComo(null);setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOrdenACobrar(null);setOpExternas([]);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
+  const entrarVerComo=(u)=>{ if(!puede(usuarioSesion,"cuenta.permisos")) return; permVerComoActivar(true); setVerComo(u); setMostrarUsuarios(false); setArea(null); setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin"); };
+  const salirVerComo=()=>{ permVerComoActivar(false); setVerComo(null); setArea(null); setTab(eligeModulo(usuarioSesion)?null:"checkin"); setMostrarUsuarios(true); };
+  const bandaVerComo = verComo ? <BandaVerComo u={verComo} onSalir={salirVerComo}/> : null;
   const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="operaciones"?"op_externas":a==="ventas"?"metricas":a==="capacitacion"?(tomaCapacitaciones(user)?"mis_cursos":"progreso"):user.role==="advisor"?"checkin":"dashboard");};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   // Sin argumento (botón 🔄) siempre recarga. Con `maxEdadMs` solo recarga si la última carga es
@@ -14497,7 +14553,7 @@ export default function App() {
   );
   if(!user) return <LoginScreen onLogin={login}/>;
 
-  if(passwordVencida(user)) return (
+  if(passwordVencida(usuarioSesion)) return (
     <div style={{minHeight:"100vh",background:C.dark,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:16,gap:20}}>
       <img src="/logo-horizontal-dark.png" alt="OZEN" style={{width:280,height:"auto"}}/>
       <CambiarPasswordForm user={user} obligatorio onUpdated={setUser}/>
@@ -14505,7 +14561,7 @@ export default function App() {
     </div>
   );
 
-  if(eligeModulo(user) && !area) return <AreaSelector user={user} onChoose={chooseArea} onLogout={logout}/>;
+  if(eligeModulo(user) && !area) return <>{bandaVerComo}<AreaSelector user={user} onChoose={chooseArea} onLogout={verComo?salirVerComo:logout}/></>;
 
   // Ninguna tienda queda elegida por defecto (pedido de Santiago: poner Unicentro de entrada hacía
   // sentir que era "la principal"). Hasta que se elija una arriba, Registrar venta y Caja quedan
@@ -14653,7 +14709,7 @@ export default function App() {
     <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}} className="ozen-pane-anim-modulo">
       <div style={{maxWidth:900,margin:"0 auto"}}>
         <Btn onClick={()=>setMostrarUsuarios(false)} variant="ghost" sm style={{marginBottom:14}}>← Volver</Btn>
-        <UsuariosYPermisos users={users} setUsers={setUsers} stores={stores} lideres={juntaLideres} setLideres={setJuntaLideres} user={user}/>
+        <UsuariosYPermisos users={users} setUsers={setUsers} stores={stores} lideres={juntaLideres} setLideres={setJuntaLideres} user={user} onVerComo={entrarVerComo}/>
       </div>
     </div>
   );
@@ -14680,7 +14736,7 @@ export default function App() {
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
   const mostrarTienda = esAreaVentas && (tab==="registrar" || tab==="caja");
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
-  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
+  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
   const panel = <div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div>;
 
   if(isMobile) return (
@@ -14688,6 +14744,7 @@ export default function App() {
       <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden",fontFamily:font.body}}>
         {globalAnimStyles}
         <ConfirmacionGlobal/>
+        {bandaVerComo}
         <TopeEstado color="#ffffff"/>
         <BarraSuperiorMovil {...propsBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
         {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
@@ -14707,6 +14764,7 @@ export default function App() {
       <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
         {globalAnimStyles}
         <ConfirmacionGlobal/>
+        {bandaVerComo}
         <TopeEstado color="#ffffff"/>
         <BarraSuperior {...propsBarra}/>
         <BarraPestanas tabs={tabsVisibles} tab={tab} setTab={setTab} derecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
