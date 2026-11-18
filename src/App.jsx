@@ -963,7 +963,7 @@ const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar ven
 const ADMIN_TABS_CAPACITACION = [{ id:"mis_cursos",icon:"📚",label:"Mis cursos" },{ id:"progreso",icon:"📊",label:"Progreso" },{ id:"cursos_admin",icon:"🛠️",label:"Administrar cursos" }];
 // Operaciones (área "operaciones"): por ahora solo Externas (parte 1). Internas e Indicadores son
 // las partes 2 y 3 — ver "OPERACIONES" más abajo.
-const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas · clientes" },{ id:"op_internas",icon:"📦",label:"Internas · tiendas" },{ id:"op_indicadores",icon:"📊",label:"Indicadores" }];
+const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas · clientes" },{ id:"op_internas",icon:"📦",label:"Internas · tiendas" },{ id:"op_indicadores",icon:"📊",label:"Indicadores" },{ id:"op_producto",icon:"🏷️",label:"Producto" }];
 const tabsCapacitacion = (user) => ADMIN_TABS_CAPACITACION.filter(t => t.id==="mis_cursos" ? tomaCapacitaciones(user) : t.id==="cursos_admin" ? puedeEditarCapacitacion(user) : puede(user, "escuela.progreso"));
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas" || user.role==="admin_turnos";
 // Quién ve la pantalla de módulos al entrar y el selector de áreas arriba: los admins (puedeUsarAreas)
@@ -1055,9 +1055,9 @@ const permisosTurnos = (user) => {
   const t = { editar:puede(user, "turnos.editar"), publicar:puede(user, "turnos.publicar"), asesores:puede(user, "turnos.asesores"), tiendas:puede(user, "turnos.tiendas"), especiales:puede(user, "turnos.especiales"), horarios:puede(user, "turnos.horarios"), mallaActivos:puede(user, "turnos.malla_activos") };
   return { ...t, administrar: t.asesores || t.tiendas || t.especiales || t.horarios, algo: Object.values(t).some(Boolean) };
 };
-const tabsPara = (user, area) => !puedeUsarAreas(user)
+const tabsPara = (user, area, liderOper="") => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? [...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : []), ...(puedeOper(user, "operaciones.ver") ? [{ id:"op_externas", icon:"🧰", label:"Operaciones" }] : [])] : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
-  : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
+  : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>(t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) && (t.id!=="op_producto" || puedeOper(user, "operaciones.producto.ver", liderOper))) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -1073,7 +1073,7 @@ const passwordVencida = (u) => {
 // las pestañas del área con una línea que se desliza a la pestaña elegida, y bajo ellas una franja
 // fina del color de la tienda (cuando la pantalla trabaja sobre una tienda). En celular las
 // pestañas bajan a una barra inferior, como antes.
-const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench", op_externas:"wrench", op_internas:"box", op_indicadores:"chart" };
+const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench", op_externas:"wrench", op_internas:"box", op_indicadores:"chart", op_producto:"tag" };
 const AREAS_NAV = [
   { id:"ventas", label:"Ventas", ic:"receipt" },
   { id:"operaciones", label:"Operaciones", ic:"box" },
@@ -1297,8 +1297,8 @@ function BarraSuperiorMovil({ extra, user, area, onChooseArea, stores, tiendaId,
   );
 }
 
-function BottomNav({ tab, setTab, user, area }) {
-  const tabs = tabsPara(user, area);
+function BottomNav({ tab, setTab, user, area, liderOper }) {
+  const tabs = tabsPara(user, area, liderOper);
   return (
     <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:"#fff", padding:"0 10px", paddingBottom:"max(12px, calc(env(safe-area-inset-bottom, 0px) + 4px))", flexShrink:0 }}>
       {tabs.map(t => { const active=tab===t.id; return (
@@ -13519,9 +13519,15 @@ registrarPermisos({ grupo:"operaciones", label:"Operaciones", ic:"box", permisos
   { id:"operaciones.indicadores.ver", label:"Ver los indicadores de Operaciones", soloVer:true, r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
   // Panel "Mi tienda": lo de cada tienda (sin el % a tiempo). Tiendas, admins y Visualizador; no asesores.
   { id:"operaciones.tienda.ver", label:"Ver el panel de la tienda (pendientes y cómo va el mes)", soloVer:true, r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, tienda:1 } },
+  // Producto (18 nov 2026): el generador de etiquetas que reemplaza el Excel "Modelo Pricing".
+  // Solo Edwin (como líder) y Master — decisión de Santiago.
+  { id:"operaciones.producto.ver", label:"Entrar a Producto (generador de etiquetas, lotes y productos)", soloVer:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
+  { id:"operaciones.producto.generar", label:"Generar y guardar lotes de etiquetas (y anularlos)", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
+  { id:"operaciones.producto.codex", label:"Editar el Codex (agregar opciones y cambiar valores)", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
+  { id:"operaciones.producto.precio", label:"Cambiar a mano el precio que da la fórmula (con motivo)", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
 ]});
 const esLiderOperaciones = (user, liderId) => !!user && !!liderId && String(user.id)===String(liderId);
-const OPER_ACCIONES_LIDER = new Set(["operaciones.externas.crear","operaciones.externas.avanzar","operaciones.externas.devolver","operaciones.externas.fecha","operaciones.externas.valor","operaciones.externas.cancelar","operaciones.garantias.decidir","operaciones.internas.crear","operaciones.internas.gestionar"]);
+const OPER_ACCIONES_LIDER = new Set(["operaciones.externas.crear","operaciones.externas.avanzar","operaciones.externas.devolver","operaciones.externas.fecha","operaciones.externas.valor","operaciones.externas.cancelar","operaciones.garantias.decidir","operaciones.internas.crear","operaciones.internas.gestionar","operaciones.producto.ver","operaciones.producto.generar","operaciones.producto.codex","operaciones.producto.precio"]);
 // Pregunta única de Operaciones: lo que diga el tablero (puede) o, para las acciones del líder, ser
 // el líder. `liderId` se pasa donde se conoce (pantalla de Operaciones); sin él, solo cuenta el rol.
 const puedeOper = (user, accion, liderId) => !!user && (puede(user, accion) || (OPER_ACCIONES_LIDER.has(accion) && esLiderOperaciones(user, liderId)));
@@ -15225,6 +15231,703 @@ function OperPanelTienda({ ops, sols, tiendaId, tipo="ext", onIr, isMobile }) {
 }
 // Cuenta de tienda: Operaciones es UNA sola pestaña (su barra ya tiene Ventas, Caja y Turnos), con
 // un selector Externas / Internas arriba. Los administradores usan las pestañas del área.
+// ── Operaciones · Producto (generador de etiquetas) ─────────────────────────────
+// Reemplaza el Excel "Modelo Pricing" (18 nov 2026, Santiago). Lo usan Edwin (líder de Operaciones)
+// y Master. Hojas del Excel → aquí:
+//   Codex        → producto_codex (pestaña Codex: Edwin y Master agregan opciones y cambian valores)
+//   Referencia   → Generar (se escogen las características y sale referencia, descripción y precio)
+//   Consolidado  → producto_productos (un PLU por referencia) + producto_entradas (cada fila)
+//   Asignación por punto → el reparto por tienda de cada fila del lote
+//   Datos        → archivo para Siigo, solo cuando hay una línea nueva (Siigo maneja productos por línea)
+// La etiqueta física se sigue imprimiendo con NiceLabel: la app descarga el archivo del lote con las
+// MISMAS columnas del Consolidado (Cantidad, PROV.PLU, PDV.TAG, linea…), que es lo que NiceLabel lee.
+// Código de la etiqueta = código del proveedor + PLU (ej. 14 + 2135 = 142135); el precio corto de la
+// etiqueta es el precio en miles (189.000 → 189).
+const PROD_CAMPOS = [
+  { id:"linea",         label:"Línea",              req:true,  valor:"pesos"  },
+  { id:"categoria",     label:"Categoría",          req:true,  valor:"factor" },
+  { id:"proveedor",     label:"Proveedor",          req:true,  valor:null     },
+  { id:"material_base", label:"Material base",      req:true,  valor:"pesos"  },
+  { id:"material_ad",   label:"Material adicional", req:false, valor:"pesos"  },
+  { id:"modelo",        label:"Modelo",             req:false, valor:"pesos"  },
+  { id:"tamano",        label:"Tamaño",             req:false, valor:"pesos"  },
+  { id:"talla",         label:"Talla",              req:false, valor:null     },
+  { id:"grosor",        label:"Grosor",             req:false, valor:"pesos"  },
+  { id:"motivo",        label:"Motivo",             req:false, valor:null     },
+];
+// Orden de los códigos dentro de la referencia (igual que el Excel: C10&D10&E10&…&K10).
+const PROD_ORDEN_REF = ["linea","modelo","categoria","material_base","material_ad","tamano","talla","grosor","motivo"];
+// Lo que suma pesos al precio (la categoría multiplica; proveedor, talla y motivo no suman).
+const PROD_SUMAN = ["linea","material_base","material_ad","modelo","tamano","grosor"];
+const prodCampoLabel = (id) => PROD_CAMPOS.find(c=>c.id===id)?.label || id;
+const prodPesos = (n) => `$${Math.round(Number(n)||0).toLocaleString("es-CO")}`;
+// Redondeo del Excel: REDONDEAR.MAS(x; -4) - 1000 → 140.001 → 149.000 · 140.000 → 139.000.
+const prodRedondeo = (x) => { const v = Math.round(Number(x)||0); return v>0 ? Math.ceil(v/10000)*10000 - 1000 : null; };
+const prodKey = (campo, codigo) => `${campo}|${codigo}`;
+// La opción "ninguno" de un campo opcional es la fila del Codex con el nombre vacío (código 10).
+const prodNinguna = (codex, campo) => codex.find(o=>o.campo===campo && !String(o.nombre||"").trim());
+
+// Calcula todo lo que en el Excel sale de la hoja Referencia.
+const prodCalcular = (sel, porCodigo, pdc) => {
+  const faltan = PROD_CAMPOS.filter(c=>c.req && (sel[c.id]==null || sel[c.id]==="")).map(c=>c.label);
+  const op = (campo) => sel[campo]==null || sel[campo]==="" ? null : porCodigo[prodKey(campo, sel[campo])];
+  const sinOpcion = PROD_ORDEN_REF.filter(c=>sel[c]==null || sel[c]==="" || !op(c));
+  if(faltan.length || sinOpcion.length) return { ok:false, faltan:faltan.length ? faltan : sinOpcion.map(prodCampoLabel) };
+  const referencia = PROD_ORDEN_REF.map(c=>String(sel[c])).join("");
+  const partes = Object.fromEntries(PROD_ORDEN_REF.map(c=>[c, Number(sel[c])]));
+  const n = (campo) => String(op(campo)?.nombre||"").trim();
+  // Igual que el Excel: Línea Modelo Motivo en MaterialBase Categoría MaterialAd Tamaño Talla Grosor.
+  const descripcion = [n("linea"), n("modelo"), n("motivo"), "en", n("material_base"), n("categoria"), n("material_ad"), n("tamano"), n("talla"), n("grosor")].filter(Boolean).join(" ");
+  const cat = op("categoria");
+  const factor = Number(cat?.valor)||0;
+  const base = cat?.por_costo ? (Number(pdc)||0) * factor : PROD_SUMAN.reduce((s,c)=>s + (Number(op(c)?.valor)||0), 0) * factor;
+  return { ok:true, referencia, partes, descripcion, linea:n("linea"), porCosto:!!cat?.por_costo, pdvFormula:prodRedondeo(base) };
+};
+
+// ── Excel (.xlsx) sin librerías: un zip "guardado" (sin comprimir) con el XML mínimo ──────────
+const prodCrcTabla = (() => { const t = new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c = c&1 ? 0xEDB88320^(c>>>1) : c>>>1; t[n]=c>>>0; } return t; })();
+const prodCrc32 = (b) => { let c = 0xFFFFFFFF; for(let i=0;i<b.length;i++) c = prodCrcTabla[(c^b[i])&0xFF]^(c>>>8); return (c^0xFFFFFFFF)>>>0; };
+const prodZip = (archivos) => {
+  const enc = new TextEncoder(), partes = [], central = [];
+  let offset = 0;
+  const u16 = (v) => [v&0xFF, (v>>>8)&0xFF], u32 = (v) => [v&0xFF, (v>>>8)&0xFF, (v>>>16)&0xFF, (v>>>24)&0xFF];
+  archivos.forEach(({ nombre, texto }) => {
+    const nb = enc.encode(nombre), datos = enc.encode(texto), crc = prodCrc32(datos);
+    const cab = new Uint8Array([...u32(0x04034b50), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(datos.length), ...u32(datos.length), ...u16(nb.length), ...u16(0)]);
+    partes.push(cab, nb, datos);
+    central.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(datos.length), ...u32(datos.length), ...u16(nb.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset)]), nb);
+    offset += cab.length + nb.length + datos.length;
+  });
+  const tamCentral = central.reduce((s,a)=>s+a.length, 0);
+  const fin = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(archivos.length), ...u16(archivos.length), ...u32(tamCentral), ...u32(offset), ...u16(0)]);
+  return new Blob([...partes, ...central, fin], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+};
+const prodXmlEsc = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,"");
+const prodColLetra = (i) => { let s = ""; i++; while(i>0){ const m = (i-1)%26; s = String.fromCharCode(65+m) + s; i = Math.floor((i-1)/26); } return s; };
+// hojas = [{ nombre, filas:[[celda…]] }] — la primera fila va en negrilla. Números = celda numérica;
+// todo lo demás, texto (así un código como 142135 o una referencia de 18 cifras no se vuelve 1,42E+05).
+const prodXlsx = (hojas) => {
+  const hojasXml = hojas.map(({ filas }) => {
+    const rows = filas.map((fila, r) => `<row r="${r+1}">${fila.map((v, c) => {
+      if(v==null || v==="") return "";
+      const ref = `${prodColLetra(c)}${r+1}`, s = r===0 ? ` s="1"` : "";
+      return typeof v==="number" && isFinite(v) ? `<c r="${ref}"${s}><v>${v}</v></c>` : `<c r="${ref}" t="inlineStr"${s}><is><t xml:space="preserve">${prodXmlEsc(v)}</t></is></c>`;
+    }).join("")}</row>`).join("");
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows}</sheetData></worksheet>`;
+  });
+  const nombres = hojas.map((h,i)=>prodXmlEsc(String(h.nombre||`Hoja${i+1}`).replace(/[[\]:*?/\\]/g," ").slice(0,31)));
+  return prodZip([
+    { nombre:"[Content_Types].xml", texto:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${hojas.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}</Types>` },
+    { nombre:"_rels/.rels", texto:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+    { nombre:"xl/workbook.xml", texto:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${nombres.map((n,i)=>`<sheet name="${n}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join("")}</sheets></workbook>` },
+    { nombre:"xl/_rels/workbook.xml.rels", texto:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${hojas.map((_,i)=>`<Relationship Id="rId${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join("")}<Relationship Id="rId${hojas.length+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+    { nombre:"xl/styles.xml", texto:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>` },
+    ...hojasXml.map((texto,i)=>({ nombre:`xl/worksheets/sheet${i+1}.xml`, texto })),
+  ]);
+};
+const prodDescargar = (blob, nombre) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = nombre;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 1500);
+};
+const prodNombreArchivo = (t) => sinTildes(t).replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"") || "lote";
+
+// ── Datos en memoria (se traen al entrar a Producto, no en la carga general de la app) ──────
+let prodCache = null; // { codex, productos, lotes, entradas, t }
+const prodTraer = async () => {
+  const [cx, pr, lo, en] = await Promise.all([
+    traerTodo("producto_codex", [["campo",true],["codigo",true]]),
+    traerTodo("producto_productos", [["plu",true]]),
+    traerTodo("producto_lotes", [["creado_en",false]]),
+    traerTodo("producto_entradas", [["lote_id",true]]),
+  ]);
+  const error = cx.error || pr.error || lo.error || en.error;
+  if(error) return { error };
+  prodCache = { codex:cx.data||[], productos:pr.data||[], lotes:lo.data||[], entradas:en.data||[], t:Date.now() };
+  return prodCache;
+};
+
+// Selector con buscador (el Codex tiene listas largas: ~190 motivos, ~70 modelos).
+function ProdSelect({ label, req, opciones, value, onChange, disabled }) {
+  const [abierto, setAbierto] = useState(false);
+  const [q, setQ] = useState("");
+  const actual = opciones.find(o=>String(o.value)===String(value));
+  const t = sinTildes(q.trim());
+  const visibles = (t ? opciones.filter(o=>sinTildes(`${o.label} ${o.value}`).includes(t)) : opciones).slice(0, 80);
+  return (
+    <div style={{ marginBottom:12, minWidth:0, position:"relative" }}>
+      <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>{label}{req && <span style={{ color:C.red }}> *</span>}</div>
+      <input value={abierto ? q : (actual ? actual.label : "")} disabled={disabled}
+        onFocus={()=>{ setQ(""); setAbierto(true); }} onBlur={()=>setTimeout(()=>setAbierto(false), 150)}
+        onChange={e=>{ setQ(e.target.value); setAbierto(true); }}
+        onKeyDown={e=>{ if(e.key==="Enter" && visibles[0]){ e.preventDefault(); onChange(visibles[0].value); setAbierto(false); e.currentTarget.blur(); } }}
+        placeholder={actual ? actual.label : "Escribe para buscar…"}
+        style={{ width:"100%", boxSizing:"border-box", background:C.surfaceAlt, border:`1px solid ${abierto?C.gold:C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none" }}/>
+      {abierto && (
+        <div style={{ position:"absolute", zIndex:60, top:"100%", left:0, right:0, marginTop:3, maxHeight:260, overflowY:"auto", background:"#fff", border:`1px solid ${C.border}`, borderRadius:9, boxShadow:"0 8px 24px rgba(26,59,82,0.16)" }}>
+          {visibles.length===0 && <div style={{ padding:"10px 12px", fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>No hay opciones con "{q}". Se agregan en la pestaña Codex.</div>}
+          {visibles.map(o=>(
+            <div key={o.value} onMouseDown={e=>{ e.preventDefault(); onChange(o.value); setAbierto(false); }}
+              style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 12px", cursor:"pointer", fontFamily:font.body, fontSize:13, color:C.text, background:String(o.value)===String(value)?"rgba(38,93,127,0.08)":"transparent", borderBottom:`1px solid ${C.border}` }}>
+              <span style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, minWidth:26 }}>{o.value}</span>
+              <span style={{ flex:1, fontStyle:o.vacia?"italic":"normal", color:o.vacia?C.textMuted:C.text }}>{o.label}</span>
+              {o.sub && <span style={{ fontFamily:font.mono, fontSize:11.5, color:C.textSub }}>{o.sub}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const PROD_BORRADOR = "ozen.producto.borrador";
+const prodLeerBorrador = () => { try { const b = JSON.parse(localStorage.getItem(PROD_BORRADOR)||"null"); return b && Array.isArray(b.items) ? b : null; } catch { return null; } };
+const prodGuardarBorrador = (b) => { try { localStorage.setItem(PROD_BORRADOR, JSON.stringify(b)); } catch { /* sin almacenamiento: el borrador solo vive en pantalla */ } };
+
+// Reparto de una fila: { tiendaId: unidades }
+const prodSumaReparto = (rep) => Object.values(rep||{}).reduce((s,n)=>s+(Number(n)||0), 0);
+
+// ── Pestaña Generar ──────────────────────────────────────────────────────────
+function ProdGenerar({ user, datos, setDatos, stores, permisos, isMobile, onLoteGuardado }) {
+  const { codex, productos, entradas } = datos;
+  const tiendas = useMemo(()=>tiendasVenta(stores).sort((a,b)=>(a.name||"").localeCompare(b.name||"")), [stores]);
+  const porCodigo = useMemo(()=>Object.fromEntries(codex.map(o=>[prodKey(o.campo,o.codigo), o])), [codex]);
+  const opciones = useMemo(()=>{
+    const out = {};
+    PROD_CAMPOS.forEach(c=>{
+      out[c.id] = codex.filter(o=>o.campo===c.id && o.activo!==false).sort((a,b)=>{
+        const va = !String(a.nombre||"").trim(), vb = !String(b.nombre||"").trim();
+        return va!==vb ? (va?-1:1) : String(a.nombre).localeCompare(String(b.nombre), "es");
+      }).map(o=>({ value:o.codigo, vacia:!String(o.nombre||"").trim(), label:String(o.nombre||"").trim() || "Ninguno",
+        sub: c.valor==="factor" ? `× ${String(o.valor).replace(".",",")}${o.por_costo?" · sobre el costo":""}` : c.valor==="pesos" && Number(o.valor) ? prodPesos(o.valor) : "" }));
+    });
+    return out;
+  }, [codex]);
+  // Referencia → producto (el PLU más antiguo, como el BUSCARX del Excel).
+  const porReferencia = useMemo(()=>{ const m = {}; [...productos].sort((a,b)=>a.id-b.id).forEach(p=>{ if(!m[p.referencia]) m[p.referencia] = p; }); return m; }, [productos]);
+  const provPlu = useMemo(()=>new Set(entradas.map(e=>`${e.prov_codigo}|${e.plu}`)), [entradas]);
+  const seleccionInicial = () => Object.fromEntries(PROD_CAMPOS.map(c=>[c.id, c.req ? "" : (prodNinguna(codex, c.id)?.codigo ?? "")]));
+
+  const borradorGuardado = useMemo(prodLeerBorrador, []);
+  const [pedido, setPedido] = useState(borradorGuardado?.pedido || "");
+  const [notas, setNotas] = useState(borradorGuardado?.notas || "");
+  const [items, setItems] = useState(borradorGuardado?.items || []);
+  const [sel, setSel] = useState(seleccionInicial);
+  const [pdc, setPdc] = useState("");
+  const [cantidad, setCantidad] = useState("");
+  const [reparto, setReparto] = useState({});
+  const [refProv, setRefProv] = useState("");
+  const [cambiaPrecio, setCambiaPrecio] = useState(false);
+  const [precioManual, setPrecioManual] = useState("");
+  const [motivoPrecio, setMotivoPrecio] = useState("");
+  const [error, setError] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  useEffect(()=>{ prodGuardarBorrador({ pedido, notas, items }); }, [pedido, notas, items]);
+
+  const calc = prodCalcular(sel, porCodigo, pdc);
+  const existente = calc.ok ? porReferencia[calc.referencia] : null;
+  // Si la misma referencia ya va en este lote (aún sin guardar), comparte PLU con esa fila.
+  const enLote = calc.ok && !existente ? items.find(it=>it.referencia===calc.referencia) : null;
+  const prov = sel.proveedor!=="" && sel.proveedor!=null ? Number(sel.proveedor) : null;
+  const yaConProveedor = existente && prov!=null && provPlu.has(`${prov}|${existente.plu}`);
+  const precioBase = existente ? existente.pdv : (enLote ? enLote.pdv : calc.pdvFormula);
+  const precioFinal = cambiaPrecio ? (Number(precioManual)||0) : precioBase;
+  const cant = Math.max(0, parseInt(cantidad,10)||0);
+  const sumaRep = prodSumaReparto(reparto);
+
+  const repartirParejo = () => {
+    if(!cant || !tiendas.length) return;
+    const base = Math.floor(cant/tiendas.length), resto = cant % tiendas.length;
+    setReparto(Object.fromEntries(tiendas.map((t,i)=>[t.id, base + (i<resto?1:0)])));
+  };
+  const agregar = () => {
+    setError("");
+    if(!calc.ok) return setError(`Falta escoger: ${calc.faltan.join(", ")}.`);
+    if(!(Number(pdc)>0)) return setError("Pon el costo (PDC) de una unidad.");
+    if(!cant) return setError("Pon la cantidad de etiquetas.");
+    if(sumaRep!==cant) return setError(`El reparto suma ${sumaRep} y la cantidad es ${cant}: deben ser iguales.`);
+    if(cambiaPrecio && !(Number(precioManual)>0)) return setError("Escribe el precio nuevo.");
+    if(cambiaPrecio && !motivoPrecio.trim()) return setError("Escribe por qué cambias el precio.");
+    if(!precioFinal || precioFinal<=0) return setError("El precio no dio: revisa los valores de las opciones en el Codex.");
+    const it = { key:`${Date.now()}-${Math.random().toString(36).slice(2,7)}`, sel:{...sel}, referencia:calc.referencia, partes:calc.partes,
+      descripcion:calc.descripcion, linea:calc.linea, prov_codigo:prov, provNombre:porCodigo[prodKey("proveedor", prov)]?.nombre||"",
+      cantidad:cant, pdc:Number(pdc), pdv:precioFinal, pdvFormula:calc.pdvFormula, precio_ajustado:cambiaPrecio,
+      motivo_ajuste:cambiaPrecio ? motivoPrecio.trim() : "", actualizar_precio:!!existente && cambiaPrecio,
+      reparto:Object.fromEntries(Object.entries(reparto).filter(([,n])=>Number(n)>0).map(([k,n])=>[k, Number(n)])),
+      ref_proveedor:refProv.trim(), pluExistente:existente?.plu || null };
+    setItems(prev=>[...prev, it]);
+    // Se dejan las mismas características (lo normal es cambiar solo el tamaño o el grosor).
+    setCantidad(""); setReparto({}); setRefProv(""); setCambiaPrecio(false); setPrecioManual(""); setMotivoPrecio("");
+  };
+  const quitar = (key) => setItems(prev=>prev.filter(i=>i.key!==key));
+  const editar = (it) => { setSel(it.sel); setPdc(String(it.pdc||"")); setCantidad(String(it.cantidad)); setReparto(it.reparto||{}); setRefProv(it.ref_proveedor||""); setCambiaPrecio(!!it.motivo_ajuste); setPrecioManual(it.motivo_ajuste?String(it.pdv):""); setMotivoPrecio(it.motivo_ajuste||""); quitar(it.key); };
+  const vaciar = async () => { if(!items.length || await confirmar(`¿Borrar las ${items.length} filas de este lote sin guardar?`)) { setItems([]); setPedido(""); setNotas(""); } };
+
+  const guardar = async () => {
+    setError("");
+    if(!pedido.trim()) return setError("Escribe el número de pedido del lote (ej. P1126-1).");
+    if(!items.length) return setError("Agrega al menos un producto al lote.");
+    if(permModoVerComo) return setError("Estás en «Ver como»: nada se guarda.");
+    if(!await confirmar(`¿Guardar el lote ${pedido.trim()}?\n\n${items.length} ${items.length===1?"fila":"filas"} · ${items.reduce((s,i)=>s+i.cantidad,0)} etiquetas.\nLos productos nuevos reciben su PLU al guardar.`)) return;
+    setGuardando(true);
+    const payload = { pedido:pedido.trim(), notas:notas.trim(), creado_por:user.name, items:items.map(i=>({
+      referencia:i.referencia, partes:i.partes, descripcion:i.descripcion, linea:i.linea, prov_codigo:i.prov_codigo, cantidad:i.cantidad,
+      pdc:i.pdc, pdv:i.pdv, precio_ajustado:!!i.motivo_ajuste, motivo_ajuste:i.motivo_ajuste||"", actualizar_precio:!!i.actualizar_precio,
+      reparto:i.reparto, ref_proveedor:i.ref_proveedor||"" })) };
+    const { data:loteId, error:e } = await supabase.rpc("producto_guardar_lote", { p:payload });
+    if(e){ setGuardando(false); return setError(`No se pudo guardar: ${e.message}`); }
+    const nuevos = await prodTraer();
+    setGuardando(false);
+    if(nuevos.error) return setError("El lote se guardó, pero no se pudo recargar la lista. Recarga la página.");
+    setDatos(nuevos); setItems([]); setPedido(""); setNotas("");
+    onLoteGuardado(loteId);
+  };
+
+  const fila = (l, v, mono) => <div style={{ display:"flex", justifyContent:"space-between", gap:10, padding:"5px 0", borderBottom:`1px solid ${C.border}`, fontFamily:font.body, fontSize:12.5 }}><span style={{ color:C.textMuted }}>{l}</span><span style={{ color:C.text, fontWeight:600, fontFamily:mono?font.mono:font.body, textAlign:"right", wordBreak:"break-all" }}>{v}</span></div>;
+  const totalUnidades = items.reduce((s,i)=>s+i.cantidad,0);
+  const nombreTienda = (id) => nombreTiendaCorto(stores[id]);
+
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(0,1.25fr) minmax(0,1fr)", gap:16, alignItems:"start" }}>
+      <Card p="18px">
+        <OperTituloSec>Características</OperTituloSec>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", columnGap:12 }}>
+          {PROD_CAMPOS.map(c=><ProdSelect key={c.id} label={c.label} req={c.req} opciones={opciones[c.id]||[]} value={sel[c.id]} onChange={v=>setSel(s=>({ ...s, [c.id]:v }))} disabled={!permisos.generar}/>)}
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr", columnGap:12, marginTop:4 }}>
+          <CurrencyField label="Costo unidad (PDC)" value={pdc} onChange={setPdc}/>
+          <Field label="Cantidad" type="number" value={cantidad} onChange={v=>setCantidad(v.replace(/[^\d]/g,""))} placeholder="0"/>
+          <Field label="Ref. del proveedor" value={refProv} onChange={setRefProv} placeholder="Opcional"/>
+        </div>
+        <OperTituloSec style={{ marginTop:4 }}>Reparto por tienda</OperTituloSec>
+        <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"flex-end" }}>
+          {tiendas.map(t=>(
+            <label key={t.id} style={{ display:"flex", flexDirection:"column", gap:5, fontFamily:font.body, fontSize:12, color:C.textSub, minWidth:96 }}>
+              <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><PuntoTienda color={colorTienda(t)}/>{nombreTiendaCorto(t)}</span>
+              <input type="number" min="0" value={reparto[t.id] ?? ""} onChange={e=>setReparto(r=>({ ...r, [t.id]:e.target.value.replace(/[^\d]/g,"") }))} placeholder="0"
+                style={{ width:96, boxSizing:"border-box", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px", fontFamily:font.mono, fontSize:13, color:C.text, outline:"none" }}/>
+            </label>
+          ))}
+          <Btn sm variant="ghost" onClick={repartirParejo} disabled={!cant}>Repartir parejo</Btn>
+        </div>
+        <div style={{ fontFamily:font.body, fontSize:12, marginTop:8, color:sumaRep===cant && cant ? C.green : C.textMuted }}>
+          Repartidas {sumaRep} de {cant||0}{cant && sumaRep!==cant ? ` · faltan ${cant-sumaRep}` : ""}
+        </div>
+      </Card>
+
+      <div style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
+        <Card p="18px" glow={calc.ok}>
+          <OperTituloSec>Resultado</OperTituloSec>
+          {!calc.ok ? (
+            <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, lineHeight:1.5 }}>Falta escoger: <b style={{ color:C.text }}>{calc.faltan.join(", ")}</b>.</div>
+          ) : (<>
+            <div style={{ fontFamily:font.body, fontSize:15, fontWeight:700, color:C.text, marginBottom:8, lineHeight:1.35 }}>{calc.descripcion}</div>
+            <div style={{ marginBottom:10 }}>
+              {existente ? <Badge color={yaConProveedor?C.blue:C.amber}>{yaConProveedor ? "Ya existe con este proveedor" : "Ya existe con otro proveedor"}</Badge>
+                : enLote ? <Badge color={C.amber}>Ya va en este lote</Badge> : <Badge color={C.green}>Producto nuevo</Badge>}
+            </div>
+            {fila("Referencia", calc.referencia, true)}
+            {fila("PLU", existente ? existente.plu : "Nuevo · se asigna al guardar", !!existente)}
+            {fila("Código de la etiqueta", existente && prov!=null ? `${prov}${existente.plu}` : prov!=null ? `${prov} + PLU nuevo` : "—", true)}
+            {existente && existente.pdv!==calc.pdvFormula && calc.pdvFormula && fila("La fórmula hoy daría", prodPesos(calc.pdvFormula), true)}
+            <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:10, marginTop:12 }}>
+              <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>Precio de venta{existente?" (el que ya tiene)":calc.porCosto?" (costo × factor)":""}</span>
+              <span style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:cambiaPrecio?C.amber:C.goldDark }}>{precioFinal>0 ? prodPesos(precioFinal) : "—"}</span>
+            </div>
+            <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, textAlign:"right" }}>En la etiqueta: <b style={{ fontFamily:font.mono, color:C.text }}>{precioFinal>0 ? Math.round(precioFinal/1000) : "—"}</b></div>
+            {permisos.precio && (
+              <div style={{ marginTop:10 }}>
+                {!cambiaPrecio ? <Btn sm variant="ghost" onClick={()=>{ setCambiaPrecio(true); setPrecioManual(String(precioBase||"")); }}>Cambiar precio a mano</Btn> : (
+                  <div style={{ background:C.amberDim, borderRadius:10, padding:"10px 12px 2px" }}>
+                    <CurrencyField label="Precio nuevo" value={precioManual} onChange={setPrecioManual}/>
+                    <Field label="Motivo (obligatorio)" value={motivoPrecio} onChange={setMotivoPrecio} placeholder="Ej: precio de lanzamiento acordado con la Junta"/>
+                    {existente && <div style={{ fontFamily:font.body, fontSize:12, color:C.amber, marginBottom:10 }}>Cambia el precio del PLU {existente.plu} para todas sus etiquetas nuevas.</div>}
+                    <Btn sm variant="ghost" onClick={()=>{ setCambiaPrecio(false); setPrecioManual(""); setMotivoPrecio(""); }} style={{ marginBottom:10 }}>Usar el precio de la fórmula</Btn>
+                  </div>
+                )}
+              </div>
+            )}
+          </>)}
+          {error && <div style={{ marginTop:12, background:C.redDim, color:C.red, borderRadius:9, padding:"9px 12px", fontFamily:font.body, fontSize:12.5 }}>{error}</div>}
+          {permisos.generar && <Btn full onClick={agregar} style={{ marginTop:14 }}><Icon n="plus" s={15}/>Agregar al lote</Btn>}
+        </Card>
+
+        <Card p="18px">
+          <OperTituloSec>Lote sin guardar</OperTituloSec>
+          <Field label="N.º de pedido" value={pedido} onChange={setPedido} placeholder="Ej: P1126-1"/>
+          <Field label="Notas" value={notas} onChange={setNotas} placeholder="Opcional"/>
+          {items.length===0 ? <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, padding:"4px 0 10px" }}>Todavía no hay productos en el lote.</div> : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:12 }}>
+              {items.map(it=>(
+                <div key={it.key} style={{ border:`1px solid ${C.border}`, borderRadius:10, padding:"9px 11px", fontFamily:font.body }}>
+                  <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:C.text, lineHeight:1.3 }}>{it.descripcion}</div>
+                      <div style={{ fontSize:11.5, color:C.textMuted, marginTop:3 }}>
+                        <span style={{ fontFamily:font.mono }}>{it.pluExistente ? `${it.prov_codigo}${it.pluExistente}` : `${it.prov_codigo} + nuevo`}</span> · {it.provNombre} · {it.cantidad} und · {prodPesos(it.pdv)}{it.motivo_ajuste ? " · precio a mano" : ""}
+                      </div>
+                      <div style={{ fontSize:11.5, color:C.textSub, marginTop:2 }}>{Object.entries(it.reparto||{}).map(([t,n])=>`${nombreTienda(t)} ${n}`).join(" · ")}</div>
+                    </div>
+                    <button onClick={()=>editar(it)} title="Corregir" style={{ border:"none", background:"transparent", color:C.gold, cursor:"pointer", padding:4 }}><Icon n="pen" s={15}/></button>
+                    <button onClick={()=>quitar(it.key)} title="Quitar" style={{ border:"none", background:"transparent", color:C.red, cursor:"pointer", padding:4 }}><Icon n="x" s={15}/></button>
+                  </div>
+                </div>
+              ))}
+              <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textSub }}>{items.length} {items.length===1?"fila":"filas"} · <b>{totalUnidades}</b> etiquetas</div>
+            </div>
+          )}
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            <Btn onClick={guardar} disabled={guardando || !items.length || !permisos.generar}>{guardando ? "Guardando…" : "Guardar lote"}</Btn>
+            {items.length>0 && <Btn variant="ghost" onClick={vaciar}>Vaciar</Btn>}
+          </div>
+          <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:10 }}>El lote sin guardar se queda en este navegador aunque cierres la página.</div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ── Descargas de un lote ─────────────────────────────────────────────────────
+const prodNombreOpcion = (porCodigo, campo, codigo) => codigo==null ? "" : String(porCodigo[prodKey(campo, codigo)]?.nombre||"").trim();
+// Para NiceLabel: las mismas columnas (y los mismos nombres) del Consolidado del Excel.
+const prodArchivoNiceLabel = (lote, filas, productosPorPlu, porCodigo) => prodXlsx([{ nombre:"Consolidado", filas:[
+  ["Cantidad","PDC X 1","PDV X 1","PROV.REF","Referencia","Descripcion ","PLU","PROV.PLU","linea","PDV.TAG","N.PROV","","#PEDIDO"],
+  ...filas.map(e=>{ const p = productosPorPlu[e.plu] || {};
+    return [e.cantidad, Number(e.pdc)||0, e.pdv, e.prov_codigo, p.referencia||"", p.descripcion||"", e.plu, e.codigo_etiqueta, p.linea||"", Math.round((e.pdv||0)/1000), prodNombreOpcion(porCodigo,"proveedor",e.prov_codigo), "", lote.pedido||""]; }),
+]}]);
+// Para David (OZEN Club): una fila por producto del lote, con sus características y el reparto. Sin costos.
+const prodArchivoOzenClub = (lote, filas, productosPorPlu, porCodigo, tiendas) => prodXlsx([{ nombre:"Productos", filas:[
+  ["Código etiqueta","PLU","Referencia","Descripción","Línea","Categoría","Material base","Material adicional","Modelo","Tamaño","Talla","Grosor","Motivo","Proveedor","Precio de venta","Cantidad", ...tiendas.map(t=>nombreTiendaCorto(t)),"Pedido","Fecha"],
+  ...filas.map(e=>{ const p = productosPorPlu[e.plu] || {}, pa = p.partes || {};
+    const n = (c) => prodNombreOpcion(porCodigo, c, pa[c]);
+    return [e.codigo_etiqueta, e.plu, p.referencia||"", p.descripcion||"", p.linea||n("linea"), n("categoria"), n("material_base"), n("material_ad"), n("modelo"), n("tamano"), n("talla"), n("grosor"), n("motivo"),
+      prodNombreOpcion(porCodigo,"proveedor",e.prov_codigo), e.pdv, e.cantidad, ...tiendas.map(t=>Number(e.reparto?.[t.id])||0), lote.pedido||"", String(lote.creado_en||"").slice(0,10)]; }),
+]}]);
+// Reparto: un resumen por fila y, como la hoja "Asignación por punto", el código repetido por unidad.
+const prodArchivoReparto = (lote, filas, productosPorPlu, tiendas) => {
+  const porUnidad = tiendas.map(t=>filas.flatMap(e=>Array(Number(e.reparto?.[t.id])||0).fill(e.codigo_etiqueta)));
+  const alto = Math.max(0, ...porUnidad.map(l=>l.length));
+  return prodXlsx([
+    { nombre:"Resumen", filas:[
+      ["Código etiqueta","Descripción","Precio", ...tiendas.map(t=>nombreTiendaCorto(t)), "Total"],
+      ...filas.map(e=>[e.codigo_etiqueta, productosPorPlu[e.plu]?.descripcion||"", e.pdv, ...tiendas.map(t=>Number(e.reparto?.[t.id])||0), e.cantidad]),
+      ["Total","","", ...tiendas.map(t=>filas.reduce((s,e)=>s+(Number(e.reparto?.[t.id])||0),0)), filas.reduce((s,e)=>s+e.cantidad,0)],
+    ]},
+    { nombre:"Por unidad", filas:[ tiendas.map(t=>nombreTiendaCorto(t).toUpperCase()), ...Array.from({ length:alto }, (_,i)=>porUnidad.map(l=>l[i]||"")) ] },
+  ]);
+};
+
+// ── Pestaña Lotes ────────────────────────────────────────────────────────────
+function ProdLotes({ user, datos, setDatos, stores, permisos, isMobile, abiertoInicial }) {
+  const { lotes, entradas, productos, codex } = datos;
+  const tiendas = useMemo(()=>tiendasVenta(stores).sort((a,b)=>(a.name||"").localeCompare(b.name||"")), [stores]);
+  const porCodigo = useMemo(()=>Object.fromEntries(codex.map(o=>[prodKey(o.campo,o.codigo), o])), [codex]);
+  const productosPorPlu = useMemo(()=>Object.fromEntries(productos.map(p=>[p.plu, p])), [productos]);
+  const filasDe = useMemo(()=>{ const m = {}; entradas.forEach(e=>{ (m[e.lote_id] = m[e.lote_id] || []).push(e); }); Object.values(m).forEach(l=>l.sort((a,b)=>a.id-b.id)); return m; }, [entradas]);
+  const [abierto, setAbierto] = useState(abiertoInicial || null);
+  const [q, setQ] = useState("");
+  const [limite, setLimite] = useState(30);
+  const [anulando, setAnulando] = useState(null);
+  const [motivo, setMotivo] = useState("");
+  const t = sinTildes(q.trim());
+  const lista = lotes.filter(l=>!t || sinTildes(`${l.pedido} ${l.notas} ${l.creado_por}`).includes(t) || (filasDe[l.id]||[]).some(e=>String(e.codigo_etiqueta).includes(t)));
+  const anular = async (l) => {
+    if(!motivo.trim()) return;
+    if(!await confirmar(`¿Anular el lote ${l.pedido||""}? Sus filas dejan de contar. Los PLU nuevos que creó se quedan.`)) return;
+    const { error } = await supabase.from("producto_lotes").update({ estado:"anulado", motivo_anulacion:motivo.trim(), anulado_por:user.name, anulado_en:new Date().toISOString() }).eq("id", l.id).eq("estado","activo");
+    if(error) return window.alert(`No se pudo anular: ${error.message}`);
+    setDatos(d=>({ ...d, lotes:d.lotes.map(x=>x.id===l.id ? { ...x, estado:"anulado", motivo_anulacion:motivo.trim(), anulado_por:user.name } : x) }));
+    setAnulando(null); setMotivo("");
+  };
+  return (
+    <div>
+      <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:12, flexWrap:"wrap" }}>
+        <div style={{ position:"relative", flex:"1 1 240px", maxWidth:360 }}>
+          <span style={{ position:"absolute", left:10, top:9, color:C.textMuted }}><Icon n="search" s={15}/></span>
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar pedido o código de etiqueta" style={{ width:"100%", boxSizing:"border-box", background:"#fff", border:`1px solid ${C.border}`, borderRadius:9, padding:"8px 11px 8px 32px", fontFamily:font.body, fontSize:13, color:C.text, outline:"none" }}/>
+        </div>
+        <span style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>{lista.length} lotes</span>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        {lista.slice(0, limite).map(l=>{
+          const filas = filasDe[l.id] || [];
+          const unidades = filas.reduce((s,e)=>s+(e.cantidad||0),0);
+          const anulado = l.estado==="anulado";
+          const abiertoEste = abierto===l.id;
+          const base = `lote-${prodNombreArchivo(l.pedido||String(l.id))}`;
+          return (
+            <Card key={l.id} p="14px 16px" style={{ opacity:anulado?0.6:1 }}>
+              <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+                <button onClick={()=>setAbierto(abiertoEste?null:l.id)} style={{ flex:"1 1 220px", textAlign:"left", border:"none", background:"transparent", padding:0, cursor:"pointer", fontFamily:font.body, minWidth:0 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                    <span style={{ fontSize:15, fontWeight:700, color:C.text }}>{l.pedido || "Sin pedido"}</span>
+                    {anulado && <Badge color={C.red} sm>Anulado</Badge>}
+                    {l.origen==="excel" && <Badge color={C.textMuted} sm>Del Excel</Badge>}
+                  </div>
+                  <div style={{ fontSize:12, color:C.textMuted, marginTop:3 }}>{fmtFechaHora(l.creado_en)} · {l.creado_por||"—"} · {filas.length} {filas.length===1?"fila":"filas"} · {unidades} etiquetas</div>
+                </button>
+                {!anulado && filas.length>0 && (
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                    <Btn sm onClick={()=>prodDescargar(prodArchivoNiceLabel(l, filas, productosPorPlu, porCodigo), `${base}-nicelabel.xlsx`)}><Icon n="tag" s={14}/>NiceLabel</Btn>
+                    <Btn sm variant="ghost" onClick={()=>prodDescargar(prodArchivoOzenClub(l, filas, productosPorPlu, porCodigo, tiendas), `${base}-ozen-club.xlsx`)}><Icon n="file" s={14}/>OZEN Club</Btn>
+                    <Btn sm variant="ghost" onClick={()=>prodDescargar(prodArchivoReparto(l, filas, productosPorPlu, tiendas), `${base}-reparto.xlsx`)}><Icon n="store" s={14}/>Reparto</Btn>
+                  </div>
+                )}
+              </div>
+              <Collapse open={abiertoEste}>
+                <div style={{ marginTop:12, overflowX:"auto" }}>
+                  {l.notas && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textSub, marginBottom:8 }}>{l.notas}</div>}
+                  {anulado && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.red, marginBottom:8 }}>Anulado por {l.anulado_por}: {l.motivo_anulacion}</div>}
+                  <table style={{ width:"100%", borderCollapse:"collapse", fontFamily:font.body, fontSize:12.5, minWidth:isMobile?640:0 }}>
+                    <thead><tr style={{ color:C.textMuted, textAlign:"left" }}>{["Etiqueta","Descripción","Cant.","Precio",...tiendas.map(x=>nombreTiendaCorto(x))].map(h=><th key={h} style={{ padding:"6px 8px", borderBottom:`1px solid ${C.border}`, fontWeight:600, fontSize:11, textTransform:"uppercase", letterSpacing:"0.05em" }}>{h}</th>)}</tr></thead>
+                    <tbody>{filas.map(e=>(
+                      <tr key={e.id}>
+                        <td style={{ padding:"6px 8px", borderBottom:`1px solid ${C.border}`, fontFamily:font.mono }}>{e.codigo_etiqueta}</td>
+                        <td style={{ padding:"6px 8px", borderBottom:`1px solid ${C.border}`, color:C.text }}>{productosPorPlu[e.plu]?.descripcion||"—"}</td>
+                        <td style={{ padding:"6px 8px", borderBottom:`1px solid ${C.border}`, fontFamily:font.mono }}>{e.cantidad}</td>
+                        <td style={{ padding:"6px 8px", borderBottom:`1px solid ${C.border}`, fontFamily:font.mono }}>{prodPesos(e.pdv)}</td>
+                        {tiendas.map(x=><td key={x.id} style={{ padding:"6px 8px", borderBottom:`1px solid ${C.border}`, fontFamily:font.mono, color:C.textSub }}>{Number(e.reparto?.[x.id])||""}</td>)}
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                  {!anulado && permisos.generar && (anulando===l.id ? (
+                    <div style={{ marginTop:12, display:"flex", gap:8, alignItems:"flex-end", flexWrap:"wrap" }}>
+                      <div style={{ flex:"1 1 260px" }}><Field label="Motivo para anular" value={motivo} onChange={setMotivo} placeholder="Ej: se generó dos veces"/></div>
+                      <Btn sm variant="danger" onClick={()=>anular(l)} disabled={!motivo.trim()} style={{ marginBottom:14 }}>Anular lote</Btn>
+                      <Btn sm variant="ghost" onClick={()=>{ setAnulando(null); setMotivo(""); }} style={{ marginBottom:14 }}>Cancelar</Btn>
+                    </div>
+                  ) : <Btn sm variant="ghost" onClick={()=>setAnulando(l.id)} style={{ marginTop:12 }}>Anular lote</Btn>)}
+                </div>
+              </Collapse>
+            </Card>
+          );
+        })}
+        {lista.length>limite && <Btn variant="ghost" onClick={()=>setLimite(n=>n+30)}>Ver más lotes</Btn>}
+      </div>
+    </div>
+  );
+}
+
+// ── Pestaña Productos ────────────────────────────────────────────────────────
+function ProdProductos({ datos, isMobile }) {
+  const { productos, entradas, lotes, codex } = datos;
+  const porCodigo = useMemo(()=>Object.fromEntries(codex.map(o=>[prodKey(o.campo,o.codigo), o])), [codex]);
+  const lotesPorId = useMemo(()=>Object.fromEntries(lotes.map(l=>[l.id, l])), [lotes]);
+  const entradasPorPlu = useMemo(()=>{ const m = {}; entradas.forEach(e=>{ if(lotesPorId[e.lote_id]?.estado==="anulado") return; (m[e.plu] = m[e.plu] || []).push(e); }); return m; }, [entradas, lotesPorId]);
+  const [q, setQ] = useState("");
+  const [limite, setLimite] = useState(60);
+  const [abierto, setAbierto] = useState(null);
+  const t = sinTildes(q.trim());
+  const lista = useMemo(()=>{
+    const orden = [...productos].sort((a,b)=>b.plu-a.plu);
+    if(!t) return orden;
+    return orden.filter(p=>sinTildes(`${p.plu} ${p.referencia} ${p.descripcion} ${p.linea}`).includes(t) || (entradasPorPlu[p.plu]||[]).some(e=>String(e.codigo_etiqueta).includes(t)));
+  }, [productos, t, entradasPorPlu]);
+  return (
+    <div>
+      <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:12, flexWrap:"wrap" }}>
+        <div style={{ position:"relative", flex:"1 1 260px", maxWidth:420 }}>
+          <span style={{ position:"absolute", left:10, top:9, color:C.textMuted }}><Icon n="search" s={15}/></span>
+          <input value={q} onChange={e=>{ setQ(e.target.value); setLimite(60); }} placeholder="Buscar por PLU, código de etiqueta, referencia o descripción" style={{ width:"100%", boxSizing:"border-box", background:"#fff", border:`1px solid ${C.border}`, borderRadius:9, padding:"8px 11px 8px 32px", fontFamily:font.body, fontSize:13, color:C.text, outline:"none" }}/>
+        </div>
+        <span style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>{lista.length.toLocaleString("es-CO")} productos</span>
+      </div>
+      <Card p="4px 0">
+        {lista.slice(0, limite).map(p=>{
+          const ent = entradasPorPlu[p.plu] || [];
+          const unidades = ent.reduce((s,e)=>s+(e.cantidad||0),0);
+          const provs = [...new Set(ent.map(e=>e.prov_codigo))];
+          const abiertoEste = abierto===p.plu;
+          return (
+            <div key={p.plu} style={{ borderBottom:`1px solid ${C.border}` }}>
+              <button onClick={()=>setAbierto(abiertoEste?null:p.plu)} style={{ width:"100%", display:"flex", gap:12, alignItems:"center", padding:"10px 16px", border:"none", background:"transparent", cursor:"pointer", textAlign:"left", fontFamily:font.body }}>
+                <span style={{ fontFamily:font.mono, fontSize:13, fontWeight:700, color:C.goldDark, minWidth:44 }}>{p.plu}</span>
+                <span style={{ flex:1, minWidth:0 }}>
+                  <span style={{ display:"block", fontSize:13, color:C.text, fontWeight:600 }}>{p.descripcion||"—"}</span>
+                  <span style={{ display:"block", fontSize:11.5, color:C.textMuted, marginTop:2 }}>{provs.map(v=>`${prodNombreOpcion(porCodigo,"proveedor",v)||v} (${v}${p.plu})`).join(" · ") || "Sin entradas"} · {unidades} und</span>
+                </span>
+                {p.precio_ajustado && !isMobile && <Badge color={C.amber} sm title={p.motivo_ajuste||""}>Precio a mano</Badge>}
+                <span style={{ fontFamily:font.mono, fontSize:13.5, fontWeight:700, color:C.text }}>{prodPesos(p.pdv)}</span>
+              </button>
+              <Collapse open={abiertoEste}>
+                <div style={{ padding:"0 16px 12px", fontFamily:font.body, fontSize:12.5, color:C.textSub }}>
+                  <div style={{ marginBottom:6 }}>Referencia <b style={{ fontFamily:font.mono, color:C.text }}>{p.referencia}</b>{p.motivo_ajuste ? ` · Precio a mano: ${p.motivo_ajuste}` : ""}</div>
+                  {ent.slice().sort((a,b)=>b.id-a.id).map(e=>(
+                    <div key={e.id} style={{ display:"flex", gap:10, flexWrap:"wrap", padding:"4px 0", borderTop:`1px solid ${C.border}` }}>
+                      <span style={{ fontFamily:font.mono }}>{e.codigo_etiqueta}</span>
+                      <span>{lotesPorId[e.lote_id]?.pedido || "Sin pedido"}</span>
+                      <span>{String(e.creado_en||"").slice(0,10)}</span>
+                      <span>{e.cantidad} und</span>
+                      <span>Costo {prodPesos(e.pdc)}</span>
+                      {e.ref_proveedor && <span>Ref. prov. {e.ref_proveedor}</span>}
+                    </div>
+                  ))}
+                </div>
+              </Collapse>
+            </div>
+          );
+        })}
+        {lista.length===0 && <div style={{ padding:"16px", fontFamily:font.body, fontSize:13, color:C.textMuted }}>No hay productos con esa búsqueda.</div>}
+      </Card>
+      {lista.length>limite && <Btn variant="ghost" onClick={()=>setLimite(n=>n+60)} style={{ marginTop:10 }}>Ver más</Btn>}
+    </div>
+  );
+}
+
+// ── Pestaña Codex ────────────────────────────────────────────────────────────
+// Encabezados de la plantilla de productos de Siigo (hoja "Datos" del Excel).
+const PROD_SIIGO_ENC = ["Tipo de Producto (obligatorio)","Categoría de Inventarios / Servicios (obligatorio)","Código del Producto (obligatorio)","Nombre del Producto / Servicio (obligatorio)","¿Inventariable? (obligatorio)","Visible en facturas de venta","Código Unidad de medida DIAN","Descripción Larga","Código Impuesto Cargo","Valor Impuesto Cargo Dos","¿Incluye IVA en Precio de Venta?","Precio de venta 1","Marca"];
+const prodCodigoSiigo = (nombre) => sinTildes(nombre).toUpperCase().replace(/[^A-Z0-9]+/g,"");
+function ProdCodex({ user, datos, setDatos, permisos, isMobile }) {
+  const { codex } = datos;
+  const [campo, setCampo] = useState("linea");
+  const [q, setQ] = useState("");
+  const [cambios, setCambios] = useState({}); // id → { nombre, valor, activo, por_costo }
+  const [nuevoNombre, setNuevoNombre] = useState("");
+  const [nuevoValor, setNuevoValor] = useState("");
+  const [msg, setMsg] = useState("");
+  const [guardandoId, setGuardandoId] = useState(null);
+  const def = PROD_CAMPOS.find(c=>c.id===campo);
+  const t = sinTildes(q.trim());
+  const lista = codex.filter(o=>o.campo===campo && (!t || sinTildes(`${o.nombre} ${o.codigo}`).includes(t))).sort((a,b)=>a.codigo-b.codigo);
+  const editable = permisos.codex;
+  const val = (o, k) => cambios[o.id] && k in cambios[o.id] ? cambios[o.id][k] : o[k];
+  const cambiar = (o, k, v) => setCambios(c=>({ ...c, [o.id]:{ ...(c[o.id]||{}), [k]:v } }));
+  const lineasSinSiigo = codex.filter(o=>o.campo==="linea" && o.activo!==false && String(o.nombre||"").trim() && !o.siigo_codigo);
+  const guardar = async (o) => {
+    const c = cambios[o.id]; if(!c) return;
+    if(permModoVerComo) return setMsg("Estás en «Ver como»: nada se guarda.");
+    const nombre = String(c.nombre ?? o.nombre).trim();
+    if(!nombre && def.req) return setMsg("El nombre no puede quedar vacío.");
+    const valor = def.valor==="factor" ? Number(String(c.valor ?? o.valor).replace(",",".")) : Number(String(c.valor ?? o.valor).replace(/[^\d]/g,""));
+    if(def.valor && !(valor>=0)) return setMsg("El valor no es un número.");
+    setGuardandoId(o.id);
+    const cambio = { nombre, valor:def.valor?valor:o.valor, activo:c.activo ?? o.activo, por_costo:c.por_costo ?? o.por_costo, actualizado_por:user.name, actualizado_en:new Date().toISOString() };
+    const { data, error } = await supabase.from("producto_codex").update(cambio).eq("id", o.id).select().single();
+    setGuardandoId(null);
+    if(error) return setMsg(`No se pudo guardar: ${error.message}`);
+    setDatos(d=>({ ...d, codex:d.codex.map(x=>x.id===o.id?data:x) }));
+    setCambios(cs=>{ const n = { ...cs }; delete n[o.id]; return n; });
+    setMsg(Number(o.valor)!==Number(data.valor) ? `Guardado. El nuevo valor cuenta para los productos NUEVOS; los que ya existen siguen con su precio.` : "Guardado.");
+  };
+  const agregar = async () => {
+    const nombre = nuevoNombre.trim();
+    if(!nombre) return setMsg("Escribe el nombre de la opción nueva.");
+    if(codex.some(o=>o.campo===campo && sinTildes(String(o.nombre).trim())===sinTildes(nombre))) return setMsg(`Ya existe "${nombre}" en ${def.label}.`);
+    if(permModoVerComo) return setMsg("Estás en «Ver como»: nada se guarda.");
+    const valor = def.valor==="factor" ? Number(String(nuevoValor).replace(",",".")) : def.valor ? Number(String(nuevoValor).replace(/[^\d]/g,""))||0 : 0;
+    if(def.valor==="factor" && !(valor>0)) return setMsg("Escribe el factor de la categoría (ej. 1 o 1,5).");
+    const codigo = Math.max(9, ...codex.filter(o=>o.campo===campo).map(o=>o.codigo)) + 1;
+    const { data, error } = await supabase.from("producto_codex").insert({ campo, nombre, codigo, valor, actualizado_por:user.name, actualizado_en:new Date().toISOString() }).select().single();
+    if(error) return setMsg(error.code==="23505" ? "Alguien acaba de agregar otra opción con ese código. Intenta de nuevo." : `No se pudo agregar: ${error.message}`);
+    setDatos(d=>({ ...d, codex:[...d.codex, data] }));
+    setNuevoNombre(""); setNuevoValor(""); setMsg(`Agregada "${nombre}" con el código ${codigo}.`);
+  };
+  const descargarSiigo = (lineas) => prodDescargar(prodXlsx([{ nombre:"Datos", filas:[PROD_SIIGO_ENC, ...lineas.map(o=>["P-Producto","1 Productos",prodCodigoSiigo(o.nombre),String(o.nombre).trim().toUpperCase(),"NO","SI","94","","1-IVA 19%","","SI","",""])] }]), `siigo-lineas-nuevas.xlsx`);
+  const marcarEnSiigo = async (o) => {
+    if(permModoVerComo) return setMsg("Estás en «Ver como»: nada se guarda.");
+    const { data, error } = await supabase.from("producto_codex").update({ siigo_codigo:prodCodigoSiigo(o.nombre), actualizado_por:user.name, actualizado_en:new Date().toISOString() }).eq("id", o.id).select().single();
+    if(error) return setMsg(`No se pudo guardar: ${error.message}`);
+    setDatos(d=>({ ...d, codex:d.codex.map(x=>x.id===o.id?data:x) }));
+  };
+  const inp = { boxSizing:"border-box", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 9px", fontFamily:font.body, fontSize:13, color:C.text, outline:"none" };
+  return (
+    <div>
+      <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:6, marginBottom:10 }}>
+        {PROD_CAMPOS.map(c=><button key={c.id} onClick={()=>{ setCampo(c.id); setQ(""); setMsg(""); }} style={operChip(campo===c.id)}>{c.label} <span style={{ fontFamily:font.mono, fontSize:11, opacity:0.7 }}>{codex.filter(o=>o.campo===c.id && String(o.nombre||"").trim()).length}</span></button>)}
+      </div>
+      {campo==="linea" && lineasSinSiigo.length>0 && (
+        <Card p="12px 14px" style={{ marginBottom:12, borderColor:`${C.amber}66` }}>
+          <div style={{ fontFamily:font.body, fontSize:13, color:C.text, marginBottom:8 }}><b>Líneas que no están en Siigo:</b> {lineasSinSiigo.map(o=>o.nombre).join(", ")}</div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            <Btn sm onClick={()=>descargarSiigo(lineasSinSiigo)}><Icon n="file" s={14}/>Archivo para Siigo</Btn>
+            {editable && lineasSinSiigo.map(o=><Btn key={o.id} sm variant="ghost" onClick={()=>marcarEnSiigo(o)}>{o.nombre} ya está en Siigo</Btn>)}
+          </div>
+        </Card>
+      )}
+      <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginBottom:10, lineHeight:1.5 }}>
+        {def.valor==="factor" ? "El factor multiplica la suma de valores. Las categorías marcadas “sobre el costo” (Golden) multiplican el costo de la pieza." : def.valor==="pesos" ? "El valor en pesos se suma al precio. Cambiarlo no cambia el precio de los productos que ya existen." : "Esta característica solo pone su código en la referencia; no suma al precio."} El código lo pone la app y no se cambia.
+      </div>
+      {editable && (
+        <Card p="12px 14px" style={{ marginBottom:12 }}>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"flex-end" }}>
+            <div style={{ flex:"1 1 220px" }}><Field label={`Nueva opción de ${def.label.toLowerCase()}`} value={nuevoNombre} onChange={setNuevoNombre} placeholder="Nombre"/></div>
+            {def.valor==="pesos" && <div style={{ flex:"0 1 160px" }}><CurrencyField label="Valor" value={nuevoValor} onChange={setNuevoValor}/></div>}
+            {def.valor==="factor" && <div style={{ flex:"0 1 120px" }}><Field label="Factor" value={nuevoValor} onChange={setNuevoValor} placeholder="1,5"/></div>}
+            <Btn onClick={agregar} style={{ marginBottom:14 }}><Icon n="plus" s={15}/>Agregar</Btn>
+          </div>
+        </Card>
+      )}
+      {msg && <div style={{ background:C.blueDim, color:C.goldDark, borderRadius:9, padding:"9px 12px", fontFamily:font.body, fontSize:12.5, marginBottom:12 }}>{msg}</div>}
+      <div style={{ position:"relative", maxWidth:320, marginBottom:10 }}>
+        <span style={{ position:"absolute", left:10, top:9, color:C.textMuted }}><Icon n="search" s={15}/></span>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder={`Buscar en ${def.label.toLowerCase()}`} style={{ ...inp, width:"100%", padding:"8px 11px 8px 32px", background:"#fff" }}/>
+      </div>
+      <Card p="4px 0">
+        {lista.map(o=>{
+          const sucio = !!cambios[o.id];
+          const vacia = !String(o.nombre||"").trim();
+          return (
+            <div key={o.id} style={{ display:"flex", gap:10, alignItems:"center", flexWrap:isMobile?"wrap":"nowrap", padding:"8px 14px", borderBottom:`1px solid ${C.border}`, opacity:val(o,"activo")===false?0.55:1 }}>
+              <span style={{ fontFamily:font.mono, fontSize:12.5, color:C.textMuted, minWidth:30 }}>{o.codigo}</span>
+              {editable && !vacia ? <input value={val(o,"nombre")} onChange={e=>cambiar(o,"nombre",e.target.value)} style={{ ...inp, flex:"1 1 180px", minWidth:0 }}/>
+                : <span style={{ flex:"1 1 180px", fontFamily:font.body, fontSize:13, color:vacia?C.textMuted:C.text, fontStyle:vacia?"italic":"normal" }}>{vacia ? "Ninguno (vacío)" : o.nombre}</span>}
+              {def.valor==="pesos" && (editable ? <div style={{ width:130 }}><CurrencyField value={String(Math.round(Number(val(o,"valor"))||0))} onChange={v=>cambiar(o,"valor",v)} noMargin/></div> : <span style={{ fontFamily:font.mono, fontSize:13 }}>{prodPesos(o.valor)}</span>)}
+              {def.valor==="factor" && (editable ? <input value={String(val(o,"valor")).replace(".",",")} onChange={e=>cambiar(o,"valor",e.target.value)} style={{ ...inp, width:70, fontFamily:font.mono }}/> : <span style={{ fontFamily:font.mono, fontSize:13 }}>× {String(o.valor).replace(".",",")}</span>)}
+              {campo==="categoria" && <label style={{ display:"inline-flex", gap:5, alignItems:"center", fontFamily:font.body, fontSize:12, color:C.textSub }}><input type="checkbox" disabled={!editable} checked={!!val(o,"por_costo")} onChange={e=>cambiar(o,"por_costo",e.target.checked)}/>Sobre el costo</label>}
+              {campo==="linea" && o.siigo_codigo && !isMobile && <Badge color={C.green} sm>Siigo {o.siigo_codigo}</Badge>}
+              {editable && !vacia && <label style={{ display:"inline-flex", gap:5, alignItems:"center", fontFamily:font.body, fontSize:12, color:C.textSub }}><input type="checkbox" checked={val(o,"activo")!==false} onChange={e=>cambiar(o,"activo",e.target.checked)}/>Activa</label>}
+              {editable && sucio && <Btn sm onClick={()=>guardar(o)} disabled={guardandoId===o.id}>{guardandoId===o.id?"…":"Guardar"}</Btn>}
+            </div>
+          );
+        })}
+        {lista.length===0 && <div style={{ padding:16, fontFamily:font.body, fontSize:13, color:C.textMuted }}>Sin opciones.</div>}
+      </Card>
+    </div>
+  );
+}
+
+// ── SCREEN: Operaciones · Producto ───────────────────────────────────────────
+function OperacionesProductoScreen({ user, stores, config, onCargar, isMobile }) {
+  const liderId = config.find(c=>c.clave==="lider_usuario_id")?.valor || "";
+  const permisos = {
+    ver:     puedeOper(user, "operaciones.producto.ver", liderId),
+    generar: puedeOper(user, "operaciones.producto.generar", liderId),
+    codex:   puedeOper(user, "operaciones.producto.codex", liderId),
+    precio:  puedeOper(user, "operaciones.producto.precio", liderId),
+  };
+  const [datos, setDatos] = useState(prodCache);
+  const [estado, setEstado] = useState(prodCache ? "listo" : "cargando");
+  const [sub, setSub] = useState("generar");
+  const [loteNuevo, setLoteNuevo] = useState(null);
+  const cargar = async () => {
+    setEstado(e=>e==="listo"?"recargando":"cargando");
+    const r = await prodTraer();
+    if(r.error){ setEstado(prodCache?"listo":"error"); return; }
+    setDatos(r); setEstado("listo");
+  };
+  useEffect(()=>{ onCargar(5*60000); if(!prodCache || Date.now()-prodCache.t > 5*60000) cargar(); }, []);
+  // Lo que se cambia aquí también queda en la memoria del módulo (para no recargar al volver).
+  const setDatosYCache = (f) => setDatos(d=>{ const n = typeof f==="function" ? f(d) : f; prodCache = { ...n, t:prodCache?.t || Date.now() }; return n; });
+  if(!permisos.ver) return <Card><div style={{ fontFamily:font.body, color:C.textMuted }}>Producto es solo para el líder de Operaciones y Master.</div></Card>;
+  const SUBS = [{ id:"generar", label:"Generar", ic:"tag" }, { id:"lotes", label:"Lotes", ic:"box" }, { id:"productos", label:"Productos", ic:"list" }, { id:"codex", label:"Codex", ic:"wrench" }];
+  return (
+    <div>
+      <PageHeader title="Producto" subtitle="Generador de etiquetas: referencia, PLU y precio de cada pieza, y los archivos de cada lote"
+        action={<Btn sm variant="ghost" onClick={cargar} disabled={estado==="cargando"||estado==="recargando"}><Icon n="refresh" s={14}/>{estado==="recargando"?"Actualizando…":"Actualizar"}</Btn>}/>
+      <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:6, marginBottom:14 }}>
+        {SUBS.map(s=><button key={s.id} onClick={()=>setSub(s.id)} style={operChip(sub===s.id)}><Icon n={s.ic} s={15}/>{s.label}</button>)}
+      </div>
+      {estado==="cargando" && !datos && <Card><div style={{ fontFamily:font.body, color:C.textMuted }}>Cargando productos…</div></Card>}
+      {estado==="error" && !datos && <Card><div style={{ fontFamily:font.body, color:C.red, marginBottom:10 }}>No se pudieron cargar los productos. ¿Ya se corrió el SQL de Producto en esta base?</div><Btn sm onClick={cargar}>Intentar de nuevo</Btn></Card>}
+      {datos && sub==="generar" && <ProdGenerar user={user} datos={datos} setDatos={setDatosYCache} stores={stores} permisos={permisos} isMobile={isMobile} onLoteGuardado={(id)=>{ setLoteNuevo(id); setSub("lotes"); }}/>}
+      {datos && sub==="lotes" && <ProdLotes key={loteNuevo||"lotes"} user={user} datos={datos} setDatos={setDatosYCache} stores={stores} permisos={permisos} isMobile={isMobile} abiertoInicial={loteNuevo}/>}
+      {datos && sub==="productos" && <ProdProductos datos={datos} isMobile={isMobile}/>}
+      {datos && sub==="codex" && <ProdCodex user={user} datos={datos} setDatos={setDatosYCache} permisos={permisos} isMobile={isMobile}/>}
+    </div>
+  );
+}
+
 function OperacionesTiendaScreen(props) {
   const [sub, setSub] = useState(props.foco?.tipo==="int" ? "internas" : "externas");
   useEffect(()=>{ if(props.foco) setSub(props.foco.tipo==="int" ? "internas" : "externas"); }, [props.foco?.t]);
@@ -15662,6 +16365,8 @@ export default function App() {
   // a Ventas todos los admin arrancan en Métricas.
   const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : "");
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
+  // El líder de Operaciones (operaciones_config): decide si se ve la pestaña Producto.
+  const liderOper = opConfig.find(c=>c.clave==="lider_usuario_id")?.valor || "";
   const propsOperaciones = { user, users, stores, ventas, onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, sols:opInternas, setSols:setOpInternas, foco:opFoco, onFocoUsado:()=>setOpFoco(null), pedidoFiltro:opPedido, onFiltroUsado:()=>setOpPedido(null), onPedirFiltro:(ficha,tienda,tipo="ext")=>{ setOpPedido({ ficha, tienda, tipo, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, onIrA:(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
@@ -15680,6 +16385,7 @@ export default function App() {
         if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesExternasScreen {...propsOperaciones}/>;
         if(tab==="op_internas" && puedeOper(user, "operaciones.ver")) return <OperacionesInternasScreen {...propsOperaciones}/>;
         if(tab==="op_indicadores" && puedeOper(user, "operaciones.indicadores.ver")) return <OperacionesIndicadoresScreen {...propsOperaciones}/>;
+        if(tab==="op_producto" && puedeOper(user, "operaciones.producto.ver", liderOper)) return <OperacionesProductoScreen {...propsOperaciones}/>;
       } else if(area==="capacitacion"){
         if(tab==="mis_cursos" && tomaCapacitaciones(user)) return <CapacitacionMisCursosScreen {...propsCapacitacion}/>;
         if(tab==="progreso")     return <CapacitacionProgresoScreen users={users} {...propsCapacitacion}/>;
@@ -15827,7 +16533,7 @@ export default function App() {
     </div>
   );
 
-  const tabsVisibles = tabsPara(user, area);
+  const tabsVisibles = tabsPara(user, area, liderOper);
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
   const mostrarTienda = esAreaVentas && (tab==="registrar" || tab==="caja");
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
@@ -15844,7 +16550,7 @@ export default function App() {
         <BarraSuperiorMovil {...propsBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
         {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
         <main style={{flex:1,overflowY:"auto",padding:16}}>{panel}</main>
-        <BottomNav tab={tab} setTab={setTab} user={user} area={area}/>
+        <BottomNav tab={tab} setTab={setTab} user={user} area={area} liderOper={liderOper}/>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
