@@ -966,14 +966,14 @@ reclamar — tocar uno abre Externas con ese filtro, `OPER_FILTROS_EXTRA` / `opP
 "Así va en <mes>" (recibidas por tipo, entregadas, cobrado por servicios, cuánto tardan los
 clientes en recoger, solicitudes internas respondidas y en cuántos días). Sin % a tiempo ni
 comparación entre tiendas. La cuenta de tienda lo ve arriba de su Operaciones (solo su tienda, y sigue su selector
-Externas / Internas). **Rediseño (18 nov, pedido de Santiago):** ya no hay pestaña "Por tienda": hay
-UNA pestaña **"Indicadores"** (`OperacionesIndicadoresHub`) con dos partes, **Tiendas** (se abre
-primero; selector Externas/Internas y tienda o Todas) y **Tiempos** (el % a tiempo de
-`OperacionesIndicadoresScreen`, con `embebido`). Motivo: suavizar el cambio para Edwin — que el
-cumplimiento sea una parte más de los indicadores. Más visual: fichas con ícono (`IndFicha`),
-barras de 2 series de los últimos 3 meses (`IndBarrasPar`: recibidas/entregadas o
-hechas/respondidas), dona por tipo (`IndDona`, colores fijos por tipo en `OPER_COLOR_TIPO`).
-Internas: Nuevas, En gestión, Atrasadas, Respondidas (tocar filtra Internas; `opPedido.tipo`).
+Externas / Internas). **Orden final (18 nov, decisión de Santiago):** 1) Externas · clientes / Internas
+· tiendas (pestañas para admins; selector para la cuenta de tienda), 2) **Para hacer hoy**
+(`OperPanelTienda`, arriba de cada lista; las gráficas del mes van plegadas en "Ver cómo va el
+mes"), 3) la lista de Operaciones externas / internas. Tocar una ficha filtra la lista de abajo; en
+admins el panel sigue la tienda si hay UNA elegida en los filtros. La pestaña **Indicadores** es solo
+el % a tiempo ("Tiempos de entrega y de respuesta", `OperacionesIndicadoresScreen`). Más visual:
+fichas con ícono (`IndFicha`), barras de 2 series de 3 meses (`IndBarrasPar`), dona por tipo
+(`IndDona`, colores fijos `OPER_COLOR_TIPO`).
 Permiso `operaciones.tienda.ver` (tiendas, admins, Visualizador; los asesores no entran a Operaciones).
 
 **Datos reales del Excel (18 nov 2026):** Santiago cambió la decisión de "empezar en limpio": los

@@ -963,7 +963,7 @@ const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar ven
 const ADMIN_TABS_CAPACITACION = [{ id:"mis_cursos",icon:"📚",label:"Mis cursos" },{ id:"progreso",icon:"📊",label:"Progreso" },{ id:"cursos_admin",icon:"🛠️",label:"Administrar cursos" }];
 // Operaciones (área "operaciones"): por ahora solo Externas (parte 1). Internas e Indicadores son
 // las partes 2 y 3 — ver "OPERACIONES" más abajo.
-const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas" },{ id:"op_internas",icon:"📦",label:"Internas" },{ id:"op_indicadores",icon:"📊",label:"Indicadores" }];
+const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas · clientes" },{ id:"op_internas",icon:"📦",label:"Internas · tiendas" },{ id:"op_indicadores",icon:"📊",label:"Indicadores" }];
 const tabsCapacitacion = (user) => ADMIN_TABS_CAPACITACION.filter(t => t.id==="mis_cursos" ? tomaCapacitaciones(user) : t.id==="cursos_admin" ? puedeEditarCapacitacion(user) : puede(user, "escuela.progreso"));
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas" || user.role==="admin_turnos";
 // Quién ve la pantalla de módulos al entrar y el selector de áreas arriba: los admins (puedeUsarAreas)
@@ -1057,7 +1057,7 @@ const permisosTurnos = (user) => {
 };
 const tabsPara = (user, area) => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? [...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : []), ...(puedeOper(user, "operaciones.ver") ? [{ id:"op_externas", icon:"🧰", label:"Operaciones" }] : [])] : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
-  : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver") || puedeOper(user, "operaciones.tienda.ver")) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
+  : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -14289,6 +14289,9 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ven
   );
   return (
     <div style={{ maxWidth:1100, margin:"0 auto" }}>
+      {puedeOper(user, "operaciones.tienda.ver") && <OperPanelTienda ops={visibles} sols={[]} tipo="ext" isMobile={isMobile}
+        tiendaId={esTienda ? user.tienda_id : (tiendasF.length===1 ? tiendasF[0] : "")}
+        onIr={(f)=>{ setFase(f); setVista("lista"); setLimite(40); }}/>}
       <PageHeader title="Operaciones externas" subtitle="Arreglos, marcaciones y garantías de clientes"
         action={<div style={{ display:"flex", alignItems:"center", gap:10 }}><OperCampana ops={ops} sols={sols} user={user} stores={stores} onIrA={onIrA}/>{puedeOper(user, "operaciones.externas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva orden</Btn> : null}</div>}/>
       <OperLider user={user} users={users} liderId={liderId} onGuardar={guardarLider}/>
@@ -14598,6 +14601,9 @@ function OperacionesInternasScreen({ user, users, stores, ops, sols, setSols, on
   );
   return (
     <div style={{ maxWidth:1100, margin:"0 auto" }}>
+      {puedeOper(user, "operaciones.tienda.ver") && <OperPanelTienda ops={[]} sols={visibles} tipo="int" isMobile={isMobile}
+        tiendaId={esTienda ? user.tienda_id : (tiendasF.length===1 ? tiendasF[0] : "")}
+        onIr={(f)=>{ setFiltro(f); setVista("lista"); setLimite(40); }}/>}
       <PageHeader title="Operaciones internas" subtitle="Insumos, novedades y arreglos del inventario y del punto"
         action={<div style={{ display:"flex", alignItems:"center", gap:10 }}><OperCampana ops={ops} sols={sols} user={user} stores={stores} onIrA={onIrA}/>{puedeOper(user, "operaciones.internas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva solicitud</Btn> : null}</div>}/>
       <OperLider user={user} users={users} liderId={liderId} onGuardar={(id)=>operGuardarLider(user, id, setConfig)}/>
@@ -14834,7 +14840,7 @@ function OperacionesIndicadoresScreen({ stores, isMobile, embebido }) {
   const titulo = (t, nota) => <div style={{ fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, marginBottom:4 }}>{t}{nota && <span style={{ fontWeight:500, color:C.textMuted }}> · {nota}</span>}</div>;
   return (
     <div style={{ maxWidth:1100, margin:"0 auto" }}>
-      {!embebido && <PageHeader title="Indicadores de Operaciones" subtitle={`Cumplimiento a tiempo · meta ${OPER_META}%`}/>}
+      {!embebido && <PageHeader title="Indicadores" subtitle={`Tiempos de entrega y de respuesta · meta ${OPER_META}%`}/>}
       {embebido && <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginBottom:12 }}>Qué tan a tiempo se entregan las órdenes y se responden las solicitudes · meta {OPER_META}%</div>}
       <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center", marginBottom:16 }}>
         <div style={caja}>
@@ -15054,6 +15060,13 @@ const IndFicha = ({ ic, n, l, nota, color, onClick }) => {
   );
 };
 function OperPanelTienda({ ops, sols, tiendaId, tipo="ext", onIr, isMobile }) {
+  // Las gráficas del mes van plegadas (pedido de Santiago: primero "Para hacer hoy" y luego la lista).
+  const [verMes, setVerMes] = useState(false);
+  const botonMes = (
+    <button type="button" onClick={()=>setVerMes(v=>!v)} style={{ display:"inline-flex", alignItems:"center", gap:5, border:"none", background:"none", padding:0, margin:"0 0 10px", cursor:"pointer", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.gold }}>
+      <Icon n="chart" s={15}/>{verMes ? "Ocultar cómo va el mes" : "Ver cómo va el mes"}<Icon n="down" s={14} style={{ transition:"transform .2s ease", transform:verMes?"rotate(180deg)":"none" }}/>
+    </button>
+  );
   const mes = todayStr.slice(0,7), meses3 = operMesesAtras(3);
   const enMes = (f, k=mes) => !!f && String(f).slice(0,7)===k;
   const ext = (ops||[]).filter(op=>!tiendaId || op.tienda_id===tiendaId);
@@ -15094,7 +15107,8 @@ function OperPanelTienda({ ops, sols, tiendaId, tipo="ext", onIr, isMobile }) {
           <IndFicha ic="clock" n={int.filter(operIntAtrasada).length} l="Atrasadas" nota={`${OPER_DIAS_ATRASO}+ días háb. sin moverse`} color={C.red} onClick={onIr && (()=>onIr("atrasadas","int"))}/>
           <IndFicha ic="check" n={respMes.length} l="Respondidas" nota="Este mes" color={C.green} onClick={onIr && (()=>onIr("completada","int"))}/>
         </div>
-        <div style={grid3}>
+        {botonMes}
+        {verMes && <div style={grid3}>
           {tarjeta("Hechas y respondidas", <IndBarrasPar meses={meses3.map(k=>({ k, a:int.filter(s=>enMes(s.fecha,k)).length, b:int.filter(s=>(s.estado==="completada"||s.estado==="rechazada") && s.cerrada_en && enMes(operFechaCol(s.cerrada_en),k)).length }))} series={[{ k:"a", label:"Hechas", color:"#265D7F" },{ k:"b", label:"Respondidas", color:"#1B7A41" }]}/>)}
           {tarjeta("Qué se pidió este mes", <div style={{ display:"flex", alignItems:"center", gap:14 }}><IndDona partes={partes} total={hechasMes.length}/>{leyendaTipos(partes)}</div>)}
           {tarjeta("Este mes", <>
@@ -15102,7 +15116,7 @@ function OperPanelTienda({ ops, sols, tiendaId, tipo="ext", onIr, isMobile }) {
             {dato("check", respMes.length, "Respondidas")}
             {dato("clock", prom===null ? "—" : `${dec(prom)} días`, "Tardan en responder", "hábiles")}
           </>)}
-        </div>
+        </div>}
       </div>
     );
   }
@@ -15124,7 +15138,8 @@ function OperPanelTienda({ ops, sols, tiendaId, tipo="ext", onIr, isMobile }) {
         <IndFicha ic="tag" n={ext.filter(OPER_FILTROS_EXTRA.por_definir.f).length} l="Valor por definir" nota="Falta ponerles precio" color={C.amber} onClick={onIr && (()=>onIr("por_definir","ext"))}/>
         <IndFicha ic="history" n={ext.filter(operSinReclamar).length} l="Sin reclamar" nota={`${OPER_DIAS_RECLAMAR}+ días en tienda`} color={C.red} onClick={onIr && (()=>onIr("sin_reclamar","ext"))}/>
       </div>
-      <div style={grid3}>
+      {botonMes}
+      {verMes && <div style={grid3}>
         {tarjeta("Recibidas y entregadas", <IndBarrasPar meses={meses3.map(k=>({ k, a:ext.filter(op=>enMes(op.fecha,k)).length, b:entregadas(k).length }))} series={[{ k:"a", label:"Recibidas", color:"#265D7F" },{ k:"b", label:"Entregadas", color:"#1B7A41" }]}/>)}
         {tarjeta("Qué llegó este mes", <div style={{ display:"flex", alignItems:"center", gap:14 }}><IndDona partes={partes} total={recibidasMes.length}/>{leyendaTipos(partes)}</div>)}
         {tarjeta("Este mes", <>
@@ -15132,54 +15147,10 @@ function OperPanelTienda({ ops, sols, tiendaId, tipo="ext", onIr, isMobile }) {
           {dato("cash", fmtCOP(cobrado), "Cobrado por servicios")}
           {dato("clock", espera===null ? "—" : `${dec(espera)} días`, "Tardan en recoger")}
         </>)}
-      </div>
+      </div>}
     </div>
   );
 }
-// ── SCREEN: Operaciones · Indicadores (una sola pestaña con dos partes) ──────
-// "Tiendas" (se abre primero) y "Tiempos" (el % a tiempo de OperacionesIndicadoresScreen). Pedido
-// de Santiago: que el cumplimiento quede como una parte más de los indicadores, para suavizar el
-// cambio para el líder de Operaciones. Cada parte se ve según su permiso.
-function OperacionesIndicadoresHub(props) {
-  const { user, ops, sols, stores, estado, onCargar, onPedirFiltro, isMobile } = props;
-  const verTiendas = puedeOper(user, "operaciones.tienda.ver"), verTiempos = puedeOper(user, "operaciones.indicadores.ver");
-  const [seccion, setSeccion] = useState(verTiendas ? "tiendas" : "tiempos");
-  const [tid, setTid] = useState("");
-  const [tipo, setTipo] = useState("ext");
-  useEffect(()=>{ if(verTiendas) onCargar(5*60000); }, []);
-  const tiendas = tiendasVenta(stores).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-  const seg = (on) => ({ display:"inline-flex", alignItems:"center", gap:6, height:34, padding:"0 14px", border:"none", cursor:"pointer", fontFamily:font.body, fontSize:13, fontWeight:on?700:500, background:on?C.goldDark:"#fff", color:on?C.tinta:C.textSub, whiteSpace:"nowrap" });
-  const caja = { display:"inline-flex", border:`1px solid ${C.border}`, borderRadius:10, overflow:"hidden" };
-  return (
-    <div style={{ maxWidth:1100, margin:"0 auto" }}>
-      <PageHeader title="Indicadores" subtitle="Cómo van las tiendas y los tiempos de Operaciones"/>
-      {verTiendas && verTiempos && (
-        <div style={{ ...caja, marginBottom:16 }}>
-          <button type="button" onClick={()=>setSeccion("tiendas")} style={seg(seccion==="tiendas")}><Icon n="store" s={14}/>Tiendas</button>
-          <button type="button" onClick={()=>setSeccion("tiempos")} style={seg(seccion==="tiempos")}><Icon n="clock" s={14}/>Tiempos</button>
-        </div>
-      )}
-      {seccion==="tiempos"
-        ? <OperacionesIndicadoresScreen {...props} embebido/>
-        : <>
-          <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center", marginBottom:16 }}>
-            <div style={caja}>
-              <button type="button" onClick={()=>setTipo("ext")} style={seg(tipo==="ext")}><Icon n="wrench" s={14}/>Externas · clientes</button>
-              <button type="button" onClick={()=>setTipo("int")} style={seg(tipo==="int")}><Icon n="box" s={14}/>Internas · tiendas</button>
-            </div>
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-              <button type="button" onClick={()=>setTid("")} style={operPildora(tid==="")}>Todas</button>
-              {tiendas.map(t=><button key={t.id} type="button" onClick={()=>setTid(t.id)} style={operPildora(tid===t.id)}><span style={{ width:8, height:8, borderRadius:"50%", background:colorTienda(t) }}/>{nombreTiendaCorto(t)}</button>)}
-            </div>
-          </div>
-          {estado!=="listo" && !(ops||[]).length
-            ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>Cargando…</div></Card>
-            : <OperPanelTienda ops={ops} sols={sols} tiendaId={tid} tipo={tipo} isMobile={isMobile} onIr={(f,t)=>onPedirFiltro(f, tid, t)}/>}
-        </>}
-    </div>
-  );
-}
-
 // Cuenta de tienda: Operaciones es UNA sola pestaña (su barra ya tiene Ventas, Caja y Turnos), con
 // un selector Externas / Internas arriba. Los administradores usan las pestañas del área.
 function OperacionesTiendaScreen(props) {
@@ -15188,11 +15159,6 @@ function OperacionesTiendaScreen(props) {
   useEffect(()=>{ if(props.pedidoFiltro) setSub(props.pedidoFiltro.tipo==="int" ? "internas" : "externas"); }, [props.pedidoFiltro?.t]);
   return (
     <div>
-      {puedeOper(props.user, "operaciones.tienda.ver") && (
-        <div style={{ maxWidth:1100, margin:"0 auto" }}>
-          <OperPanelTienda ops={props.ops} sols={props.sols} tiendaId={props.user.tienda_id} tipo={sub==="internas"?"int":"ext"} isMobile={props.isMobile} onIr={(f,t)=>props.onPedirFiltro(f, "", t)}/>
-        </div>
-      )}
       <div style={{ display:"flex", gap:8, marginBottom:16, maxWidth:1100, marginLeft:"auto", marginRight:"auto" }}>
         {[["externas","Externas · clientes","wrench"],["internas","Internas · tienda","box"]].map(([id,label,ic])=>
           <button key={id} type="button" onClick={()=>setSub(id)} style={operChip(sub===id)}><Icon n={ic} s={15}/>{label}</button>)}
@@ -15640,7 +15606,7 @@ export default function App() {
       } else if(area==="operaciones"){
         if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesExternasScreen {...propsOperaciones}/>;
         if(tab==="op_internas" && puedeOper(user, "operaciones.ver")) return <OperacionesInternasScreen {...propsOperaciones}/>;
-        if(tab==="op_indicadores" && (puedeOper(user, "operaciones.indicadores.ver") || puedeOper(user, "operaciones.tienda.ver"))) return <OperacionesIndicadoresHub {...propsOperaciones}/>;
+        if(tab==="op_indicadores" && puedeOper(user, "operaciones.indicadores.ver")) return <OperacionesIndicadoresScreen {...propsOperaciones}/>;
       } else if(area==="capacitacion"){
         if(tab==="mis_cursos" && tomaCapacitaciones(user)) return <CapacitacionMisCursosScreen {...propsCapacitacion}/>;
         if(tab==="progreso")     return <CapacitacionProgresoScreen users={users} {...propsCapacitacion}/>;
