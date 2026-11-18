@@ -13543,6 +13543,7 @@ registrarPermisos({ grupo:"operaciones", label:"Operaciones", ic:"box", permisos
   // (18 nov 2026) Ya no existe "corregir el pago a mano": el estado de pago se fija al crear la orden
   // (Debe o No aplica) y SOLO cambia a "Pago" al cobrarla en Registrar venta (pedido de Santiago).
   { id:"operaciones.externas.devolver", label:"Devolver una orden a la etapa anterior", r:{ master:1 }, nota:OPER_NOTA_LIDER },
+  { id:"operaciones.externas.fecha", label:"Cambiar la fecha de entrega de una orden ya creada (queda No a tiempo)", r:{ master:1 }, nota:OPER_NOTA_LIDER },
   { id:"operaciones.externas.cancelar", label:"Cancelar una orden", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
   { id:"operaciones.garantias.decidir", label:"Decidir si una garantía se cubre", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
   { id:"operaciones.lider.asignar", label:"Elegir al líder de Operaciones", sensible:true, r:{ master:1 } },
@@ -13553,7 +13554,7 @@ registrarPermisos({ grupo:"operaciones", label:"Operaciones", ic:"box", permisos
   { id:"operaciones.indicadores.ver", label:"Ver los indicadores de Operaciones", soloVer:true, r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
 ]});
 const esLiderOperaciones = (user, liderId) => !!user && !!liderId && String(user.id)===String(liderId);
-const OPER_ACCIONES_LIDER = new Set(["operaciones.externas.crear","operaciones.externas.avanzar","operaciones.externas.devolver","operaciones.externas.cancelar","operaciones.garantias.decidir","operaciones.internas.crear","operaciones.internas.gestionar"]);
+const OPER_ACCIONES_LIDER = new Set(["operaciones.externas.crear","operaciones.externas.avanzar","operaciones.externas.devolver","operaciones.externas.fecha","operaciones.externas.cancelar","operaciones.garantias.decidir","operaciones.internas.crear","operaciones.internas.gestionar"]);
 // Pregunta única de Operaciones: lo que diga el tablero (puede) o, para las acciones del líder, ser
 // el líder. `liderId` se pasa donde se conoce (pantalla de Operaciones); sin él, solo cuenta el rol.
 const puedeOper = (user, accion, liderId) => !!user && (puede(user, accion) || (OPER_ACCIONES_LIDER.has(accion) && esLiderOperaciones(user, liderId)));
@@ -13686,6 +13687,7 @@ const operTextoMov = (h, op) => {
   if(h.accion==="cancelada") return `Cancelada${h.nota?` — ${h.nota}`:""}`;
   if(h.accion==="garantia")  return `Garantía: ${h.nota||""}`;
   if(h.accion==="pago")      return `Pago cambiado a "${h.nota||""}"`;
+  if(h.accion==="fecha")     return `Cambió la fecha de entrega: ${h.nota||""} (queda No a tiempo)`;
   if(h.accion==="cobro")     return `Cobrada en Registrar venta${h.nota?` — ${h.nota}`:""}`;
   return h.accion||"";
 };
@@ -13738,7 +13740,7 @@ function OperOrdenCliente({ op, stores, onCerrar }) {
     ["Fecha", operFechaLarga(op.fecha)],
     ["Cliente", op.cliente_nombre],
     ["Teléfono", op.cliente_telefono || "—"],
-    ["Fecha estimada de entrega", op.fecha_estimada_entrega ? operFechaLarga(op.fecha_estimada_entrega) : "Por confirmar"],
+    ["Fecha de entrega", operFechaLarga(operFechaEntrega(op))],
   ];
   const tiendaTxt = op.tipo==="traslado" && op.tienda_origen_id ? `${nombreTiendaCorto(stores[op.tienda_origen_id])} → ${nombreTiendaCorto(stores[op.tienda_id])}` : nombreTiendaCorto(stores[op.tienda_id]);
   const imprimir = () => {
@@ -13823,7 +13825,8 @@ function OperNuevaOrden({ user, users, stores, clientes, onCreada, onCancelar, i
     if(!cliente.trim()){ setMsg("Falta el nombre del cliente."); return; }
     if(!telefono.trim()){ setMsg("Falta el teléfono del cliente."); return; }
     if(!descripcion.trim()){ setMsg("Falta la descripción de la pieza y de lo que hay que hacer."); return; }
-    if(fechaEst && fechaEst < todayStr){ setMsg("La fecha estimada de entrega no puede ser anterior a hoy."); return; }
+    if(!fechaEst){ setMsg("Falta la fecha de entrega."); return; }
+    if(fechaEst < todayStr){ setMsg("La fecha estimada de entrega no puede ser anterior a hoy."); return; }
     // Una orden no puede quedar en $0: o lleva valor, o se marca "No aplica" (pedido de Santiago).
     if(pago!=="no_aplica" && Number(valor||0)<=0){ setMsg("Falta el valor. Si esta orden no se cobra, marca \"No aplica\"."); return; }
     setGuardando(true);
@@ -13834,7 +13837,7 @@ function OperNuevaOrden({ user, users, stores, clientes, onCreada, onCancelar, i
       fecha:todayStr, tipo, tienda_id:tiendaId, tienda_origen_id:esTraslado?origenId:null,
       asesor_id:String(asesorId), asesor_nombre:asesor?.name||"", registrado_por:user.name, registrado_por_id:String(user.id),
       cliente_nombre:cliente.trim(), cliente_telefono:telefono.trim(), descripcion:descripcion.trim(),
-      valor:pago==="no_aplica"?0:Number(valor||0), estado_pago:pago==="no_aplica"?"no_aplica":"debe", fecha_estimada_entrega:fechaEst||null,
+      valor:pago==="no_aplica"?0:Number(valor||0), estado_pago:pago==="no_aplica"?"no_aplica":"debe", fecha_estimada_entrega:fechaEst, fecha_entrega_original:fechaEst, reprogramada:false,
       etapa:etapa0, etapa_desde:ahora,
       historial:[{ en:ahora, por:asesor?.name||user.name, cuenta:user.name, accion:"creada", etapa:etapa0 }],
     }).select().single();
@@ -13885,7 +13888,7 @@ function OperNuevaOrden({ user, users, stores, clientes, onCreada, onCancelar, i
           </div>
         </div>
         <CurrencyField label="Valor" value={pago==="no_aplica"?"":valor} onChange={setValor} disabled={pago==="no_aplica"} placeholder={pago==="no_aplica"?"No aplica":""}/>
-        <Field label={`Entrega estimada (sugerida: ${OPER_DIAS_ENTREGA} días hábiles)`} type="date" value={fechaEst} onChange={setFechaEst}/>
+        <Field label={`Fecha de entrega (sugerida: ${OPER_DIAS_ENTREGA} días hábiles)`} type="date" value={fechaEst} onChange={setFechaEst}/>
       </div>
       {pago!=="no_aplica" && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, margin:"-6px 0 14px" }}>La orden queda como <strong>Debe</strong>. Se cobra en cualquier momento con el botón "Cobrar" de la orden, que lleva a Registrar venta.</div>}
       {msg && <div style={{ fontFamily:font.body, fontSize:13, color:C.red, background:C.redDim, borderRadius:8, padding:"9px 12px", marginBottom:12 }}>{msg}</div>}
@@ -13903,6 +13906,8 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
   const [modo, setModo] = useState(null); // null | "avanzar" | "devolver" | "cancelar" | "garantia"
   const [texto, setTexto] = useState("");
   const [decision, setDecision] = useState("");
+  const [nuevaFecha, setNuevaFecha] = useState("");
+  const vence = operFechaEntrega(op);
   const [ocupado, setOcupado] = useState(false);
   const [msg, setMsg] = useState("");
   const cerrada = operCerrada(op);
@@ -13931,13 +13936,20 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
   const avanzar = async () => {
     if(!siguiente) return;
     const ahora = new Date().toISOString();
-    const ok = await guardarCambio({ etapa:siguiente.id, etapa_desde:ahora, cerrada_en:siguiente.id==="entregada"?ahora:null }, { accion:"etapa", etapa:siguiente.id });
+    const ok = await guardarCambio({ etapa:siguiente.id, etapa_desde:ahora, cerrada_en:siguiente.id==="entregada"?ahora:null, ...(siguiente.id==="lista"?{ lista_en:ahora }:{}) }, { accion:"etapa", etapa:siguiente.id });
     if(ok && siguiente.id==="entregada") sonidoTareaCumplida();
   };
   const devolver = async () => {
     if(!anterior) return;
     if(!texto.trim()){ setMsg("Escribe por qué se devuelve la etapa."); return; }
-    await guardarCambio({ etapa:anterior.id, etapa_desde:new Date().toISOString(), cerrada_en:null }, { accion:"devuelta", etapa:anterior.id, nota:texto.trim() });
+    await guardarCambio({ etapa:anterior.id, etapa_desde:new Date().toISOString(), cerrada_en:null, ...(op.etapa==="lista"?{ lista_en:null }:{}) }, { accion:"devuelta", etapa:anterior.id, nota:texto.trim() });
+  };
+  const cambiarFecha = async () => {
+    if(!nuevaFecha){ setMsg("Elige la nueva fecha de entrega."); return; }
+    if(nuevaFecha===vence){ setMsg("Es la misma fecha que ya tiene."); return; }
+    if(nuevaFecha < todayStr){ setMsg("La nueva fecha no puede ser anterior a hoy."); return; }
+    if(!texto.trim()){ setMsg("Escribe el motivo del cambio de fecha."); return; }
+    await guardarCambio({ fecha_estimada_entrega:nuevaFecha, fecha_entrega_original:op.fecha_entrega_original||vence, reprogramada:true }, { accion:"fecha", nota:`${fechaCorta(vence)} → ${fechaCorta(nuevaFecha)} — ${texto.trim()}` });
   };
   const cancelar = async () => {
     if(!texto.trim()){ setMsg("Escribe el motivo de la cancelación."); return; }
@@ -13977,7 +13989,10 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
             <span style={{ fontFamily:font.body, fontSize:12, fontWeight:700, color:colorEtapa }}>{operEtiquetaEtapa(op)}</span>
             <OperPasos op={op}/>
           </span>
-          <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, minWidth:44, textAlign:"right" }}>{fechaCorta(op.fecha)}</span>
+          <span style={{ display:"inline-flex", flexDirection:"column", alignItems:isMobile?"flex-start":"flex-end", gap:3, minWidth:isMobile?0:92 }}>
+            <span style={{ fontFamily:font.body, fontSize:12, color:C.textSub, whiteSpace:"nowrap" }}>Entrega <strong>{fechaCorta(vence)}</strong></span>
+            <OperTiempoBadge op={op}/>
+          </span>
           <Icon n="down" s={16} style={{ color:C.textMuted, transition:"transform .25s ease", transform:abierto?"rotate(180deg)":"none" }}/>
         </div>
       </div>
@@ -13991,7 +14006,11 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
             {dato("Teléfono", op.cliente_telefono || "—")}
             {dato("Atendió", op.asesor_nombre || "—")}
             {dato("Recibida el", operFechaLarga(op.fecha))}
-            {dato("Entrega estimada", op.fecha_estimada_entrega ? operFechaLarga(op.fecha_estimada_entrega) : "Por confirmar")}
+            {dato("Fecha de entrega", <span style={{ display:"inline-flex", flexDirection:"column", gap:4, alignItems:"flex-start" }}>
+              <strong>{operFechaLarga(vence)}</strong>
+              <OperTiempoBadge op={op}/>
+              {op.reprogramada && op.fecha_entrega_original && <span style={{ fontSize:11.5, color:C.textMuted }}>Era el {operFechaLarga(op.fecha_entrega_original)}</span>}
+            </span>)}
             {dato("Valor", <span style={{ fontFamily:font.mono, fontWeight:700 }}>{fmtCOP(op.valor)}</span>)}
             <div style={{ minWidth:0 }}>
               <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:2 }}>Estado de pago</div>
@@ -14022,6 +14041,7 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
             {garantiaPendiente && puede("operaciones.garantias.decidir") && <Btn sm onClick={()=>abrirModo("garantia")} disabled={ocupado}><Icon n="check" s={14}/>Decidir la garantía</Btn>}
             <Btn sm variant="ghost" onClick={onVerOrden}><Icon n="receipt" s={14}/>Orden para el cliente</Btn>
             {op.estado_pago==="debe" && Number(op.valor)>0 && op.etapa!=="cancelada" && puede("operaciones.externas.cobrar") && <Btn sm variant="success" onClick={()=>onCobrar(op)} disabled={ocupado}><Icon n="cash" s={14}/>Cobrar {fmtCOP(op.valor)}</Btn>}
+            {!cerrada && !operCumplida(op) && puede("operaciones.externas.fecha") && <Btn sm variant="ghost" onClick={()=>{ abrirModo("fecha"); setNuevaFecha(vence); }} disabled={ocupado}><Icon n="cal" s={14}/>Cambiar fecha de entrega</Btn>}
             {anterior && puede("operaciones.externas.devolver") && <Btn sm variant="ghost" onClick={()=>abrirModo("devolver")} disabled={ocupado}>Devolver una etapa</Btn>}
             {!cerrada && puede("operaciones.externas.cancelar") && <Btn sm variant="danger" onClick={()=>abrirModo("cancelar")} disabled={ocupado}>Cancelar orden</Btn>}
           </div>
@@ -14041,6 +14061,16 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
               </div>
               <Field label="Respuesta para el cliente" value={texto} onChange={setTexto} multiline rows={2} placeholder="Qué se va a hacer, o por qué no aplica la garantía"/>
               <div style={{ display:"flex", gap:8 }}><Btn sm onClick={decidirGarantia} disabled={ocupado}>{ocupado ? "Guardando…" : "Guardar decisión"}</Btn><Btn sm variant="ghost" onClick={()=>setModo(null)} disabled={ocupado}>Cerrar</Btn></div>
+            </div>
+          )}
+          {modo==="fecha" && (
+            <div style={cajaAccion}>
+              <div style={{ fontFamily:font.body, fontSize:12.5, color:C.red, marginBottom:10 }}>Al cambiar la fecha, la orden queda como <strong>No a tiempo</strong> aunque se cumpla en la nueva fecha.</div>
+              <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"200px 1fr", gap:isMobile?0:12 }}>
+                <Field label="Nueva fecha de entrega" type="date" value={nuevaFecha} onChange={setNuevaFecha}/>
+                <Field label="Motivo del cambio" value={texto} onChange={setTexto} placeholder="Ej: el taller necesita más tiempo para la soldadura"/>
+              </div>
+              <div style={{ display:"flex", gap:8 }}><Btn sm onClick={cambiarFecha} disabled={ocupado}>{ocupado ? "Guardando…" : "Cambiar fecha"}</Btn><Btn sm variant="ghost" onClick={()=>setModo(null)} disabled={ocupado}>Cerrar</Btn></div>
             </div>
           )}
           {modo==="devolver" && anterior && (
@@ -14127,7 +14157,8 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, ventas, o
     const texto = sinTildes(q.trim());
     return visibles.filter(op=>{
       const f = operFase(op);
-      if(fase==="atrasadas" || fase==="sin_reclamar"){ if(!(fase==="atrasadas" ? operExtAtrasada(op) : operSinReclamar(op))) return false; }
+      if(fase==="vencidas"){ if(operTiempo(op)!=="vencida") return false; }
+      else if(fase==="atrasadas" || fase==="sin_reclamar"){ if(!(fase==="atrasadas" ? operExtAtrasada(op) : operSinReclamar(op))) return false; }
       else if(fase==="abiertas" ? f==="cerradas" : (fase!=="todas" && f!==fase)) return false;
       if(tipoF && op.tipo!==tipoF) return false;
       if(tiendaF && op.tienda_id!==tiendaF && op.tienda_origen_id!==tiendaF) return false;
@@ -14159,6 +14190,7 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, ventas, o
         action={puedeOper(user, "operaciones.externas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva orden</Btn> : null}/>
       <OperLider user={user} users={users} liderId={liderId} onGuardar={guardarLider}/>
       <OperAvisoAtrasos filtroActual={fase} onFiltrar={(f)=>{ setFase(f); setLimite(40); }} items={[
+        { n:visibles.filter(o=>operTiempo(o)==="vencida").length, texto:"órdenes vencidas (pasó la fecha de entrega)", filtro:"vencidas" },
         { n:visibles.filter(operExtAtrasada).length, texto:"órdenes atrasadas", filtro:"atrasadas" },
         { n:visibles.filter(operSinReclamar).length, texto:`piezas sin reclamar (${OPER_DIAS_RECLAMAR}+ días)`, filtro:"sin_reclamar" },
       ]}/>
@@ -14526,6 +14558,30 @@ const OPER_ETAPAS_ESPERA_CLIENTE = new Set(["lista","recibido","llego"]);
 const operFechaCol = (iso) => iso ? fmt(new Date(iso)) : todayStr;
 const operExtAtrasada = (op) => !operCerrada(op) && !OPER_ETAPAS_ESPERA_CLIENTE.has(op.etapa) && diasHabilesEntre(operFechaCol(op.etapa_desde), todayStr) >= OPER_DIAS_ATRASO;
 const operSinReclamar = (op) => !operCerrada(op) && OPER_ETAPAS_ESPERA_CLIENTE.has(op.etapa) && diasEntre(op.fecha, todayStr) >= OPER_DIAS_RECLAMAR;
+// ── Fecha de entrega y "a tiempo" (18 nov 2026, pedido de Santiago) ──
+// Toda orden tiene fecha de entrega: se sugiere a 5 días hábiles al crearla y quien la crea la puede
+// cambiar ahí sin que cuente en contra. DESPUÉS de creada solo el líder o Master la cambian, y la
+// orden queda "reprogramada" = No a tiempo (como una tarea reabierta en La Junta). "Cumplida" =
+// llegó a "Lista en tienda" (`lista_en`); es a tiempo si eso pasó en o antes de la fecha y nunca se
+// reprogramó. Las órdenes viejas sin fecha guardada usan su fecha de recibo + 5 días hábiles.
+const operFechaEntrega = (op) => op.fecha_estimada_entrega || sumarDiasHabiles(op.fecha, OPER_DIAS_ENTREGA);
+const operCumplida = (op) => !!op.lista_en || op.etapa==="lista" || op.etapa==="entregada";
+const operTiempo = (op) => {
+  if(op.etapa==="cancelada") return null;
+  const vence = operFechaEntrega(op);
+  if(operCumplida(op)){ if(!op.lista_en) return null; return (!op.reprogramada && operFechaCol(op.lista_en) <= vence) ? "a_tiempo" : "no_a_tiempo"; }
+  if(todayStr > vence) return "vencida";
+  if(op.reprogramada) return "reprogramada";
+  return todayStr===vence ? "vence_hoy" : "en_plazo";
+};
+const OPER_TIEMPO = {
+  a_tiempo:     { label:"A tiempo",                   color:C.green },
+  no_a_tiempo:  { label:"No a tiempo",                color:C.red },
+  vencida:      { label:"Vencida",                    color:C.red },
+  vence_hoy:    { label:"Vence hoy",                  color:C.amber },
+  reprogramada: { label:"Reprogramada · No a tiempo", color:C.amber },
+};
+const OperTiempoBadge = ({ op, sm=true }) => { const t = OPER_TIEMPO[operTiempo(op)]; return t ? <Badge color={t.color} sm={sm}>{t.label}</Badge> : null; };
 const operIntAtrasada = (s) => operIntAbierta(s) && diasHabilesEntre(operFechaCol(s.estado_desde), todayStr) >= OPER_DIAS_ATRASO;
 
 // Franja de avisos arriba de Externas / Internas. `items`: [{ n, texto, filtro }]. Tocar uno filtra
@@ -14573,7 +14629,12 @@ function OperacionesIndicadoresScreen({ stores, ops, sols, estado, onCargar, tod
   const extCanceladasMes = ext.filter(o=>o.etapa==="cancelada" && o.cerrada_en && enMes(operFechaCol(o.cerrada_en)));
   const intCompletadasMes = int.filter(s=>s.estado==="completada" && s.cerrada_en && enMes(operFechaCol(s.cerrada_en)));
   const intRechazadasMes = int.filter(s=>s.estado==="rechazada" && s.cerrada_en && enMes(operFechaCol(s.cerrada_en)));
-  const promExt = promedioHabiles(extEntregadasMes.map(o=>({ desde:o.fecha, hasta:o.cerrada_en })));
+  // Cumplidas = llegaron a "Lista en tienda" ese mes; a tiempo según operTiempo (sin reprogramar y en fecha).
+  const extCumplidasMes = ext.filter(o=>o.lista_en && o.etapa!=="cancelada" && enMes(operFechaCol(o.lista_en)));
+  const extATiempoMes = extCumplidasMes.filter(o=>operTiempo(o)==="a_tiempo");
+  const pctATiempo = extCumplidasMes.length ? Math.round(extATiempoMes.length*100/extCumplidasMes.length) : null;
+  const extVencidas = ext.filter(o=>operTiempo(o)==="vencida");
+  const promExt = promedioHabiles(extCumplidasMes.map(o=>({ desde:o.fecha, hasta:o.lista_en })));
   const promInt = promedioHabiles(intCompletadasMes.map(s=>({ desde:s.fecha, hasta:s.cerrada_en })));
   const fmtProm = (p) => p===null ? "—" : `${p.toFixed(1).replace(".",",")} días háb.`;
 
@@ -14595,8 +14656,8 @@ function OperacionesIndicadoresScreen({ stores, ops, sols, estado, onCargar, tod
   );
   const enTienda = (lista, tid, campo="tienda_id") => lista.filter(x=>x[campo]===tid).length;
   const filasAlertas = [
-    ...tiendas.map(t=>[<EtiquetaTienda key={t.id} store={t} sm/>, num(enTienda(extAbiertas,t.id)), num(enTienda(extAtr,t.id), C.red), num(enTienda(extSinRec,t.id), C.red), num(enTienda(intAbiertas,t.id)), num(enTienda(intAtr,t.id), C.red)]),
-    [<Badge key="g" color={C.gold} sm>Global</Badge>, num(0), num(0), num(0), num(enTienda(intAbiertas,"global")), num(enTienda(intAtr,"global"), C.red)],
+    ...tiendas.map(t=>[<EtiquetaTienda key={t.id} store={t} sm/>, num(enTienda(extAbiertas,t.id)), num(enTienda(extVencidas,t.id), C.red), num(enTienda(extAtr,t.id), C.red), num(enTienda(extSinRec,t.id), C.red), num(enTienda(intAbiertas,t.id)), num(enTienda(intAtr,t.id), C.red)]),
+    [<Badge key="g" color={C.gold} sm>Global</Badge>, num(0), num(0), num(0), num(0), num(enTienda(intAbiertas,"global")), num(enTienda(intAtr,"global"), C.red)],
   ];
   const filasTipo = (tipos, lista) => {
     const filas = tipos.map(t=>[t.label, ...tiendas.map(td=>num(lista.filter(x=>x.tipo===t.value && x.tienda_id===td.id).length)), num(lista.filter(x=>x.tipo===t.value).length)]);
@@ -14608,7 +14669,7 @@ function OperacionesIndicadoresScreen({ stores, ops, sols, estado, onCargar, tod
     filas.push(["Total", ...tiendas.map(td=>num(intMes.filter(x=>x.tienda_id===td.id).length)), num(intMes.filter(x=>x.tienda_id==="global").length), num(intMes.length)]);
     return filas;
   })();
-  const grid = { display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5, 1fr)", gap:12, marginBottom:22 };
+  const grid = { display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3, 1fr)", gap:12, marginBottom:22 };
   const subtitulo = (t) => <div style={{ fontFamily:font.body, fontSize:15, fontWeight:700, color:C.text, margin:"0 0 10px" }}>{t}</div>;
 
   if(estado==="error") return (
@@ -14627,12 +14688,13 @@ function OperacionesIndicadoresScreen({ stores, ops, sols, estado, onCargar, tod
             <Tile label="Órdenes abiertas" valor={extAbiertas.length} nota="Arreglos, marcaciones, garantías"/>
             <Tile label="Solicitudes abiertas" valor={intAbiertas.length} nota="Internas de las tiendas"/>
             <Tile label="Atrasadas" valor={extAtr.length+intAtr.length} color={(extAtr.length+intAtr.length)?C.red:C.text} nota={`${extAtr.length} órdenes · ${intAtr.length} solicitudes`}/>
+            <Tile label="Vencidas" valor={extVencidas.length} color={extVencidas.length?C.red:C.text} nota="Órdenes que pasaron su fecha de entrega"/>
             <Tile label="Sin reclamar" valor={extSinRec.length} color={extSinRec.length?C.red:C.text} nota={`Listas hace ${OPER_DIAS_RECLAMAR}+ días`}/>
             <Tile label="Por cobrar" valor={fmtCOP(porCobrar)} color={porCobrar?C.amber:C.text} nota="Órdenes abiertas en Debe"/>
           </div>
           <Card style={{ marginBottom:24 }}>
             {subtitulo("Alertas por tienda")}
-            <Tabla cabeza={["Tienda","Órdenes abiertas","Órdenes atrasadas","Sin reclamar","Solicitudes abiertas","Solicitudes atrasadas"]} filas={filasAlertas}/>
+            <Tabla cabeza={["Tienda","Órdenes abiertas","Órdenes vencidas","Órdenes atrasadas","Sin reclamar","Solicitudes abiertas","Solicitudes atrasadas"]} filas={filasAlertas}/>
             <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:10 }}>Atrasada = {OPER_DIAS_ATRASO} días hábiles sin moverse (sin contar sábados, domingos ni festivos de Colombia). Sin reclamar = pieza lista en tienda hace {OPER_DIAS_RECLAMAR} días o más desde el recibo.</div>
           </Card>
 
@@ -14652,7 +14714,8 @@ function OperacionesIndicadoresScreen({ stores, ops, sols, estado, onCargar, tod
           <div style={grid}>
             <Tile label="Órdenes recibidas" valor={extMes.length}/>
             <Tile label="Órdenes entregadas" valor={extEntregadasMes.length} color={C.green} nota={extCanceladasMes.length ? `${extCanceladasMes.length} canceladas` : "Ninguna cancelada"}/>
-            <Tile label="Tiempo de entrega" valor={fmtProm(promExt)} nota="Promedio, del recibo a la entrega"/>
+            <Tile label="Cumplidas a tiempo" valor={pctATiempo===null ? "—" : `${pctATiempo}%`} color={pctATiempo===null ? C.text : pctATiempo>=90 ? C.green : pctATiempo>=70 ? C.amber : C.red} nota={`${extATiempoMes.length} de ${extCumplidasMes.length} quedaron listas a tiempo`}/>
+            <Tile label="Tiempo hasta Lista" valor={fmtProm(promExt)} nota="Promedio, del recibo a Lista en tienda"/>
             <Tile label="Solicitudes recibidas" valor={intMes.length}/>
             <Tile label="Tiempo de respuesta" valor={fmtProm(promInt)} nota={`${intCompletadasMes.length} completadas · ${intRechazadasMes.length} rechazadas`}/>
           </div>

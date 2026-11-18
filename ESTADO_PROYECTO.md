@@ -897,6 +897,20 @@ ya NO se puede cambiar a mano, ni siquiera el líder o Master: solo pasa a "Pago
 Registrar venta (pedido de Santiago). Se quitó el permiso `operaciones.externas.pago`. Al cobrar, se
 reintenta marcar la orden hasta 3 veces; si aun así falla, la venta queda guardada y avisa.
 
+**Fecha de entrega y "a tiempo" (18 nov 2026, en `staging`; requiere `sql/operaciones_02_fecha_entrega.sql`):**
+toda orden muestra su fecha de entrega en la lista y en el detalle. Al crearla se sugiere a 5 días
+hábiles y es obligatoria; quien la crea la puede cambiar ahí sin que cuente en contra. Después de
+creada solo el líder o Master la cambian (permiso `operaciones.externas.fecha`, con motivo) y la
+orden queda `reprogramada` = **No a tiempo** aunque se cumpla en la nueva fecha (como una tarea
+reabierta en La Junta). **Cumplida = llegó a "Lista en tienda"** (`lista_en`), decisión de
+Santiago: si el cliente tarda en recoger no cuenta en contra. Etiquetas (`operTiempo`): En plazo,
+Vence hoy, Vencida, Reprogramada · No a tiempo, A tiempo, No a tiempo. La franja de Externas
+suma "órdenes vencidas"; Indicadores suma "Vencidas" (ahora), "Cumplidas a tiempo" (% del mes) y
+"Tiempo hasta Lista". Columnas nuevas: `fecha_entrega_original`, `reprogramada`, `lista_en`. Las
+órdenes sin fecha guardada usan recibo + 5 días hábiles. **En la real: correr
+`operaciones_02_fecha_entrega.sql` ANTES de publicar el código** (si no, crear una orden falla).
+El SQL del Excel ya trae la fecha de entrega (recibo + 5 días hábiles) y necesita el 02 antes.
+
 **Datos reales del Excel (18 nov 2026):** Santiago cambió la decisión de "empezar en limpio": los
 datos del Excel se pasan a la app, en práctica para probar y en la REAL justo después de publicar.
 `sql/operaciones_importar_excel.sql` (⚠️ NO va a git: tiene nombres y teléfonos de clientes) carga
