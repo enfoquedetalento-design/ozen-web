@@ -13604,11 +13604,31 @@ const festivosColombia = (anio) => {
   operFestivosCache[anio] = set;
   return set;
 };
-const esDiaHabil = (fechaStr) => { const d = new Date(fechaStr+"T12:00:00"); const dow = d.getDay(); return dow!==0 && dow!==6 && !festivosColombia(d.getFullYear()).has(fechaStr); };
+// RENDIMIENTO (18 nov 2026): antes cada día se movía con sumarDias/fmt, que usan toLocaleString con
+// zona horaria — muy lento — y con los datos del Excel (cientos de casos de 2024-2025) cada pantalla
+// hacía cientos de miles de esas llamadas y la página se congelaba varios segundos. Ahora se cuenta
+// con aritmética de fechas pura (UTC, sin zona) y cada resultado se recuerda (memo). Mismo resultado.
+const operYmdUTC = (s) => Date.UTC(+s.slice(0,4), +s.slice(5,7)-1, +s.slice(8,10));
+const operUTCYmd = (t) => new Date(t).toISOString().slice(0,10);
+const operMemoHabiles = new Map();
+const esDiaHabil = (fechaStr) => { const dow = new Date(operYmdUTC(fechaStr)).getUTCDay(); return dow!==0 && dow!==6 && !festivosColombia(+fechaStr.slice(0,4)).has(fechaStr); };
 // Fecha que queda `n` días hábiles después de `fechaStr` (sin contar el día de partida).
-const sumarDiasHabiles = (fechaStr, n) => { let f = fechaStr, faltan = n; while(faltan>0){ f = sumarDias(f, 1); if(esDiaHabil(f)) faltan--; } return f; };
+const sumarDiasHabiles = (fechaStr, n) => {
+  const k = `s|${fechaStr}|${n}`;
+  if(operMemoHabiles.has(k)) return operMemoHabiles.get(k);
+  let t = operYmdUTC(fechaStr), f = fechaStr, faltan = n;
+  while(faltan>0){ t += 86400000; f = operUTCYmd(t); if(esDiaHabil(f)) faltan--; }
+  operMemoHabiles.set(k, f); return f;
+};
 // Cuántos días hábiles han pasado desde `desdeStr` hasta `hastaStr` (para las alertas de atraso, parte 3).
-const diasHabilesEntre = (desdeStr, hastaStr) => { let n = 0, f = desdeStr; while(f < hastaStr){ f = sumarDias(f, 1); if(esDiaHabil(f)) n++; } return n; };
+const diasHabilesEntre = (desdeStr, hastaStr) => {
+  if(!desdeStr || !hastaStr || desdeStr >= hastaStr) return 0;
+  const k = `e|${desdeStr}|${hastaStr}`;
+  if(operMemoHabiles.has(k)) return operMemoHabiles.get(k);
+  let t = operYmdUTC(desdeStr), n = 0; const fin = operYmdUTC(hastaStr);
+  while(t < fin){ t += 86400000; if(esDiaHabil(operUTCYmd(t))) n++; }
+  operMemoHabiles.set(k, n); return n;
+};
 const OPER_DIAS_ENTREGA = 5;  // la fecha estimada de entrega se sugiere a 5 días hábiles (Santiago, 17 nov 2026; antes 15)
 const OPER_DIAS_ATRASO = 5;   // atraso = 5 días hábiles sin moverse (alertas, parte 3)
 // Cómo queda escrita una orden en Registrar venta / Lista de ventas (campo N.º de factura). Lleva
@@ -13671,10 +13691,10 @@ const OperPasos = ({ op, conTexto, isMobile }) => {
         const mov = (op.historial||[]).filter(h=>h.etapa===e.id && (h.accion==="creada" || h.accion==="etapa")).slice(-1)[0];
         return (
           <div key={e.id} style={{ position:"relative", textAlign:"center", padding:"0 3px", opacity:saltada(i)?0.4:1 }}>
-            {i>0 && <span style={{ position:"absolute", top:13, left:"-50%", width:"100%", height:2, background:(hecho||actual)?C.green:C.border }}/>}
-            <span style={{ position:"relative", width:28, height:28, borderRadius:"50%", display:"inline-grid", placeItems:"center", boxSizing:"border-box", background:hecho?C.green:actual?C.goldDark:"#fff", color:(hecho||actual)?"#fff":C.textMuted, border:`2px solid ${hecho?C.green:actual?C.goldDark:"rgba(26,59,82,0.2)"}`, fontFamily:font.mono, fontSize:12, fontWeight:700 }}>{hecho ? <Icon n="check" s={14} sw={2.6}/> : i+1}</span>
-            <div style={{ fontFamily:font.body, fontSize:isMobile?10.5:12, fontWeight:actual?700:500, color:actual?C.text:hecho?C.green:C.textMuted, marginTop:6, lineHeight:1.25 }}>{isMobile ? e.corto : e.label}</div>
-            {mov && (hecho || actual) && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, marginTop:2 }}>{fmtFechaHora(mov.en)}</div>}
+            {i>0 && <span style={{ position:"absolute", top:10, left:"-50%", width:"100%", height:2, background:(hecho||actual)?C.green:C.border }}/>}
+            <span style={{ position:"relative", width:22, height:22, borderRadius:"50%", display:"inline-grid", placeItems:"center", boxSizing:"border-box", background:hecho?C.green:actual?C.goldDark:"#fff", color:(hecho||actual)?"#fff":C.textMuted, border:`2px solid ${hecho?C.green:actual?C.goldDark:"rgba(26,59,82,0.2)"}`, fontFamily:font.mono, fontSize:10.5, fontWeight:700 }}>{hecho ? <Icon n="check" s={12} sw={2.6}/> : i+1}</span>
+            <div style={{ fontFamily:font.body, fontSize:isMobile?10:11, fontWeight:actual?700:500, color:actual?C.text:hecho?C.green:C.textMuted, marginTop:3, lineHeight:1.2 }}>{isMobile ? e.corto : e.label}</div>
+            {mov && (hecho || actual) && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:1 }}>{fmtFechaCorta(mov.en)}</div>}
           </div>
         );
       })}
@@ -13738,6 +13758,26 @@ function OperOrdenCliente({ op, stores, onCerrar }) {
       {toast && <div style={{ position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:9999, background:C.goldDark, borderRadius:10, padding:"10px 18px", color:C.tinta, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", maxWidth:"calc(100% - 32px)", textAlign:"center" }}>{toast}</div>}
     </div>,
     document.body
+  );
+}
+
+// Historial de movimientos, plegado por defecto para que el detalle no quede tan largo (18 nov 2026).
+function OperMovimientos({ historial, texto }) {
+  const [ver, setVer] = useState(false);
+  const lista = (historial||[]).slice().reverse();
+  return (
+    <div style={{ marginTop:10 }}>
+      <button type="button" onClick={()=>setVer(v=>!v)} style={{ display:"inline-flex", alignItems:"center", gap:5, border:"none", background:"none", padding:0, cursor:"pointer", fontFamily:font.body, fontSize:11, letterSpacing:"0.1em", textTransform:"uppercase", fontWeight:700, color:C.textMuted }}>
+        Movimientos ({lista.length})<Icon n="down" s={13} style={{ transition:"transform .2s ease", transform:ver?"rotate(180deg)":"none" }}/>
+      </button>
+      {ver && lista.map((h,i)=>(
+        <div key={i} style={{ display:"flex", gap:10, fontFamily:font.body, fontSize:12, padding:"4px 0", borderTop:i?`1px solid ${C.border}`:"none", flexWrap:"wrap", marginTop:i?0:4 }}>
+          <span style={{ color:C.textMuted, minWidth:140 }}>{fmtFechaHora(h.en)}</span>
+          <span style={{ color:C.text, flex:1, minWidth:160 }}>{texto(h)}</span>
+          <span style={{ color:C.textMuted }}>{h.por || h.cuenta || ""}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -13918,8 +13958,8 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
   };
   const dato = (k, v) => (
     <div style={{ minWidth:0 }}>
-      <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:2 }}>{k}</div>
-      <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, overflowWrap:"anywhere" }}>{v}</div>
+      <div style={{ fontFamily:font.body, fontSize:10, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:1 }}>{k}</div>
+      <div style={{ fontFamily:font.body, fontSize:13, color:C.text, overflowWrap:"anywhere" }}>{v}</div>
     </div>
   );
   const cajaAccion = { background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 14px", marginTop:12 };
@@ -13951,31 +13991,27 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
         </div>
       </div>
       <Collapse open={abierto}>
-        <div style={{ borderTop:`1px solid ${C.border}`, padding:isMobile?"14px":"18px 20px 20px" }}>
+        <div style={{ borderTop:`1px solid ${C.border}`, padding:isMobile?"12px":"12px 18px 14px" }}>
           {op.etapa==="cancelada"
             ? <div style={{ fontFamily:font.body, fontSize:13, color:C.red, background:C.redDim, borderRadius:8, padding:"9px 12px", marginBottom:14 }}><strong>Orden cancelada.</strong> {op.cancelada_motivo}</div>
-            : <div style={{ marginBottom:18 }}><OperPasos op={op} conTexto isMobile={isMobile}/></div>}
-          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, 1fr)", gap:14, marginBottom:14 }}>
+            : <div style={{ marginBottom:12 }}><OperPasos op={op} conTexto isMobile={isMobile}/></div>}
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, 1fr)", gap:"8px 14px", marginBottom:10 }}>
             {dato("Cliente", op.cliente_nombre)}
             {dato("Teléfono", op.cliente_telefono || "—")}
             {dato("Atendió", op.asesor_nombre || "—")}
             {dato("Recibida el", operFechaLarga(op.fecha))}
-            {dato("Fecha de entrega", <span style={{ display:"inline-flex", flexDirection:"column", gap:4, alignItems:"flex-start" }}>
+            {dato("Fecha de entrega", <span style={{ display:"inline-flex", flexWrap:"wrap", gap:6, alignItems:"center" }}>
               <strong>{operFechaLarga(vence)}</strong>
               <OperTiempoBadge op={op}/>
-              {op.reprogramada && op.fecha_entrega_original && <span style={{ fontSize:11.5, color:C.textMuted }}>Era el {operFechaLarga(op.fecha_entrega_original)}</span>}
+              {op.reprogramada && op.fecha_entrega_original && <span style={{ fontSize:11, color:C.textMuted }}>(era el {fechaCorta(op.fecha_entrega_original)})</span>}
             </span>)}
             {dato("Valor", <span style={{ fontFamily:font.mono, fontWeight:700 }}>{fmtCOP(op.valor)}</span>)}
             <div style={{ minWidth:0 }}>
               <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:2 }}>Estado de pago</div>
               <div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:OPER_PAGO_COLOR[op.estado_pago]||C.text }}>{operPagoLabel(op.estado_pago)}{op.estado_pago==="pago" && op.venta_ref ? <span style={{ fontWeight:500, color:C.textMuted }}> · {op.venta_ref}</span> : null}</div>
             </div>
-            {dato("Registró", op.registrado_por || "—")}
           </div>
-          <div style={{ marginBottom:14 }}>
-            <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:3 }}>Descripción</div>
-            <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, lineHeight:1.5, whiteSpace:"pre-wrap", overflowWrap:"anywhere" }}>{op.descripcion}</div>
-          </div>
+          <div style={{ fontFamily:font.body, fontSize:13, color:C.text, lineHeight:1.45, whiteSpace:"pre-wrap", overflowWrap:"anywhere", background:C.surfaceAlt, borderRadius:8, padding:"7px 10px", marginBottom:10 }}>{op.descripcion}</div>
           {op.tipo==="garantia" && (
             <div style={{ borderRadius:10, padding:"11px 14px", marginBottom:14, background:op.garantia_decision==="cubre"?C.greenDim:op.garantia_decision==="no_cubre"?C.redDim:C.amberDim }}>
               {op.garantia_decision
@@ -14041,16 +14077,7 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
             </div>
           )}
           {msg && <div style={{ fontFamily:font.body, fontSize:13, color:C.red, background:C.redDim, borderRadius:8, padding:"9px 12px", marginTop:12 }}>{msg}</div>}
-          <div style={{ marginTop:18 }}>
-            <OperTituloSec>Movimientos</OperTituloSec>
-            {(op.historial||[]).slice().reverse().map((h,i)=>(
-              <div key={i} style={{ display:"flex", gap:10, fontFamily:font.body, fontSize:12.5, padding:"5px 0", borderTop:i?`1px solid ${C.border}`:"none", flexWrap:"wrap" }}>
-                <span style={{ color:C.textMuted, minWidth:150 }}>{fmtFechaHora(h.en)}</span>
-                <span style={{ color:C.text, flex:1, minWidth:160 }}>{operTextoMov(h, op)}</span>
-                <span style={{ color:C.textMuted }}>{h.por || h.cuenta || ""}</span>
-              </div>
-            ))}
-          </div>
+          <OperMovimientos historial={op.historial} texto={(h)=>operTextoMov(h, op)}/>
         </div>
       </Collapse>
     </Card>
@@ -14172,7 +14199,7 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ven
   }, []);
   const esTienda = esCuentaTienda(user);
   const visibles = useMemo(()=>ops.filter(op=>operVisiblePara(op, user)), [ops, user]);
-  const clientes = useMemo(()=>operClientesConocidos(visibles, ventas), [visibles, ventas]);
+  const clientes = useMemo(()=>creando ? operClientesConocidos(visibles, ventas) : [], [creando, visibles, ventas]);
   // Fichas de estado (cada una con su condición) y el resto de filtros (tienda, tipo, búsqueda).
   const FICHAS_EXT = [
     { id:"abiertas",     label:"Abiertas",             f:op=>!operCerrada(op) },
@@ -14391,8 +14418,8 @@ function OperSolicitudCard({ s, stores, user, users, liderId, abierto, onToggle,
   const cajaAccion = { background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 14px", marginTop:12 };
   const dato = (k, v) => (
     <div style={{ minWidth:0 }}>
-      <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:2 }}>{k}</div>
-      <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, overflowWrap:"anywhere" }}>{v}</div>
+      <div style={{ fontFamily:font.body, fontSize:10, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:1 }}>{k}</div>
+      <div style={{ fontFamily:font.body, fontSize:13, color:C.text, overflowWrap:"anywhere" }}>{v}</div>
     </div>
   );
   const tipoIc = OPER_TIPOS_INT.find(t=>t.value===s.tipo)?.ic || "note";
@@ -14415,17 +14442,14 @@ function OperSolicitudCard({ s, stores, user, users, liderId, abierto, onToggle,
         </div>
       </div>
       <Collapse open={abierto}>
-        <div style={{ borderTop:`1px solid ${C.border}`, padding:isMobile?"14px":"18px 20px 20px" }}>
-          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, 1fr)", gap:14, marginBottom:14 }}>
+        <div style={{ borderTop:`1px solid ${C.border}`, padding:isMobile?"12px":"12px 18px 14px" }}>
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, 1fr)", gap:"8px 14px", marginBottom:10 }}>
             {dato("Solicitó", s.reportado_por_nombre || "—")}
             {dato("Fecha", operFechaLarga(s.fecha))}
             {dato("Estado", <span style={{ color:est.color, fontWeight:700 }}>{est.label}</span>)}
             {dato("Gestionó", s.gestionado_por || "—")}
           </div>
-          <div style={{ marginBottom:14 }}>
-            <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:3 }}>Descripción</div>
-            <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, lineHeight:1.5, whiteSpace:"pre-wrap", overflowWrap:"anywhere" }}>{s.descripcion}</div>
-          </div>
+          <div style={{ fontFamily:font.body, fontSize:13, color:C.text, lineHeight:1.45, whiteSpace:"pre-wrap", overflowWrap:"anywhere", background:C.surfaceAlt, borderRadius:8, padding:"7px 10px", marginBottom:10 }}>{s.descripcion}</div>
           {s.respuesta && (
             <div style={{ borderRadius:10, padding:"10px 14px", marginBottom:14, background:s.estado==="rechazada"?C.redDim:C.surfaceAlt, fontFamily:font.body, fontSize:13, color:C.text, lineHeight:1.45, whiteSpace:"pre-wrap" }}>
               <strong style={{ color:s.estado==="rechazada"?C.red:C.textSub }}>{s.estado==="rechazada" ? "Motivo del rechazo: " : "Respuesta: "}</strong>{s.respuesta}
@@ -14457,16 +14481,7 @@ function OperSolicitudCard({ s, stores, user, users, liderId, abierto, onToggle,
             </div>
           )}
           {msg && <div style={{ fontFamily:font.body, fontSize:13, color:C.red, background:C.redDim, borderRadius:8, padding:"9px 12px", marginTop:12 }}>{msg}</div>}
-          <div style={{ marginTop:18 }}>
-            <OperTituloSec>Movimientos</OperTituloSec>
-            {(s.historial||[]).slice().reverse().map((h,i)=>(
-              <div key={i} style={{ display:"flex", gap:10, fontFamily:font.body, fontSize:12.5, padding:"5px 0", borderTop:i?`1px solid ${C.border}`:"none", flexWrap:"wrap" }}>
-                <span style={{ color:C.textMuted, minWidth:150 }}>{fmtFechaHora(h.en)}</span>
-                <span style={{ color:C.text, flex:1, minWidth:160 }}>{operTextoMovInt(h)}</span>
-                <span style={{ color:C.textMuted }}>{h.por || h.cuenta || ""}</span>
-              </div>
-            ))}
-          </div>
+          <OperMovimientos historial={s.historial} texto={(h)=>operTextoMovInt(h)}/>
         </div>
       </Collapse>
     </Card>
@@ -14588,7 +14603,9 @@ function OperacionesInternasScreen({ user, users, stores, ops, sols, setSols, on
 // Las alertas salen arriba en Externas e Internas y, por tienda, en Indicadores (pedido de Santiago).
 const OPER_DIAS_RECLAMAR = 60;
 const OPER_ETAPAS_ESPERA_CLIENTE = new Set(["lista","recibido","llego"]);
-const operFechaCol = (iso) => iso ? fmt(new Date(iso)) : todayStr;
+// Fecha (Colombia) de un momento guardado. fmt es lento, así que se recuerda cada una.
+const operMemoCol = new Map();
+const operFechaCol = (iso) => { if(!iso) return todayStr; let v = operMemoCol.get(iso); if(!v){ v = fmt(new Date(iso)); operMemoCol.set(iso, v); } return v; };
 const operExtAtrasada = (op) => !operCerrada(op) && !OPER_ETAPAS_ESPERA_CLIENTE.has(op.etapa) && diasHabilesEntre(operFechaCol(op.etapa_desde), todayStr) >= OPER_DIAS_ATRASO;
 const operSinReclamar = (op) => !operCerrada(op) && OPER_ETAPAS_ESPERA_CLIENTE.has(op.etapa) && diasEntre(op.fecha, todayStr) >= OPER_DIAS_RECLAMAR;
 // ── Fecha de entrega y "a tiempo" (18 nov 2026, pedido de Santiago) ──

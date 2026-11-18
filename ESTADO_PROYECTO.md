@@ -929,6 +929,17 @@ Global) y tipos (con ícono) que se combinan, buscador, y vista **Lista / Tabler
 columnas por etapa; Entregadas/Completadas muestran las 15 más recientes). Tocar una tarjeta del
 tablero abre esa orden en la lista. La cuenta de tienda no ve el filtro de tiendas.
 
+**Rendimiento y detalle compacto (18 nov 2026):** con los datos del Excel la página se congelaba
+varios segundos al entrar a Operaciones o cambiar de pestaña: `diasHabilesEntre`/`sumarDiasHabiles`
+avanzaban día por día con `sumarDias`/`fmt`, que usan `toLocaleString` con zona horaria (muy
+lento), cientos de miles de veces por pantalla. Ahora usan aritmética UTC pura + memo
+(`operMemoHabiles`), y `operFechaCol` también recuerda sus resultados. Comprobado: mismos
+resultados (186 fechas 2024-2027, 0 diferencias). OJO para cualquier cálculo nuevo de fechas en
+bucles: NO usar `fmt`/`sumarDias` dentro de un bucle grande. Además: el detalle de una orden o
+solicitud es más compacto (pasos más pequeños, datos en menos espacio, sin "Registró", descripción
+en un recuadro) y los Movimientos quedan plegados (`OperMovimientos`); la lista de clientes
+conocidos solo se arma al crear una orden.
+
 **Datos reales del Excel (18 nov 2026):** Santiago cambió la decisión de "empezar en limpio": los
 datos del Excel se pasan a la app, en práctica para probar y en la REAL justo después de publicar.
 `sql/operaciones_importar_excel.sql` (⚠️ NO va a git: tiene nombres y teléfonos de clientes) carga
