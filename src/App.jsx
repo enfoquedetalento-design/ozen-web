@@ -7843,13 +7843,18 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, tiendaActiva, onV
   const asesores = users.filter(esVendedorPosible);
 
   // Cobro de una orden de Operaciones (botón "Cobrar" de la orden): se deja listo el renglón con
-  // el tipo y el valor de la orden — solo falta elegir el medio de pago, agregarlo y registrar.
+  // el tipo y el valor de la orden, el asesor que ATENDIÓ al cliente en la orden (no se elige; si
+  // ya no está activo, sí se deja elegir) y el N.º de factura fijo en OP-0000 (pedido de Santiago,
+  // 17 nov 2026) — solo falta elegir el medio de pago, agregarlo y registrar.
+  const asesorDeOrden = ordenACobrar ? asesores.find(a=>String(a.id)===String(ordenACobrar.asesor_id)) : null;
   useEffect(()=>{
     if(!ordenACobrar) return;
     setItems([]); setItemPagos([]); setItemDescuento(""); setItemDescuentoTipo("valor");
     setItemTipo(ordenACobrar.tipo==="marcacion" ? "marcacion" : "arreglo");
     setItemValor(String(Math.round(Number(ordenACobrar.valor)||0)));
-    setObservacion(`Orden ${operReferencia(ordenACobrar)} · ${ordenACobrar.cliente_nombre||""}`.trim());
+    setNumeroFactura(operReferencia(ordenACobrar));
+    setVendedorId(asesorDeOrden ? asesorDeOrden.id : "");
+    setObservacion("");
     setMsg("");
   }, [ordenACobrar?.id]);
 
@@ -7928,7 +7933,9 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, tiendaActiva, onV
   // Flexipago es excluyente con el resto: o estás separando (Flexipago) o estás comprando
   // normal, no las dos cosas en la misma factura. Si ya hay un renglón de un lado, el otro
   // desaparece de las opciones — igual que un "o esto o lo otro", no un checkbox.
-  const itemTipoOptions = items.length===0 ? VENTAS_TIPOS : esFlexipago ? VENTAS_TIPOS.filter(t=>t.value==="flexipago") : VENTAS_TIPOS.filter(t=>t.value!=="flexipago");
+  // Cobrando una orden de Operaciones: solo servicios (sin Venta de producto ni Flexipago), para que
+  // el N.º de factura sea siempre el de la orden (OP-0000) y no haga falta uno de Siigo.
+  const itemTipoOptions = ordenACobrar ? VENTAS_TIPOS.filter(t=>["arreglo","marcacion","grabado"].includes(t.value)) : items.length===0 ? VENTAS_TIPOS : esFlexipago ? VENTAS_TIPOS.filter(t=>t.value==="flexipago") : VENTAS_TIPOS.filter(t=>t.value!=="flexipago");
   useEffect(() => { if(!itemTipoOptions.some(t=>t.value===itemTipo)) setItemTipo(itemTipoOptions[0]?.value||"producto"); }, [esFlexipago, items.length]);
 
   const limpiarTodo = () => {
@@ -7954,7 +7961,7 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, tiendaActiva, onV
     const { data:venta, error } = await supabase.from("ventas").insert({
       // Cobro de una orden de Operaciones: el N.º de factura queda como OP-0000 (así se encuentra
       // en la Lista de ventas). Si en el mismo recibo va un producto, manda el número de Siigo.
-      fecha, numero_factura:requiereSiigo?numeroFactura.trim():(ordenACobrar?operReferencia(ordenACobrar):(numeroFactura.trim()||null)), tienda_id:tiendaId, vendedor_id:vendedorId, vendedor_nombre:vendedor?.name||"",
+      fecha, numero_factura:ordenACobrar?operReferencia(ordenACobrar):(requiereSiigo?numeroFactura.trim():(numeroFactura.trim()||null)), tienda_id:tiendaId, vendedor_id:vendedorId, vendedor_nombre:vendedor?.name||"",
       registrado_por:user.name,
       cliente_tipo_doc:esFlexipago?clienteTipoDoc:null, cliente_documento:esFlexipago?clienteDocumento.trim():null,
       cliente_nombre:esFlexipago?clienteNombre.trim():null, cliente_telefono:esFlexipago?clienteTelefono.trim():null,
@@ -8113,7 +8120,7 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, tiendaActiva, onV
       {ordenACobrar && (
         <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", background:C.blueDim, border:`1px solid ${C.borderGold}`, borderRadius:12, padding:"11px 14px", marginBottom:16, fontFamily:font.body, fontSize:13.5, color:C.text }}>
           <Icon n="wrench" s={18} style={{ color:C.gold }}/>
-          <span style={{ flex:1, minWidth:200 }}>Cobrando la orden <strong>{operReferencia(ordenACobrar)}</strong> de {ordenACobrar.cliente_nombre} — <span style={{ fontFamily:font.mono, fontWeight:700 }}>{fmtCOP(ordenACobrar.valor)}</span>. Elige el medio de pago, agrégalo al recibo y registra la venta: la orden quedará como Pago.</span>
+          <span style={{ flex:1, minWidth:200 }}>Cobrando la orden <strong>{operReferencia(ordenACobrar)}</strong> de {ordenACobrar.cliente_nombre} — <span style={{ fontFamily:font.mono, fontWeight:700 }}>{fmtCOP(ordenACobrar.valor)}</span>. Ya quedan puestos el asesor que la atendió, el valor y el N.º de factura. Elige el medio de pago, agrégalo al recibo y registra la venta: la orden quedará como Pago.</span>
           <Btn sm variant="ghost" onClick={()=>{ if(onOrdenCobrada) onOrdenCobrada(null); limpiarTodo(); }} style={{ background:"#fff" }}>No cobrar ahora</Btn>
         </div>
       )}
@@ -8139,7 +8146,7 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, tiendaActiva, onV
           <div style={etiquetaPaso}>{numPaso(1)}{tituloPaso("¿Quién hizo la venta?")}{notaPaso(`${nombreTiendaCorto(tiendaActual)} · ${esHoyVenta?"hoy":fecha}`)}</div>
           {/* Lista desplegable (antes eran fichas): funciona igual con 5 o con 100 asesores. */}
           <div style={{ display:"grid", gridTemplateColumns:(puedeCambiarFecha && !isMobile)?"1fr 190px":"1fr", gap:12 }}>
-            <Field label="Asesor" value={vendedorId} onChange={setVendedorId} options={[{value:"",label:"Selecciona un asesor"},...asesores.map(a=>({value:a.id,label:a.name}))]}/>
+            <Field label={asesorDeOrden ? "Asesor (el que atendió la orden)" : "Asesor"} value={vendedorId} onChange={setVendedorId} disabled={!!asesorDeOrden} options={[{value:"",label:"Selecciona un asesor"},...asesores.map(a=>({value:a.id,label:a.name}))]}/>
             {puedeCambiarFecha && <Field label="Fecha" type="date" value={fecha} onChange={setFecha}/>}
           </div>
 
@@ -8325,7 +8332,9 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, tiendaActiva, onV
               </>
             )}
             <div style={{ marginTop:16 }}>
-              {requiereSiigo && <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>}
+              {ordenACobrar
+                ? <Field label="N.º de factura (orden de Operaciones)" value={operReferencia(ordenACobrar)} onChange={()=>{}} disabled/>
+                : requiereSiigo && <Field label="N.º de factura (Siigo)" value={numeroFactura} onChange={setNumeroFactura} placeholder="Ej: FE-1234"/>}
               <Field label="Notas (opcional)" value={observacion} onChange={setObservacion} multiline rows={2}/>
             </div>
             {msg && <div style={{ background: msg.startsWith("✓")?C.greenDim:C.redDim, border:`1px solid ${msg.startsWith("✓")?C.green:C.red}44`, borderRadius:9, padding:"10px 12px", color: msg.startsWith("✓")?C.green:C.red, fontSize:12.5, marginBottom:12, fontFamily:font.body }}>{msg}</div>}

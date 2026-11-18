@@ -849,6 +849,12 @@ probada en práctica antes de seguir.
   ya pueden guardar ventas: cuentas de tienda, Master y Admin Finanzas
   (`operaciones.externas.cobrar`). El pago a mano solo lo corrige el líder o Master.
 
+**Cobro, ajustes tras la prueba del 17 nov 2026 (Santiago probó lo demás: bien):** al cobrar una
+orden, Registrar venta pone sola al asesor que ATENDIÓ la orden (bloqueado; si ya no está activo
+se deja elegir) y el N.º de factura fijo en `OP-<numero>` en su propio campo (ya no en Notas).
+Mientras se cobra una orden solo se pueden agregar servicios (arreglo, marcación, grabado): ni
+producto ni Flexipago, así el N.º de factura siempre es el de la orden.
+
 **Permisos en el formato común (17 nov 2026, en `staging`, sin SQL nuevo):** el antiguo
 `OPER_PERMISOS` se reemplazó por `registrarPermisos({ grupo:"operaciones", ... })` con 9 permisos
 (`operaciones.ver`, `.externas.crear`, `.externas.avanzar`, `.externas.cobrar`, `.externas.pago`,
