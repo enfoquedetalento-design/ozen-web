@@ -7795,7 +7795,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   );
 }
 
-function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, tiendaActiva, onVerLista, user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
+function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, opAvisos, onIrAOrden, tiendaActiva, onVerLista, user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   // OJO: el valor por defecto debe salir de tiendasVenta() (las que sí venden), no de todas las
   // tiendas — si no, el dropdown solo MUESTRA tiendas válidas pero el valor de por debajo puede
@@ -7823,7 +7823,6 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, tiendaActiva, onV
   const [itemMedioNuevo, setItemMedioNuevo] = useState("");
   const [observacion, setObservacion] = useState("");
 
-  const [flexipagoBellOpen, setFlexipagoBellOpen] = useState(false);
 
   const [clienteTipoDoc, setClienteTipoDoc] = useState("CC");
   const [clienteDocumento, setClienteDocumento] = useState("");
@@ -8047,54 +8046,17 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, tiendaActiva, onV
 
   // Botón de campana + su desplegable — igual en escritorio y celular, solo cambia dónde se ubica
   // (por eso se separa en una variable en vez de repetir todo el JSX en las dos ramas de abajo).
-  const bellButton = flexipagosAvisar.length>0 && (
-    <div style={{ position:"relative" }}>
-      <button
-        onClick={()=>setFlexipagoBellOpen(s=>!s)}
-        title="Flexipagos por recordarle al cliente"
-        style={{
-          position:"relative", display:"flex", alignItems:"center", justifyContent:"center",
-          width:38, height:38, borderRadius:99, cursor:"pointer", fontSize:17,
-          background: flexipagoBellOpen ? C.surfaceAlt : "transparent",
-          border:`1.5px solid ${flexipagosAvisar.some(f=>f.vencido||f.urgente)?C.red:C.gold}`,
-        }}
-      >
-        🔔
-        <span style={{
-          position:"absolute", top:-5, right:-5, minWidth:17, height:17, padding:"0 4px",
-          borderRadius:99, background:flexipagosAvisar.some(f=>f.vencido||f.urgente)?C.red:C.gold,
-          color:"#111", fontFamily:font.mono, fontSize:10, fontWeight:800,
-          display:"flex", alignItems:"center", justifyContent:"center", lineHeight:1,
-        }}>{flexipagosAvisar.length}</span>
-      </button>
-      {flexipagoBellOpen && (
-        <>
-          <div onClick={()=>setFlexipagoBellOpen(false)} style={{ position:"fixed", inset:0, zIndex:90 }}/>
-          <div style={{
-            position:"absolute", zIndex:91, top:"120%", right:0, width:300, maxWidth:"88vw",
-            maxHeight:340, overflowY:"auto", background:C.dark, border:`1px solid ${C.border}`,
-            borderRadius:10, boxShadow:"0 10px 30px rgba(0,0,0,0.5)", padding:8,
-          }}>
-            <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, padding:"4px 6px 8px", textTransform:"uppercase", letterSpacing:"0.04em" }}>
-              🔔 Flexipagos por recordarle al cliente
-            </div>
-            <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-              {flexipagosAvisar.map(({venta:v, saldoPendiente, diasRestantes60, vencido})=>(
-                <div key={v.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, borderRadius:7, flexWrap:"wrap" }}>
-                  <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text }}>
-                    <b>{v.cliente_nombre||"Cliente sin nombre"}</b> {v.cliente_telefono && <span style={{ color:C.textMuted }}>· Tel: {v.cliente_telefono}</span>}
-                    <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, marginTop:1 }}>Debe {fmtCOP(saldoPendiente)}</div>
-                  </div>
-                  <Badge color={vencido?C.red:(diasRestantes60!==null && diasRestantes60<=5?C.amber:C.gold)} sm>
-                    {vencido ? "⛔ Vencido" : `⏳ Vence en ${diasRestantes60}d`}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
+  const bellButton = (
+    <CampanaAvisos titulo="Avisos de la tienda" grupos={[
+      { titulo:"Flexipagos por recordarle al cliente", items:flexipagosAvisar.map(({venta:v, saldoPendiente, diasRestantes60, vencido})=>({
+        key:`flex-${v.id}`, titulo:v.cliente_nombre||"Cliente sin nombre",
+        sub:`${v.cliente_telefono?`Tel: ${v.cliente_telefono} · `:""}Debe ${fmtCOP(saldoPendiente)}`,
+        badge:{ color:vencido?C.red:(diasRestantes60!==null && diasRestantes60<=5?C.amber:C.gold), label:vencido ? "⛔ Vencido" : `⏳ Vence en ${diasRestantes60}d` },
+        urgente:vencido || (diasRestantes60!==null && diasRestantes60<=5),
+      })) },
+      // Órdenes de Operaciones de ESTA tienda (pedido de Santiago, 18 nov 2026). Tocar una lleva a la orden.
+      { titulo:"Órdenes de Operaciones", items:operItemsCampana((opAvisos||[]).filter(o=>o.tienda_id===tiendaId), stores, onIrAOrden) },
+    ]}/>
   );
 
   const esHoyVenta = fecha===todayStr;
@@ -13616,14 +13578,6 @@ const operEtapaAnterior = (op) => {
   return etapas[i-1];
 };
 // Para los filtros: en qué momento va la orden, sin importar cómo se llame la etapa en su tipo.
-const OPER_FASES = [
-  { id:"abiertas",      label:"Abiertas" },
-  { id:"por_empezar",   label:"Por empezar" },
-  { id:"en_proceso",    label:"En proceso" },
-  { id:"para_entregar", label:"Para entregar" },
-  { id:"cerradas",      label:"Cerradas" },
-  { id:"todas",         label:"Todas" },
-];
 const operFase = (op) => operCerrada(op) ? "cerradas" : (["por_empezar","en_proceso","para_entregar"][operIdxEtapa(op)] || "por_empezar");
 const OPER_PAGOS = [{ value:"pago", label:"Pago" }, { value:"debe", label:"Debe" }, { value:"no_aplica", label:"No aplica" }];
 const OPER_PAGO_COLOR = { pago:C.green, debe:C.red, no_aplica:C.textMuted };
@@ -14124,18 +14078,89 @@ function OperLider({ user, users, liderId, onGuardar }) {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// FILTROS Y TABLERO DE OPERACIONES (18 nov 2026, propuesta aprobada por Santiago)
+// ══════════════════════════════════════════════════════════════════════════════
+// Arriba, fichas de estado con su número (tocar una filtra; las de problema salen en rojo). Debajo,
+// tiendas (con su color) y tipos (con su ícono) que se prenden y apagan y se pueden combinar, el
+// buscador, y el cambio de vista Lista / Tablero (columnas por etapa).
+const OperFicha = ({ on, n, label, alerta, onClick }) => (
+  <button type="button" onClick={onClick} style={{ flex:"1 1 0", minWidth:104, textAlign:"left", cursor:"pointer", background:"#fff", borderRadius:12, border:on?`2px solid ${C.gold}`:`1px solid ${C.border}`, padding:on?"9px 11px":"10px 12px", fontFamily:font.body }}>
+    <div style={{ fontFamily:font.mono, fontSize:22, fontWeight:700, lineHeight:1.1, color:(alerta && n)?C.red:C.text }}>{n}</div>
+    <div style={{ fontSize:12, color:on?C.goldDark:C.textMuted, fontWeight:on?700:500, marginTop:2 }}>{label}</div>
+  </button>
+);
+const operPildora = (on) => ({ display:"inline-flex", alignItems:"center", gap:6, height:32, padding:"0 12px", borderRadius:99, cursor:"pointer", fontFamily:font.body, fontSize:13, fontWeight:on?700:500, border:`1px solid ${on?C.gold:C.border}`, background:on?"rgba(38,93,127,0.10)":"#fff", color:on?C.goldDark:C.textSub, whiteSpace:"nowrap" });
+const alternar = (lista, v) => lista.includes(v) ? lista.filter(x=>x!==v) : [...lista, v];
+function OperFiltros({ fichas, ficha, setFicha, tiendas, tiendasSel, setTiendasSel, tipos, tiposSel, setTiposSel, q, setQ, placeholder, vista, setVista }) {
+  const activos = [...(tiendas||[]).filter(t=>tiendasSel.includes(t.id)).map(t=>t.label), ...tipos.filter(t=>tiposSel.includes(t.value)).map(t=>t.label)];
+  return (
+    <div style={{ marginBottom:14 }}>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:12 }}>
+        {fichas.map(f=><OperFicha key={f.id} on={ficha===f.id} n={f.n} label={f.label} alerta={f.alerta} onClick={()=>setFicha(f.id)}/>)}
+      </div>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:10 }}>
+        {(tiendas||[]).map(t=><button key={t.id} type="button" onClick={()=>setTiendasSel(alternar(tiendasSel, t.id))} style={operPildora(tiendasSel.includes(t.id))}><span style={{ width:8, height:8, borderRadius:"50%", background:t.color, flexShrink:0 }}/>{t.label}</button>)}
+        {(tiendas||[]).length>0 && <span style={{ width:1, height:20, background:C.border, margin:"0 4px" }}/>}
+        {tipos.map(t=><button key={t.value} type="button" onClick={()=>setTiposSel(alternar(tiposSel, t.value))} style={operPildora(tiposSel.includes(t.value))}><Icon n={t.ic} s={14}/>{t.label}</button>)}
+      </div>
+      <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+        <div style={{ flex:1, minWidth:0, position:"relative" }}>
+          <Icon n="search" s={15} style={{ position:"absolute", left:11, top:10, color:C.textMuted }}/>
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder={placeholder} style={{ width:"100%", height:34, background:"#fff", border:`1px solid ${C.border}`, borderRadius:10, padding:"0 12px 0 32px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+        </div>
+        <div style={{ display:"inline-flex", border:`1px solid ${C.border}`, borderRadius:10, overflow:"hidden", flexShrink:0 }}>
+          {[["lista","Lista","list"],["tablero","Tablero","grid"]].map(([id,label,ic])=>(
+            <button key={id} type="button" onClick={()=>setVista(id)} style={{ display:"inline-flex", alignItems:"center", gap:6, height:32, padding:"0 12px", border:"none", cursor:"pointer", fontFamily:font.body, fontSize:13, fontWeight:vista===id?700:500, background:vista===id?C.goldDark:"#fff", color:vista===id?C.tinta:C.textSub }}><Icon n={ic} s={14}/>{label}</button>
+          ))}
+        </div>
+      </div>
+      {activos.length>0 && (
+        <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:8 }}>
+          Filtrando por: {activos.join(" · ")} <button type="button" onClick={()=>{ setTiendasSel([]); setTiposSel([]); }} style={{ border:"none", background:"none", padding:0, marginLeft:6, color:C.gold, fontWeight:700, fontFamily:font.body, fontSize:12, cursor:"pointer", textDecoration:"underline" }}>Quitar filtros</button>
+        </div>
+      )}
+    </div>
+  );
+}
+// Tablero: una columna por etapa. `columnas`: [{ id, label, items, nota }]; `render(item)` pinta la tarjeta.
+function OperTablero({ columnas, render, onAbrir, isMobile }) {
+  return (
+    <div className="ozen-sin-barra" style={{ display:"flex", gap:10, overflowX:"auto", paddingBottom:4, alignItems:"flex-start" }}>
+      {columnas.map(col=>(
+        <div key={col.id} style={{ flex:isMobile?"0 0 250px":"1 1 0", minWidth:isMobile?250:0, background:C.surfaceHover, borderRadius:12, padding:8 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", padding:"2px 4px 6px", fontFamily:font.body }}>
+            <span style={{ fontSize:12.5, fontWeight:700, color:C.textSub }}>{col.label}</span>
+            <span style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{col.items.length}</span>
+          </div>
+          {col.nota && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, padding:"0 4px 4px" }}>{col.nota}</div>}
+          {col.items.length===0
+            ? <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:"10px 4px", textAlign:"center" }}>Nada aquí</div>
+            : col.items.map(it=>(
+              <div key={it.id} onClick={()=>onAbrir(it)} className="ozen-fila-venta" style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:9, padding:"8px 10px", marginTop:6, cursor:"pointer" }}>{render(it)}</div>
+            ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+// Lleva la vista a una tarjeta de la lista (después de cambiar de vista o de filtro).
+const operIrATarjeta = (id) => setTimeout(()=>{ const el = document.getElementById(`oper-${id}`); if(el) el.scrollIntoView({ behavior:"smooth", block:"center" }); }, 350);
+
 // ── SCREEN: Operaciones · Externas ───────────────────────────────────────────
-function OperacionesExternasScreen({ user, users, stores, ops, setOps, ventas, onCobrar, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
+function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ventas, onCobrar, onIrA, foco, onFocoUsado, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
   const liderId = config.find(c=>c.clave==="lider_usuario_id")?.valor || "";
   const [creando, setCreando] = useState(false);
   const [abiertoId, setAbiertoId] = useState(null);
   const [ordenVista, setOrdenVista] = useState(null);
   const [fase, setFase] = useState("abiertas");
-  const [tipoF, setTipoF] = useState("");
-  const [tiendaF, setTiendaF] = useState("");
+  const [tiposF, setTiposF] = useState([]);
+  const [tiendasF, setTiendasF] = useState([]);
   const [q, setQ] = useState("");
+  const [vista, setVista] = useState("lista");
   const [limite, setLimite] = useState(40);
   const [quienId, setQuienId] = useState("");
+  useOperFoco(foco, "ext", onFocoUsado, (id)=>{ setFase("abiertas"); setTiposF([]); setTiendasF([]); setQ(""); setVista("lista"); setAbiertoId(id); });
   // Se carga al entrar (si la última carga tiene más de 5 minutos) y al volver a esta pestaña del
   // navegador. No hay refresco automático cada tanto: para ver lo más nuevo está el botón 🔄.
   useEffect(()=>{
@@ -14148,24 +14173,42 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, ventas, o
   const esTienda = esCuentaTienda(user);
   const visibles = useMemo(()=>ops.filter(op=>operVisiblePara(op, user)), [ops, user]);
   const clientes = useMemo(()=>operClientesConocidos(visibles, ventas), [visibles, ventas]);
-  const cuenta = useMemo(()=>{
-    const c = { abiertas:0, por_empezar:0, en_proceso:0, para_entregar:0, cerradas:0, todas:visibles.length };
-    visibles.forEach(op=>{ const f = operFase(op); c[f]++; if(f!=="cerradas") c.abiertas++; });
-    return c;
-  }, [visibles]);
-  const filtradas = useMemo(()=>{
+  // Fichas de estado (cada una con su condición) y el resto de filtros (tienda, tipo, búsqueda).
+  const FICHAS_EXT = [
+    { id:"abiertas",     label:"Abiertas",             f:op=>!operCerrada(op) },
+    { id:"vencidas",     label:"Vencidas",             f:op=>operTiempo(op)==="vencida", alerta:true },
+    { id:"vence_hoy",    label:"Vencen hoy",           f:op=>operTiempo(op)==="vence_hoy", alerta:true },
+    { id:"listas",       label:"Listas para entregar", f:op=>!operCerrada(op) && OPER_ETAPAS_ESPERA_CLIENTE.has(op.etapa) },
+    { id:"sin_reclamar", label:"Sin reclamar",         f:operSinReclamar, alerta:true },
+    { id:"entregadas",   label:"Entregadas",           f:op=>op.etapa==="entregada" },
+    { id:"canceladas",   label:"Canceladas",           f:op=>op.etapa==="cancelada" },
+  ];
+  const pasaResto = useMemo(()=>{
     const texto = sinTildes(q.trim());
-    return visibles.filter(op=>{
-      const f = operFase(op);
-      if(fase==="vencidas"){ if(operTiempo(op)!=="vencida") return false; }
-      else if(fase==="atrasadas" || fase==="sin_reclamar"){ if(!(fase==="atrasadas" ? operExtAtrasada(op) : operSinReclamar(op))) return false; }
-      else if(fase==="abiertas" ? f==="cerradas" : (fase!=="todas" && f!==fase)) return false;
-      if(tipoF && op.tipo!==tipoF) return false;
-      if(tiendaF && op.tienda_id!==tiendaF && op.tienda_origen_id!==tiendaF) return false;
+    return (op) => {
+      if(tiposF.length && !tiposF.includes(op.tipo)) return false;
+      if(tiendasF.length && !tiendasF.includes(op.tienda_id) && !tiendasF.includes(op.tienda_origen_id)) return false;
       if(texto && !sinTildes(`${op.numero} ${op.cliente_nombre} ${op.cliente_telefono||""} ${op.descripcion} ${op.asesor_nombre||""}`).includes(texto)) return false;
       return true;
-    });
-  }, [visibles, fase, tipoF, tiendaF, q]);
+    };
+  }, [tiposF, tiendasF, q]);
+  const base = useMemo(()=>visibles.filter(pasaResto), [visibles, pasaResto]);
+  const fichas = FICHAS_EXT.map(x=>({ ...x, n:base.filter(x.f).length }));
+  const filtradas = useMemo(()=>{
+    const f = (FICHAS_EXT.find(x=>x.id===fase) || FICHAS_EXT[0]).f;
+    const l = base.filter(f);
+    return fase==="entregadas" || fase==="canceladas" ? l.sort((a,b)=>String(b.cerrada_en||b.fecha).localeCompare(String(a.cerrada_en||a.fecha))) : l;
+  }, [base, fase]);
+  // Tablero: "Abiertas" muestra todas las etapas (y las entregadas recientes); otra ficha filtra.
+  const enTablero = fase==="abiertas" ? base : base.filter((FICHAS_EXT.find(x=>x.id===fase)||FICHAS_EXT[0]).f);
+  const idxEt = (op) => operIdxEtapa(op);
+  const columnasExt = [
+    { id:"c0", label:"Por empezar",      items:enTablero.filter(op=>!operCerrada(op) && idxEt(op)===0) },
+    { id:"c1", label:"En taller o gestión", items:enTablero.filter(op=>!operCerrada(op) && idxEt(op)===1) },
+    { id:"c2", label:"Listas en tienda", items:enTablero.filter(op=>!operCerrada(op) && idxEt(op)===2) },
+    { id:"c3", label:"Entregadas", nota:"Las 15 más recientes", items:enTablero.filter(op=>op.etapa==="entregada").sort((a,b)=>String(b.cerrada_en||b.fecha).localeCompare(String(a.cerrada_en||a.fecha))).slice(0,15) },
+  ];
+  const abrirDesdeTablero = (op) => { setFase(operCerrada(op) ? (op.etapa==="entregada"?"entregadas":"canceladas") : "abiertas"); setVista("lista"); setAbiertoId(op.id); operIrATarjeta(op.id); };
   const actualizarOrden = (fila) => setOps(prev=>prev.map(o=>o.id===fila.id?fila:o));
   const guardarLider = async (id) => {
     const { data, error } = await supabase.from("operaciones_config").upsert({ clave:"lider_usuario_id", valor:id||null, actualizado_por:user.name, actualizado_en:new Date().toISOString() }, { onConflict:"clave" }).select().single();
@@ -14173,7 +14216,7 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, ventas, o
     setConfig(prev=>[...prev.filter(c=>c.clave!=="lider_usuario_id"), data]);
   };
   const tiendas = tiendasVenta(stores).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-  const mostrandoCerradas = fase==="cerradas" || fase==="todas";
+  const mostrandoCerradas = fase==="entregadas" || fase==="canceladas" || vista==="tablero";
   if(estado==="error") return (
     <div>
       <PageHeader title="Operaciones externas" subtitle="Arreglos, marcaciones y garantías de clientes"/>
@@ -14187,44 +14230,35 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, ventas, o
   return (
     <div style={{ maxWidth:1100, margin:"0 auto" }}>
       <PageHeader title="Operaciones externas" subtitle="Arreglos, marcaciones y garantías de clientes"
-        action={puedeOper(user, "operaciones.externas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva orden</Btn> : null}/>
+        action={<div style={{ display:"flex", alignItems:"center", gap:10 }}><OperCampana ops={ops} sols={sols} user={user} stores={stores} onIrA={onIrA}/>{puedeOper(user, "operaciones.externas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva orden</Btn> : null}</div>}/>
       <OperLider user={user} users={users} liderId={liderId} onGuardar={guardarLider}/>
-      <OperAvisoAtrasos filtroActual={fase} onFiltrar={(f)=>{ setFase(f); setLimite(40); }} items={[
-        { n:visibles.filter(o=>operTiempo(o)==="vencida").length, texto:"órdenes vencidas (pasó la fecha de entrega)", filtro:"vencidas" },
-        { n:visibles.filter(operExtAtrasada).length, texto:"órdenes atrasadas", filtro:"atrasadas" },
-        { n:visibles.filter(operSinReclamar).length, texto:`piezas sin reclamar (${OPER_DIAS_RECLAMAR}+ días)`, filtro:"sin_reclamar" },
-      ]}/>
       {creando && <OperNuevaOrden user={user} users={users} stores={stores} clientes={clientes} isMobile={isMobile} onCancelar={()=>setCreando(false)} onCreada={(fila)=>{ setOps(prev=>[fila, ...prev]); setCreando(false); setFase("abiertas"); setAbiertoId(fila.id); setOrdenVista(fila); }}/>}
-      <div className="ozen-sin-barra" style={{ display:"flex", gap:8, marginBottom:10, overflowX:"auto", paddingBottom:2 }}>
-        {OPER_FASES.map(f=><button key={f.id} type="button" onClick={()=>{ setFase(f.id); setLimite(40); }} style={operChip(fase===f.id)}>{f.label}<span style={{ background:fase===f.id?C.goldDark:C.surfaceHover, color:fase===f.id?C.tinta:C.textSub, borderRadius:99, fontSize:11, padding:"1px 7px", lineHeight:"16px" }}>{cuenta[f.id]}</span></button>)}
-      </div>
-      <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
-        <select value={tipoF} onChange={e=>{ setTipoF(e.target.value); setLimite(40); }} style={{ ...operChip(!!tipoF), paddingRight:8 }}>
-          <option value="">Todos los tipos</option>
-          {OPER_TIPOS_EXT.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
-        </select>
-        {!esTienda && (
-          <select value={tiendaF} onChange={e=>{ setTiendaF(e.target.value); setLimite(40); }} style={{ ...operChip(!!tiendaF), paddingRight:8 }}>
-            <option value="">Todas las tiendas</option>
-            {tiendas.map(t=><option key={t.id} value={t.id}>{nombreTiendaCorto(t)}</option>)}
-          </select>
-        )}
-        <div style={{ flex:1, minWidth:200, position:"relative" }}>
-          <Icon n="search" s={15} style={{ position:"absolute", left:11, top:10, color:C.textMuted }}/>
-          <input value={q} onChange={e=>{ setQ(e.target.value); setLimite(40); }} placeholder="Buscar por N°, cliente, teléfono o descripción…" style={{ width:"100%", height:34, background:"#fff", border:`1px solid ${C.border}`, borderRadius:10, padding:"0 12px 0 32px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
-        </div>
-      </div>
+      <OperFiltros fichas={fichas} ficha={fase} setFicha={(f)=>{ setFase(f); setLimite(40); }}
+        tiendas={esTienda ? [] : tiendas.map(t=>({ id:t.id, label:nombreTiendaCorto(t), color:colorTienda(t) }))} tiendasSel={tiendasF} setTiendasSel={(v)=>{ setTiendasF(v); setLimite(40); }}
+        tipos={OPER_TIPOS_EXT} tiposSel={tiposF} setTiposSel={(v)=>{ setTiposF(v); setLimite(40); }}
+        q={q} setQ={(v)=>{ setQ(v); setLimite(40); }} placeholder="Buscar por N°, cliente, teléfono o descripción…" vista={vista} setVista={setVista}/>
       {estado!=="listo" && !ops.length
         ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>Cargando operaciones…</div></Card>
+        : vista==="tablero"
+          ? <OperTablero columnas={columnasExt} onAbrir={abrirDesdeTablero} isMobile={isMobile} render={(op)=>(
+              <div style={{ fontFamily:font.body }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:6 }}>
+                  <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><strong style={{ fontFamily:font.mono, fontSize:13, color:C.text }}>{op.numero}</strong><span style={{ color:C.textMuted, display:"inline-flex" }}><Icon n={OPER_TIPOS_EXT.find(t=>t.value===op.tipo)?.ic||"wrench"} s={13}/></span></span>
+                  <OperTiempoBadge op={op}/>
+                </div>
+                <div style={{ fontSize:12.5, color:C.text, marginTop:4, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{op.cliente_nombre}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11.5, color:C.textMuted, marginTop:3 }}><PuntoTienda color={colorTienda(stores[op.tienda_id])} size={7}/>{nombreTiendaCorto(stores[op.tienda_id])} · entrega {fechaCorta(operFechaEntrega(op))}</div>
+              </div>
+            )}/>
         : filtradas.length===0
           ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>{visibles.length===0 ? "Todavía no hay órdenes. La primera que se cree será la N° 1802." : "No hay órdenes con esos filtros."}</div></Card>
           : filtradas.slice(0, limite).map(op=>(
-              <OperOrdenCard key={op.id} op={op} stores={stores} user={user} users={users} liderId={liderId} isMobile={isMobile}
+              <div key={op.id} id={`oper-${op.id}`}><OperOrdenCard op={op} stores={stores} user={user} users={users} liderId={liderId} isMobile={isMobile}
                 abierto={abiertoId===op.id} onToggle={()=>setAbiertoId(prev=>prev===op.id?null:op.id)}
                 onCambio={actualizarOrden} onRecargar={()=>onCargar()} onVerOrden={()=>setOrdenVista(op)} onCobrar={onCobrar}
-                quienId={quienId} setQuienId={setQuienId}/>
+                quienId={quienId} setQuienId={setQuienId}/></div>
             ))}
-      {filtradas.length>limite && <div style={{ textAlign:"center", marginTop:6 }}><Btn sm variant="ghost" onClick={()=>setLimite(l=>l+40)}>Ver más ({filtradas.length-limite})</Btn></div>}
+      {vista==="lista" && filtradas.length>limite && <div style={{ textAlign:"center", marginTop:6 }}><Btn sm variant="ghost" onClick={()=>setLimite(l=>l+40)}>Ver más ({filtradas.length-limite})</Btn></div>}
       {mostrandoCerradas && !todoCargado && (
         <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, textAlign:"center", marginTop:16 }}>
           Se muestran las órdenes cerradas de los últimos 90 días. <button type="button" onClick={()=>onCargar(undefined, true)} style={{ border:"none", background:"none", padding:0, color:C.gold, fontWeight:600, fontFamily:font.body, fontSize:12.5, cursor:"pointer", textDecoration:"underline" }}>Traer todo el historial</button>
@@ -14255,14 +14289,6 @@ const OPER_ESTADOS_INT = {
   completada: { label:"Completada", color:C.green },
   rechazada:  { label:"Rechazada",  color:C.red },
 };
-const OPER_FILTROS_INT = [
-  { id:"abiertas",   label:"Abiertas" },
-  { id:"nueva",      label:"Nuevas" },
-  { id:"en_gestion", label:"En gestión" },
-  { id:"completada", label:"Completadas" },
-  { id:"rechazada",  label:"Rechazadas" },
-  { id:"todas",      label:"Todas" },
-];
 const operIntAbierta = (s) => s.estado==="nueva" || s.estado==="en_gestion";
 const operIntVisiblePara = (s, user) => !esCuentaTienda(user) || s.tienda_id===user.tienda_id || s.tienda_id==="global";
 const OperTiendaInt = ({ s, stores, sm }) => s.tienda_id==="global" ? <Badge color={C.gold} sm={sm}>Global</Badge> : <EtiquetaTienda store={stores[s.tienda_id]} sm={sm}/>;
@@ -14448,16 +14474,18 @@ function OperSolicitudCard({ s, stores, user, users, liderId, abierto, onToggle,
 }
 
 // ── SCREEN: Operaciones · Internas ───────────────────────────────────────────
-function OperacionesInternasScreen({ user, users, stores, sols, setSols, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
+function OperacionesInternasScreen({ user, users, stores, ops, sols, setSols, onIrA, foco, onFocoUsado, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
   const liderId = config.find(c=>c.clave==="lider_usuario_id")?.valor || "";
   const [creando, setCreando] = useState(false);
   const [abiertoId, setAbiertoId] = useState(null);
   const [filtro, setFiltro] = useState("abiertas");
-  const [tipoF, setTipoF] = useState("");
-  const [tiendaF, setTiendaF] = useState("");
+  const [tiposF, setTiposF] = useState([]);
+  const [tiendasF, setTiendasF] = useState([]);
+  const [vista, setVista] = useState("lista");
   const [q, setQ] = useState("");
   const [limite, setLimite] = useState(40);
   const [quienId, setQuienId] = useState("");
+  useOperFoco(foco, "int", onFocoUsado, (id)=>{ setFiltro("abiertas"); setTiposF([]); setTiendasF([]); setQ(""); setVista("lista"); setAbiertoId(id); });
   // Misma carga que Externas (una sola para todo el módulo): al entrar si tiene más de 5 minutos.
   useEffect(()=>{
     onCargar(5*60000);
@@ -14468,24 +14496,37 @@ function OperacionesInternasScreen({ user, users, stores, sols, setSols, config,
   }, []);
   const esTienda = esCuentaTienda(user);
   const visibles = useMemo(()=>(sols||[]).filter(s=>operIntVisiblePara(s, user)), [sols, user]);
-  const cuenta = useMemo(()=>{
-    const c = { abiertas:0, nueva:0, en_gestion:0, completada:0, rechazada:0, todas:visibles.length };
-    visibles.forEach(s=>{ if(c[s.estado]!==undefined) c[s.estado]++; if(operIntAbierta(s)) c.abiertas++; });
-    return c;
-  }, [visibles]);
-  const filtradas = useMemo(()=>{
+  const FICHAS_INT = [
+    { id:"abiertas",   label:"Abiertas",    f:operIntAbierta },
+    { id:"nueva",      label:"Nuevas",      f:x=>x.estado==="nueva" },
+    { id:"en_gestion", label:"En gestión",  f:x=>x.estado==="en_gestion" },
+    { id:"atrasadas",  label:"Atrasadas",   f:operIntAtrasada, alerta:true },
+    { id:"completada", label:"Completadas", f:x=>x.estado==="completada" },
+    { id:"rechazada",  label:"Rechazadas",  f:x=>x.estado==="rechazada" },
+  ];
+  const pasaResto = useMemo(()=>{
     const texto = sinTildes(q.trim());
-    return visibles.filter(s=>{
-      if(filtro==="atrasadas"){ if(!operIntAtrasada(s)) return false; }
-      else if(filtro==="abiertas" ? !operIntAbierta(s) : (filtro!=="todas" && s.estado!==filtro)) return false;
-      if(tipoF && s.tipo!==tipoF) return false;
-      if(tiendaF && s.tienda_id!==tiendaF) return false;
+    return (s) => {
+      if(tiposF.length && !tiposF.includes(s.tipo)) return false;
+      if(tiendasF.length && !tiendasF.includes(s.tienda_id)) return false;
       if(texto && !sinTildes(`${s.descripcion} ${s.reportado_por_nombre||""} ${s.respuesta||""}`).includes(texto)) return false;
       return true;
-    }).sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"") || (b.created_at||"").localeCompare(a.created_at||""));
-  }, [visibles, filtro, tipoF, tiendaF, q]);
+    };
+  }, [tiposF, tiendasF, q]);
+  const base = useMemo(()=>visibles.filter(pasaResto), [visibles, pasaResto]);
+  const fichas = FICHAS_INT.map(x=>({ ...x, n:base.filter(x.f).length }));
+  const filtradas = useMemo(()=>base.filter((FICHAS_INT.find(x=>x.id===filtro)||FICHAS_INT[0]).f)
+    .sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"") || (b.created_at||"").localeCompare(a.created_at||"")), [base, filtro]);
+  const enTablero = filtro==="abiertas" ? base : base.filter((FICHAS_INT.find(x=>x.id===filtro)||FICHAS_INT[0]).f);
+  const recientes = (l) => l.sort((a,b)=>String(b.cerrada_en||b.fecha).localeCompare(String(a.cerrada_en||a.fecha))).slice(0,15);
+  const columnasInt = [
+    { id:"n", label:"Nuevas",      items:enTablero.filter(x=>x.estado==="nueva") },
+    { id:"g", label:"En gestión",  items:enTablero.filter(x=>x.estado==="en_gestion") },
+    { id:"c", label:"Completadas", nota:"Las 15 más recientes", items:recientes(enTablero.filter(x=>x.estado==="completada")) },
+  ];
+  const abrirDesdeTablero = (x) => { setFiltro(operIntAbierta(x) ? "abiertas" : x.estado); setVista("lista"); setAbiertoId(x.id); operIrATarjeta(x.id); };
   const tiendas = tiendasVenta(stores).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-  const mostrandoCerradas = filtro==="completada" || filtro==="rechazada" || filtro==="todas";
+  const mostrandoCerradas = filtro==="completada" || filtro==="rechazada" || vista==="tablero";
   if(estado==="error") return (
     <div>
       <PageHeader title="Operaciones internas" subtitle="Insumos, novedades y arreglos del inventario y del punto"/>
@@ -14499,43 +14540,35 @@ function OperacionesInternasScreen({ user, users, stores, sols, setSols, config,
   return (
     <div style={{ maxWidth:1100, margin:"0 auto" }}>
       <PageHeader title="Operaciones internas" subtitle="Insumos, novedades y arreglos del inventario y del punto"
-        action={puedeOper(user, "operaciones.internas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva solicitud</Btn> : null}/>
+        action={<div style={{ display:"flex", alignItems:"center", gap:10 }}><OperCampana ops={ops} sols={sols} user={user} stores={stores} onIrA={onIrA}/>{puedeOper(user, "operaciones.internas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva solicitud</Btn> : null}</div>}/>
       <OperLider user={user} users={users} liderId={liderId} onGuardar={(id)=>operGuardarLider(user, id, setConfig)}/>
-      <OperAvisoAtrasos filtroActual={filtro} onFiltrar={(f)=>{ setFiltro(f); setLimite(40); }} items={[
-        { n:visibles.filter(operIntAtrasada).length, texto:"solicitudes atrasadas", filtro:"atrasadas" },
-      ]}/>
       {creando && <OperNuevaSolicitud user={user} users={users} stores={stores} isMobile={isMobile} onCancelar={()=>setCreando(false)} onCreada={(fila)=>{ setSols(prev=>[fila, ...prev]); setCreando(false); setFiltro("abiertas"); setAbiertoId(fila.id); }}/>}
-      <div className="ozen-sin-barra" style={{ display:"flex", gap:8, marginBottom:10, overflowX:"auto", paddingBottom:2 }}>
-        {OPER_FILTROS_INT.map(f=><button key={f.id} type="button" onClick={()=>{ setFiltro(f.id); setLimite(40); }} style={operChip(filtro===f.id)}>{f.label}<span style={{ background:filtro===f.id?C.goldDark:C.surfaceHover, color:filtro===f.id?C.tinta:C.textSub, borderRadius:99, fontSize:11, padding:"1px 7px", lineHeight:"16px" }}>{cuenta[f.id]}</span></button>)}
-      </div>
-      <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
-        <select value={tipoF} onChange={e=>{ setTipoF(e.target.value); setLimite(40); }} style={{ ...operChip(!!tipoF), paddingRight:8 }}>
-          <option value="">Todos los tipos</option>
-          {OPER_TIPOS_INT.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
-        </select>
-        {!esTienda && (
-          <select value={tiendaF} onChange={e=>{ setTiendaF(e.target.value); setLimite(40); }} style={{ ...operChip(!!tiendaF), paddingRight:8 }}>
-            <option value="">Todas las tiendas</option>
-            {tiendas.map(t=><option key={t.id} value={t.id}>{nombreTiendaCorto(t)}</option>)}
-            <option value="global">Global</option>
-          </select>
-        )}
-        <div style={{ flex:1, minWidth:200, position:"relative" }}>
-          <Icon n="search" s={15} style={{ position:"absolute", left:11, top:10, color:C.textMuted }}/>
-          <input value={q} onChange={e=>{ setQ(e.target.value); setLimite(40); }} placeholder="Buscar en la descripción, quién la pidió o la respuesta…" style={{ width:"100%", height:34, background:"#fff", border:`1px solid ${C.border}`, borderRadius:10, padding:"0 12px 0 32px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
-        </div>
-      </div>
+      <OperFiltros fichas={fichas} ficha={filtro} setFicha={(f)=>{ setFiltro(f); setLimite(40); }}
+        tiendas={esTienda ? [] : [...tiendas.map(t=>({ id:t.id, label:nombreTiendaCorto(t), color:colorTienda(t) })), { id:"global", label:"Global", color:C.gold }]} tiendasSel={tiendasF} setTiendasSel={(v)=>{ setTiendasF(v); setLimite(40); }}
+        tipos={OPER_TIPOS_INT} tiposSel={tiposF} setTiposSel={(v)=>{ setTiposF(v); setLimite(40); }}
+        q={q} setQ={(v)=>{ setQ(v); setLimite(40); }} placeholder="Buscar en la descripción, quién la pidió o la respuesta…" vista={vista} setVista={setVista}/>
       {estado!=="listo" && !(sols||[]).length
         ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>Cargando solicitudes…</div></Card>
+        : vista==="tablero"
+          ? <OperTablero columnas={columnasInt} onAbrir={abrirDesdeTablero} isMobile={isMobile} render={(x)=>(
+              <div style={{ fontFamily:font.body }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:6 }}>
+                  <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:12, fontWeight:700, color:C.textSub }}><Icon n={OPER_TIPOS_INT.find(t=>t.value===x.tipo)?.ic||"note"} s={13}/>{operTipoIntLabel(x.tipo)}</span>
+                  {operIntAtrasada(x) && <Badge color={C.red} sm>Atrasada</Badge>}
+                </div>
+                <div style={{ fontSize:12.5, color:C.text, marginTop:4, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{x.descripcion}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11.5, color:C.textMuted, marginTop:3 }}>{x.tienda_id==="global" ? "Global" : <><PuntoTienda color={colorTienda(stores[x.tienda_id])} size={7}/>{nombreTiendaCorto(stores[x.tienda_id])}</>} · {fechaCorta(x.fecha)}</div>
+              </div>
+            )}/>
         : filtradas.length===0
           ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>{visibles.length===0 ? "Todavía no hay solicitudes internas." : "No hay solicitudes con esos filtros."}</div></Card>
           : filtradas.slice(0, limite).map(s=>(
-              <OperSolicitudCard key={s.id} s={s} stores={stores} user={user} users={users} liderId={liderId} isMobile={isMobile}
+              <div key={s.id} id={`oper-${s.id}`}><OperSolicitudCard s={s} stores={stores} user={user} users={users} liderId={liderId} isMobile={isMobile}
                 abierto={abiertoId===s.id} onToggle={()=>setAbiertoId(prev=>prev===s.id?null:s.id)}
                 onCambio={(fila)=>setSols(prev=>prev.map(x=>x.id===fila.id?fila:x))} onRecargar={()=>onCargar()}
-                quienId={quienId} setQuienId={setQuienId}/>
+                quienId={quienId} setQuienId={setQuienId}/></div>
             ))}
-      {filtradas.length>limite && <div style={{ textAlign:"center", marginTop:6 }}><Btn sm variant="ghost" onClick={()=>setLimite(l=>l+40)}>Ver más ({filtradas.length-limite})</Btn></div>}
+      {vista==="lista" && filtradas.length>limite && <div style={{ textAlign:"center", marginTop:6 }}><Btn sm variant="ghost" onClick={()=>setLimite(l=>l+40)}>Ver más ({filtradas.length-limite})</Btn></div>}
       {mostrandoCerradas && !todoCargado && (
         <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, textAlign:"center", marginTop:16 }}>
           Se muestran las solicitudes cerradas de los últimos 90 días. <button type="button" onClick={()=>onCargar(undefined, true)} style={{ border:"none", background:"none", padding:0, color:C.gold, fontWeight:600, fontFamily:font.body, fontSize:12.5, cursor:"pointer", textDecoration:"underline" }}>Traer todo el historial</button>
@@ -14583,24 +14616,6 @@ const OPER_TIEMPO = {
 };
 const OperTiempoBadge = ({ op, sm=true }) => { const t = OPER_TIEMPO[operTiempo(op)]; return t ? <Badge color={t.color} sm={sm}>{t.label}</Badge> : null; };
 const operIntAtrasada = (s) => operIntAbierta(s) && diasHabilesEntre(operFechaCol(s.estado_desde), todayStr) >= OPER_DIAS_ATRASO;
-
-// Franja de avisos arriba de Externas / Internas. `items`: [{ n, texto, filtro }]. Tocar uno filtra
-// la lista; con un filtro de aviso activo, el botón vuelve a "Abiertas".
-function OperAvisoAtrasos({ items, filtroActual, onFiltrar }) {
-  const conDatos = items.filter(i=>i.n>0);
-  if(!conDatos.length) return null;
-  return (
-    <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", background:C.redDim, border:`1px solid ${C.red}33`, borderRadius:12, padding:"10px 14px", marginBottom:14, fontFamily:font.body }}>
-      <span style={{ color:C.red, display:"inline-flex" }}><Icon n="bell" s={17}/></span>
-      {conDatos.map(i=>{ const on = filtroActual===i.filtro; return (
-        <button key={i.filtro} type="button" onClick={()=>onFiltrar(on ? "abiertas" : i.filtro)} style={{ display:"inline-flex", alignItems:"center", gap:7, border:`1px solid ${on?C.red:"transparent"}`, background:on?"#fff":"transparent", borderRadius:9, padding:"5px 10px", cursor:"pointer", fontFamily:font.body, fontSize:13.5, color:C.red }}>
-          <strong style={{ fontFamily:font.mono, fontSize:15 }}>{i.n}</strong>{i.texto}<span style={{ textDecoration:"underline", fontWeight:600 }}>{on ? "Quitar filtro" : "Ver"}</span>
-        </button>
-      ); })}
-      <span style={{ marginLeft:"auto", fontSize:11.5, color:C.textMuted }}>Atrasada = {OPER_DIAS_ATRASO} días hábiles sin moverse</span>
-    </div>
-  );
-}
 
 // ── SCREEN: Operaciones · Indicadores (solo administradores) ─────────────────
 function OperacionesIndicadoresScreen({ stores, ops, sols, estado, onCargar, todoCargado, isMobile }) {
@@ -14732,10 +14747,96 @@ function OperacionesIndicadoresScreen({ stores, ops, sols, estado, onCargar, tod
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// CAMPANA DE AVISOS (18 nov 2026) — la misma campana de Flexipagos de Registrar venta, ahora con
+// grupos. En Registrar venta muestra Flexipagos + órdenes de Operaciones de esa tienda; en
+// Operaciones, solo lo de Operaciones (pedido de Santiago: en Ventas están todo el día, en
+// Operaciones no). `grupos`: [{ titulo, items:[{ key, titulo, sub, badge:{ color, label }, urgente, onClick }] }]
+// ══════════════════════════════════════════════════════════════════════════════
+function CampanaAvisos({ grupos, titulo="Avisos" }) {
+  const [abierta, setAbierta] = useState(false);
+  const conItems = (grupos||[]).filter(g=>g.items && g.items.length);
+  const total = conItems.reduce((a,g)=>a+g.items.length,0);
+  if(!total) return null;
+  const urgente = conItems.some(g=>g.items.some(i=>i.urgente));
+  const color = urgente ? C.red : C.gold;
+  return (
+    <div style={{ position:"relative", flexShrink:0 }}>
+      <button onClick={()=>setAbierta(s=>!s)} title={titulo} style={{ position:"relative", display:"flex", alignItems:"center", justifyContent:"center", width:38, height:38, borderRadius:99, cursor:"pointer", fontSize:17, background:abierta?C.surfaceAlt:"transparent", border:`1.5px solid ${color}` }}>
+        🔔
+        <span style={{ position:"absolute", top:-5, right:-5, minWidth:17, height:17, padding:"0 4px", borderRadius:99, background:color, color:"#fff", fontFamily:font.mono, fontSize:10, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", lineHeight:1 }}>{total}</span>
+      </button>
+      {abierta && (
+        <>
+          <div onClick={()=>setAbierta(false)} style={{ position:"fixed", inset:0, zIndex:90 }}/>
+          <div style={{ position:"absolute", zIndex:91, top:"120%", right:0, width:340, maxWidth:"88vw", maxHeight:420, overflowY:"auto", background:C.dark, border:`1px solid ${C.border}`, borderRadius:10, boxShadow:"0 10px 30px rgba(0,0,0,0.25)", padding:8 }}>
+            {conItems.map((g,gi)=>(
+              <div key={gi} style={{ marginTop:gi?10:0 }}>
+                <div style={{ fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.goldLight, padding:"4px 6px 8px", textTransform:"uppercase", letterSpacing:"0.04em" }}>{g.titulo} · {g.items.length}</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {g.items.map(it=>(
+                    <div key={it.key} onClick={it.onClick ? ()=>{ setAbierta(false); it.onClick(); } : undefined} className={it.onClick?"ozen-menu-item":undefined}
+                      style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding:"7px 10px", background:C.surfaceAlt, borderRadius:7, flexWrap:"wrap", cursor:it.onClick?"pointer":"default" }}>
+                      <div style={{ fontFamily:font.body, fontSize:12.5, color:C.text, minWidth:0, flex:"1 1 150px" }}>
+                        <b>{it.titulo}</b>
+                        {it.sub && <div style={{ fontSize:11.5, color:C.textMuted, marginTop:1, overflowWrap:"anywhere" }}>{it.sub}</div>}
+                      </div>
+                      {it.badge && <Badge color={it.badge.color} sm>{it.badge.label}</Badge>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+// Avisos de órdenes (para las dos campanas): vencidas, vencen hoy o el próximo día hábil, y piezas
+// listas sin reclamar (60+ días: hay que llamar al cliente).
+const operItemsCampana = (ops, stores, onIr) => {
+  const manana = sumarDiasHabiles(todayStr, 1);
+  const lista = [];
+  (ops||[]).forEach(op=>{
+    if(operCerrada(op)) return;
+    const tienda = nombreTiendaCorto(stores[op.tienda_id]);
+    const base = { key:`ext-${op.id}`, titulo:`N° ${op.numero} · ${operTipoLabel(op.tipo)} · ${op.cliente_nombre||""}`, onClick:onIr ? ()=>onIr("ext", op.id) : undefined };
+    if(operSinReclamar(op)){ lista.push({ ...base, orden:0, sub:`${tienda} · Llamar al cliente${op.cliente_telefono?`: ${op.cliente_telefono}`:""}`, badge:{ color:C.red, label:`Sin reclamar · ${diasEntre(op.fecha, todayStr)} días` }, urgente:true }); return; }
+    if(operCumplida(op)) return;
+    const vence = operFechaEntrega(op);
+    if(todayStr > vence){ const d = diasHabilesEntre(vence, todayStr); lista.push({ ...base, orden:1, sub:`${tienda} · Debía estar lista el ${fechaCorta(vence)}`, badge:{ color:C.red, label:`Vencida · ${d} ${d===1?"día háb.":"días háb."}` }, urgente:true }); }
+    else if(vence===todayStr) lista.push({ ...base, orden:2, sub:`${tienda} · Debe quedar lista hoy`, badge:{ color:C.amber, label:"Vence hoy" }, urgente:true });
+    else if(vence===manana) lista.push({ ...base, orden:3, sub:`${tienda} · Debe quedar lista el ${fechaCorta(vence)}`, badge:{ color:C.gold, label:"Vence mañana" } });
+  });
+  return lista.sort((a,b)=>a.orden-b.orden);
+};
+const operItemsCampanaInt = (sols, stores, onIr) => (sols||[]).filter(operIntAtrasada).map(s=>{
+  const d = diasHabilesEntre(operFechaCol(s.estado_desde), todayStr);
+  return { key:`int-${s.id}`, titulo:`${operTipoIntLabel(s.tipo)} · ${s.tienda_id==="global" ? "Global" : nombreTiendaCorto(stores[s.tienda_id])}`, sub:(s.descripcion||"").slice(0,90), badge:{ color:C.red, label:`${OPER_ESTADOS_INT[s.estado]?.label||s.estado} · ${d} días háb.` }, urgente:true, onClick:onIr ? ()=>onIr("int", s.id) : undefined };
+});
+// Campana de Operaciones (Externas e Internas muestran la misma).
+const OperCampana = ({ ops, sols, user, stores, onIrA }) => (
+  <CampanaAvisos titulo="Avisos de Operaciones" grupos={[
+    { titulo:"Órdenes de clientes", items:operItemsCampana((ops||[]).filter(op=>operVisiblePara(op, user)), stores, onIrA) },
+    { titulo:"Solicitudes internas atrasadas", items:operItemsCampanaInt((sols||[]).filter(s=>operIntVisiblePara(s, user)), stores, onIrA) },
+  ]}/>
+);
+// Cuando se llega desde la campana: abre esa orden/solicitud y la trae a la vista.
+const useOperFoco = (foco, tipo, onFocoUsado, abrir) => {
+  useEffect(()=>{
+    if(!foco || foco.tipo!==tipo) return;
+    abrir(foco.id);
+    if(onFocoUsado) onFocoUsado();
+    setTimeout(()=>{ const el = document.getElementById(`oper-${foco.id}`); if(el) el.scrollIntoView({ behavior:"smooth", block:"center" }); }, 350);
+  }, [foco?.t]);
+};
+
 // Cuenta de tienda: Operaciones es UNA sola pestaña (su barra ya tiene Ventas, Caja y Turnos), con
 // un selector Externas / Internas arriba. Los administradores usan las pestañas del área.
 function OperacionesTiendaScreen(props) {
-  const [sub, setSub] = useState("externas");
+  const [sub, setSub] = useState(props.foco?.tipo==="int" ? "internas" : "externas");
+  useEffect(()=>{ if(props.foco) setSub(props.foco.tipo==="int" ? "internas" : "externas"); }, [props.foco?.t]);
   return (
     <div>
       <div style={{ display:"flex", gap:8, marginBottom:16, maxWidth:1100, marginLeft:"auto", marginRight:"auto" }}>
@@ -14774,6 +14875,23 @@ export default function App() {
   // Operaciones: a propósito NO se carga en loadAll — ver cargarOperaciones más abajo.
   const [opExternas,setOpExternas]=useState([]),[opConfig,setOpConfig]=useState([]),[opEstado,setOpEstado]=useState("sin_cargar"),[opTodoCargado,setOpTodoCargado]=useState(false);
   const [opInternas,setOpInternas]=useState([]);
+  // Campana: a qué orden/solicitud llevar al tocar un aviso ({ tipo:"ext"|"int", id, t }).
+  const [opFoco,setOpFoco]=useState(null);
+  // Campana de Registrar venta: solo las órdenes ABIERTAS (pocas columnas), como mucho cada 5
+  // minutos y solo en esa pestaña — no se descarga Operaciones entero (tope de Supabase).
+  const [opCampana,setOpCampana]=useState([]);
+  const opCampanaRef = useRef(0);
+  useEffect(()=>{
+    if(!user || tab!=="registrar" || !puedeOper(user, "operaciones.ver")) return;
+    if(Date.now()-opCampanaRef.current < 5*60000) return;
+    opCampanaRef.current = Date.now();
+    (async()=>{
+      const { data, error } = await supabase.from("operaciones_externas")
+        .select("id,numero,tipo,tienda_id,tienda_origen_id,cliente_nombre,cliente_telefono,etapa,fecha,fecha_estimada_entrega,reprogramada,lista_en")
+        .not("etapa","in","(entregada,cancelada)").limit(1000);
+      if(!error && data) setOpCampana(data);
+    })();
+  }, [tab, user?.id]);
   const opCargaRef = useRef(0), opTodoRef = useRef(false);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
@@ -14991,7 +15109,7 @@ export default function App() {
   // en un dispositivo compartido donde una cuenta entra justo después de que otra salió, sin esto
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
   const login=(u)=>{permVerComoActivar(false);setVerComo(null);setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll(60000);};
-  const logout=()=>{permVerComoActivar(false);setVerComo(null);setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOrdenACobrar(null);setOpExternas([]);setOpInternas([]);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
+  const logout=()=>{permVerComoActivar(false);setVerComo(null);setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOrdenACobrar(null);setOpExternas([]);setOpInternas([]);setOpCampana([]);opCampanaRef.current=0;setOpFoco(null);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
   const entrarVerComo=(u)=>{ if(!puede(usuarioSesion,"cuenta.permisos")) return; permVerComoActivar(true); setVerComo(u); setMostrarUsuarios(false); setArea(null); setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin"); };
   const salirVerComo=()=>{ permVerComoActivar(false); setVerComo(null); setArea(null); setTab(eligeModulo(usuarioSesion)?null:"checkin"); setMostrarUsuarios(true); };
   const bandaVerComo = verComo ? <BandaVerComo u={verComo} onSalir={salirVerComo}/> : null;
@@ -15149,7 +15267,7 @@ export default function App() {
   // a Ventas todos los admin arrancan en Métricas.
   const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : "");
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
-  const propsOperaciones = { user, users, stores, ventas, onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, sols:opInternas, setSols:setOpInternas, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
+  const propsOperaciones = { user, users, stores, ventas, onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, sols:opInternas, setSols:setOpInternas, foco:opFoco, onFocoUsado:()=>setOpFoco(null), onIrA:(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
       if(area==="junta"){
@@ -15159,7 +15277,7 @@ export default function App() {
         if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
-        if(tab==="registrar" && puede(user, "ventas.registrar.ver")) return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/>;
+        if(tab==="registrar" && puede(user, "ventas.registrar.ver")) return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} opAvisos={opEstado==="listo" ? opExternas : opCampana} onIrAOrden={(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); }} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/>;
         if(tab==="lista" && puede(user, "ventas.lista.ver")) return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
         if(tab==="metricas" && puede(user, "ventas.metricas.ver")) return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puede(user, "ventas.metas.asignar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
         if(tab==="caja" && puede(user, "caja.ver")) return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
@@ -15179,7 +15297,7 @@ export default function App() {
         if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
       }
     } else if(esCuentaTienda(user)){
-      if(tab==="registrar") return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/>;
+      if(tab==="registrar") return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} opAvisos={opEstado==="listo" ? opExternas : opCampana} onIrAOrden={(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); }} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/>;
       if(tab==="lista" && puede(user, "ventas.lista.ver")) return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas" && puede(user, "ventas.metricas.ver")) return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puede(user, "ventas.metas.asignar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
       if(tab==="caja" && puede(user, "caja.ver")) return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;

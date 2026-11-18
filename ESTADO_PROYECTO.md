@@ -911,6 +911,24 @@ suma "órdenes vencidas"; Indicadores suma "Vencidas" (ahora), "Cumplidas a tiem
 `operaciones_02_fecha_entrega.sql` ANTES de publicar el código** (si no, crear una orden falla).
 El SQL del Excel ya trae la fecha de entrega (recibo + 5 días hábiles) y necesita el 02 antes.
 
+**Campana de avisos (18 nov 2026, en `staging`):** las alertas ya no son una franja roja: son la
+misma campana 🔔 de Flexipagos (`CampanaAvisos`, con grupos). En **Registrar venta** la campana de
+la tienda muestra Flexipagos + "Órdenes de Operaciones" de esa tienda (toca código de Ventas, a
+pedido de Santiago); en **Operaciones** (Externas e Internas, junto a "Nueva …") muestra solo lo
+de Operaciones. Avisos de órdenes (`operItemsCampana`): vencidas, vencen hoy, vencen el próximo
+día hábil, y sin reclamar (60+ días, "llamar al cliente"); de internas (`operItemsCampanaInt`):
+atrasadas. Tocar un aviso lleva a esa orden/solicitud abierta (`opFoco` en `App`, `useOperFoco`).
+Para Registrar venta, `App` trae solo las órdenes ABIERTAS con pocas columnas, como mucho cada 5
+min y solo en esa pestaña (`opCampana`); si Operaciones ya está cargado, usa eso.
+
+**Filtros y tablero (18 nov 2026, propuesta aprobada por Santiago):** `OperFiltros` reemplaza los
+botones y listas desplegables: arriba fichas de estado con su número (Externas: Abiertas, Vencidas,
+Vencen hoy, Listas para entregar, Sin reclamar, Entregadas, Canceladas; Internas: Abiertas, Nuevas,
+En gestión, Atrasadas, Completadas, Rechazadas), debajo tiendas (con su color; en Internas también
+Global) y tipos (con ícono) que se combinan, buscador, y vista **Lista / Tablero** (`OperTablero`,
+columnas por etapa; Entregadas/Completadas muestran las 15 más recientes). Tocar una tarjeta del
+tablero abre esa orden en la lista. La cuenta de tienda no ve el filtro de tiendas.
+
 **Datos reales del Excel (18 nov 2026):** Santiago cambió la decisión de "empezar en limpio": los
 datos del Excel se pasan a la app, en práctica para probar y en la REAL justo después de publicar.
 `sql/operaciones_importar_excel.sql` (⚠️ NO va a git: tiene nombres y teléfonos de clientes) carga
