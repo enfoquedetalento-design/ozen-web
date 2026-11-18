@@ -963,7 +963,7 @@ const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar ven
 const ADMIN_TABS_CAPACITACION = [{ id:"mis_cursos",icon:"📚",label:"Mis cursos" },{ id:"progreso",icon:"📊",label:"Progreso" },{ id:"cursos_admin",icon:"🛠️",label:"Administrar cursos" }];
 // Operaciones (área "operaciones"): por ahora solo Externas (parte 1). Internas e Indicadores son
 // las partes 2 y 3 — ver "OPERACIONES" más abajo.
-const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas" },{ id:"op_internas",icon:"📦",label:"Internas" }];
+const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas" },{ id:"op_internas",icon:"📦",label:"Internas" },{ id:"op_indicadores",icon:"📊",label:"Indicadores" }];
 const tabsCapacitacion = (user) => ADMIN_TABS_CAPACITACION.filter(t => t.id==="mis_cursos" ? tomaCapacitaciones(user) : t.id==="cursos_admin" ? puedeEditarCapacitacion(user) : puede(user, "escuela.progreso"));
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas" || user.role==="admin_turnos";
 // Quién ve la pantalla de módulos al entrar y el selector de áreas arriba: los admins (puedeUsarAreas)
@@ -1057,7 +1057,7 @@ const permisosTurnos = (user) => {
 };
 const tabsPara = (user, area) => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? [...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : []), ...(puedeOper(user, "operaciones.ver") ? [{ id:"op_externas", icon:"🧰", label:"Operaciones" }] : [])] : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
-  : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
+  : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -1073,7 +1073,7 @@ const passwordVencida = (u) => {
 // las pestañas del área con una línea que se desliza a la pestaña elegida, y bajo ellas una franja
 // fina del color de la tienda (cuando la pantalla trabaja sobre una tienda). En celular las
 // pestañas bajan a una barra inferior, como antes.
-const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench", op_externas:"wrench", op_internas:"box" };
+const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench", op_externas:"wrench", op_internas:"box", op_indicadores:"chart" };
 const AREAS_NAV = [
   { id:"ventas", label:"Ventas", ic:"receipt" },
   { id:"operaciones", label:"Operaciones", ic:"box" },
@@ -13544,6 +13544,8 @@ registrarPermisos({ grupo:"operaciones", label:"Operaciones", ic:"box", permisos
   // Internas (parte 2): crea quien registra órdenes; las mueve solo el líder (o Master).
   { id:"operaciones.internas.crear", label:"Crear una solicitud interna (insumos, novedades, arreglos)", r:{ ...OPER_ROLES_REGISTRAN }, nota:OPER_NOTA_LIDER },
   { id:"operaciones.internas.gestionar", label:"Gestionar, completar o rechazar una solicitud interna", r:{ master:1 }, nota:OPER_NOTA_LIDER },
+  // Indicadores (parte 3): los administradores y el Visualizador; las tiendas no (decisión de Santiago).
+  { id:"operaciones.indicadores.ver", label:"Ver los indicadores de Operaciones", soloVer:true, r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
 ]});
 const esLiderOperaciones = (user, liderId) => !!user && !!liderId && String(user.id)===String(liderId);
 const OPER_ACCIONES_LIDER = new Set(["operaciones.externas.crear","operaciones.externas.avanzar","operaciones.externas.pago","operaciones.externas.devolver","operaciones.externas.cancelar","operaciones.garantias.decidir","operaciones.internas.crear","operaciones.internas.gestionar"]);
@@ -14123,7 +14125,8 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, ventas, o
     const texto = sinTildes(q.trim());
     return visibles.filter(op=>{
       const f = operFase(op);
-      if(fase==="abiertas" ? f==="cerradas" : (fase!=="todas" && f!==fase)) return false;
+      if(fase==="atrasadas" || fase==="sin_reclamar"){ if(!(fase==="atrasadas" ? operExtAtrasada(op) : operSinReclamar(op))) return false; }
+      else if(fase==="abiertas" ? f==="cerradas" : (fase!=="todas" && f!==fase)) return false;
       if(tipoF && op.tipo!==tipoF) return false;
       if(tiendaF && op.tienda_id!==tiendaF && op.tienda_origen_id!==tiendaF) return false;
       if(texto && !sinTildes(`${op.numero} ${op.cliente_nombre} ${op.cliente_telefono||""} ${op.descripcion} ${op.asesor_nombre||""}`).includes(texto)) return false;
@@ -14153,6 +14156,10 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, ventas, o
       <PageHeader title="Operaciones externas" subtitle="Arreglos, marcaciones y garantías de clientes"
         action={puedeOper(user, "operaciones.externas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva orden</Btn> : null}/>
       <OperLider user={user} users={users} liderId={liderId} onGuardar={guardarLider}/>
+      <OperAvisoAtrasos filtroActual={fase} onFiltrar={(f)=>{ setFase(f); setLimite(40); }} items={[
+        { n:visibles.filter(operExtAtrasada).length, texto:"órdenes atrasadas", filtro:"atrasadas" },
+        { n:visibles.filter(operSinReclamar).length, texto:`piezas sin reclamar (${OPER_DIAS_RECLAMAR}+ días)`, filtro:"sin_reclamar" },
+      ]}/>
       {creando && <OperNuevaOrden user={user} users={users} stores={stores} clientes={clientes} isMobile={isMobile} onCancelar={()=>setCreando(false)} onCreada={(fila)=>{ setOps(prev=>[fila, ...prev]); setCreando(false); setFase("abiertas"); setAbiertoId(fila.id); setOrdenVista(fila); }}/>}
       <div className="ozen-sin-barra" style={{ display:"flex", gap:8, marginBottom:10, overflowX:"auto", paddingBottom:2 }}>
         {OPER_FASES.map(f=><button key={f.id} type="button" onClick={()=>{ setFase(f.id); setLimite(40); }} style={operChip(fase===f.id)}>{f.label}<span style={{ background:fase===f.id?C.goldDark:C.surfaceHover, color:fase===f.id?C.tinta:C.textSub, borderRadius:99, fontSize:11, padding:"1px 7px", lineHeight:"16px" }}>{cuenta[f.id]}</span></button>)}
@@ -14435,7 +14442,8 @@ function OperacionesInternasScreen({ user, users, stores, sols, setSols, config,
   const filtradas = useMemo(()=>{
     const texto = sinTildes(q.trim());
     return visibles.filter(s=>{
-      if(filtro==="abiertas" ? !operIntAbierta(s) : (filtro!=="todas" && s.estado!==filtro)) return false;
+      if(filtro==="atrasadas"){ if(!operIntAtrasada(s)) return false; }
+      else if(filtro==="abiertas" ? !operIntAbierta(s) : (filtro!=="todas" && s.estado!==filtro)) return false;
       if(tipoF && s.tipo!==tipoF) return false;
       if(tiendaF && s.tienda_id!==tiendaF) return false;
       if(texto && !sinTildes(`${s.descripcion} ${s.reportado_por_nombre||""} ${s.respuesta||""}`).includes(texto)) return false;
@@ -14459,6 +14467,9 @@ function OperacionesInternasScreen({ user, users, stores, sols, setSols, config,
       <PageHeader title="Operaciones internas" subtitle="Insumos, novedades y arreglos del inventario y del punto"
         action={puedeOper(user, "operaciones.internas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva solicitud</Btn> : null}/>
       <OperLider user={user} users={users} liderId={liderId} onGuardar={(id)=>operGuardarLider(user, id, setConfig)}/>
+      <OperAvisoAtrasos filtroActual={filtro} onFiltrar={(f)=>{ setFiltro(f); setLimite(40); }} items={[
+        { n:visibles.filter(operIntAtrasada).length, texto:"solicitudes atrasadas", filtro:"atrasadas" },
+      ]}/>
       {creando && <OperNuevaSolicitud user={user} users={users} stores={stores} isMobile={isMobile} onCancelar={()=>setCreando(false)} onCreada={(fila)=>{ setSols(prev=>[fila, ...prev]); setCreando(false); setFiltro("abiertas"); setAbiertoId(fila.id); }}/>}
       <div className="ozen-sin-barra" style={{ display:"flex", gap:8, marginBottom:10, overflowX:"auto", paddingBottom:2 }}>
         {OPER_FILTROS_INT.map(f=><button key={f.id} type="button" onClick={()=>{ setFiltro(f.id); setLimite(40); }} style={operChip(filtro===f.id)}>{f.label}<span style={{ background:filtro===f.id?C.goldDark:C.surfaceHover, color:filtro===f.id?C.tinta:C.textSub, borderRadius:99, fontSize:11, padding:"1px 7px", lineHeight:"16px" }}>{cuenta[f.id]}</span></button>)}
@@ -14496,6 +14507,162 @@ function OperacionesInternasScreen({ user, users, stores, sols, setSols, config,
           Se muestran las solicitudes cerradas de los últimos 90 días. <button type="button" onClick={()=>onCargar(undefined, true)} style={{ border:"none", background:"none", padding:0, color:C.gold, fontWeight:600, fontFamily:font.body, fontSize:12.5, cursor:"pointer", textDecoration:"underline" }}>Traer todo el historial</button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// OPERACIONES · ALERTAS E INDICADORES (parte 3, 18 nov 2026)
+// ══════════════════════════════════════════════════════════════════════════════
+// Atrasada = abierta y SIN MOVERSE 5 días hábiles (lunes a viernes sin festivos de Colombia),
+// contados desde que llegó a su etapa/estado actual. Una orden que ya está "Lista en tienda" no
+// cuenta como atrasada (está esperando al cliente): para esas está el aviso de pieza sin reclamar,
+// a los 60 días CALENDARIO desde la fecha del recibo (el aviso de la orden para el cliente).
+// Las alertas salen arriba en Externas e Internas y, por tienda, en Indicadores (pedido de Santiago).
+const OPER_DIAS_RECLAMAR = 60;
+const OPER_ETAPAS_ESPERA_CLIENTE = new Set(["lista","recibido","llego"]);
+const operFechaCol = (iso) => iso ? fmt(new Date(iso)) : todayStr;
+const operExtAtrasada = (op) => !operCerrada(op) && !OPER_ETAPAS_ESPERA_CLIENTE.has(op.etapa) && diasHabilesEntre(operFechaCol(op.etapa_desde), todayStr) >= OPER_DIAS_ATRASO;
+const operSinReclamar = (op) => !operCerrada(op) && OPER_ETAPAS_ESPERA_CLIENTE.has(op.etapa) && diasEntre(op.fecha, todayStr) >= OPER_DIAS_RECLAMAR;
+const operIntAtrasada = (s) => operIntAbierta(s) && diasHabilesEntre(operFechaCol(s.estado_desde), todayStr) >= OPER_DIAS_ATRASO;
+
+// Franja de avisos arriba de Externas / Internas. `items`: [{ n, texto, filtro }]. Tocar uno filtra
+// la lista; con un filtro de aviso activo, el botón vuelve a "Abiertas".
+function OperAvisoAtrasos({ items, filtroActual, onFiltrar }) {
+  const conDatos = items.filter(i=>i.n>0);
+  if(!conDatos.length) return null;
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", background:C.redDim, border:`1px solid ${C.red}33`, borderRadius:12, padding:"10px 14px", marginBottom:14, fontFamily:font.body }}>
+      <span style={{ color:C.red, display:"inline-flex" }}><Icon n="bell" s={17}/></span>
+      {conDatos.map(i=>{ const on = filtroActual===i.filtro; return (
+        <button key={i.filtro} type="button" onClick={()=>onFiltrar(on ? "abiertas" : i.filtro)} style={{ display:"inline-flex", alignItems:"center", gap:7, border:`1px solid ${on?C.red:"transparent"}`, background:on?"#fff":"transparent", borderRadius:9, padding:"5px 10px", cursor:"pointer", fontFamily:font.body, fontSize:13.5, color:C.red }}>
+          <strong style={{ fontFamily:font.mono, fontSize:15 }}>{i.n}</strong>{i.texto}<span style={{ textDecoration:"underline", fontWeight:600 }}>{on ? "Quitar filtro" : "Ver"}</span>
+        </button>
+      ); })}
+      <span style={{ marginLeft:"auto", fontSize:11.5, color:C.textMuted }}>Atrasada = {OPER_DIAS_ATRASO} días hábiles sin moverse</span>
+    </div>
+  );
+}
+
+// ── SCREEN: Operaciones · Indicadores (solo administradores) ─────────────────
+function OperacionesIndicadoresScreen({ stores, ops, sols, estado, onCargar, todoCargado, isMobile }) {
+  useEffect(()=>{ onCargar(5*60000); }, []);
+  const hoy = toColombiaDate();
+  const [anio, setAnio] = useState(hoy.getFullYear());
+  const [mes, setMes] = useState(hoy.getMonth());
+  const mesKey = `${anio}-${String(mes+1).padStart(2,"0")}`;
+  const esMesActual = anio===hoy.getFullYear() && mes===hoy.getMonth();
+  const moverMes = (n) => { let m = mes+n, a = anio; if(m<0){ m=11; a--; } if(m>11){ m=0; a++; } setMes(m); setAnio(a); };
+  const faltaHistorial = !todoCargado && `${mesKey}-01` < sumarDias(todayStr, -90);
+  const ext = ops || [], int = sols || [];
+  const tiendas = tiendasVenta(stores).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const promedioHabiles = (lista) => {
+    const dias = lista.map(x=>diasHabilesEntre(x.desde, operFechaCol(x.hasta)));
+    return dias.length ? (dias.reduce((a,b)=>a+b,0)/dias.length) : null;
+  };
+  // Ahora mismo (no depende del mes)
+  const extAbiertas = ext.filter(o=>!operCerrada(o)), intAbiertas = int.filter(operIntAbierta);
+  const extAtr = ext.filter(operExtAtrasada), extSinRec = ext.filter(operSinReclamar), intAtr = int.filter(operIntAtrasada);
+  const porCobrar = extAbiertas.filter(o=>o.estado_pago==="debe").reduce((a,o)=>a+Number(o.valor||0),0);
+  // Del mes elegido
+  const enMes = (f) => !!f && String(f).slice(0,7)===mesKey;
+  const extMes = ext.filter(o=>enMes(o.fecha)), intMes = int.filter(s=>enMes(s.fecha));
+  const extEntregadasMes = ext.filter(o=>o.etapa==="entregada" && o.cerrada_en && enMes(operFechaCol(o.cerrada_en)));
+  const extCanceladasMes = ext.filter(o=>o.etapa==="cancelada" && o.cerrada_en && enMes(operFechaCol(o.cerrada_en)));
+  const intCompletadasMes = int.filter(s=>s.estado==="completada" && s.cerrada_en && enMes(operFechaCol(s.cerrada_en)));
+  const intRechazadasMes = int.filter(s=>s.estado==="rechazada" && s.cerrada_en && enMes(operFechaCol(s.cerrada_en)));
+  const promExt = promedioHabiles(extEntregadasMes.map(o=>({ desde:o.fecha, hasta:o.cerrada_en })));
+  const promInt = promedioHabiles(intCompletadasMes.map(s=>({ desde:s.fecha, hasta:s.cerrada_en })));
+  const fmtProm = (p) => p===null ? "—" : `${p.toFixed(1).replace(".",",")} días háb.`;
+
+  const Tile = ({ label, valor, color=C.text, nota }) => (
+    <Card p="14px 16px" style={{ minWidth:0 }}>
+      <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.1em", textTransform:"uppercase", color:C.textMuted, fontWeight:700 }}>{label}</div>
+      <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color, marginTop:4, lineHeight:1.1 }}>{valor}</div>
+      {nota && <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:3 }}>{nota}</div>}
+    </Card>
+  );
+  const num = (n, color) => <span style={{ fontFamily:font.mono, fontWeight:n?700:400, color:n?(color||C.text):C.textMuted }}>{n||"·"}</span>;
+  const Tabla = ({ cabeza, filas }) => (
+    <div style={{ overflowX:"auto" }}>
+      <table style={{ width:"100%", borderCollapse:"collapse", fontFamily:font.body, fontSize:13, minWidth:isMobile?520:0 }}>
+        <thead><tr>{cabeza.map((c,i)=><th key={i} style={{ ...thMet, textAlign:i?"center":"left", whiteSpace:"nowrap" }}>{c}</th>)}</tr></thead>
+        <tbody>{filas.map((f,i)=><tr key={i}>{f.map((c,j)=><td key={j} style={{ ...tdMet, textAlign:j?"center":"left", fontWeight:(i===filas.length-1 && f[0]==="Total")?700:400 }}>{c}</td>)}</tr>)}</tbody>
+      </table>
+    </div>
+  );
+  const enTienda = (lista, tid, campo="tienda_id") => lista.filter(x=>x[campo]===tid).length;
+  const filasAlertas = [
+    ...tiendas.map(t=>[<EtiquetaTienda key={t.id} store={t} sm/>, num(enTienda(extAbiertas,t.id)), num(enTienda(extAtr,t.id), C.red), num(enTienda(extSinRec,t.id), C.red), num(enTienda(intAbiertas,t.id)), num(enTienda(intAtr,t.id), C.red)]),
+    [<Badge key="g" color={C.gold} sm>Global</Badge>, num(0), num(0), num(0), num(enTienda(intAbiertas,"global")), num(enTienda(intAtr,"global"), C.red)],
+  ];
+  const filasTipo = (tipos, lista) => {
+    const filas = tipos.map(t=>[t.label, ...tiendas.map(td=>num(lista.filter(x=>x.tipo===t.value && x.tienda_id===td.id).length)), num(lista.filter(x=>x.tipo===t.value).length)]);
+    filas.push(["Total", ...tiendas.map(td=>num(lista.filter(x=>x.tienda_id===td.id).length)), num(lista.length)]);
+    return filas;
+  };
+  const filasTipoInt = (() => {
+    const filas = OPER_TIPOS_INT.map(t=>[t.label, ...tiendas.map(td=>num(intMes.filter(x=>x.tipo===t.value && x.tienda_id===td.id).length)), num(intMes.filter(x=>x.tipo===t.value && x.tienda_id==="global").length), num(intMes.filter(x=>x.tipo===t.value).length)]);
+    filas.push(["Total", ...tiendas.map(td=>num(intMes.filter(x=>x.tienda_id===td.id).length)), num(intMes.filter(x=>x.tienda_id==="global").length), num(intMes.length)]);
+    return filas;
+  })();
+  const grid = { display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5, 1fr)", gap:12, marginBottom:22 };
+  const subtitulo = (t) => <div style={{ fontFamily:font.body, fontSize:15, fontWeight:700, color:C.text, margin:"0 0 10px" }}>{t}</div>;
+
+  if(estado==="error") return (
+    <div><PageHeader title="Indicadores de Operaciones"/>
+      <Card><div style={{ fontFamily:font.body, fontSize:13, color:C.red, marginBottom:12 }}>No se pudieron cargar las operaciones.</div><Btn sm onClick={()=>onCargar()}>Reintentar</Btn></Card>
+    </div>
+  );
+  return (
+    <div style={{ maxWidth:1100, margin:"0 auto" }}>
+      <PageHeader title="Indicadores de Operaciones" subtitle="Cómo van las órdenes de clientes y las solicitudes de las tiendas"/>
+      {estado!=="listo" && !ext.length && !int.length
+        ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>Cargando…</div></Card>
+        : <>
+          <OperTituloSec>Ahora mismo</OperTituloSec>
+          <div style={grid}>
+            <Tile label="Órdenes abiertas" valor={extAbiertas.length} nota="Arreglos, marcaciones, garantías"/>
+            <Tile label="Solicitudes abiertas" valor={intAbiertas.length} nota="Internas de las tiendas"/>
+            <Tile label="Atrasadas" valor={extAtr.length+intAtr.length} color={(extAtr.length+intAtr.length)?C.red:C.text} nota={`${extAtr.length} órdenes · ${intAtr.length} solicitudes`}/>
+            <Tile label="Sin reclamar" valor={extSinRec.length} color={extSinRec.length?C.red:C.text} nota={`Listas hace ${OPER_DIAS_RECLAMAR}+ días`}/>
+            <Tile label="Por cobrar" valor={fmtCOP(porCobrar)} color={porCobrar?C.amber:C.text} nota="Órdenes abiertas en Debe"/>
+          </div>
+          <Card style={{ marginBottom:24 }}>
+            {subtitulo("Alertas por tienda")}
+            <Tabla cabeza={["Tienda","Órdenes abiertas","Órdenes atrasadas","Sin reclamar","Solicitudes abiertas","Solicitudes atrasadas"]} filas={filasAlertas}/>
+            <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:10 }}>Atrasada = {OPER_DIAS_ATRASO} días hábiles sin moverse (sin contar sábados, domingos ni festivos de Colombia). Sin reclamar = pieza lista en tienda hace {OPER_DIAS_RECLAMAR} días o más desde el recibo.</div>
+          </Card>
+
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12, flexWrap:"wrap" }}>
+            <OperTituloSec style={{ margin:0 }}>Por mes</OperTituloSec>
+            <div style={{ display:"inline-flex", alignItems:"center", gap:4, background:"#fff", border:`1px solid ${C.border}`, borderRadius:10, padding:3 }}>
+              <button type="button" onClick={()=>moverMes(-1)} style={{ border:"none", background:"none", cursor:"pointer", padding:"4px 8px", color:C.textSub, transform:"rotate(180deg)", display:"inline-flex" }}><Icon n="right" s={15}/></button>
+              <span style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:C.text, minWidth:120, textAlign:"center" }}>{MESES_LARGO[mes]} {anio}</span>
+              <button type="button" onClick={()=>!esMesActual && moverMes(1)} disabled={esMesActual} style={{ border:"none", background:"none", cursor:esMesActual?"default":"pointer", padding:"4px 8px", color:C.textSub, opacity:esMesActual?0.3:1, display:"inline-flex" }}><Icon n="right" s={15}/></button>
+            </div>
+          </div>
+          {faltaHistorial && (
+            <div style={{ fontFamily:font.body, fontSize:13, color:C.amber, background:C.amberDim, borderRadius:10, padding:"10px 14px", marginBottom:14 }}>
+              Este mes es de hace más de 90 días: para verlo completo hay que traer el historial. <button type="button" onClick={()=>onCargar(undefined, true)} style={{ border:"none", background:"none", padding:0, color:C.gold, fontWeight:700, fontFamily:font.body, fontSize:13, cursor:"pointer", textDecoration:"underline" }}>Traer todo el historial</button>
+            </div>
+          )}
+          <div style={grid}>
+            <Tile label="Órdenes recibidas" valor={extMes.length}/>
+            <Tile label="Órdenes entregadas" valor={extEntregadasMes.length} color={C.green} nota={extCanceladasMes.length ? `${extCanceladasMes.length} canceladas` : "Ninguna cancelada"}/>
+            <Tile label="Tiempo de entrega" valor={fmtProm(promExt)} nota="Promedio, del recibo a la entrega"/>
+            <Tile label="Solicitudes recibidas" valor={intMes.length}/>
+            <Tile label="Tiempo de respuesta" valor={fmtProm(promInt)} nota={`${intCompletadasMes.length} completadas · ${intRechazadasMes.length} rechazadas`}/>
+          </div>
+          <Card style={{ marginBottom:16 }}>
+            {subtitulo(`Órdenes de clientes recibidas en ${MESES_LARGO[mes].toLowerCase()}`)}
+            <Tabla cabeza={["Tipo", ...tiendas.map(t=>nombreTiendaCorto(t)), "Total"]} filas={filasTipo(OPER_TIPOS_EXT, extMes)}/>
+          </Card>
+          <Card>
+            {subtitulo(`Solicitudes internas recibidas en ${MESES_LARGO[mes].toLowerCase()}`)}
+            <Tabla cabeza={["Tipo", ...tiendas.map(t=>nombreTiendaCorto(t)), "Global", "Total"]} filas={filasTipoInt}/>
+          </Card>
+        </>}
     </div>
   );
 }
@@ -14934,6 +15101,7 @@ export default function App() {
       } else if(area==="operaciones"){
         if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesExternasScreen {...propsOperaciones}/>;
         if(tab==="op_internas" && puedeOper(user, "operaciones.ver")) return <OperacionesInternasScreen {...propsOperaciones}/>;
+        if(tab==="op_indicadores" && puedeOper(user, "operaciones.indicadores.ver")) return <OperacionesIndicadoresScreen {...propsOperaciones}/>;
       } else if(area==="capacitacion"){
         if(tab==="mis_cursos" && tomaCapacitaciones(user)) return <CapacitacionMisCursosScreen {...propsCapacitacion}/>;
         if(tab==="progreso")     return <CapacitacionProgresoScreen users={users} {...propsCapacitacion}/>;
@@ -15085,7 +15253,7 @@ export default function App() {
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
   const mostrarTienda = esAreaVentas && (tab==="registrar" || tab==="caja");
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
-  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
+  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas" || tab==="op_indicadores") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
   const panel = <div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div>;
 
   if(isMobile) return (

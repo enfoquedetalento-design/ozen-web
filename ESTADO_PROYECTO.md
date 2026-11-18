@@ -777,7 +777,7 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
 - Las ramas `main` y `staging` tienen historias distintas (100 y 37 commits propios) aunque el
   código es casi igual: revisar con cuidado antes de pasar este módulo a `main`.
 
-## Módulo "Operaciones" (10 nov 2026) — Partes 1 y 2 en `staging`; falta la parte 3
+## Módulo "Operaciones" (10 nov 2026) — Partes 1, 2 y 3 en `staging`
 
 Reemplaza al Excel "Operaciones" de Google Sheets (hojas OP EXTERNO, OP INTERNO, ORDEN y Gestión
 de garantías). Alcance definido con Santiago el 10 nov 2026; se construye en 4 partes, cada una
@@ -879,8 +879,22 @@ con Externas en `cargarOperaciones` (abiertas + cerradas de 90 días). Permisos 
 `registrarPermisos`: `operaciones.internas.crear` (mismos roles que crear una orden) y
 `operaciones.internas.gestionar` (solo Master), los dos también del líder.
 
-**Lo que sigue:** parte 3 = Indicadores y alertas de atraso (5 días hábiles sin moverse, piezas sin
-reclamar a los 60 días).
+**Parte 3 — Alertas e Indicadores (18 nov 2026, en `staging`, falta que Santiago la pruebe; sin SQL):**
+- **Atrasada** = abierta y 5 días hábiles sin moverse, contados desde que llegó a su etapa/estado
+  actual (`etapa_desde` / `estado_desde`). Una orden "Lista en tienda" NO cuenta como atrasada
+  (espera al cliente): para esas está **sin reclamar** = 60 días calendario desde la fecha del
+  recibo. Funciones `operExtAtrasada`, `operSinReclamar`, `operIntAtrasada`.
+- **Dónde salen (decisión de Santiago):** una franja roja arriba en Externas e Internas
+  (`OperAvisoAtrasos`) con el número y un botón "Ver" que filtra la lista; y en Indicadores.
+- **Pestaña Indicadores** (`OperacionesIndicadoresScreen`, permiso `operaciones.indicadores.ver`:
+  admins y Visualizador, no tiendas): "Ahora mismo" (abiertas, atrasadas, sin reclamar, por
+  cobrar), tabla de alertas por tienda, y "Por mes" (recibidas, entregadas/canceladas, tiempo
+  promedio en días hábiles, y tablas por tipo × tienda). Usa los datos ya cargados (abiertas + 90
+  días); para un mes más viejo ofrece "Traer todo el historial".
+
+**Lo que sigue:** Santiago prueba la parte 3. Pendiente para después: foto de la pieza al recibirla.
+Cuando Santiago diga que Operaciones está listo, se publica en `main` junto con Permisos (ver la
+sección de Permisos: lo prepara ese chat).
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
