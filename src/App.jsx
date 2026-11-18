@@ -963,7 +963,7 @@ const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar ven
 const ADMIN_TABS_CAPACITACION = [{ id:"mis_cursos",icon:"📚",label:"Mis cursos" },{ id:"progreso",icon:"📊",label:"Progreso" },{ id:"cursos_admin",icon:"🛠️",label:"Administrar cursos" }];
 // Operaciones (área "operaciones"): por ahora solo Externas (parte 1). Internas e Indicadores son
 // las partes 2 y 3 — ver "OPERACIONES" más abajo.
-const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas" },{ id:"op_internas",icon:"📦",label:"Internas" },{ id:"op_indicadores",icon:"📊",label:"Indicadores" }];
+const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas" },{ id:"op_internas",icon:"📦",label:"Internas" },{ id:"op_tiendas",icon:"🏬",label:"Por tienda" },{ id:"op_indicadores",icon:"📊",label:"Indicadores" }];
 const tabsCapacitacion = (user) => ADMIN_TABS_CAPACITACION.filter(t => t.id==="mis_cursos" ? tomaCapacitaciones(user) : t.id==="cursos_admin" ? puedeEditarCapacitacion(user) : puede(user, "escuela.progreso"));
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas" || user.role==="admin_turnos";
 // Quién ve la pantalla de módulos al entrar y el selector de áreas arriba: los admins (puedeUsarAreas)
@@ -1057,7 +1057,7 @@ const permisosTurnos = (user) => {
 };
 const tabsPara = (user, area) => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? [...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : []), ...(puedeOper(user, "operaciones.ver") ? [{ id:"op_externas", icon:"🧰", label:"Operaciones" }] : [])] : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
-  : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
+  : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>(t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) && (t.id!=="op_tiendas" || puedeOper(user, "operaciones.tienda.ver"))) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -1073,7 +1073,7 @@ const passwordVencida = (u) => {
 // las pestañas del área con una línea que se desliza a la pestaña elegida, y bajo ellas una franja
 // fina del color de la tienda (cuando la pantalla trabaja sobre una tienda). En celular las
 // pestañas bajan a una barra inferior, como antes.
-const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench", op_externas:"wrench", op_internas:"box", op_indicadores:"chart" };
+const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench", op_externas:"wrench", op_internas:"box", op_indicadores:"chart", op_tiendas:"store" };
 const AREAS_NAV = [
   { id:"ventas", label:"Ventas", ic:"receipt" },
   { id:"operaciones", label:"Operaciones", ic:"box" },
@@ -13506,6 +13506,7 @@ registrarPermisos({ grupo:"operaciones", label:"Operaciones", ic:"box", permisos
   // (Debe o No aplica) y SOLO cambia a "Pago" al cobrarla en Registrar venta (pedido de Santiago).
   { id:"operaciones.externas.devolver", label:"Devolver una orden a la etapa anterior", r:{ master:1 }, nota:OPER_NOTA_LIDER },
   { id:"operaciones.externas.fecha", label:"Cambiar la fecha de entrega de una orden ya creada (queda No a tiempo)", r:{ master:1 }, nota:OPER_NOTA_LIDER },
+  { id:"operaciones.externas.valor", label:"Ponerle el valor a una orden creada con \"Valor por definir\"", r:{ master:1, tienda:1 }, nota:OPER_NOTA_LIDER },
   { id:"operaciones.externas.cancelar", label:"Cancelar una orden", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
   { id:"operaciones.garantias.decidir", label:"Decidir si una garantía se cubre", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
   { id:"operaciones.lider.asignar", label:"Elegir al líder de Operaciones", sensible:true, r:{ master:1 } },
@@ -13514,9 +13515,11 @@ registrarPermisos({ grupo:"operaciones", label:"Operaciones", ic:"box", permisos
   { id:"operaciones.internas.gestionar", label:"Gestionar, completar o rechazar una solicitud interna", r:{ master:1 }, nota:OPER_NOTA_LIDER },
   // Indicadores (parte 3): los administradores y el Visualizador; las tiendas no (decisión de Santiago).
   { id:"operaciones.indicadores.ver", label:"Ver los indicadores de Operaciones", soloVer:true, r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1 } },
+  // Panel "Mi tienda": lo de cada tienda (sin el % a tiempo). Tiendas, admins y Visualizador; no asesores.
+  { id:"operaciones.tienda.ver", label:"Ver el panel de la tienda (pendientes y cómo va el mes)", soloVer:true, r:{ master:1, admin:1, admin_finanzas:1, admin_turnos:1, visualizador:1, tienda:1 } },
 ]});
 const esLiderOperaciones = (user, liderId) => !!user && !!liderId && String(user.id)===String(liderId);
-const OPER_ACCIONES_LIDER = new Set(["operaciones.externas.crear","operaciones.externas.avanzar","operaciones.externas.devolver","operaciones.externas.fecha","operaciones.externas.cancelar","operaciones.garantias.decidir","operaciones.internas.crear","operaciones.internas.gestionar"]);
+const OPER_ACCIONES_LIDER = new Set(["operaciones.externas.crear","operaciones.externas.avanzar","operaciones.externas.devolver","operaciones.externas.fecha","operaciones.externas.valor","operaciones.externas.cancelar","operaciones.garantias.decidir","operaciones.internas.crear","operaciones.internas.gestionar"]);
 // Pregunta única de Operaciones: lo que diga el tablero (puede) o, para las acciones del líder, ser
 // el líder. `liderId` se pasa donde se conoce (pantalla de Operaciones); sin él, solo cuenta el rol.
 const puedeOper = (user, accion, liderId) => !!user && (puede(user, accion) || (OPER_ACCIONES_LIDER.has(accion) && esLiderOperaciones(user, liderId)));
@@ -13579,8 +13582,13 @@ const operEtapaAnterior = (op) => {
 };
 // Para los filtros: en qué momento va la orden, sin importar cómo se llame la etapa en su tipo.
 const operFase = (op) => operCerrada(op) ? "cerradas" : (["por_empezar","en_proceso","para_entregar"][operIdxEtapa(op)] || "por_empezar");
-const OPER_PAGOS = [{ value:"pago", label:"Pago" }, { value:"debe", label:"Debe" }, { value:"no_aplica", label:"No aplica" }];
-const OPER_PAGO_COLOR = { pago:C.green, debe:C.red, no_aplica:C.textMuted };
+// "Valor por definir" (18 nov 2026, pedido de Santiago): arreglos que hasta llegar al taller no se
+// sabe cuánto cuestan. Después la tienda, el líder o Master le ponen el valor y pasa a "Debe".
+// Ninguna orden en Debe o Valor por definir se puede pasar a "Entregada al cliente" sin cobrarla.
+const OPER_PAGOS = [{ value:"pago", label:"Pago" }, { value:"debe", label:"Debe" }, { value:"por_definir", label:"Valor por definir" }, { value:"no_aplica", label:"No aplica" }];
+const OPER_PAGO_COLOR = { pago:C.green, debe:C.red, por_definir:C.amber, no_aplica:C.textMuted };
+const operDebePlata = (op) => op.estado_pago==="debe" || op.estado_pago==="por_definir";
+const operValorTexto = (op) => op.estado_pago==="por_definir" ? "Por definir" : fmtCOP(op.valor);
 const OPER_PAGO_DEFECTO = { arreglo:"debe", marcacion:"debe", garantia:"no_aplica", traslado:"no_aplica", pedido:"no_aplica" };
 const operPagoLabel = (v) => OPER_PAGOS.find(p=>p.value===v)?.label || v;
 // ── Días hábiles de Colombia ─────────────────────────────────────────────────
@@ -13661,6 +13669,7 @@ const operTextoMov = (h, op) => {
   if(h.accion==="cancelada") return `Cancelada${h.nota?` — ${h.nota}`:""}`;
   if(h.accion==="garantia")  return `Garantía: ${h.nota||""}`;
   if(h.accion==="pago")      return `Pago cambiado a "${h.nota||""}"`;
+  if(h.accion==="valor")     return `Se le puso el valor: ${h.nota||""}`;
   if(h.accion==="fecha")     return `Cambió la fecha de entrega: ${h.nota||""} (queda No a tiempo)`;
   if(h.accion==="cobro")     return `Cobrada en Registrar venta${h.nota?` — ${h.nota}`:""}`;
   return h.accion||"";
@@ -13745,7 +13754,7 @@ function OperOrdenCliente({ op, stores, onCerrar }) {
             <div style={{ fontSize:13, color:C.textMuted, marginBottom:3 }}>Descripción</div>
             <div style={{ fontSize:13, lineHeight:1.45, whiteSpace:"pre-wrap", overflowWrap:"anywhere" }}>{op.descripcion}</div>
           </div>
-          <div style={lineaStyle}><span style={{ color:C.textMuted }}>Valor</span><span style={{ fontFamily:font.mono, fontWeight:700 }}>{fmtCOP(op.valor)}</span></div>
+          <div style={lineaStyle}><span style={{ color:C.textMuted }}>Valor</span><span style={{ fontFamily:font.mono, fontWeight:700 }}>{operValorTexto(op)}</span></div>
           <div style={{ ...lineaStyle, borderBottom:"none" }}><span style={{ color:C.textMuted }}>Estado</span><span style={{ fontWeight:700, textTransform:"uppercase", letterSpacing:"0.04em" }}>{operPagoLabel(op.estado_pago)}</span></div>
           <div style={{ marginTop:10, fontSize:11, lineHeight:1.45, color:C.textMuted, background:C.surfaceAlt, borderRadius:8, padding:"9px 11px" }}>{OPER_AVISO_60}</div>
         </div>
@@ -13822,7 +13831,7 @@ function OperNuevaOrden({ user, users, stores, clientes, onCreada, onCancelar, i
     if(!fechaEst){ setMsg("Falta la fecha de entrega."); return; }
     if(fechaEst < todayStr){ setMsg("La fecha estimada de entrega no puede ser anterior a hoy."); return; }
     // Una orden no puede quedar en $0: o lleva valor, o se marca "No aplica" (pedido de Santiago).
-    if(pago!=="no_aplica" && Number(valor||0)<=0){ setMsg("Falta el valor. Si esta orden no se cobra, marca \"No aplica\"."); return; }
+    if(pago==="debe" && Number(valor||0)<=0){ setMsg("Falta el valor. Si todavía no se sabe, marca \"Valor por definir\"; si no se cobra, \"No aplica\"."); return; }
     setGuardando(true);
     const asesor = users.find(u=>String(u.id)===String(asesorId));
     const ahora = new Date().toISOString();
@@ -13831,7 +13840,7 @@ function OperNuevaOrden({ user, users, stores, clientes, onCreada, onCancelar, i
       fecha:todayStr, tipo, tienda_id:tiendaId, tienda_origen_id:esTraslado?origenId:null,
       asesor_id:String(asesorId), asesor_nombre:asesor?.name||"", registrado_por:user.name, registrado_por_id:String(user.id),
       cliente_nombre:cliente.trim(), cliente_telefono:telefono.trim(), descripcion:descripcion.trim(),
-      valor:pago==="no_aplica"?0:Number(valor||0), estado_pago:pago==="no_aplica"?"no_aplica":"debe", fecha_estimada_entrega:fechaEst, fecha_entrega_original:fechaEst, reprogramada:false,
+      valor:pago==="debe"?Number(valor||0):0, estado_pago:pago, fecha_estimada_entrega:fechaEst, fecha_entrega_original:fechaEst, reprogramada:false,
       etapa:etapa0, etapa_desde:ahora,
       historial:[{ en:ahora, por:asesor?.name||user.name, cuenta:user.name, accion:"creada", etapa:etapa0 }],
     }).select().single();
@@ -13877,14 +13886,16 @@ function OperNuevaOrden({ user, users, stores, clientes, onCreada, onCancelar, i
         <div style={{ marginBottom:14 }}>
           <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>¿Se cobra?</div>
           <div style={{ display:"flex", gap:8 }}>
-            <button type="button" onClick={()=>setPago("debe")} style={operChip(pago!=="no_aplica")}>Sí, tiene valor</button>
+            <button type="button" onClick={()=>setPago("debe")} style={operChip(pago==="debe")}>Sí, tiene valor</button>
+            <button type="button" onClick={()=>{ setPago("por_definir"); setValor(""); }} style={operChip(pago==="por_definir")}>Valor por definir</button>
             <button type="button" onClick={()=>{ setPago("no_aplica"); setValor(""); }} style={operChip(pago==="no_aplica")}>No aplica</button>
           </div>
         </div>
-        <CurrencyField label="Valor" value={pago==="no_aplica"?"":valor} onChange={setValor} disabled={pago==="no_aplica"} placeholder={pago==="no_aplica"?"No aplica":""}/>
+        <CurrencyField label="Valor" value={pago!=="debe"?"":valor} onChange={setValor} disabled={pago!=="debe"} placeholder={pago==="no_aplica"?"No aplica":pago==="por_definir"?"Por definir":""}/>
         <Field label={`Fecha de entrega (sugerida: ${OPER_DIAS_ENTREGA} días hábiles)`} type="date" value={fechaEst} onChange={setFechaEst}/>
       </div>
-      {pago!=="no_aplica" && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, margin:"-6px 0 14px" }}>La orden queda como <strong>Debe</strong>. Se cobra en cualquier momento con el botón "Cobrar" de la orden, que lleva a Registrar venta.</div>}
+      {pago==="debe" && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, margin:"-6px 0 14px" }}>La orden queda como <strong>Debe</strong>. Se cobra en cualquier momento con el botón "Cobrar" de la orden, que lleva a Registrar venta. No se puede entregar sin cobrarla.</div>}
+      {pago==="por_definir" && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, margin:"-6px 0 14px" }}>Cuando el taller diga cuánto cuesta, se le pone el valor desde la orden ("Poner valor") y queda en <strong>Debe</strong>. No se puede entregar sin cobrarla.</div>}
       {msg && <div style={{ fontFamily:font.body, fontSize:13, color:C.red, background:C.redDim, borderRadius:8, padding:"9px 12px", marginBottom:12 }}>{msg}</div>}
       <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
         <Btn onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Guardar orden"}</Btn>
@@ -13929,6 +13940,7 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
   };
   const avanzar = async () => {
     if(!siguiente) return;
+    if(siguiente.id==="entregada" && operDebePlata(op)){ setMsg("No se puede entregar sin cobrarla primero."); return; }
     const ahora = new Date().toISOString();
     const ok = await guardarCambio({ etapa:siguiente.id, etapa_desde:ahora, cerrada_en:siguiente.id==="entregada"?ahora:null, ...(siguiente.id==="lista"?{ lista_en:ahora }:{}) }, { accion:"etapa", etapa:siguiente.id });
     if(ok && siguiente.id==="entregada") sonidoTareaCumplida();
@@ -13937,6 +13949,13 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
     if(!anterior) return;
     if(!texto.trim()){ setMsg("Escribe por qué se devuelve la etapa."); return; }
     await guardarCambio({ etapa:anterior.id, etapa_desde:new Date().toISOString(), cerrada_en:null, ...(op.etapa==="lista"?{ lista_en:null }:{}) }, { accion:"devuelta", etapa:anterior.id, nota:texto.trim() });
+  };
+  const [nuevoValor, setNuevoValor] = useState("");
+  const ponerValor = async () => {
+    const v = Number(String(nuevoValor||"").replace(/[^\d]/g,""));
+    if(!v){ setMsg("Escribe el valor."); return; }
+    await guardarCambio({ valor:v, estado_pago:"debe" }, { accion:"valor", nota:fmtCOP(v) });
+    setNuevoValor("");
   };
   const cambiarFecha = async () => {
     if(!nuevaFecha){ setMsg("Elige la nueva fecha de entrega."); return; }
@@ -14005,7 +14024,7 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
               <OperTiempoBadge op={op}/>
               {op.reprogramada && op.fecha_entrega_original && <span style={{ fontSize:11, color:C.textMuted }}>(era el {fechaCorta(op.fecha_entrega_original)})</span>}
             </span>)}
-            {dato("Valor", <span style={{ fontFamily:font.mono, fontWeight:700 }}>{fmtCOP(op.valor)}</span>)}
+            {dato("Valor", <span style={{ fontFamily:font.mono, fontWeight:700, color:op.estado_pago==="por_definir"?C.amber:C.text }}>{operValorTexto(op)}</span>)}
             <div style={{ minWidth:0 }}>
               <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:2 }}>Estado de pago</div>
               <div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:OPER_PAGO_COLOR[op.estado_pago]||C.text }}>{operPagoLabel(op.estado_pago)}{op.estado_pago==="pago" && op.venta_ref ? <span style={{ fontWeight:500, color:C.textMuted }}> · {op.venta_ref}</span> : null}</div>
@@ -14027,7 +14046,9 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
             </div>
           )}
           <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-            {siguiente && !garantiaPendiente && puede("operaciones.externas.avanzar") && <Btn sm onClick={()=>abrirModo("avanzar")} disabled={ocupado}><Icon n="right" s={14}/>Pasar a: {siguiente.label}</Btn>}
+            {siguiente && !garantiaPendiente && puede("operaciones.externas.avanzar") && !(siguiente.id==="entregada" && operDebePlata(op)) && <Btn sm onClick={()=>abrirModo("avanzar")} disabled={ocupado}><Icon n="right" s={14}/>Pasar a: {siguiente.label}</Btn>}
+            {siguiente && siguiente.id==="entregada" && operDebePlata(op) && <span style={{ display:"inline-flex", alignItems:"center", fontFamily:font.body, fontSize:12.5, color:C.amber, fontWeight:700, padding:"0 4px" }}>{op.estado_pago==="por_definir" ? "Para entregarla: primero ponerle el valor y cobrarla" : "Para entregarla: primero cobrarla"}</span>}
+            {op.estado_pago==="por_definir" && op.etapa!=="cancelada" && puede("operaciones.externas.valor") && <Btn sm onClick={()=>{ abrirModo("valor"); setNuevoValor(""); }} disabled={ocupado}><Icon n="cash" s={14}/>Poner valor</Btn>}
             {garantiaPendiente && puede("operaciones.garantias.decidir") && <Btn sm onClick={()=>abrirModo("garantia")} disabled={ocupado}><Icon n="check" s={14}/>Decidir la garantía</Btn>}
             <Btn sm variant="ghost" onClick={onVerOrden}><Icon n="receipt" s={14}/>Orden para el cliente</Btn>
             {op.estado_pago==="debe" && Number(op.valor)>0 && op.etapa!=="cancelada" && puede("operaciones.externas.cobrar") && <Btn sm variant="success" onClick={()=>onCobrar(op)} disabled={ocupado}><Icon n="cash" s={14}/>Cobrar {fmtCOP(op.valor)}</Btn>}
@@ -14038,7 +14059,6 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
           {modo==="avanzar" && siguiente && (
             <div style={cajaAccion}>
               <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, marginBottom:10 }}>¿Confirmas que la orden <strong>{op.numero}</strong> pasa a <strong>{siguiente.label}</strong>?</div>
-              {siguiente.id==="entregada" && op.estado_pago==="debe" && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.red, marginBottom:10 }}>Ojo: esta orden figura como <strong>DEBE</strong>. Antes de entregar, cóbrala con el botón "Cobrar".</div>}
               <div style={{ display:"flex", gap:8 }}><Btn sm variant="success" onClick={avanzar} disabled={ocupado}>{ocupado ? "Guardando…" : "Sí, confirmar"}</Btn><Btn sm variant="ghost" onClick={()=>setModo(null)} disabled={ocupado}>No</Btn></div>
             </div>
           )}
@@ -14051,6 +14071,13 @@ function OperOrdenCard({ op, stores, user, users, liderId, abierto, onToggle, on
               </div>
               <Field label="Respuesta para el cliente" value={texto} onChange={setTexto} multiline rows={2} placeholder="Qué se va a hacer, o por qué no aplica la garantía"/>
               <div style={{ display:"flex", gap:8 }}><Btn sm onClick={decidirGarantia} disabled={ocupado}>{ocupado ? "Guardando…" : "Guardar decisión"}</Btn><Btn sm variant="ghost" onClick={()=>setModo(null)} disabled={ocupado}>Cerrar</Btn></div>
+            </div>
+          )}
+          {modo==="valor" && (
+            <div style={cajaAccion}>
+              <div style={{ maxWidth:260 }}><CurrencyField label="Valor que dio el taller" value={nuevoValor} onChange={setNuevoValor}/></div>
+              <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:10 }}>La orden queda en <strong>Debe</strong> por ese valor. Después ya no se puede cambiar.</div>
+              <div style={{ display:"flex", gap:8 }}><Btn sm onClick={ponerValor} disabled={ocupado}>{ocupado ? "Guardando…" : "Guardar valor"}</Btn><Btn sm variant="ghost" onClick={()=>setModo(null)} disabled={ocupado}>Cerrar</Btn></div>
             </div>
           )}
           {modo==="fecha" && (
@@ -14175,7 +14202,7 @@ function OperTablero({ columnas, render, onAbrir, isMobile }) {
 const operIrATarjeta = (id) => setTimeout(()=>{ const el = document.getElementById(`oper-${id}`); if(el) el.scrollIntoView({ behavior:"smooth", block:"center" }); }, 350);
 
 // ── SCREEN: Operaciones · Externas ───────────────────────────────────────────
-function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ventas, onCobrar, onIrA, foco, onFocoUsado, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
+function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ventas, onCobrar, onIrA, foco, onFocoUsado, pedidoFiltro, onFiltroUsado, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
   const liderId = config.find(c=>c.clave==="lider_usuario_id")?.valor || "";
   const [creando, setCreando] = useState(false);
   const [abiertoId, setAbiertoId] = useState(null);
@@ -14188,6 +14215,12 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ven
   const [limite, setLimite] = useState(40);
   const [quienId, setQuienId] = useState("");
   useOperFoco(foco, "ext", onFocoUsado, (id)=>{ setFase("abiertas"); setTiposF([]); setTiendasF([]); setQ(""); setVista("lista"); setAbiertoId(id); });
+  // Pedido desde el panel de la tienda: abrir la lista con ese filtro (y esa tienda).
+  useEffect(()=>{
+    if(!pedidoFiltro) return;
+    setFase(pedidoFiltro.ficha); setTiendasF(pedidoFiltro.tienda ? [pedidoFiltro.tienda] : []); setTiposF([]); setQ(""); setVista("lista"); setLimite(40);
+    if(onFiltroUsado) onFiltroUsado();
+  }, [pedidoFiltro?.t]);
   // Se carga al entrar (si la última carga tiene más de 5 minutos) y al volver a esta pestaña del
   // navegador. No hay refresco automático cada tanto: para ver lo más nuevo está el botón 🔄.
   useEffect(()=>{
@@ -14222,12 +14255,12 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ven
   const base = useMemo(()=>visibles.filter(pasaResto), [visibles, pasaResto]);
   const fichas = FICHAS_EXT.map(x=>({ ...x, n:base.filter(x.f).length }));
   const filtradas = useMemo(()=>{
-    const f = (FICHAS_EXT.find(x=>x.id===fase) || FICHAS_EXT[0]).f;
+    const f = (OPER_FILTROS_EXTRA[fase] || FICHAS_EXT.find(x=>x.id===fase) || FICHAS_EXT[0]).f;
     const l = base.filter(f);
     return fase==="entregadas" || fase==="canceladas" ? l.sort((a,b)=>String(b.cerrada_en||b.fecha).localeCompare(String(a.cerrada_en||a.fecha))) : l;
   }, [base, fase]);
   // Tablero: "Abiertas" muestra todas las etapas (y las entregadas recientes); otra ficha filtra.
-  const enTablero = fase==="abiertas" ? base : base.filter((FICHAS_EXT.find(x=>x.id===fase)||FICHAS_EXT[0]).f);
+  const enTablero = fase==="abiertas" ? base : base.filter((OPER_FILTROS_EXTRA[fase]||FICHAS_EXT.find(x=>x.id===fase)||FICHAS_EXT[0]).f);
   const idxEt = (op) => operIdxEtapa(op);
   const columnasExt = [
     { id:"c0", label:"Por empezar",      items:enTablero.filter(op=>!operCerrada(op) && idxEt(op)===0) },
@@ -14264,6 +14297,12 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ven
         tiendas={esTienda ? [] : tiendas.map(t=>({ id:t.id, label:nombreTiendaCorto(t), color:colorTienda(t) }))} tiendasSel={tiendasF} setTiendasSel={(v)=>{ setTiendasF(v); setLimite(40); }}
         tipos={OPER_TIPOS_EXT} tiposSel={tiposF} setTiposSel={(v)=>{ setTiposF(v); setLimite(40); }}
         q={q} setQ={(v)=>{ setQ(v); setLimite(40); }} placeholder="Buscar por N°, cliente, teléfono o descripción…" vista={vista} setVista={setVista}/>
+      {OPER_FILTROS_EXTRA[fase] && (
+        <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:13, color:C.text, background:C.blueDim, borderRadius:10, padding:"8px 12px", marginBottom:12 }}>
+          Mostrando: <strong>{OPER_FILTROS_EXTRA[fase].label}</strong>
+          <button type="button" onClick={()=>setFase("abiertas")} style={{ marginLeft:"auto", border:"none", background:"none", padding:0, color:C.gold, fontWeight:700, fontFamily:font.body, fontSize:12.5, cursor:"pointer", textDecoration:"underline" }}>Quitar</button>
+        </div>
+      )}
       {estado!=="listo" && !ops.length
         ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>Cargando operaciones…</div></Card>
         : vista==="tablero"
@@ -14931,13 +14970,104 @@ const useOperFoco = (foco, tipo, onFocoUsado, abrir) => {
   }, [foco?.t]);
 };
 
+// ══════════════════════════════════════════════════════════════════════════════
+// PANEL "MI TIENDA" (18 nov 2026, pedido de Santiago)
+// ══════════════════════════════════════════════════════════════════════════════
+// Para la tienda (y para los admins, por tienda): lo que la TIENDA tiene que hacer hoy y cómo le
+// fue este mes. A propósito NO muestra el % a tiempo ni comparaciones entre tiendas (eso mide al
+// líder de Operaciones y es solo para la junta). Usa los datos ya cargados (abiertas + 90 días).
+// Tocar un número de "Para hacer hoy" lleva a Externas con ese filtro.
+const OPER_FILTROS_EXTRA = {
+  por_llevar:  { label:"Por llevar al taller", f:op=>!operCerrada(op) && op.etapa==="recibida" },
+  por_cobrar:  { label:"Por cobrar",           f:op=>!operCerrada(op) && op.estado_pago==="debe" },
+  por_definir: { label:"Valor por definir",    f:op=>!operCerrada(op) && op.estado_pago==="por_definir" },
+};
+function OperPanelTienda({ ops, sols, tiendaId, onIr, isMobile }) {
+  const mes = todayStr.slice(0,7);
+  const enMes = (f) => !!f && String(f).slice(0,7)===mes;
+  const ext = (ops||[]).filter(op=>!tiendaId || op.tienda_id===tiendaId);
+  const int = (sols||[]).filter(s=>!tiendaId || s.tienda_id===tiendaId);
+  const porCobrar = ext.filter(OPER_FILTROS_EXTRA.por_cobrar.f);
+  const hoy = [
+    { id:"por_llevar",  l:"Por llevar al taller", n:ext.filter(OPER_FILTROS_EXTRA.por_llevar.f).length, nota:"Siguen en Recibida en tienda" },
+    { id:"listas",      l:"Listas para entregar", n:ext.filter(op=>!operCerrada(op) && OPER_ETAPAS_ESPERA_CLIENTE.has(op.etapa)).length, nota:"Llamar al cliente" },
+    { id:"por_cobrar",  l:"Por cobrar", n:porCobrar.length, nota:porCobrar.length ? fmtCOP(porCobrar.reduce((a,o)=>a+Number(o.valor||0),0)) : "Nada pendiente", c:C.amber },
+    { id:"por_definir", l:"Valor por definir", n:ext.filter(OPER_FILTROS_EXTRA.por_definir.f).length, nota:"Falta ponerles precio", c:C.amber },
+    { id:"sin_reclamar",l:"Sin reclamar", n:ext.filter(operSinReclamar).length, nota:`Más de ${OPER_DIAS_RECLAMAR} días en tienda`, c:C.red },
+  ];
+  const recibidas = ext.filter(op=>enMes(op.fecha));
+  const entregadas = ext.filter(op=>op.etapa==="entregada" && op.cerrada_en && enMes(operFechaCol(op.cerrada_en)));
+  const cobrado = ext.reduce((a,op)=>a + (op.historial||[]).filter(h=>h.accion==="cobro" && enMes(operFechaCol(h.en))).length * Number(op.valor||0), 0);
+  const conEspera = entregadas.filter(op=>op.lista_en);
+  const espera = conEspera.length ? conEspera.reduce((a,op)=>a+diasEntre(operFechaCol(op.lista_en), operFechaCol(op.cerrada_en)),0)/conEspera.length : null;
+  const solHechas = int.filter(s=>enMes(s.fecha));
+  const solResp = int.filter(s=>(s.estado==="completada"||s.estado==="rechazada") && s.cerrada_en && enMes(operFechaCol(s.cerrada_en)));
+  const resp = solResp.length ? solResp.reduce((a,s)=>a+diasHabilesEntre(s.fecha, operFechaCol(s.cerrada_en)),0)/solResp.length : null;
+  const dec = (x) => x.toFixed(1).replace(".",",");
+  const tipoN = (t) => recibidas.filter(op=>op.tipo===t).length;
+  const mesNombre = MESES_LARGO[+mes.slice(5,7)-1].toLowerCase();
+  const Mini = ({ l, v, nota }) => (
+    <div style={{ background:C.surfaceAlt, borderRadius:10, padding:"9px 11px", minWidth:0 }}>
+      <div style={{ fontFamily:font.mono, fontSize:20, fontWeight:700, color:C.text, lineHeight:1.15 }}>{v}</div>
+      <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub }}>{l}</div>
+      {nota && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:1 }}>{nota}</div>}
+    </div>
+  );
+  return (
+    <div style={{ marginBottom:18 }}>
+      <OperTituloSec>Para hacer hoy</OperTituloSec>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5, minmax(0,1fr))", gap:8, marginBottom:14 }}>
+        {hoy.map(h=>(
+          <button key={h.id} type="button" onClick={()=>onIr && onIr(h.id)} disabled={!onIr} style={{ textAlign:"left", cursor:onIr?"pointer":"default", background:"#fff", border:`1px solid ${(h.n && h.c===C.red)?C.red+"55":C.border}`, borderRadius:12, padding:"10px 12px", fontFamily:font.body }}>
+            <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, lineHeight:1.1, color:(h.n && h.c) ? h.c : C.text }}>{h.n}</div>
+            <div style={{ fontSize:12.5, fontWeight:700, color:C.text, marginTop:2 }}>{h.l}</div>
+            <div style={{ fontSize:11.5, color:C.textMuted, marginTop:1 }}>{h.nota}</div>
+          </button>
+        ))}
+      </div>
+      <OperTituloSec>Así va {tiendaId ? "la tienda" : "todo"} en {mesNombre}</OperTituloSec>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5, minmax(0,1fr))", gap:8 }}>
+        <Mini l="Órdenes recibidas" v={recibidas.length} nota={`${tipoN("arreglo")} arreglos · ${tipoN("marcacion")} marcaciones · ${tipoN("garantia")} garantías`}/>
+        <Mini l="Entregadas a clientes" v={entregadas.length}/>
+        <Mini l="Cobrado por servicios" v={fmtCOP(cobrado)} nota="Desde el botón Cobrar"/>
+        <Mini l="Tardan en recoger" v={espera===null ? "—" : `${dec(espera)} días`} nota="De Lista en tienda a entregada"/>
+        <Mini l="Solicitudes internas" v={`${solResp.length} de ${solHechas.length}`} nota={resp===null ? "Respondidas · hechas este mes" : `Respondidas en ${dec(resp)} días háb. en promedio`}/>
+      </div>
+    </div>
+  );
+}
+// ── SCREEN: Operaciones · Por tienda (admins y Visualizador) ─────────────────
+function OperacionesTiendasScreen({ ops, sols, stores, estado, onCargar, onPedirFiltro, isMobile }) {
+  const [tid, setTid] = useState("");
+  useEffect(()=>{ onCargar(5*60000); }, []);
+  const tiendas = tiendasVenta(stores).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  return (
+    <div style={{ maxWidth:1100, margin:"0 auto" }}>
+      <PageHeader title="Operaciones por tienda" subtitle="Lo que cada tienda tiene pendiente y cómo le va este mes"/>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:16 }}>
+        <button type="button" onClick={()=>setTid("")} style={operPildora(tid==="")}>Todas</button>
+        {tiendas.map(t=><button key={t.id} type="button" onClick={()=>setTid(t.id)} style={operPildora(tid===t.id)}><span style={{ width:8, height:8, borderRadius:"50%", background:colorTienda(t) }}/>{nombreTiendaCorto(t)}</button>)}
+      </div>
+      {estado!=="listo" && !(ops||[]).length
+        ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>Cargando…</div></Card>
+        : <OperPanelTienda ops={ops} sols={sols} tiendaId={tid} isMobile={isMobile} onIr={(f)=>onPedirFiltro(f, tid)}/>}
+    </div>
+  );
+}
+
 // Cuenta de tienda: Operaciones es UNA sola pestaña (su barra ya tiene Ventas, Caja y Turnos), con
 // un selector Externas / Internas arriba. Los administradores usan las pestañas del área.
 function OperacionesTiendaScreen(props) {
   const [sub, setSub] = useState(props.foco?.tipo==="int" ? "internas" : "externas");
   useEffect(()=>{ if(props.foco) setSub(props.foco.tipo==="int" ? "internas" : "externas"); }, [props.foco?.t]);
+  useEffect(()=>{ if(props.pedidoFiltro) setSub("externas"); }, [props.pedidoFiltro?.t]);
   return (
     <div>
+      {puedeOper(props.user, "operaciones.tienda.ver") && (
+        <div style={{ maxWidth:1100, margin:"0 auto" }}>
+          <OperPanelTienda ops={props.ops} sols={props.sols} tiendaId={props.user.tienda_id} isMobile={props.isMobile} onIr={(f)=>props.onPedirFiltro(f, "")}/>
+        </div>
+      )}
       <div style={{ display:"flex", gap:8, marginBottom:16, maxWidth:1100, marginLeft:"auto", marginRight:"auto" }}>
         {[["externas","Externas · clientes","wrench"],["internas","Internas · tienda","box"]].map(([id,label,ic])=>
           <button key={id} type="button" onClick={()=>setSub(id)} style={operChip(sub===id)}><Icon n={ic} s={15}/>{label}</button>)}
@@ -14976,6 +15106,8 @@ export default function App() {
   const [opInternas,setOpInternas]=useState([]);
   // Campana: a qué orden/solicitud llevar al tocar un aviso ({ tipo:"ext"|"int", id, t }).
   const [opFoco,setOpFoco]=useState(null);
+  // Panel de la tienda → abrir Externas con un filtro ({ ficha, tienda, t }).
+  const [opPedido,setOpPedido]=useState(null);
   // Campana de Registrar venta: solo las órdenes ABIERTAS (pocas columnas), como mucho cada 5
   // minutos y solo en esa pestaña — no se descarga Operaciones entero (tope de Supabase).
   const [opCampana,setOpCampana]=useState([]);
@@ -15208,7 +15340,7 @@ export default function App() {
   // en un dispositivo compartido donde una cuenta entra justo después de que otra salió, sin esto
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
   const login=(u)=>{permVerComoActivar(false);setVerComo(null);setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll(60000);};
-  const logout=()=>{permVerComoActivar(false);setVerComo(null);setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOrdenACobrar(null);setOpExternas([]);setOpInternas([]);setOpCampana([]);opCampanaRef.current=0;setOpFoco(null);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
+  const logout=()=>{permVerComoActivar(false);setVerComo(null);setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOrdenACobrar(null);setOpExternas([]);setOpInternas([]);setOpCampana([]);opCampanaRef.current=0;setOpFoco(null);setOpPedido(null);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
   const entrarVerComo=(u)=>{ if(!puede(usuarioSesion,"cuenta.permisos")) return; permVerComoActivar(true); setVerComo(u); setMostrarUsuarios(false); setArea(null); setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin"); };
   const salirVerComo=()=>{ permVerComoActivar(false); setVerComo(null); setArea(null); setTab(eligeModulo(usuarioSesion)?null:"checkin"); setMostrarUsuarios(true); };
   const bandaVerComo = verComo ? <BandaVerComo u={verComo} onSalir={salirVerComo}/> : null;
@@ -15366,7 +15498,7 @@ export default function App() {
   // a Ventas todos los admin arrancan en Métricas.
   const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : "");
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
-  const propsOperaciones = { user, users, stores, ventas, onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, sols:opInternas, setSols:setOpInternas, foco:opFoco, onFocoUsado:()=>setOpFoco(null), onIrA:(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
+  const propsOperaciones = { user, users, stores, ventas, onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, sols:opInternas, setSols:setOpInternas, foco:opFoco, onFocoUsado:()=>setOpFoco(null), pedidoFiltro:opPedido, onFiltroUsado:()=>setOpPedido(null), onPedirFiltro:(ficha,tienda)=>{ setOpPedido({ ficha, tienda, t:Date.now() }); if(!esCuentaTienda(user)) setTab("op_externas"); }, onIrA:(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
       if(area==="junta"){
@@ -15383,6 +15515,7 @@ export default function App() {
       } else if(area==="operaciones"){
         if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesExternasScreen {...propsOperaciones}/>;
         if(tab==="op_internas" && puedeOper(user, "operaciones.ver")) return <OperacionesInternasScreen {...propsOperaciones}/>;
+        if(tab==="op_tiendas" && puedeOper(user, "operaciones.tienda.ver")) return <OperacionesTiendasScreen {...propsOperaciones}/>;
         if(tab==="op_indicadores" && puedeOper(user, "operaciones.indicadores.ver")) return <OperacionesIndicadoresScreen {...propsOperaciones}/>;
       } else if(area==="capacitacion"){
         if(tab==="mis_cursos" && tomaCapacitaciones(user)) return <CapacitacionMisCursosScreen {...propsCapacitacion}/>;
@@ -15535,7 +15668,7 @@ export default function App() {
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
   const mostrarTienda = esAreaVentas && (tab==="registrar" || tab==="caja");
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
-  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
+  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas" || tab==="op_tiendas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
   const panel = <div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div>;
 
   if(isMobile) return (

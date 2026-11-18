@@ -951,6 +951,24 @@ completada o rechazada dentro de 5 días hábiles desde su creación; cuenta en 
 cumplían esos 5 días. Lo cerrado del Excel no se mide (sin fecha de Lista/cierre). Trae solo
 columnas necesarias, 12 meses + lo abierto, de a 1000 filas, con caché de 5 min (`operIndCache`).
 
+**Valor por definir (18 nov 2026, requiere `sql/operaciones_03_valor_por_definir.sql`):** al crear
+una orden, "¿Se cobra?" tiene tres opciones: Sí, tiene valor (Debe) / **Valor por definir** / No
+aplica. Una orden por definir muestra "Poner valor" (permiso `operaciones.externas.valor`: cuentas
+de tienda, Master y el líder — decisión de Santiago); al guardarlo pasa a Debe y ya no se cambia.
+**Ninguna orden en Debe o Valor por definir se puede pasar a "Entregada al cliente" sin cobrarla**
+(`operDebePlata`), para todas las órdenes con valor (decisión de Santiago). **En la real: correr el
+03 ANTES de publicar** (si no, crear una orden "por definir" falla).
+
+**Panel "Mi tienda" (18 nov 2026):** Santiago aclaró que los Indicadores (el % a tiempo, que mide
+al líder) son solo para la junta. Para las tiendas se hizo `OperPanelTienda`: "Para hacer hoy"
+(Por llevar al taller, Listas para entregar, Por cobrar con el total en $, Valor por definir, Sin
+reclamar — tocar uno abre Externas con ese filtro, `OPER_FILTROS_EXTRA` / `opPedido` en `App`) y
+"Así va en <mes>" (recibidas por tipo, entregadas, cobrado por servicios, cuánto tardan los
+clientes en recoger, solicitudes internas respondidas y en cuántos días). Sin % a tiempo ni
+comparación entre tiendas. La cuenta de tienda lo ve arriba de su Operaciones (solo su tienda); los
+admins y el Visualizador en la pestaña nueva **"Por tienda"** con selector de tienda o Todas.
+Permiso `operaciones.tienda.ver` (tiendas, admins, Visualizador; los asesores no entran a Operaciones).
+
 **Datos reales del Excel (18 nov 2026):** Santiago cambió la decisión de "empezar en limpio": los
 datos del Excel se pasan a la app, en práctica para probar y en la REAL justo después de publicar.
 `sql/operaciones_importar_excel.sql` (⚠️ NO va a git: tiene nombres y teléfonos de clientes) carga
