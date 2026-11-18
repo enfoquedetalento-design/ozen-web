@@ -963,7 +963,7 @@ const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar ven
 const ADMIN_TABS_CAPACITACION = [{ id:"mis_cursos",icon:"📚",label:"Mis cursos" },{ id:"progreso",icon:"📊",label:"Progreso" },{ id:"cursos_admin",icon:"🛠️",label:"Administrar cursos" }];
 // Operaciones (área "operaciones"): por ahora solo Externas (parte 1). Internas e Indicadores son
 // las partes 2 y 3 — ver "OPERACIONES" más abajo.
-const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas" }];
+const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas" },{ id:"op_internas",icon:"📦",label:"Internas" }];
 const tabsCapacitacion = (user) => ADMIN_TABS_CAPACITACION.filter(t => t.id==="mis_cursos" ? tomaCapacitaciones(user) : t.id==="cursos_admin" ? puedeEditarCapacitacion(user) : puede(user, "escuela.progreso"));
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas" || user.role==="admin_turnos";
 // Quién ve la pantalla de módulos al entrar y el selector de áreas arriba: los admins (puedeUsarAreas)
@@ -1073,7 +1073,7 @@ const passwordVencida = (u) => {
 // las pestañas del área con una línea que se desliza a la pestaña elegida, y bajo ellas una franja
 // fina del color de la tienda (cuando la pantalla trabaja sobre una tienda). En celular las
 // pestañas bajan a una barra inferior, como antes.
-const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench", op_externas:"wrench" };
+const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench", op_externas:"wrench", op_internas:"box" };
 const AREAS_NAV = [
   { id:"ventas", label:"Ventas", ic:"receipt" },
   { id:"operaciones", label:"Operaciones", ic:"box" },
@@ -5661,7 +5661,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
   // solo color de acento (Base) — antes cada módulo tenía un color propio fuera de la paleta.
   const modulos = [
     { id:"ventas", icon:<Icon n="receipt" s={24}/>, titulo:"Ventas", desc:ventasSoloLectura(user) ? "Solo para ver — no se puede registrar ni corregir nada" : "Registro de ventas, caja, metas y métricas por tienda", accent:C.gold, mostrar:puedeUsarVentasArea(user) },
-    { id:"operaciones", icon:<Icon n="box" s={24}/>, titulo:"Operaciones", desc:user.role==="visualizador" ? "Solo para ver — órdenes de arreglos, marcaciones y garantías" : "Órdenes de clientes: arreglos, marcaciones y garantías", accent:C.gold, mostrar:puedeUsarAreas(user) && puedeOper(user, "operaciones.ver") },
+    { id:"operaciones", icon:<Icon n="box" s={24}/>, titulo:"Operaciones", desc:user.role==="visualizador" ? "Solo para ver — órdenes de clientes y solicitudes de las tiendas" : "Órdenes de clientes (arreglos, marcaciones, garantías) y solicitudes de las tiendas", accent:C.gold, mostrar:puedeUsarAreas(user) && puedeOper(user, "operaciones.ver") },
     { id:"asistencia", icon:<Icon n="clock" s={24}/>, titulo:"Registro de Asistencia", desc:user.role==="advisor" ? "Marca tu asistencia, revisa tu historial y tus turnos" : "Panel, registros, turnos, asesores, tiendas e informes", accent:C.gold, mostrar:true },
     { id:"junta", icon:<Icon n="users" s={24}/>, titulo:"La Junta Administrativa", desc:"Equipo, seguimiento semanal y guion de la reunión", accent:C.gold, mostrar:puedeUsarAreas(user) },
     { id:"capacitacion", icon:<Icon n="book" s={24}/>, titulo:"Escuela OZEN", desc:user.role==="visualizador" ? "Progreso del equipo en cada curso" : user.role==="advisor" ? "Tus cursos de inducción y capacitación, con sus quizzes" : "Cursos de inducción y capacitación — y el progreso de cada persona", accent:C.gold, mostrar:true },
@@ -13541,9 +13541,12 @@ registrarPermisos({ grupo:"operaciones", label:"Operaciones", ic:"box", permisos
   { id:"operaciones.externas.cancelar", label:"Cancelar una orden", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
   { id:"operaciones.garantias.decidir", label:"Decidir si una garantía se cubre", sensible:true, r:{ master:1 }, nota:OPER_NOTA_LIDER },
   { id:"operaciones.lider.asignar", label:"Elegir al líder de Operaciones", sensible:true, r:{ master:1 } },
+  // Internas (parte 2): crea quien registra órdenes; las mueve solo el líder (o Master).
+  { id:"operaciones.internas.crear", label:"Crear una solicitud interna (insumos, novedades, arreglos)", r:{ ...OPER_ROLES_REGISTRAN }, nota:OPER_NOTA_LIDER },
+  { id:"operaciones.internas.gestionar", label:"Gestionar, completar o rechazar una solicitud interna", r:{ master:1 }, nota:OPER_NOTA_LIDER },
 ]});
 const esLiderOperaciones = (user, liderId) => !!user && !!liderId && String(user.id)===String(liderId);
-const OPER_ACCIONES_LIDER = new Set(["operaciones.externas.crear","operaciones.externas.avanzar","operaciones.externas.pago","operaciones.externas.devolver","operaciones.externas.cancelar","operaciones.garantias.decidir"]);
+const OPER_ACCIONES_LIDER = new Set(["operaciones.externas.crear","operaciones.externas.avanzar","operaciones.externas.pago","operaciones.externas.devolver","operaciones.externas.cancelar","operaciones.garantias.decidir","operaciones.internas.crear","operaciones.internas.gestionar"]);
 // Pregunta única de Operaciones: lo que diga el tablero (puede) o, para las acciones del líder, ser
 // el líder. `liderId` se pasa donde se conoce (pantalla de Operaciones); sin él, solo cuenta el rol.
 const puedeOper = (user, accion, liderId) => !!user && (puede(user, accion) || (OPER_ACCIONES_LIDER.has(accion) && esLiderOperaciones(user, liderId)));
@@ -14191,6 +14194,327 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, ventas, o
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// OPERACIONES · INTERNAS (parte 2, 17 nov 2026) — reemplaza la hoja OP INTERNO del Excel
+// ══════════════════════════════════════════════════════════════════════════════
+// Lo que la tienda necesita y NO tiene que ver con clientes. Toda solicitud nace "Nueva" (en el
+// Excel se quedaban sin estado) y solo el líder de Operaciones o Master la mueve: Nueva → En gestión
+// → Completada, o Rechazada con motivo. "En revisión" del Excel se quitó (decisión de Santiago).
+// La cuenta de tienda ve lo de su tienda y lo "Global"; los administradores ven todo.
+const OPER_TIPOS_INT = [
+  { value:"insumos",            label:"Insumos",                ic:"box" },
+  { value:"novedad",            label:"Novedad",                ic:"bell" },
+  { value:"arreglo_inventario", label:"Arreglo del inventario", ic:"wrench" },
+  { value:"arreglo_punto",      label:"Arreglo del punto",      ic:"store" },
+];
+const operTipoIntLabel = (t) => OPER_TIPOS_INT.find(x=>x.value===t)?.label || t;
+const OPER_ESTADOS_INT = {
+  nueva:      { label:"Nueva",      color:C.amber },
+  en_gestion: { label:"En gestión", color:C.gold },
+  completada: { label:"Completada", color:C.green },
+  rechazada:  { label:"Rechazada",  color:C.red },
+};
+const OPER_FILTROS_INT = [
+  { id:"abiertas",   label:"Abiertas" },
+  { id:"nueva",      label:"Nuevas" },
+  { id:"en_gestion", label:"En gestión" },
+  { id:"completada", label:"Completadas" },
+  { id:"rechazada",  label:"Rechazadas" },
+  { id:"todas",      label:"Todas" },
+];
+const operIntAbierta = (s) => s.estado==="nueva" || s.estado==="en_gestion";
+const operIntVisiblePara = (s, user) => !esCuentaTienda(user) || s.tienda_id===user.tienda_id || s.tienda_id==="global";
+const OperTiendaInt = ({ s, stores, sm }) => s.tienda_id==="global" ? <Badge color={C.gold} sm={sm}>Global</Badge> : <EtiquetaTienda store={stores[s.tienda_id]} sm={sm}/>;
+const operTextoMovInt = (h) => {
+  if(h.accion==="creada") return "Solicitud creada";
+  if(h.accion==="estado") return `Pasó a "${OPER_ESTADOS_INT[h.estado]?.label || h.estado}"${h.nota?` — ${h.nota}`:""}`;
+  return h.accion || "";
+};
+// Guarda quién es el líder de Operaciones (lo usan Externas e Internas).
+const operGuardarLider = async (user, id, setConfig) => {
+  const { data, error } = await supabase.from("operaciones_config").upsert({ clave:"lider_usuario_id", valor:id||null, actualizado_por:user.name, actualizado_en:new Date().toISOString() }, { onConflict:"clave" }).select().single();
+  if(error || !data){ alert("No se pudo guardar el líder de Operaciones. Intenta de nuevo."); return; }
+  setConfig(prev=>[...prev.filter(c=>c.clave!=="lider_usuario_id"), data]);
+};
+
+// Formulario "Nueva solicitud" (mismos datos que la hoja OP INTERNO: quién, tipo, tienda, descripción).
+function OperNuevaSolicitud({ user, users, stores, onCreada, onCancelar, isMobile }) {
+  const esTienda = esCuentaTienda(user);
+  const [tipo, setTipo] = useState("insumos");
+  const [tiendaId, setTiendaId] = useState(esTienda ? (user.tienda_id||"") : "");
+  const [quienId, setQuienId] = useState("");
+  const [descripcion, setDescripcion] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState("");
+  const tiendas = tiendasVenta(stores).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const personas = users.filter(esVendedorPosible).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const guardar = async () => {
+    setMsg("");
+    if(!tiendaId){ setMsg("Falta elegir la tienda (o Global si es para todas)."); return; }
+    if(esTienda && !quienId){ setMsg("Falta elegir quién hace la solicitud."); return; }
+    if(!descripcion.trim()){ setMsg("Falta describir qué se necesita."); return; }
+    setGuardando(true);
+    const quien = esTienda ? users.find(u=>String(u.id)===String(quienId)) : user;
+    const ahora = new Date().toISOString();
+    const { data, error } = await supabase.from("operaciones_internas").insert({
+      fecha:todayStr, tipo, tienda_id:tiendaId,
+      reportado_por_id:String(quien?.id||""), reportado_por_nombre:quien?.name||"",
+      registrado_por:user.name, registrado_por_id:String(user.id), descripcion:descripcion.trim(),
+      estado:"nueva", estado_desde:ahora,
+      historial:[{ en:ahora, por:quien?.name||user.name, cuenta:user.name, accion:"creada", estado:"nueva" }],
+    }).select().single();
+    setGuardando(false);
+    if(error || !data){ setMsg("No se pudo guardar la solicitud. Revisa la conexión e intenta de nuevo."); sonidoError(); return; }
+    onCreada(data);
+  };
+  return (
+    <Card glow style={{ marginBottom:18 }}>
+      <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text, marginBottom:14 }}>Nueva solicitud</div>
+      <OperTituloSec>Tipo</OperTituloSec>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:16 }}>
+        {OPER_TIPOS_INT.map(t=><button key={t.value} type="button" onClick={()=>setTipo(t.value)} style={operChip(tipo===t.value)}><Icon n={t.ic} s={15}/>{t.label}</button>)}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:isMobile?0:14 }}>
+        <Field label="Tienda" value={tiendaId} onChange={setTiendaId} disabled={esTienda}
+          options={[{ value:"", label:"Elige la tienda…" }, ...tiendas.map(t=>({ value:t.id, label:nombreTiendaCorto(t) })), ...(esTienda ? [] : [{ value:"global", label:"Global (todas las tiendas)" }])]}/>
+        {esTienda
+          ? <Field label="¿Quién hace la solicitud?" value={quienId} onChange={setQuienId} options={[{ value:"", label:"Elige a la persona…" }, ...personas.map(a=>({ value:String(a.id), label:a.name }))]}/>
+          : <Field label="Quién hace la solicitud" value={user.name} onChange={()=>{}} disabled/>}
+      </div>
+      <Field label="Descripción" value={descripcion} onChange={setDescripcion} multiline rows={3} placeholder="Qué se necesita o qué pasó: el mayor detalle posible (referencia de la pieza, cantidad, dónde está el daño…)"/>
+      {msg && <div style={{ fontFamily:font.body, fontSize:13, color:C.red, background:C.redDim, borderRadius:8, padding:"9px 12px", marginBottom:12 }}>{msg}</div>}
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+        <Btn onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Guardar solicitud"}</Btn>
+        <Btn onClick={onCancelar} variant="ghost" disabled={guardando}>Cancelar</Btn>
+      </div>
+    </Card>
+  );
+}
+
+// Una solicitud en la lista: resumen, y al tocarla el detalle con las acciones (según permisos) y
+// el historial de movimientos.
+function OperSolicitudCard({ s, stores, user, users, liderId, abierto, onToggle, onCambio, onRecargar, quienId, setQuienId, isMobile }) {
+  const [modo, setModo] = useState(null); // null | "en_gestion" | "completada" | "rechazada"
+  const [texto, setTexto] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  const [msg, setMsg] = useState("");
+  const esTienda = esCuentaTienda(user);
+  const abierta = operIntAbierta(s);
+  const gestiona = puedeOper(user, "operaciones.internas.gestionar", liderId);
+  const quien = esTienda ? (users.find(u=>String(u.id)===String(quienId))?.name || "") : user.name;
+  const personas = users.filter(esVendedorPosible).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const est = OPER_ESTADOS_INT[s.estado] || { label:s.estado, color:C.textMuted };
+  const abrirModo = (m) => { setMsg(""); setTexto(""); setModo(prev=>prev===m?null:m); };
+  // Igual que en Externas: solo se guarda si la solicitud sigue en el estado que se está viendo.
+  const cambiarEstado = async (nuevo) => {
+    if(nuevo==="rechazada" && !texto.trim()){ setMsg("Escribe el motivo del rechazo."); return; }
+    if(esTienda && !quien){ setMsg("Elige arriba quién está haciendo el movimiento."); return; }
+    setOcupado(true); setMsg("");
+    const ahora = new Date().toISOString();
+    const nota = texto.trim();
+    const historial = [...(s.historial||[]), { en:ahora, por:quien, cuenta:user.name, accion:"estado", estado:nuevo, ...(nota?{ nota }:{}) }];
+    const cambios = { estado:nuevo, estado_desde:ahora, gestionado_por:quien, cerrada_en:(nuevo==="completada"||nuevo==="rechazada")?ahora:null, historial, ...(nota?{ respuesta:nota }:{}) };
+    const { data, error } = await supabase.from("operaciones_internas").update(cambios).eq("id", s.id).eq("estado", s.estado).select();
+    setOcupado(false);
+    if(error){ setMsg("No se pudo guardar. Revisa la conexión e intenta de nuevo."); sonidoError(); return; }
+    if(!data || !data.length){ setMsg("Alguien más ya movió esta solicitud. Se actualizó la lista: revisa cómo quedó."); onRecargar(); return; }
+    onCambio(data[0]); setModo(null); setTexto("");
+    if(nuevo==="completada") sonidoTareaCumplida();
+  };
+  const cajaAccion = { background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 14px", marginTop:12 };
+  const dato = (k, v) => (
+    <div style={{ minWidth:0 }}>
+      <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:2 }}>{k}</div>
+      <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, overflowWrap:"anywhere" }}>{v}</div>
+    </div>
+  );
+  const tipoIc = OPER_TIPOS_INT.find(t=>t.value===s.tipo)?.ic || "note";
+  return (
+    <Card p="0" glow={abierto} style={{ marginBottom:10, overflow:"hidden" }}>
+      <div onClick={onToggle} className="ozen-fila-venta" style={{ display:"flex", alignItems:isMobile?"flex-start":"center", gap:isMobile?10:16, padding:isMobile?"12px 14px":"13px 18px", cursor:"pointer", flexDirection:isMobile?"column":"row" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0, flexWrap:"wrap", minWidth:isMobile?0:250 }}>
+          <span style={{ color:C.gold, display:"inline-flex" }}><Icon n={tipoIc} s={17}/></span>
+          <Badge color={C.gold} sm>{operTipoIntLabel(s.tipo)}</Badge>
+          <OperTiendaInt s={s} stores={stores} sm/>
+        </div>
+        <div style={{ flex:1, minWidth:0, width:isMobile?"100%":undefined }}>
+          <div style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{s.descripcion}</div>
+          <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>{s.reportado_por_nombre || s.registrado_por || "—"}</div>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+          <Badge color={est.color} sm>{est.label}</Badge>
+          <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, minWidth:44, textAlign:"right" }}>{fechaCorta(s.fecha)}</span>
+          <Icon n="down" s={16} style={{ color:C.textMuted, transition:"transform .25s ease", transform:abierto?"rotate(180deg)":"none" }}/>
+        </div>
+      </div>
+      <Collapse open={abierto}>
+        <div style={{ borderTop:`1px solid ${C.border}`, padding:isMobile?"14px":"18px 20px 20px" }}>
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, 1fr)", gap:14, marginBottom:14 }}>
+            {dato("Solicitó", s.reportado_por_nombre || "—")}
+            {dato("Fecha", operFechaLarga(s.fecha))}
+            {dato("Estado", <span style={{ color:est.color, fontWeight:700 }}>{est.label}</span>)}
+            {dato("Gestionó", s.gestionado_por || "—")}
+          </div>
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, marginBottom:3 }}>Descripción</div>
+            <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, lineHeight:1.5, whiteSpace:"pre-wrap", overflowWrap:"anywhere" }}>{s.descripcion}</div>
+          </div>
+          {s.respuesta && (
+            <div style={{ borderRadius:10, padding:"10px 14px", marginBottom:14, background:s.estado==="rechazada"?C.redDim:C.surfaceAlt, fontFamily:font.body, fontSize:13, color:C.text, lineHeight:1.45, whiteSpace:"pre-wrap" }}>
+              <strong style={{ color:s.estado==="rechazada"?C.red:C.textSub }}>{s.estado==="rechazada" ? "Motivo del rechazo: " : "Respuesta: "}</strong>{s.respuesta}
+            </div>
+          )}
+          {abierta && !gestiona && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginBottom:4 }}>La gestiona el líder de Operaciones.</div>}
+          {abierta && gestiona && (
+            <>
+              {esTienda && (
+                <div style={{ maxWidth:320 }}>
+                  <Field label="¿Quién hace el movimiento?" value={quienId} onChange={setQuienId} options={[{ value:"", label:"Elige a la persona…" }, ...personas.map(a=>({ value:String(a.id), label:a.name }))]}/>
+                </div>
+              )}
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                {s.estado==="nueva" && <Btn sm onClick={()=>abrirModo("en_gestion")} disabled={ocupado}><Icon n="right" s={14}/>Pasar a: En gestión</Btn>}
+                <Btn sm variant="success" onClick={()=>abrirModo("completada")} disabled={ocupado}><Icon n="check" s={14}/>Marcar completada</Btn>
+                <Btn sm variant="danger" onClick={()=>abrirModo("rechazada")} disabled={ocupado}>Rechazar</Btn>
+              </div>
+            </>
+          )}
+          {modo && (
+            <div style={cajaAccion}>
+              {modo==="en_gestion" && <div style={{ fontFamily:font.body, fontSize:13.5, color:C.text, marginBottom:10 }}>¿Confirmas que esta solicitud pasa a <strong>En gestión</strong>?</div>}
+              {modo!=="en_gestion" && <Field label={modo==="rechazada" ? "Motivo del rechazo (obligatorio)" : "Respuesta para la tienda (opcional)"} value={texto} onChange={setTexto} multiline rows={2} placeholder={modo==="rechazada" ? "Ej: ya se envió la semana pasada" : "Ej: se enviaron 20 organzas con Felipe"}/>}
+              <div style={{ display:"flex", gap:8 }}>
+                <Btn sm variant={modo==="rechazada"?"danger":modo==="completada"?"success":"primary"} onClick={()=>cambiarEstado(modo)} disabled={ocupado}>{ocupado ? "Guardando…" : modo==="rechazada" ? "Rechazar" : modo==="completada" ? "Marcar completada" : "Sí, confirmar"}</Btn>
+                <Btn sm variant="ghost" onClick={()=>setModo(null)} disabled={ocupado}>Cerrar</Btn>
+              </div>
+            </div>
+          )}
+          {msg && <div style={{ fontFamily:font.body, fontSize:13, color:C.red, background:C.redDim, borderRadius:8, padding:"9px 12px", marginTop:12 }}>{msg}</div>}
+          <div style={{ marginTop:18 }}>
+            <OperTituloSec>Movimientos</OperTituloSec>
+            {(s.historial||[]).slice().reverse().map((h,i)=>(
+              <div key={i} style={{ display:"flex", gap:10, fontFamily:font.body, fontSize:12.5, padding:"5px 0", borderTop:i?`1px solid ${C.border}`:"none", flexWrap:"wrap" }}>
+                <span style={{ color:C.textMuted, minWidth:150 }}>{fmtFechaHora(h.en)}</span>
+                <span style={{ color:C.text, flex:1, minWidth:160 }}>{operTextoMovInt(h)}</span>
+                <span style={{ color:C.textMuted }}>{h.por || h.cuenta || ""}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Collapse>
+    </Card>
+  );
+}
+
+// ── SCREEN: Operaciones · Internas ───────────────────────────────────────────
+function OperacionesInternasScreen({ user, users, stores, sols, setSols, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
+  const liderId = config.find(c=>c.clave==="lider_usuario_id")?.valor || "";
+  const [creando, setCreando] = useState(false);
+  const [abiertoId, setAbiertoId] = useState(null);
+  const [filtro, setFiltro] = useState("abiertas");
+  const [tipoF, setTipoF] = useState("");
+  const [tiendaF, setTiendaF] = useState("");
+  const [q, setQ] = useState("");
+  const [limite, setLimite] = useState(40);
+  const [quienId, setQuienId] = useState("");
+  // Misma carga que Externas (una sola para todo el módulo): al entrar si tiene más de 5 minutos.
+  useEffect(()=>{
+    onCargar(5*60000);
+    const alVolver = () => { if(document.visibilityState==="visible") onCargar(5*60000); };
+    document.addEventListener("visibilitychange", alVolver);
+    window.addEventListener("focus", alVolver);
+    return () => { document.removeEventListener("visibilitychange", alVolver); window.removeEventListener("focus", alVolver); };
+  }, []);
+  const esTienda = esCuentaTienda(user);
+  const visibles = useMemo(()=>(sols||[]).filter(s=>operIntVisiblePara(s, user)), [sols, user]);
+  const cuenta = useMemo(()=>{
+    const c = { abiertas:0, nueva:0, en_gestion:0, completada:0, rechazada:0, todas:visibles.length };
+    visibles.forEach(s=>{ if(c[s.estado]!==undefined) c[s.estado]++; if(operIntAbierta(s)) c.abiertas++; });
+    return c;
+  }, [visibles]);
+  const filtradas = useMemo(()=>{
+    const texto = sinTildes(q.trim());
+    return visibles.filter(s=>{
+      if(filtro==="abiertas" ? !operIntAbierta(s) : (filtro!=="todas" && s.estado!==filtro)) return false;
+      if(tipoF && s.tipo!==tipoF) return false;
+      if(tiendaF && s.tienda_id!==tiendaF) return false;
+      if(texto && !sinTildes(`${s.descripcion} ${s.reportado_por_nombre||""} ${s.respuesta||""}`).includes(texto)) return false;
+      return true;
+    }).sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"") || (b.created_at||"").localeCompare(a.created_at||""));
+  }, [visibles, filtro, tipoF, tiendaF, q]);
+  const tiendas = tiendasVenta(stores).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const mostrandoCerradas = filtro==="completada" || filtro==="rechazada" || filtro==="todas";
+  if(estado==="error") return (
+    <div>
+      <PageHeader title="Operaciones internas" subtitle="Insumos, novedades y arreglos del inventario y del punto"/>
+      <Card>
+        <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.red, marginBottom:6 }}>No se pudieron cargar las operaciones</div>
+        <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, lineHeight:1.5, marginBottom:14 }}>Puede ser la conexión. Intenta de nuevo.</div>
+        <Btn sm onClick={()=>onCargar()}>Reintentar</Btn>
+      </Card>
+    </div>
+  );
+  return (
+    <div style={{ maxWidth:1100, margin:"0 auto" }}>
+      <PageHeader title="Operaciones internas" subtitle="Insumos, novedades y arreglos del inventario y del punto"
+        action={puedeOper(user, "operaciones.internas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva solicitud</Btn> : null}/>
+      <OperLider user={user} users={users} liderId={liderId} onGuardar={(id)=>operGuardarLider(user, id, setConfig)}/>
+      {creando && <OperNuevaSolicitud user={user} users={users} stores={stores} isMobile={isMobile} onCancelar={()=>setCreando(false)} onCreada={(fila)=>{ setSols(prev=>[fila, ...prev]); setCreando(false); setFiltro("abiertas"); setAbiertoId(fila.id); }}/>}
+      <div className="ozen-sin-barra" style={{ display:"flex", gap:8, marginBottom:10, overflowX:"auto", paddingBottom:2 }}>
+        {OPER_FILTROS_INT.map(f=><button key={f.id} type="button" onClick={()=>{ setFiltro(f.id); setLimite(40); }} style={operChip(filtro===f.id)}>{f.label}<span style={{ background:filtro===f.id?C.goldDark:C.surfaceHover, color:filtro===f.id?C.tinta:C.textSub, borderRadius:99, fontSize:11, padding:"1px 7px", lineHeight:"16px" }}>{cuenta[f.id]}</span></button>)}
+      </div>
+      <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
+        <select value={tipoF} onChange={e=>{ setTipoF(e.target.value); setLimite(40); }} style={{ ...operChip(!!tipoF), paddingRight:8 }}>
+          <option value="">Todos los tipos</option>
+          {OPER_TIPOS_INT.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+        {!esTienda && (
+          <select value={tiendaF} onChange={e=>{ setTiendaF(e.target.value); setLimite(40); }} style={{ ...operChip(!!tiendaF), paddingRight:8 }}>
+            <option value="">Todas las tiendas</option>
+            {tiendas.map(t=><option key={t.id} value={t.id}>{nombreTiendaCorto(t)}</option>)}
+            <option value="global">Global</option>
+          </select>
+        )}
+        <div style={{ flex:1, minWidth:200, position:"relative" }}>
+          <Icon n="search" s={15} style={{ position:"absolute", left:11, top:10, color:C.textMuted }}/>
+          <input value={q} onChange={e=>{ setQ(e.target.value); setLimite(40); }} placeholder="Buscar en la descripción, quién la pidió o la respuesta…" style={{ width:"100%", height:34, background:"#fff", border:`1px solid ${C.border}`, borderRadius:10, padding:"0 12px 0 32px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+        </div>
+      </div>
+      {estado!=="listo" && !(sols||[]).length
+        ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>Cargando solicitudes…</div></Card>
+        : filtradas.length===0
+          ? <Card><div style={{ textAlign:"center", padding:26, fontFamily:font.body, fontSize:13, color:C.textMuted }}>{visibles.length===0 ? "Todavía no hay solicitudes internas." : "No hay solicitudes con esos filtros."}</div></Card>
+          : filtradas.slice(0, limite).map(s=>(
+              <OperSolicitudCard key={s.id} s={s} stores={stores} user={user} users={users} liderId={liderId} isMobile={isMobile}
+                abierto={abiertoId===s.id} onToggle={()=>setAbiertoId(prev=>prev===s.id?null:s.id)}
+                onCambio={(fila)=>setSols(prev=>prev.map(x=>x.id===fila.id?fila:x))} onRecargar={()=>onCargar()}
+                quienId={quienId} setQuienId={setQuienId}/>
+            ))}
+      {filtradas.length>limite && <div style={{ textAlign:"center", marginTop:6 }}><Btn sm variant="ghost" onClick={()=>setLimite(l=>l+40)}>Ver más ({filtradas.length-limite})</Btn></div>}
+      {mostrandoCerradas && !todoCargado && (
+        <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, textAlign:"center", marginTop:16 }}>
+          Se muestran las solicitudes cerradas de los últimos 90 días. <button type="button" onClick={()=>onCargar(undefined, true)} style={{ border:"none", background:"none", padding:0, color:C.gold, fontWeight:600, fontFamily:font.body, fontSize:12.5, cursor:"pointer", textDecoration:"underline" }}>Traer todo el historial</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Cuenta de tienda: Operaciones es UNA sola pestaña (su barra ya tiene Ventas, Caja y Turnos), con
+// un selector Externas / Internas arriba. Los administradores usan las pestañas del área.
+function OperacionesTiendaScreen(props) {
+  const [sub, setSub] = useState("externas");
+  return (
+    <div>
+      <div style={{ display:"flex", gap:8, marginBottom:16, maxWidth:1100, marginLeft:"auto", marginRight:"auto" }}>
+        {[["externas","Externas · clientes","wrench"],["internas","Internas · tienda","box"]].map(([id,label,ic])=>
+          <button key={id} type="button" onClick={()=>setSub(id)} style={operChip(sub===id)}><Icon n={ic} s={15}/>{label}</button>)}
+      </div>
+      {sub==="externas" ? <OperacionesExternasScreen {...props}/> : <OperacionesInternasScreen {...props}/>}
+    </div>
+  );
+}
+
 export default function App() {
   const [usuarioSesion,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
   // "Ver como" (Permisos, Fase 4): mientras esté activo, toda la app se pinta con `user` = la persona
@@ -14217,6 +14541,7 @@ export default function App() {
   const [capCursos,setCapCursos]=useState([]),[capLecciones,setCapLecciones]=useState([]),[capPreguntas,setCapPreguntas]=useState([]),[capVistas,setCapVistas]=useState([]),[capIntentos,setCapIntentos]=useState([]);
   // Operaciones: a propósito NO se carga en loadAll — ver cargarOperaciones más abajo.
   const [opExternas,setOpExternas]=useState([]),[opConfig,setOpConfig]=useState([]),[opEstado,setOpEstado]=useState("sin_cargar"),[opTodoCargado,setOpTodoCargado]=useState(false);
+  const [opInternas,setOpInternas]=useState([]);
   const opCargaRef = useRef(0), opTodoRef = useRef(false);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
@@ -14434,7 +14759,7 @@ export default function App() {
   // en un dispositivo compartido donde una cuenta entra justo después de que otra salió, sin esto
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
   const login=(u)=>{permVerComoActivar(false);setVerComo(null);setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll(60000);};
-  const logout=()=>{permVerComoActivar(false);setVerComo(null);setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOrdenACobrar(null);setOpExternas([]);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
+  const logout=()=>{permVerComoActivar(false);setVerComo(null);setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOrdenACobrar(null);setOpExternas([]);setOpInternas([]);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
   const entrarVerComo=(u)=>{ if(!puede(usuarioSesion,"cuenta.permisos")) return; permVerComoActivar(true); setVerComo(u); setMostrarUsuarios(false); setArea(null); setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin"); };
   const salirVerComo=()=>{ permVerComoActivar(false); setVerComo(null); setArea(null); setTab(eligeModulo(usuarioSesion)?null:"checkin"); setMostrarUsuarios(true); };
   const bandaVerComo = verComo ? <BandaVerComo u={verComo} onSalir={salirVerComo}/> : null;
@@ -14465,9 +14790,18 @@ export default function App() {
       if(!opTodoRef.current) q = q.or(`etapa.not.in.(entregada,cancelada),fecha.gte.${sumarDias(todayStr,-90)}`);
       consulta = q.order("numero",{ascending:false}).limit(1000);
     }
-    const[{data:oe,error:eOe},{data:oc}]=await Promise.all([consulta, supabase.from("operaciones_config").select("*")]);
-    if(eOe){ setOpEstado("error"); return; }
-    setOpExternas(oe||[]); setOpConfig(oc||[]); setOpEstado("listo"); setOpTodoCargado(opTodoRef.current);
+    // Internas (parte 2): misma regla — lo abierto + lo cerrado en 90 días; la tienda, lo suyo y lo Global.
+    let consultaInt;
+    if(opTodoRef.current && !tiendaPropia) consultaInt = traerTodo("operaciones_internas",[["fecha",false]]);
+    else {
+      let qi = supabase.from("operaciones_internas").select("*");
+      if(tiendaPropia) qi = qi.in("tienda_id",[tiendaPropia,"global"]);
+      if(!opTodoRef.current) qi = qi.or(`estado.in.(nueva,en_gestion),fecha.gte.${sumarDias(todayStr,-90)}`);
+      consultaInt = qi.order("fecha",{ascending:false}).limit(1000);
+    }
+    const[{data:oe,error:eOe},{data:oc},{data:oi,error:eOi}]=await Promise.all([consulta, supabase.from("operaciones_config").select("*"), consultaInt]);
+    if(eOe || eOi){ setOpEstado("error"); return; }
+    setOpExternas(oe||[]); setOpInternas(oi||[]); setOpConfig(oc||[]); setOpEstado("listo"); setOpTodoCargado(opTodoRef.current);
   };
   const refreshUserRecords=(newRecs)=>{ setRecords(prev=>{ const otros=prev.filter(r=>!(r.user_id===user?.id&&r.date===todayStr)); return [...newRecs,...otros]; }); };
   // Corrección manual de registros (solo master, desde Registros) — el borrado/edición en la base
@@ -14583,7 +14917,7 @@ export default function App() {
   // a Ventas todos los admin arrancan en Métricas.
   const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : "");
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
-  const propsOperaciones = { user, users, stores, ventas, onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
+  const propsOperaciones = { user, users, stores, ventas, onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, sols:opInternas, setSols:setOpInternas, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
       if(area==="junta"){
@@ -14599,6 +14933,7 @@ export default function App() {
         if(tab==="caja" && puede(user, "caja.ver")) return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
       } else if(area==="operaciones"){
         if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesExternasScreen {...propsOperaciones}/>;
+        if(tab==="op_internas" && puedeOper(user, "operaciones.ver")) return <OperacionesInternasScreen {...propsOperaciones}/>;
       } else if(area==="capacitacion"){
         if(tab==="mis_cursos" && tomaCapacitaciones(user)) return <CapacitacionMisCursosScreen {...propsCapacitacion}/>;
         if(tab==="progreso")     return <CapacitacionProgresoScreen users={users} {...propsCapacitacion}/>;
@@ -14615,7 +14950,7 @@ export default function App() {
       if(tab==="lista" && puede(user, "ventas.lista.ver")) return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
       if(tab==="metricas" && puede(user, "ventas.metricas.ver")) return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puede(user, "ventas.metas.asignar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
       if(tab==="caja" && puede(user, "caja.ver")) return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
-      if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesExternasScreen {...propsOperaciones}/>;
+      if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesTiendaScreen {...propsOperaciones}/>;
       // La misma pantalla de Turnos que ven todos (encabezado de mes incluido), pero sin Editar ni
       // Administrar — la cuenta de tienda ve quién tiene turno sin poder cambiar nada.
       if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={false} userName={user.name}/>;
@@ -14750,7 +15085,7 @@ export default function App() {
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
   const mostrarTienda = esAreaVentas && (tab==="registrar" || tab==="caja");
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
-  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
+  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
   const panel = <div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div>;
 
   if(isMobile) return (

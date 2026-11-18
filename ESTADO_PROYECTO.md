@@ -777,7 +777,7 @@ fases; cada una se cierra confirmando con Santiago antes de seguir.
 - Las ramas `main` y `staging` tienen historias distintas (100 y 37 commits propios) aunque el
   código es casi igual: revisar con cuidado antes de pasar este módulo a `main`.
 
-## Módulo "Operaciones" (10 nov 2026) — Parte 1 en `staging`, sin probar por Santiago
+## Módulo "Operaciones" (10 nov 2026) — Partes 1 y 2 en `staging`; falta la parte 3
 
 Reemplaza al Excel "Operaciones" de Google Sheets (hojas OP EXTERNO, OP INTERNO, ORDEN y Gestión
 de garantías). Alcance definido con Santiago el 10 nov 2026; se construye en 4 partes, cada una
@@ -868,8 +868,19 @@ pestaña "Operaciones" de la cuenta de tienda ahora también depende de `operaci
 sembrar en la base todo funciona igual (lo del código manda); el tablero los siembra solo al
 tocarlos por primera vez.
 
-**Lo que sigue:** parte 2 = pantalla de Internas (la tabla ya existe). Parte 3 = Indicadores y
-alertas de atraso.
+**Parte 2 — Internas (17 nov 2026, en `staging`, falta que Santiago la pruebe; sin SQL nuevo, la
+tabla `operaciones_internas` ya existía):** pestaña "Internas" en el área (los admins); la cuenta de
+tienda tiene UNA sola pestaña "Operaciones" con un selector Externas / Internas arriba
+(`OperacionesTiendaScreen`). Tipos: Insumos, Novedad, Arreglo del inventario, Arreglo del punto;
+tienda o "Global" (Global solo lo eligen los admins). La cuenta de tienda elige quién hace la
+solicitud. Estados: Nueva → En gestión → Completada (respuesta opcional) o Rechazada (motivo
+obligatorio); solo el líder o Master las mueven. La tienda ve lo suyo y lo Global. Se cargan junto
+con Externas en `cargarOperaciones` (abiertas + cerradas de 90 días). Permisos nuevos en el mismo
+`registrarPermisos`: `operaciones.internas.crear` (mismos roles que crear una orden) y
+`operaciones.internas.gestionar` (solo Master), los dos también del líder.
+
+**Lo que sigue:** parte 3 = Indicadores y alertas de atraso (5 días hábiles sin moverse, piezas sin
+reclamar a los 60 días).
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
