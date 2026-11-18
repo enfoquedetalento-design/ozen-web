@@ -838,7 +838,7 @@ probada en práctica antes de seguir.
   Garantía. Las etapas de traslado/pedido siguen en `OPER_ETAPAS` solo para mostrar órdenes viejas.
 - **Días hábiles = lunes a viernes sin festivos de Colombia** (`festivosColombia`, `esDiaHabil`,
   `sumarDiasHabiles`, `diasHabilesEntre`; los festivos se calculan para cualquier año). La fecha
-  estimada de entrega se sugiere a 15 días hábiles; el atraso (parte 3) son 5 días hábiles.
+  estimada de entrega se sugiere a 5 días hábiles (corregido el 17 nov; antes 15); el atraso (parte 3) son 5 días hábiles.
 - **Cliente**: solo nombre y teléfono (sin documento). Al escribir 2 o más caracteres en
   cualquiera de los dos se sugieren clientes que ya existen (órdenes cargadas + Flexipagos).
 - **Una orden no puede quedar en $0**: o lleva valor (nace "Debe") o se marca "No aplica".

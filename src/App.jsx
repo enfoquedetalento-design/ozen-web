@@ -13635,7 +13635,7 @@ const esDiaHabil = (fechaStr) => { const d = new Date(fechaStr+"T12:00:00"); con
 const sumarDiasHabiles = (fechaStr, n) => { let f = fechaStr, faltan = n; while(faltan>0){ f = sumarDias(f, 1); if(esDiaHabil(f)) faltan--; } return f; };
 // Cuántos días hábiles han pasado desde `desdeStr` hasta `hastaStr` (para las alertas de atraso, parte 3).
 const diasHabilesEntre = (desdeStr, hastaStr) => { let n = 0, f = desdeStr; while(f < hastaStr){ f = sumarDias(f, 1); if(esDiaHabil(f)) n++; } return n; };
-const OPER_DIAS_ENTREGA = 15; // la fecha estimada de entrega se sugiere a 15 días hábiles
+const OPER_DIAS_ENTREGA = 5;  // la fecha estimada de entrega se sugiere a 5 días hábiles (Santiago, 17 nov 2026; antes 15)
 const OPER_DIAS_ATRASO = 5;   // atraso = 5 días hábiles sin moverse (alertas, parte 3)
 // Cómo queda escrita una orden en Registrar venta / Lista de ventas (campo N.º de factura). Lleva
 // el prefijo OP- para que nunca se confunda con un número de factura de Siigo.
