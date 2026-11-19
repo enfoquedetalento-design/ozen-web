@@ -1053,6 +1053,31 @@ el líder los tiene por `OPER_ACCIONES_LIDER`).
   a Felipe excepciones "extra" (operaciones.ver + los 4 de Producto). Santiago aprobó Producto en
   práctica el 18 nov 2026 ("todo perfecto") y pidió publicarlo en `main`.
 
+## Ventas — Flexipago: avisar por WhatsApp y recibo (18 nov 2026, en `staging`, falta probar)
+
+- **Avisar por WhatsApp:** en cada Flexipago por vencer (30+ días o 5 días o menos) o vencido, en la
+  campana de Registrar venta y en la tarjeta de la venta (`FlexiAvisarWhatsApp`). Abre
+  `wa.me/<número>` con `operNumeroWhatsApp` (10 dígitos → 57) y el mensaje `flexiMensajeWhatsApp`:
+  primer nombre, tienda, N° de factura, saldo pendiente y fecha límite (60 días desde el primer
+  abono; "fue el…" si ya pasó). Sin teléfono → "Sin teléfono para avisar".
+- **Constancia del aviso:** tabla nueva `ventas_flexipago_avisos` (`sql/ventas_flexipago_avisos.sql`,
+  con disparador del pulso; en `FUENTES`; se reparte con `FlexiAvisosContext`). Tabla aparte para
+  que un aviso no haga bajar otra vez toda la tabla `ventas`. Si ya se avisó hoy, en vez del botón
+  sale "✓ Avisado hoy por WhatsApp · <cuenta>"; si hubo uno antes, "Último aviso: <fecha>". Quien
+  solo mira (`useReadOnly`) no ve el botón. Quién avisó = nombre de la cuenta.
+  `CampanaAvisos` ganó un campo opcional `accion` por aviso (no cambia nada para Operaciones).
+- **Recibo del Flexipago:** el botón "🖨️ Imprimir" de la tarjeta pasó a "Recibo para el cliente"
+  (`FlexipagoRecibo`): ventana sobre la página como la orden de Operaciones (Copiar foto con
+  `capturarTarjetaCaja`, Imprimir, Cerrar), con el documento del Flexipago (decisión de Santiago:
+  es el más completo). Imprimir usa `imprimirFlexipago`, el mismo comprobante de la térmica de 80 mm
+  de antes. Cambios en el comprobante: se agregó "Fecha límite de pago" y el saldo ahora descuenta el
+  descuento del renglón Flexipago (antes el impreso no lo restaba y podía mostrar un saldo mayor
+  que la tarjeta). El aviso legal no cambió.
+- **Para publicar en la REAL:** correr `sql/ventas_flexipago_avisos.sql` en la real antes de subir el
+  código a `main`.
+- Se le pasó al chat de Operaciones la propuesta de usar el mismo formato (y la impresión de 80 mm)
+  en su orden para el cliente; si lo hace, revisar aquí que los dos recibos queden iguales.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
