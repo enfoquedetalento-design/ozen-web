@@ -6185,6 +6185,220 @@ const flexipagosPorVencer = (tiendaId, ventas, ventasItems, ventasAbonos, todayS
   return items;
 };
 
+// ── Flexipago: avisar por WhatsApp y recibo para el cliente (18 nov 2026, pedido de Santiago) ──
+// Constancia de cada aviso: tabla ventas_flexipago_avisos (sql/ventas_flexipago_avisos.sql). Va
+// aparte de `ventas` para que un aviso no obligue a todos a volver a bajar todas las ventas. App la
+// carga (FUENTES) y la reparte con este contexto a la campana de Registrar venta y a VentaCard.
+const FlexiAvisosContext = createContext({ avisos:[], agregar:()=>{} });
+const flexiFechaLarga = (f) => f ? new Date(f+"T12:00:00").toLocaleDateString("es-CO", { day:"numeric", month:"long", year:"numeric" }) : "—";
+// Cuentas del Flexipago a partir de lo que siempre está cargado (ventasItems / ventasAbonos), con
+// las mismas reglas de VentaCard: valor del Flexipago = valor − descuento de sus renglones; plazo =
+// 60 días desde el primer abono.
+const flexiCuentas = (venta, ventasItems, ventasAbonos) => {
+  const items = (ventasItems||[]).filter(i=>i.venta_id===venta.id);
+  const abonos = (ventasAbonos||[]).filter(a=>a.venta_id===venta.id).sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
+  const totalAbonado = abonos.reduce((a,x)=>a+Number(x.valor||0),0);
+  const valorFlex = items.filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor||0)-Number(i.descuento||0),0);
+  const saldo = valorFlex - totalAbonado;
+  const fechaLimite = abonos.length ? sumarDias(abonos[0].fecha, FLEXIPAGO_PLAZO_DIAS) : null;
+  return { items, abonos, totalAbonado, valorFlex, saldo, fechaLimite };
+};
+const flexiMensajeWhatsApp = (venta, stores, saldo, fechaLimite) => {
+  const nombre = primerNombre(venta.cliente_nombre||"").toLowerCase().replace(/^./, c=>c.toUpperCase());
+  const tienda = nombreTiendaCorto(stores[venta.tienda_id]);
+  const factura = venta.numero_factura ? ` (factura N° ${venta.numero_factura})` : "";
+  const limite = fechaLimite ? ` y la fecha límite de pago ${fechaLimite < todayStr ? "fue" : "es"} el ${flexiFechaLarga(fechaLimite)}` : "";
+  return `Hola${nombre?` ${nombre}`:""}, te saludamos de OZEN ${tienda}. Tu Flexipago${factura} tiene un saldo pendiente de ${fmtCOP(saldo)}${limite}. Te esperamos en la tienda para completar tu pago.`;
+};
+// Botón "Avisar por WhatsApp" (igual al de Operaciones). Si ya se avisó hoy, en vez del botón dice
+// quién avisó, para no avisarle dos veces el mismo día. Sin teléfono: "Sin teléfono para avisar".
+function FlexiAvisarWhatsApp({ venta, stores, user, saldo, fechaLimite }) {
+  const { avisos, agregar } = useContext(FlexiAvisosContext);
+  const soloVer = useReadOnly();
+  const [ocupado, setOcupado] = useState(false);
+  const [error, setError] = useState("");
+  const numero = operNumeroWhatsApp(venta.cliente_telefono);
+  const textoSuave = { fontFamily:font.body, fontSize:12, color:C.textMuted, display:"inline-flex", alignItems:"center" };
+  if(!numero) return <span style={textoSuave}>Sin teléfono para avisar</span>;
+  const deLaVenta = (avisos||[]).filter(a=>String(a.venta_id)===String(venta.id)).sort((a,b)=>String(b.creado_en||"").localeCompare(String(a.creado_en||"")));
+  const hoy = deLaVenta.find(a=>a.fecha===todayStr);
+  const ultimo = deLaVenta[0];
+  if(hoy) return <span style={{ ...textoSuave, color:C.green, fontWeight:700 }}>✓ Avisado hoy por WhatsApp{hoy.por?` · ${hoy.por}`:""}</span>;
+  const previo = ultimo ? <span style={textoSuave}>Último aviso: {fechaCorta(ultimo.fecha)}{ultimo.por?` · ${ultimo.por}`:""}</span> : null;
+  if(soloVer) return previo;
+  const avisar = async () => {
+    window.open(`https://wa.me/${numero}?text=${encodeURIComponent(flexiMensajeWhatsApp(venta, stores, saldo, fechaLimite))}`, "_blank", "noopener");
+    setOcupado(true); setError("");
+    const { data, error:err } = await supabase.from("ventas_flexipago_avisos").insert({ venta_id:String(venta.id), tienda_id:venta.tienda_id||null, fecha:todayStr, por:user?.name||null, cuenta:user?.name||null }).select().single();
+    setOcupado(false);
+    if(err || !data){ setError("No se pudo guardar la constancia del aviso."); return; }
+    agregar(data);
+  };
+  return (
+    <span style={{ display:"inline-flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+      <Btn sm variant="success" onClick={avisar} disabled={ocupado}><Icon n="phone" s={14}/>Avisar por WhatsApp</Btn>
+      {previo}
+      {error && <span style={{ ...textoSuave, color:C.red }}>{error}</span>}
+    </span>
+  );
+}
+// Comprobante para imprimir en la térmica de 80 mm (3nstar RPT005 y similares). Es el mismo
+// comprobante de siempre; solo se agregó la fecha límite de pago y el saldo descuenta el descuento
+// del renglón Flexipago (igual que la tarjeta de la venta).
+const imprimirFlexipago = (venta, stores, ventasItems, ventasAbonos) => {
+  // @page usa el ancho real del rollo para que el navegador no re-escale una hoja carta/A4 hasta
+  // hacerla ilegible, y el layout va en renglones apilados para que quepa sin reducir letra.
+  const { items, abonos, saldo, fechaLimite } = flexiCuentas(venta, ventasItems, ventasAbonos);
+  const tienda = stores[venta.tienda_id]?.name || venta.tienda_id;
+  const itemsHtml = items.map(i=>{
+    const label = VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label||i.tipo;
+    const medio = i.tipo==="flexipago" ? (saldo<=0?"Completado":"Pendiente") : (i.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago).join(" + ");
+    const detParts = [];
+    if(medio) detParts.push(medio);
+    if(Number(i.descuento)>0) detParts.push(`Desc. ${fmtCOP(i.descuento)}`);
+    const codigos = (i.codigos_producto||[]).filter(c=>c.codigo||c.valor);
+    const codigosLine = codigos.length ? `<div class="det">${codigos.map(c=>`Cód. ${c.codigo||"—"}${c.valor?`: ${fmtCOP(Number(c.valor))}`:""}`).join(" · ")}</div>` : "";
+    return `<div class="item"><div class="rl"><span>${label}</span><span>${fmtCOP(i.valor)}</span></div>${detParts.length?`<div class="det">${detParts.join(" · ")}</div>`:""}${codigosLine}</div>`;
+  }).join("");
+  const abonosHtml = abonos.map(a=>`<div class="rl"><span>${a.fecha} · ${textoMediosAbono(a)}</span><span>${fmtCOP(a.valor)}</span></div>`).join("");
+  const avisoHtml = FLEXIPAGO_AVISO_ITEMS.map(it=>`<p>${it.n?`<b>${it.n}. ${it.titulo}:</b> `:""}${it.texto}</p>`).join("");
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Venta ${venta.numero_factura||""}</title>
+    <style>
+      @page{size:80mm auto;margin:3mm 3mm;}
+      *{box-sizing:border-box;}
+      body{width:100%;font-family:Arial,Helvetica,sans-serif;font-size:9.5pt;line-height:1.35;color:#000;margin:0;padding:0;}
+      /* Solo para la vista previa en pantalla: que ya se parezca al tamaño real del comprobante. */
+      @media screen{
+        body{max-width:80mm;margin:0 auto;padding:4mm;background:#fff;}
+      }
+      .logo-wrap{text-align:center;margin-bottom:2mm;}
+      .logo-wrap img{width:38mm;height:auto;}
+      h1{font-size:12pt;margin:0 0 1mm;text-align:center;font-weight:700;}
+      .sub{font-size:8pt;text-align:center;margin-bottom:1mm;}
+      .sep{border-top:1px dashed #000;margin:2mm 0;}
+      .rl{display:flex;justify-content:space-between;gap:2mm;font-size:9pt;margin:0.6mm 0;}
+      .rl b{font-weight:700;}
+      .lbl{font-size:7.5pt;text-transform:uppercase;letter-spacing:0.03em;font-weight:700;margin:0 0 1mm;}
+      .item{margin:1mm 0;}
+      .item .rl{font-size:9.5pt;font-weight:700;}
+      .item .det{font-size:8pt;color:#333;}
+      .total{font-size:12pt;font-weight:700;text-align:right;margin-top:1mm;}
+      .saldo{font-size:11pt;font-weight:700;text-align:right;}
+      .limite{font-size:9pt;font-weight:700;text-align:right;margin-top:0.6mm;}
+      .nota{font-size:8pt;margin-top:2mm;}
+      .aviso{font-size:6.8pt;line-height:1.35;margin-top:2mm;}
+      .aviso .t{font-size:7.5pt;font-weight:700;text-align:center;margin-bottom:1mm;}
+      .aviso p{margin:1mm 0;}
+    </style></head><body>
+    <div class="logo-wrap"><img src="/logo-print.png" alt="OZEN"/></div>
+    <h1>Comprobante Flexipago</h1>
+    <div class="sub">Factura ${venta.numero_factura||"—"} · ${venta.fecha}</div>
+    <div class="rl"><span>Tienda</span><b>${tienda}</b></div>
+    <div class="rl"><span>Asesor</span><b>${venta.vendedor_nombre||"—"}</b></div>
+    <div class="sep"></div>
+    <div class="rl"><span>Cliente</span><b>${venta.cliente_nombre||"—"}</b></div>
+    ${venta.cliente_documento?`<div class="rl"><span>${venta.cliente_tipo_doc||"Doc"}</span><b>${venta.cliente_documento}</b></div>`:""}
+    ${venta.cliente_telefono?`<div class="rl"><span>Tel</span><b>${venta.cliente_telefono}</b></div>`:""}
+    <div class="sep"></div>
+    <div class="lbl">Productos</div>
+    ${itemsHtml}
+    <div class="sep"></div>
+    <div class="total">Total: ${fmtCOP(venta.total)}</div>
+    <div class="sep"></div>
+    <div class="lbl">Abonos</div>
+    ${abonosHtml || '<div class="rl"><span>Sin abonos registrados</span></div>'}
+    <div class="saldo">Saldo pendiente: ${fmtCOP(Math.max(0, saldo))}</div>
+    ${fechaLimite && saldo>0 ? `<div class="limite">Fecha límite de pago: ${flexiFechaLarga(fechaLimite)}</div>` : ""}
+    ${venta.observacion?`<div class="nota">Nota: ${venta.observacion}</div>`:""}
+    <div class="sep"></div>
+    <div class="aviso"><div class="t">${FLEXIPAGO_AVISO_TITULO}</div>${avisoHtml}</div>
+  </body></html>`;
+  const w = window.open("", "_blank", "width=380,height=800");
+  if(!w) return false;
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  // Espera a que cargue el logo antes de imprimir (si no, en algunos navegadores sale en blanco),
+  // con un tope de 1.5 s para no dejar la impresión colgada.
+  const logoImg = w.document.querySelector(".logo-wrap img");
+  let yaImprimio = false;
+  const disparaPrint = () => { if(yaImprimio) return; yaImprimio = true; w.print(); };
+  if(logoImg && !logoImg.complete){
+    logoImg.addEventListener("load", disparaPrint, { once:true });
+    logoImg.addEventListener("error", disparaPrint, { once:true });
+    setTimeout(disparaPrint, 1500);
+  } else {
+    setTimeout(disparaPrint, 300);
+  }
+  return true;
+};
+// Recibo del Flexipago para el cliente: se usa como la orden de Operaciones (ventana sobre la
+// página con Copiar foto, Imprimir y Cerrar) pero con el documento del Flexipago (el comprobante de
+// la térmica: productos, abonos, saldo, fecha límite y el aviso legal tal cual).
+function FlexipagoRecibo({ venta, stores, ventasItems, ventasAbonos, onCerrar }) {
+  const ref = useRef(null);
+  const [toast, setToast] = useState(null);
+  const { items, abonos, saldo, fechaLimite } = flexiCuentas(venta, ventasItems, ventasAbonos);
+  const imprimir = () => {
+    if(!imprimirFlexipago(venta, stores, ventasItems, ventasAbonos)){ setToast("⚠️ El navegador no dejó abrir la ventana para imprimir — usa Copiar foto."); setTimeout(()=>setToast(null), 3200); }
+  };
+  const sep = <div style={{ borderTop:`1px dashed ${C.textMuted}`, margin:"9px 0" }}/>;
+  const fila = (k, v, extra) => <div style={{ display:"flex", justifyContent:"space-between", gap:12, fontSize:12.5, padding:"2px 0", ...extra }}><span style={{ color:C.textMuted, flexShrink:0 }}>{k}</span><span style={{ fontWeight:600, textAlign:"right", overflowWrap:"anywhere" }}>{v}</span></div>;
+  const etiqueta = (t) => <div style={{ fontSize:10, letterSpacing:"0.1em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, marginBottom:4 }}>{t}</div>;
+  return createPortal(
+    <div className="ozen-modal-overlay" onClick={onCerrar} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"flex-start", justifyContent:"center", zIndex:1000, padding:16, overflowY:"auto" }}>
+      <div className="ozen-modal-pop" onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:380, margin:"auto 0" }}>
+        <div ref={ref} style={{ background:"#fff", borderRadius:14, padding:"20px 20px 16px", fontFamily:font.body, color:C.text, boxSizing:"border-box" }}>
+          <div style={{ textAlign:"center", marginBottom:8 }}><img src={`${window.location.origin}/logo-wordmark.png`} alt="OZEN" style={{ height:22, width:"auto" }}/></div>
+          <div style={{ textAlign:"center", fontSize:16, fontWeight:700 }}>Comprobante Flexipago</div>
+          <div style={{ textAlign:"center", fontSize:11.5, color:C.textMuted, marginBottom:8 }}>Factura {venta.numero_factura||"—"} · {venta.fecha}</div>
+          {fila("Tienda", stores[venta.tienda_id]?.name || venta.tienda_id)}
+          {fila("Asesor", venta.vendedor_nombre||"—")}
+          {sep}
+          {fila("Cliente", venta.cliente_nombre||"—")}
+          {venta.cliente_documento && fila(venta.cliente_tipo_doc||"Doc", venta.cliente_documento)}
+          {venta.cliente_telefono && fila("Tel", venta.cliente_telefono)}
+          {sep}
+          {etiqueta("Productos")}
+          {items.map(i=>{
+            const medio = i.tipo==="flexipago" ? (saldo<=0?"Completado":"Pendiente") : (i.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago).join(" + ");
+            const det = [medio, Number(i.descuento)>0 ? `Desc. ${fmtCOP(i.descuento)}` : null].filter(Boolean).join(" · ");
+            const codigos = (i.codigos_producto||[]).filter(c=>c.codigo||c.valor);
+            return (
+              <div key={i.id} style={{ margin:"3px 0" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", gap:12, fontSize:13, fontWeight:700 }}><span>{VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label||i.tipo}</span><span style={{ fontFamily:font.mono }}>{fmtCOP(i.valor)}</span></div>
+                {det && <div style={{ fontSize:11.5, color:C.textMuted }}>{det}</div>}
+                {codigos.length>0 && <div style={{ fontSize:11.5, color:C.textMuted }}>{codigos.map(c=>`Cód. ${c.codigo||"—"}${c.valor?`: ${fmtCOP(Number(c.valor))}`:""}`).join(" · ")}</div>}
+              </div>
+            );
+          })}
+          {sep}
+          <div style={{ textAlign:"right", fontSize:15, fontWeight:700, fontFamily:font.mono }}>Total: {fmtCOP(venta.total)}</div>
+          {sep}
+          {etiqueta("Abonos")}
+          {abonos.length ? abonos.map(a=>(
+            <div key={a.id} style={{ display:"flex", justifyContent:"space-between", gap:12, fontSize:12, padding:"1px 0" }}><span style={{ color:C.textMuted, overflowWrap:"anywhere" }}>{a.fecha} · {textoMediosAbono(a)}</span><span style={{ fontFamily:font.mono, fontWeight:600, flexShrink:0 }}>{fmtCOP(a.valor)}</span></div>
+          )) : <div style={{ fontSize:12, color:C.textMuted }}>Sin abonos registrados</div>}
+          <div style={{ textAlign:"right", fontSize:14, fontWeight:700, marginTop:5 }}>Saldo pendiente: <span style={{ fontFamily:font.mono }}>{fmtCOP(Math.max(0, saldo))}</span></div>
+          {fechaLimite && saldo>0 && <div style={{ textAlign:"right", fontSize:12.5, fontWeight:700, marginTop:2 }}>Fecha límite de pago: {flexiFechaLarga(fechaLimite)}</div>}
+          {venta.observacion && <div style={{ fontSize:11.5, marginTop:6, overflowWrap:"anywhere" }}>Nota: {venta.observacion}</div>}
+          <div style={{ marginTop:10, fontSize:10, lineHeight:1.45, color:C.textMuted, background:C.surfaceAlt, borderRadius:8, padding:"9px 11px" }}>
+            <div style={{ fontWeight:700, textAlign:"center", marginBottom:4, color:C.text }}>{FLEXIPAGO_AVISO_TITULO}</div>
+            {FLEXIPAGO_AVISO_ITEMS.map((it,idx)=><p key={idx} style={{ margin:"3px 0" }}>{it.n ? <b>{it.n}. {it.titulo}: </b> : null}{it.texto}</p>)}
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" }}>
+          <Btn onClick={()=>capturarTarjetaCaja(ref, setToast)} sm style={{ flex:1 }}><Icon n="camera" s={15}/>Copiar foto</Btn>
+          <Btn onClick={imprimir} variant="ghost" sm style={{ flex:1, background:"#fff" }}><Icon n="file" s={15}/>Imprimir</Btn>
+          <Btn onClick={onCerrar} variant="ghost" sm style={{ flex:1, background:"#fff" }}>Cerrar</Btn>
+        </div>
+      </div>
+      {toast && <div style={{ position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:9999, background:C.goldDark, borderRadius:10, padding:"10px 18px", color:C.tinta, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", maxWidth:"calc(100% - 32px)", textAlign:"center" }}>{toast}</div>}
+    </div>,
+    document.body
+  );
+}
+
 // Tarjeta de un registro de Nota crédito (el "espejo" del excedente, con su propio N.º de
 // factura) — usada tanto en "Ventas de hoy" como en "Lista de ventas". En Lista de ventas es
 // desplegable: colapsada solo muestra la etiqueta "🧾 Notacrédito" (para identificarla a simple
@@ -7104,100 +7318,8 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
     }
   };
 
-  const imprimirVenta = (venta, d) => {
-    // Comprobante ajustado a impresora térmica 80mm (72.1mm imprimible, 203dpi fijo de
-    // hardware — 3nstar RPT005 y similares). @page usa el ancho real del rollo para que el
-    // navegador no re-escale una hoja carta/A4 hasta hacerla ilegible, y el layout va en
-    // renglones apilados (no tablas anchas) para que quepa sin reducir letra ni desperdiciar
-    // papel.
-    const tienda = stores[venta.tienda_id]?.name || venta.tienda_id;
-    const totalAbonado = (d?.abonos||[]).reduce((a,x)=>a+Number(x.valor),0);
-    const valorFlex = (d?.items||[]).filter(i=>i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor),0);
-    const saldo = valorFlex - totalAbonado;
-    const itemsHtml = (d?.items||[]).map(i=>{
-      const label = VENTAS_TIPOS.find(t=>t.value===i.tipo)?.label||i.tipo;
-      const medio = i.tipo==="flexipago" ? (saldo<=0?"Completado":"Pendiente") : (i.pagos||[]).map(p=>VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago).join(" + ");
-      const detParts = [];
-      if(medio) detParts.push(medio);
-      if(Number(i.descuento)>0) detParts.push(`Desc. ${fmtCOP(i.descuento)}`);
-      const codigos = (i.codigos_producto||[]).filter(c=>c.codigo||c.valor);
-      const codigosLine = codigos.length ? `<div class="det">${codigos.map(c=>`Cód. ${c.codigo||"—"}${c.valor?`: ${fmtCOP(Number(c.valor))}`:""}`).join(" · ")}</div>` : "";
-      return `<div class="item"><div class="rl"><span>${label}</span><span>${fmtCOP(i.valor)}</span></div>${detParts.length?`<div class="det">${detParts.join(" · ")}</div>`:""}${codigosLine}</div>`;
-    }).join("");
-    const abonosHtml = (d?.abonos||[]).map(a=>`<div class="rl"><span>${a.fecha} · ${textoMediosAbono(a)}</span><span>${fmtCOP(a.valor)}</span></div>`).join("");
-    const avisoHtml = FLEXIPAGO_AVISO_ITEMS.map(it=>`<p>${it.n?`<b>${it.n}. ${it.titulo}:</b> `:""}${it.texto}</p>`).join("");
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Venta ${venta.numero_factura||""}</title>
-      <style>
-        @page{size:80mm auto;margin:3mm 3mm;}
-        *{box-sizing:border-box;}
-        body{width:100%;font-family:Arial,Helvetica,sans-serif;font-size:9.5pt;line-height:1.35;color:#000;margin:0;padding:0;}
-        /* Lo de arriba es lo que de verdad usa la impresora térmica (@page ya define su ancho real
-           de 80mm) — pero esa regla NO aplica a la vista previa en pantalla, así que antes de
-           imprimir se veía como una hoja carta normal, con el texto pegado a los bordes. Esto solo
-           afecta cómo se VE en el navegador antes de imprimir, para que ya se parezca al tamaño y
-           margen real del comprobante en vez de sorprender con una hoja ancha sin márgenes. */
-        @media screen{
-          body{max-width:80mm;margin:0 auto;padding:4mm;background:#fff;}
-        }
-        .logo-wrap{text-align:center;margin-bottom:2mm;}
-        .logo-wrap img{width:38mm;height:auto;}
-        h1{font-size:12pt;margin:0 0 1mm;text-align:center;font-weight:700;}
-        .sub{font-size:8pt;text-align:center;margin-bottom:1mm;}
-        .sep{border-top:1px dashed #000;margin:2mm 0;}
-        .rl{display:flex;justify-content:space-between;gap:2mm;font-size:9pt;margin:0.6mm 0;}
-        .rl b{font-weight:700;}
-        .lbl{font-size:7.5pt;text-transform:uppercase;letter-spacing:0.03em;font-weight:700;margin:0 0 1mm;}
-        .item{margin:1mm 0;}
-        .item .rl{font-size:9.5pt;font-weight:700;}
-        .item .det{font-size:8pt;color:#333;}
-        .total{font-size:12pt;font-weight:700;text-align:right;margin-top:1mm;}
-        .saldo{font-size:11pt;font-weight:700;text-align:right;}
-        .nota{font-size:8pt;margin-top:2mm;}
-        .aviso{font-size:6.8pt;line-height:1.35;margin-top:2mm;}
-        .aviso .t{font-size:7.5pt;font-weight:700;text-align:center;margin-bottom:1mm;}
-        .aviso p{margin:1mm 0;}
-      </style></head><body>
-      <div class="logo-wrap"><img src="/logo-print.png" alt="OZEN"/></div>
-      <h1>Comprobante Flexipago</h1>
-      <div class="sub">Factura ${venta.numero_factura||"—"} · ${venta.fecha}</div>
-      <div class="rl"><span>Tienda</span><b>${tienda}</b></div>
-      <div class="rl"><span>Asesor</span><b>${venta.vendedor_nombre||"—"}</b></div>
-      <div class="sep"></div>
-      <div class="rl"><span>Cliente</span><b>${venta.cliente_nombre||"—"}</b></div>
-      ${venta.cliente_documento?`<div class="rl"><span>${venta.cliente_tipo_doc||"Doc"}</span><b>${venta.cliente_documento}</b></div>`:""}
-      ${venta.cliente_telefono?`<div class="rl"><span>Tel</span><b>${venta.cliente_telefono}</b></div>`:""}
-      <div class="sep"></div>
-      <div class="lbl">Productos</div>
-      ${itemsHtml}
-      <div class="sep"></div>
-      <div class="total">Total: ${fmtCOP(venta.total)}</div>
-      <div class="sep"></div>
-      <div class="lbl">Abonos</div>
-      ${abonosHtml || '<div class="rl"><span>Sin abonos registrados</span></div>'}
-      <div class="saldo">Saldo pendiente: ${fmtCOP(saldo)}</div>
-      ${venta.observacion?`<div class="nota">Nota: ${venta.observacion}</div>`:""}
-      <div class="sep"></div>
-      <div class="aviso"><div class="t">${FLEXIPAGO_AVISO_TITULO}</div>${avisoHtml}</div>
-    </body></html>`;
-    const w = window.open("", "_blank", "width=380,height=800");
-    if(!w){ alert("El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes para este sitio e intenta de nuevo."); return; }
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    // Espera a que el logo termine de cargar antes de imprimir — si se dispara el print() antes,
-    // en algunos navegadores el logo queda en blanco en el PDF/impreso. Con un tope de 1.5s por si
-    // la imagen no llega a cargar (no debe dejar la impresión colgada esperando para siempre).
-    const logoImg = w.document.querySelector(".logo-wrap img");
-    let yaImprimio = false;
-    const disparaPrint = () => { if(yaImprimio) return; yaImprimio = true; w.print(); };
-    if(logoImg && !logoImg.complete){
-      logoImg.addEventListener("load", disparaPrint, { once:true });
-      logoImg.addEventListener("error", disparaPrint, { once:true });
-      setTimeout(disparaPrint, 1500);
-    } else {
-      setTimeout(disparaPrint, 300);
-    }
-  };
+  // El comprobante del Flexipago (ver y copiar foto / imprimir) está en FlexipagoRecibo.
+  const [verRecibo, setVerRecibo] = useState(false);
 
   const abiertoEdicion = editando;
   const puedeEditar = puede(user, "ventas.correccion.aplicar") && (d?.solicitudes||[]).some(s=>s.estado==="aprobada" && !s.aplicada_at);
@@ -7772,7 +7894,8 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
                 </div>
               )}
               <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:6 }}>
-                {v.es_flexipago && <Btn onClick={()=>imprimirVenta(v,d)} variant="ghost" sm>🖨️ Imprimir</Btn>}
+                {v.es_flexipago && <Btn onClick={()=>setVerRecibo(true)} variant="ghost" sm><Icon n="receipt" s={14}/>Recibo para el cliente</Btn>}
+                {(flexipagoVencido || flexipagoUrgente || flexipagoAviso30) && <FlexiAvisarWhatsApp venta={v} stores={stores} user={user} saldo={saldoPendiente} fechaLimite={fechaLimite}/>}
                 {puedeEditar && !abiertoEdicion && !flexipagoVencido && !flexipagoCompletado && <Btn onClick={()=>iniciarEdicion(v)} sm title="Ya te aprobaron el Notacrédito — usa este botón para aplicarlo.">📝 Aplicar Notacrédito</Btn>}
                 {puedeNotacredito && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarNotacredito(v)} variant="ghost" sm style={{ color:C.amber }} title="Usa esto cuando la corrección SÍ genera un número de factura nuevo en Siigo (incluye cambio de producto por el mismo valor). El valor no puede bajar del ya registrado, y necesitas el N.º de factura nuevo.">🧾 Notacrédito Siigo</Btn>}
                 {puedeCorregirErrorAqui && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarCorregirFactura(v)} variant="ghost" sm style={{ color:C.textMuted }} title={esHoyTienda && !puedeCorregirError ? "Puedes corregir libremente lo registrado hoy mismo (sube o baja el valor sin límite). Para días anteriores, pide Notacrédito." : "Usa esto cuando NO cambió nada en Siigo — fue un error al registrar. Sube o baja el valor libremente, sin necesitar número de factura nuevo."}>🛠️ Corregir factura</Btn>}
@@ -7793,6 +7916,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
           )}
         </div>
       </Collapse>
+      {verRecibo && <FlexipagoRecibo venta={v} stores={stores} ventasItems={ventasItems} ventasAbonos={ventasAbonos} onCerrar={()=>setVerRecibo(false)}/>}
     </Card>
   );
 }
@@ -8050,8 +8174,9 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, opAvisos, onIrAOr
   // (por eso se separa en una variable en vez de repetir todo el JSX en las dos ramas de abajo).
   const bellButton = (
     <CampanaAvisos titulo="Avisos de la tienda" grupos={[
-      { titulo:"Flexipagos por recordarle al cliente", items:flexipagosAvisar.map(({venta:v, saldoPendiente, diasRestantes60, vencido})=>({
+      { titulo:"Flexipagos por recordarle al cliente", items:flexipagosAvisar.map(({venta:v, saldoPendiente, diasRestantes60, vencido, fechaLimite})=>({
         key:`flex-${v.id}`, titulo:v.cliente_nombre||"Cliente sin nombre",
+        accion:<FlexiAvisarWhatsApp venta={v} stores={stores} user={user} saldo={saldoPendiente} fechaLimite={fechaLimite}/>,
         sub:`${v.cliente_telefono?`Tel: ${v.cliente_telefono} · `:""}Debe ${fmtCOP(saldoPendiente)}`,
         badge:{ color:vencido?C.red:(diasRestantes60!==null && diasRestantes60<=5?C.amber:C.gold), label:vencido ? "⛔ Vencido" : `⏳ Vence en ${diasRestantes60}d` },
         urgente:vencido || (diasRestantes60!==null && diasRestantes60<=5),
@@ -15010,6 +15135,7 @@ function CampanaAvisos({ grupos, titulo="Avisos" }) {
                         {it.sub && <div style={{ fontSize:11.5, color:C.textMuted, marginTop:1, overflowWrap:"anywhere" }}>{it.sub}</div>}
                       </div>
                       {it.badge && <Badge color={it.badge.color} sm>{it.badge.label}</Badge>}
+                      {it.accion && <div onClick={e=>e.stopPropagation()} style={{ flexBasis:"100%" }}>{it.accion}</div>}
                     </div>
                   ))}
                 </div>
@@ -15962,6 +16088,8 @@ export default function App() {
   // Fotos fijas de indicadores mensuales ya congelados — ver junta_indicadores_congelados abajo.
   const [juntaIndicadoresCongelados,setJuntaIndicadoresCongelados]=useState([]);
   const [ventas,setVentas]=useState([]),[ventasItems,setVentasItems]=useState([]),[ventasMetas,setVentasMetas]=useState([]),[ventasMetasAsesor,setVentasMetasAsesor]=useState([]);
+  const [flexiAvisos,setFlexiAvisos]=useState([]);   // constancias de "Avisar por WhatsApp" en Flexipagos
+  const flexiAvisosCtx = useMemo(()=>({ avisos:flexiAvisos, agregar:(a)=>setFlexiAvisos(prev=>[...prev, a]) }), [flexiAvisos]);
   const [ventasAbonos,setVentasAbonos]=useState([]),[cajaAperturas,setCajaAperturas]=useState([]),[cajaCierres,setCajaCierres]=useState([]),[cajaRecolecciones,setCajaRecolecciones]=useState([]),[cajaGastos,setCajaGastos]=useState([]);
   const [cajaSolicitudesBorrado,setCajaSolicitudesBorrado]=useState([]);
   const [ventasAjustes,setVentasAjustes]=useState([]);
@@ -16099,6 +16227,7 @@ export default function App() {
     ventas_metas:{ consulta:()=>supabase.from("ventas_metas").select("*"), poner:setVentasMetas },
     ventas_metas_asesor:{ consulta:()=>supabase.from("ventas_metas_asesor").select("*"), poner:setVentasMetasAsesor },
     ventas_abonos:{ consulta:()=>traerTodo("ventas_abonos"), poner:setVentasAbonos },
+    ventas_flexipago_avisos:{ consulta:()=>traerTodo("ventas_flexipago_avisos"), poner:setFlexiAvisos },
     ventas_caja_aperturas:{ consulta:()=>traerTodo("ventas_caja_aperturas",[["created_at",false]]), poner:setCajaAperturas },
     ventas_caja_cierres:{ consulta:()=>traerTodo("ventas_caja_cierres",[["created_at",false]]), poner:setCajaCierres },
     ventas_caja_recolecciones:{ consulta:()=>traerTodo("ventas_caja_recolecciones",[["created_at",false]]), poner:setCajaRecolecciones },
@@ -16538,7 +16667,7 @@ export default function App() {
   const mostrarTienda = esAreaVentas && (tab==="registrar" || tab==="caja");
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
   const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
-  const panel = <div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div>;
+  const panel = <FlexiAvisosContext.Provider value={flexiAvisosCtx}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></FlexiAvisosContext.Provider>;
 
   if(isMobile) return (
     <ReadOnlyContext.Provider value={soloLectura}>
