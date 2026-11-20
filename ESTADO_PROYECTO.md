@@ -1114,10 +1114,10 @@ los dos y se confirma escribiendo PASAR.
   En una venta de OTRA tienda todo queda en solo ver: en `VentaCard` las acciones preguntan con
   `puedeAqui` (= `puede` y que la venta sea de su tienda); el WhatsApp del Flexipago también.
 - **Caja:** sigue solo con su tienda (decisión de Santiago).
-- **Métricas:** en la vista de una tienda, la cuenta de tienda ve "Ventas por asesor": cada asesor
-  que vendió algo en el mes, con su total y lo de cada tienda (`ventasAsesorPorTienda`, mismo
-  cálculo sin servicios que "Ventas por asesor": productos con recorte + ajustes + Flexipagos
-  cerrados en el mes). No muestra el Top.
+- **Métricas:** la cuenta de tienda ve la tabla "Ventas por asesor" (la misma de "Todas las
+  tiendas": venta, meta, IDC, MDA) también en la vista de cada tienda, con lo de la tienda elegida
+  arriba y solo los asesores que vendieron algo ahí en el mes (`tablaVentasAsesor`). No muestra el
+  Top. Para Master y demás roles sigue sin aparecer en la vista de una tienda (pedido anterior).
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 

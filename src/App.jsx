@@ -10703,6 +10703,50 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
 
   const fechaPorVenta = {}; ventasDelMes.forEach(v=>{ fechaPorVenta[v.id]=v.fecha; });
 
+  // Tabla "Ventas por asesor" (la misma en "Todas las tiendas" y, para la cuenta de tienda, en la
+  // vista de la tienda elegida arriba: venta y meta de ESA tienda, solo quien vendió algo).
+  // `lista`: [{ asesor, sinServicios, meta, idc, mda }].
+  const tablaVentasAsesor = (lista) => {
+          const val = { nombre:d=>d.asesor.name, venta:d=>d.sinServicios, meta:d=>d.meta||0, idc:d=>d.idc??-1, mda:d=>d.mda??-1 };
+          const filas = [...lista].sort((a,b)=>{ const f=val[ordenAsesores.col]; const x=f(a), y=f(b); const c = typeof x==="string" ? x.localeCompare(y) : x-y; return ordenAsesores.dir==="asc"?c:-c; });
+          const maxVenta = Math.max(1, ...lista.map(d=>d.sinServicios));
+          const totVenta = lista.reduce((a,d)=>a+d.sinServicios,0);
+          const totMeta = lista.reduce((a,d)=>a+(d.meta||0),0);
+          const totIdc = totMeta>0 ? Math.round(totVenta/totMeta*1000)/10 : null;
+          const titulo = (col, txt, der) => {
+            const on = ordenAsesores.col===col;
+            return <th onClick={()=>setOrdenAsesores(o=>({ col, dir: o.col===col ? (o.dir==="desc"?"asc":"desc") : (col==="nombre"?"asc":"desc") }))} style={{ ...thMet, textAlign:der?"right":"left", cursor:"pointer", color:on?C.text:C.textMuted, userSelect:"none" }}>{txt}{on ? (ordenAsesores.dir==="desc"?" ▼":" ▲") : ""}</th>;
+          };
+          return (
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ width:"100%", minWidth:isMobile?560:0, borderCollapse:"collapse", fontFamily:font.body, fontSize:13.5, color:C.text }}>
+                <thead><tr>{titulo("nombre","Asesor")}{titulo("venta","Venta total",true)}{titulo("meta","Meta",true)}{titulo("idc","IDC",true)}{titulo("mda",<>MDA <span style={{ textTransform:"none", letterSpacing:0 }}>(por día)</span></>,true)}</tr></thead>
+                <tbody>
+                  {filas.map(d=>(
+                    <tr key={d.asesor.id}>
+                      <td style={tdMet}><b>{d.asesor.name}</b><div style={{ height:5, width:isMobile?110:150, background:C.surfaceHover, borderRadius:9, marginTop:6 }}><div style={{ height:"100%", width:`${d.sinServicios/maxVenta*100}%`, background:C.gold, borderRadius:9 }}/></div></td>
+                      <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:d.sinServicios>0?C.text:C.textMuted }}>{fmtCOP(d.sinServicios)}</td>
+                      <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{d.meta>0?fmtCOP(d.meta):"—"}</td>
+                      <td style={{ ...tdMet, textAlign:"right" }}><EstadoIDC idc={d.idc} conValor/></td>
+                      <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{d.mda===null?"—":fmtCOP(d.mda)}</td>
+                    </tr>
+                  ))}
+                  {lista.length===0 && <tr><td colSpan={5} style={{ padding:16, textAlign:"center", color:C.textMuted }}>No hay asesores activos.</td></tr>}
+                </tbody>
+                {lista.length>0 && (
+                  <tfoot><tr style={{ fontWeight:700 }}>
+                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}` }}>Total</td>
+                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right", fontFamily:font.mono }}>{fmtCOP(totVenta)}</td>
+                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right", fontFamily:font.mono }}>{totMeta>0?fmtCOP(totMeta):"—"}</td>
+                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right" }}><EstadoIDC idc={totIdc} conValor/></td>
+                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}` }}/>
+                  </tr></tfoot>
+                )}
+              </table>
+            </div>
+          );
+  };
+
   const dataAsesores = asesores.map(a=>{
     const ventasAsesor = ventasDelMes.filter(v=>v.vendedor_id===a.id);
     const idsAsesor = new Set(ventasAsesor.map(v=>v.id));
@@ -10731,21 +10775,6 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const itemsDelMesTodasTiendas = ventasItems.filter(i => idsVentasDelMesTodasTiendas.has(i.venta_id));
   const itemsDelMesProductoTodasTiendas = itemsDelMesTodasTiendas.filter(i=>i.tipo==="producto");
   const cierresDelMesTodasTiendas = cierresFlexipago.filter(c => c.fechaCierre && c.fechaCierre.slice(0,7)===mesKey);
-  // Ventas del mes de cada asesor en TODAS las tiendas, separadas por tienda (20 nov 2026, pedido de
-  // Santiago): desde cualquier cuenta de tienda el asesor ve cuánto lleva en cada tienda. Se cuenta
-  // igual que "Ventas por asesor" (sin servicios): productos (con el recorte de Notacrédito) +
-  // ajustes del mes + Flexipagos que se terminaron de pagar este mes. Sin importar la tienda elegida.
-  const ventasAsesorPorTienda = (()=>{
-    const idsMes = new Set(ventas.filter(v=>v.fecha && v.fecha.slice(0,7)===mesKey).map(v=>v.id));
-    const netos = netoProductoAjustadoPorVenta(ventasItems.filter(i=>i.tipo==="producto" && idsMes.has(i.venta_id)));
-    const acc = {};
-    const sumar = (asesorId, tiendaId, x) => { if(!asesorId || !x) return; acc[asesorId] = acc[asesorId] || {}; acc[asesorId][tiendaId] = (acc[asesorId][tiendaId]||0) + x; };
-    Object.entries(netos).forEach(([ventaId, neto])=>{ const v = ventaByIdGlobal[ventaId]; if(v) sumar(v.vendedor_id, v.tienda_id, neto); });
-    ajustesDelMesTodasTiendas.forEach(aj=>{ const v = ventaByIdGlobal[aj.venta_id]; if(v) sumar(v.vendedor_id, v.tienda_id, Number(aj.diferencia||0)); });
-    cierresDelMesTodasTiendas.forEach(c=>sumar(c.vendedorId, c.tiendaId, c.valorNeto));
-    return asesores.map(a=>{ const porTienda = acc[a.id] || {}; return { asesor:a, porTienda, total:Object.values(porTienda).reduce((t,x)=>t+x,0) }; })
-      .filter(d=>Math.round(d.total)!==0).sort((a,b)=>b.total-a.total);
-  })();
 
   const dataAsesoresTodasTiendas = asesores.map(a=>{
     const ventasAsesor = ventasDelMesTodasTiendas.filter(v=>v.vendedor_id===a.id);
@@ -11040,69 +11069,14 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
 
       <SeccionVenta icon="user" titulo="Ventas por asesor" derecha={!isMobile && "Toca un título para ordenar"}>
         {(() => {
-          const val = { nombre:d=>d.asesor.name, venta:d=>d.sinServicios, meta:d=>d.meta||0, idc:d=>d.idc??-1, mda:d=>d.mda??-1 };
-          const filas = [...dataAsesores].sort((a,b)=>{ const f=val[ordenAsesores.col]; const x=f(a), y=f(b); const c = typeof x==="string" ? x.localeCompare(y) : x-y; return ordenAsesores.dir==="asc"?c:-c; });
-          const maxVenta = Math.max(1, ...dataAsesores.map(d=>d.sinServicios));
-          const totVenta = dataAsesores.reduce((a,d)=>a+d.sinServicios,0);
-          const totMeta = dataAsesores.reduce((a,d)=>a+(d.meta||0),0);
-          const totIdc = totMeta>0 ? Math.round(totVenta/totMeta*1000)/10 : null;
-          const titulo = (col, txt, der) => {
-            const on = ordenAsesores.col===col;
-            return <th onClick={()=>setOrdenAsesores(o=>({ col, dir: o.col===col ? (o.dir==="desc"?"asc":"desc") : (col==="nombre"?"asc":"desc") }))} style={{ ...thMet, textAlign:der?"right":"left", cursor:"pointer", color:on?C.text:C.textMuted, userSelect:"none" }}>{txt}{on ? (ordenAsesores.dir==="desc"?" ▼":" ▲") : ""}</th>;
-          };
-          return (
-            <div style={{ overflowX:"auto" }}>
-              <table style={{ width:"100%", minWidth:isMobile?560:0, borderCollapse:"collapse", fontFamily:font.body, fontSize:13.5, color:C.text }}>
-                <thead><tr>{titulo("nombre","Asesor")}{titulo("venta","Venta total",true)}{titulo("meta","Meta",true)}{titulo("idc","IDC",true)}{titulo("mda",<>MDA <span style={{ textTransform:"none", letterSpacing:0 }}>(por día)</span></>,true)}</tr></thead>
-                <tbody>
-                  {filas.map(d=>(
-                    <tr key={d.asesor.id}>
-                      <td style={tdMet}><b>{d.asesor.name}</b><div style={{ height:5, width:isMobile?110:150, background:C.surfaceHover, borderRadius:9, marginTop:6 }}><div style={{ height:"100%", width:`${d.sinServicios/maxVenta*100}%`, background:C.gold, borderRadius:9 }}/></div></td>
-                      <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:d.sinServicios>0?C.text:C.textMuted }}>{fmtCOP(d.sinServicios)}</td>
-                      <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{d.meta>0?fmtCOP(d.meta):"—"}</td>
-                      <td style={{ ...tdMet, textAlign:"right" }}><EstadoIDC idc={d.idc} conValor/></td>
-                      <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{d.mda===null?"—":fmtCOP(d.mda)}</td>
-                    </tr>
-                  ))}
-                  {dataAsesores.length===0 && <tr><td colSpan={5} style={{ padding:16, textAlign:"center", color:C.textMuted }}>No hay asesores activos.</td></tr>}
-                </tbody>
-                {dataAsesores.length>0 && (
-                  <tfoot><tr style={{ fontWeight:700 }}>
-                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}` }}>Total</td>
-                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right", fontFamily:font.mono }}>{fmtCOP(totVenta)}</td>
-                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right", fontFamily:font.mono }}>{totMeta>0?fmtCOP(totMeta):"—"}</td>
-                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}`, textAlign:"right" }}><EstadoIDC idc={totIdc} conValor/></td>
-                    <td style={{ padding:"11px 10px", borderTop:`1.5px solid ${C.goldDark}` }}/>
-                  </tr></tfoot>
-                )}
-              </table>
-            </div>
-          );
+          return tablaVentasAsesor(dataAsesores);
         })()}
       </SeccionVenta>
       </>)}
 
       {vistaAsesor && tiendaSel && (
-        <SeccionVenta icon="user" titulo="Ventas por asesor" subtitulo="Lo que lleva cada asesor este mes en cada tienda (sin servicios)">
-          {ventasAsesorPorTienda.length ? (
-            <div style={{ display:"flex", flexDirection:"column" }}>
-              {ventasAsesorPorTienda.map((d,i)=>(
-                <div key={d.asesor.id} style={{ padding:"10px 4px", borderBottom:i<ventasAsesorPorTienda.length-1?`1px solid ${C.border}`:"none" }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:10 }}>
-                    <span style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.text }}>{d.asesor.name}</span>
-                    <span style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.text }}>{fmtCOP(d.total)}</span>
-                  </div>
-                  <div style={{ display:"flex", flexWrap:"wrap", gap:"4px 14px", marginTop:4 }}>
-                    {tiendasList.filter(t=>Math.round(d.porTienda[t.id]||0)!==0).map(t=>(
-                      <span key={t.id} style={{ display:"inline-flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12, color:C.textMuted }}>
-                        <PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)} <span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(d.porTienda[t.id])}</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, textAlign:"center", padding:16 }}>Todavía no hay ventas este mes.</div>}
+        <SeccionVenta icon="user" titulo="Ventas por asesor" derecha={!isMobile && "Toca un título para ordenar"}>
+          {tablaVentasAsesor(dataAsesores.filter(d=>Math.round(d.sinServicios)!==0))}
         </SeccionVenta>
       )}
 
