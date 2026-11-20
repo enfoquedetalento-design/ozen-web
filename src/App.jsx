@@ -2,7 +2,8 @@ import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, cre
 import { createPortal } from "react-dom";
 import { supabase } from "./supabase";
 import { activarNotificacionesPush, notificacionesSoportadas, pushActivo, requiereInstalarEnIOS } from "./push";
-import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError, sonidoBienvenida } from "./sounds";
+import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError, sonidoBienvenida, sonidoNavidadVenta, sonidoNavidadEstrella, sonidoNavidadMeta, sonidoNavidadIngreso } from "./sounds";
+import { NAVIDAD, sonidosNavidadActivos, guardarSonidosNavidad, EstilosNavidad, BrilloEstrellaLogo, DestellosQueCaen, GuirnaldaBarra, ChipCuentaNavidad, GuirnaldaMeta, CelebracionVenta } from "./navidad";
 import { PDFDocument } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
@@ -1194,6 +1195,7 @@ function SelectorArea({ user, area, onChooseArea, compact }) {
 
 function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   const [abierto, setAbierto] = useState(false);
+  const [sonNavidad, setSonNavidad] = useState(() => sonidosNavidadActivos()); // Navidad: cada quien puede apagar los sonidos de temporada
   const cerrarY = (fn) => () => { setAbierto(false); fn(); };
   const nombre = esCuentaTienda(user) ? user.name : user.name.split(" ")[0];
   return (
@@ -1208,6 +1210,7 @@ function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, o
         {permCondicion(user, "cuenta.acceso_tiendas")===null && <MenuItem ic={<Icon n="store" s={16}/>} onClick={cerrarY(onAbrirAccesoTiendas)}>Acceso tiendas</MenuItem>}
         {puede(user, "asistencia.avisos") && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <MenuItem ic={<Icon n="bell" s={16}/>} onClick={cerrarY(onActivarNotificaciones)}>Activar notificaciones</MenuItem>}
         {permCondicion(user, "cuenta.password")===null && <MenuItem ic={<Icon n="key" s={16}/>} onClick={cerrarY(onCambiarPassword)}>Mi contraseña</MenuItem>}
+        {NAVIDAD && <MenuItem ic={<Icon n="bell" s={16}/>} onClick={()=>{ const v=!sonNavidad; setSonNavidad(v); guardarSonidosNavidad(v); if(v) sonidoNavidadIngreso(); }} extra={<span style={{ fontSize:12, fontWeight:700, color:sonNavidad?C.green:C.textMuted }}>{sonNavidad?"Sí":"No"}</span>}>Sonidos de Navidad</MenuItem>}
         <MenuItem ic={<Icon n="logout" s={16}/>} color={C.red} onClick={cerrarY(onLogout)}>Cerrar sesión</MenuItem>
       </MenuFlotante>
     </div>
@@ -1222,6 +1225,12 @@ function MarcaOzen({ user, onAbrirUsuarios, compact }) {
   // Logo real de la marca (solo "OZEN", sin "momento presente") — recortado del logo oficial.
   const logo = (
     <img src="/logo-wordmark.png" alt="OZEN" draggable={false} onContextMenu={e=>puedeUsuarios&&e.preventDefault()} {...(puedeUsuarios?presionarLogo:{})} style={{ height:compact?22:26, width:"auto", display:"block", flexShrink:0, cursor:puedeUsuarios?"pointer":"default", userSelect:"none", WebkitTouchCallout:"none" }} />
+  );
+  // Navidad (1 nov – 6 ene): la estrella del logo brilla, en todas las pantallas. Ver src/navidad.jsx.
+  if(NAVIDAD) return (
+    <span style={{ position:"relative", display:"inline-block", flexShrink:0 }}>
+      <EstilosNavidad/>{logo}<BrilloEstrellaLogo x="5.4%" y="21%" tam={compact?24:30}/>
+    </span>
   );
   if(!HALLOWEEN) return logo;
   // Octubre: dos murciélagos chiquitos revoloteando junto al logo — siempre visibles en todas las
@@ -1250,6 +1259,7 @@ function BarraSuperior({ user, area, onChooseArea, stores, tiendaId, setTiendaId
       {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija}/>}
       <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
       <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones} onAbrirFirmas={onAbrirFirmas}/>
+      {NAVIDAD && <GuirnaldaBarra/>}
     </div>
   );
 }
@@ -1293,6 +1303,7 @@ function BarraSuperiorMovil({ extra, user, area, onChooseArea, stores, tiendaId,
       </div>
       {eligeModulo(user) && <div style={{ marginTop:10 }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/></div>}
       {extra && <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>{extra}</div>}
+      {NAVIDAD && <GuirnaldaBarra isMobile/>}
     </div>
   );
 }
@@ -5578,8 +5589,15 @@ function LoginScreen({ onLogin }) {
       <span style={{ position:"absolute", right:isMobile?-40:-60, top:isMobile?-40:-40, width:isMobile?160:320, height:isMobile?160:320, borderRadius:"50%", border:"1px solid rgba(229,213,204,0.08)" }}/>
       {!isMobile && <span style={{ position:"absolute", left:-120, bottom:-160, width:380, height:380, borderRadius:"50%", background:"rgba(38,93,127,0.35)", filter:"blur(2px)" }}/>}
       {HALLOWEEN && <DecoracionHalloweenLogin isMobile={isMobile}/>}
-      <div style={{ position:"relative", flex:1, display:"flex", alignItems:"center", justifyContent:"center", animation:"ozenPopIn .6s cubic-bezier(.34,1.3,.64,1) both" }}>
-        <img src="/logo-horizontal.png" alt="OZEN" style={{ width:isMobile?210:340, maxWidth:"80%", height:"auto", display:"block" }}/>
+      {NAVIDAD && <><EstilosNavidad/><DestellosQueCaen cantidad={isMobile?14:26}/></>}
+      <div style={{ position:"relative", flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", animation:"ozenPopIn .6s cubic-bezier(.34,1.3,.64,1) both" }}>
+        {NAVIDAD ? (
+          <span style={{ position:"relative", display:"block", width:isMobile?210:340, maxWidth:"80%" }}>
+            <img src="/logo-horizontal.png" alt="OZEN" style={{ width:"100%", height:"auto", display:"block" }}/>
+            <BrilloEstrellaLogo x="5.4%" y="14.2%" tam={isMobile?80:120} rayos color="rgba(255,244,230,.7)"/>
+          </span>
+        ) : <img src="/logo-horizontal.png" alt="OZEN" style={{ width:isMobile?210:340, maxWidth:"80%", height:"auto", display:"block" }}/>}
+        {NAVIDAD && <div style={{ marginTop:isMobile?10:22, fontFamily:font.body, fontSize:isMobile?11:13, letterSpacing:"0.32em", textTransform:"uppercase", color:"rgba(229,213,204,0.7)" }}>Temporada de regalos</div>}
       </div>
       {!isMobile && <div style={{ position:"relative", fontFamily:font.body, fontSize:12, color:"rgba(229,213,204,0.55)" }}>Creado por Santiago Rodríguez</div>}
     </div>
@@ -5686,7 +5704,8 @@ function AreaSelector({ user, onChoose, onLogout }) {
         .ozen-modulo-icon { transition:transform .2s ease, background .2s ease, color .2s ease; }
         .ozen-modulo-card:hover .ozen-modulo-icon { transform:scale(1.06) rotate(-3deg); background:${C.goldDark} !important; color:${C.tinta} !important; }
       `}</style>
-      <div style={{ height:isMobile?"calc(56px + env(safe-area-inset-top, 0px) * 1.55)":62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", padding:isMobile?"0 14px":"0 24px", paddingTop:isMobile?"calc(env(safe-area-inset-top, 0px) * 1.55)":0, boxSizing:"border-box", gap:12, flexShrink:0 }}>
+      <div style={{ height:isMobile?"calc(56px + env(safe-area-inset-top, 0px) * 1.55)":62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", padding:isMobile?"0 14px":"0 24px", paddingTop:isMobile?"calc(env(safe-area-inset-top, 0px) * 1.55)":0, boxSizing:"border-box", gap:12, flexShrink:0, position:"relative", zIndex:5 }}>
+        {NAVIDAD && <GuirnaldaBarra isMobile={isMobile}/>}
         <MarcaOzen user={{ role:"" }} onAbrirUsuarios={()=>{}} compact={isMobile}/>
         <div style={{ flex:1 }}/>
         <span style={{ fontSize:13, color:C.textSub, display:isMobile?"none":"inline" }}>{user.name}</span>
@@ -5698,6 +5717,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
           <div style={{ marginBottom:isMobile?20:30, animation:"ozenPopIn .5s cubic-bezier(.34,1.3,.64,1) both" }}>
             <div style={{ fontSize:12, letterSpacing:"0.18em", textTransform:"uppercase", color:C.gold, fontWeight:700 }}>{fechaLarga}</div>
             <h1 style={{ margin:"8px 0 6px", fontFamily:font.body, fontSize:isMobile?26:34, fontWeight:700, color:C.text, letterSpacing:"-0.01em" }}>{saludo}, {user.name.split(" ")[0]}</h1>
+            {NAVIDAD && <div><ChipCuentaNavidad fecha={toColombiaDate()}/></div>}
             <div style={{ fontSize:15, color:C.textMuted }}>¿Qué quieres abrir hoy?</div>
           </div>
           <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:isMobile?12:18 }}>
@@ -7964,6 +7984,9 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, opAvisos, onIrAOr
   const [guardando, setGuardando] = useState(false);
   const [msg, setMsg] = useState("");
   const [vueloBats, setVueloBats] = useState(0); // Halloween: distinto de 0 mientras vuelan los murciélagos
+  const [celebra, setCelebra] = useState(null); // Navidad: { k, tipo, detalle } mientras dura la celebración de la venta
+  const celebraN = useRef(0);
+  const metaMesNav = useMemo(() => (NAVIDAD && tiendaId) ? calcularMetaMesTienda(tiendaId, (fecha||todayStr).slice(0,7), ventas, ventasItems||[], ventasAbonos||[], ventasAjustes||[], metas) : { meta:0, vendido:0, pct:0 }, [tiendaId, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas]);
 
   const asesores = users.filter(esVendedorPosible);
 
@@ -8122,7 +8145,18 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, opAvisos, onIrAOr
     const numeroMsg = venta.numero_factura ? ` #${venta.numero_factura}` : "";
     limpiarTodo();
     setMsg((HALLOWEEN ? `✓ ¡Dulce venta! 🎃 Venta${numeroMsg} registrada` : `✓ Venta${numeroMsg} registrada`) + avisoOrden);
-    sonidoVenta();
+    if(NAVIDAD){
+      // ¿Esta venta encendió una estrella nueva de la meta del mes, o la llevó al 100 %?
+      let tipoCel = "venta", detalleCel = "";
+      if(metaMesNav.meta>0 && !esFlexipago){
+        const suma = items.filter(i=>i.tipo==="producto").reduce((a,i)=>a+i.valorTotal-i.descuento,0);
+        const antes = metaMesNav.pct, despues = antes + suma/metaMesNav.meta*100;
+        if(antes<100 && despues>=100){ tipoCel = "meta"; detalleCel = `${nombreTiendaCorto(stores[tiendaId])} llegó al 100 % de la meta del mes`; }
+        else if(antes<100 && Math.floor(despues/10)>Math.floor(antes/10)){ tipoCel = "estrella"; detalleCel = `Se encendió la estrella ${Math.floor(despues/10)} de 10 de la meta`; }
+      }
+      const k = ++celebraN.current; setCelebra({ k, tipo:tipoCel, detalle:detalleCel }); setTimeout(()=>setCelebra(c=>c&&c.k===k?null:c), tipoCel==="meta"?5600:4200);
+      if(sonidosNavidadActivos()) ({ venta:sonidoNavidadVenta, estrella:sonidoNavidadEstrella, meta:sonidoNavidadMeta })[tipoCel](); else sonidoVenta();
+    } else sonidoVenta();
     if(HALLOWEEN){ const k = Date.now(); setVueloBats(k); setTimeout(()=>setVueloBats(v=>v===k?0:v), 3200); }
     setTimeout(()=>setMsg(""), avisoOrden ? 12000 : 3000);
   };
@@ -8209,6 +8243,7 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, opAvisos, onIrAOr
   return (
     <>
     {vueloBats>0 && <VueloMurcielagos key={vueloBats}/>}
+    {celebra && <CelebracionVenta key={celebra.k} tipo={celebra.tipo} detalle={celebra.detalle}/>}
     <div>
       {ordenACobrar && (
         <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", background:C.blueDim, border:`1px solid ${C.borderGold}`, borderRadius:12, padding:"11px 14px", marginBottom:16, fontFamily:font.body, fontSize:13.5, color:C.text }}>
@@ -8233,6 +8268,7 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, opAvisos, onIrAOr
         </div>
       </div>
 
+      {NAVIDAD && metaMesNav.meta>0 && <MetaMesNavidad lista={[{ tienda:stores[tiendaId], ...metaMesNav }]} mesNombre={MESES_NOMBRE[Number((fecha||todayStr).slice(5,7))-1].toLowerCase()} isMobile={isMobile}/>}
       <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(0,1fr) 390px", gap:22, alignItems:"start" }}>
         <Card p={isMobile?"18px":"22px"}>
           {/* Paso 1 — quién vendió (y la fecha, solo para quien puede cambiarla). */}
@@ -8942,6 +8978,48 @@ const calcularMetaHoyTienda = (tiendaId, fecha, ventas, ventasItems, ventasAbono
   const vendido = vendidoProducto + cierresDia + ajustesDia;
   const falta = Math.max(0, meta - vendido);
   return { meta, vendido, falta };
+};
+
+// Vendido/Meta del MES completo de una tienda — mismas reglas que calcularMetaHoyTienda (solo
+// "producto", Flexipagos el día que se terminan de pagar, ajustes/Notacrédito), sumado sobre el
+// mes. La meta del mes es la suma de las metas de cada día. Lo usa la guirnalda de Navidad.
+const calcularMetaMesTienda = (tiendaId, mesKey, ventas, ventasItems, ventasAbonos, ventasAjustes, metas) => {
+  const fila = metas?.find(m=>m.mes===mesKey && m.tienda_id===tiendaId && (m.tipo||"total")==="total");
+  const meta = Object.values(fila?.valores_dia||{}).reduce((s,x)=>s+Number(x||0),0);
+  if(!meta) return { meta:0, vendido:0, pct:0 };
+  const enMes = (f) => (f||"").slice(0,7)===mesKey;
+  const ventasTienda = new Map(ventas.filter(v=>v.tienda_id===tiendaId).map(v=>[v.id,v]));
+  const cierres = calcularCierresFlexipago(ventas, ventasItems, ventasAbonos).filter(c=>c.tiendaId===tiendaId && enMes(c.fechaCierre)).reduce((s,c)=>s+c.valorNeto,0);
+  const ajustes = (ventasAjustes||[]).filter(aj=>enMes(aj.fecha) && !aj.es_correccion_error && ventasTienda.has(aj.venta_id)).reduce((s,aj)=>s+Number(aj.diferencia||0),0);
+  const producto = ventasItems.filter(i=>{
+    if(i.tipo!=="producto") return false;
+    const v = ventasTienda.get(i.venta_id); if(!v || v.es_flexipago) return false;
+    return enMes(i.es_original===false && i.fecha_item ? i.fecha_item : v.fecha);
+  }).reduce((s,i)=>s+Number(i.valor||0)-Number(i.descuento||0),0);
+  const vendido = producto + cierres + ajustes;
+  return { meta, vendido, pct: vendido/meta*100 };
+};
+// Navidad: la meta del mes de cada tienda como una guirnalda de 10 estrellas (cada 10 % enciende
+// una; al 100 % titilan todas). `lista` = [{ tienda, meta, vendido, pct }].
+const MetaMesNavidad = ({ lista, mesNombre, isMobile }) => {
+  if(!lista.length) return null;
+  const una = lista.length===1;
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:una||isMobile?"1fr":"repeat(auto-fit, minmax(300px, 1fr))", gap:12, marginBottom:16 }}>
+      {lista.map(x=>{ const pct = Math.floor(x.pct), on = Math.min(10, Math.floor(x.pct/10)); return (
+        <div key={x.tienda.id} style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:una&&!isMobile?"12px 18px 6px":"12px 14px 4px", display:una&&!isMobile?"grid":"block", gridTemplateColumns:"minmax(200px, 260px) 1fr", alignItems:"center", gap:18 }}>
+          <div>
+            <div style={{ display:"flex", alignItems:"center", gap:7, fontFamily:font.body, fontSize:11, letterSpacing:"0.12em", textTransform:"uppercase", color:C.gold, fontWeight:700 }}><PuntoTienda color={colorTienda(x.tienda)} size={7}/>{nombreTiendaCorto(x.tienda)} · meta de {mesNombre}</div>
+            <div style={{ display:"flex", alignItems:"baseline", gap:10, marginTop:3, flexWrap:"wrap" }}>
+              <b style={{ fontFamily:font.body, fontSize:24, color:C.text }}>{pct} %</b>
+              <span style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>{x.pct>=100 ? "✦ ¡Meta cumplida!" : `Faltan ${10-on} estrella${10-on===1?"":"s"} · ${fmtCOP(Math.max(0,x.meta-x.vendido))}`}</span>
+            </div>
+          </div>
+          <GuirnaldaMeta pct={x.pct} alto={una&&!isMobile?52:44}/>
+        </div>
+      ); })}
+    </div>
+  );
 };
 
 // Burbuja "Meta de hoy" compartida por Registrar/Lista/Métricas — antes solo mostraba la tienda
@@ -10195,6 +10273,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const tdDia = isMobile ? { ...tdMet, padding:"10px 6px" } : tdMet;
   const thDia = isMobile ? { ...thMet, padding:"0 6px 8px", letterSpacing:"0.05em" } : thMet;
   const mesKey = `${anio}-${String(mesIdx+1).padStart(2,"0")}`;
+  // Navidad: guirnalda de la meta del mes por tienda (ver MetaMesNavidad).
+  const metasNavidad = useMemo(() => NAVIDAD ? Object.values(stores).map(t=>({ tienda:t, ...calcularMetaMesTienda(t.id, mesKey, ventas, ventasItems||[], ventasAbonos||[], ventasAjustes||[], metas) })).filter(x=>x.meta>0) : [], [stores, mesKey, ventas, ventasItems, ventasAbonos, ventasAjustes, metas]);
   const esMesActual = anio===hoy.getFullYear() && mesIdx===hoy.getMonth();
   const diasTotalesMes = diasDelMes(anio, mesIdx);
   const diasRestantes = esMesActual ? (diasTotalesMes - hoy.getDate() + 1) : 0;
@@ -10651,6 +10731,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
         </div>
       </Card>
 
+      {NAVIDAD && <MetaMesNavidad lista={tiendaSel ? metasNavidad.filter(x=>x.tienda.id===tiendaSel) : metasNavidad} mesNombre={MESES_NOMBRE[mesIdx].toLowerCase()} isMobile={isMobile}/>}
       {/* Fila con scroll horizontal en vez de wrap — con wrap, una tarjeta que quedaba sola en la
           última fila (ej. MDA) se estiraba a lo ancho de toda la pantalla, viéndose enorme y
           fuera de proporción con las demás. Así todas las tarjetas mantienen SIEMPRE el mismo
@@ -16334,7 +16415,7 @@ export default function App() {
   // Al iniciar sesión se refresca todo del servidor en segundo plano (sin bloquear la entrada) —
   // en un dispositivo compartido donde una cuenta entra justo después de que otra salió, sin esto
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
-  const login=(u)=>{permVerComoActivar(false);setVerComo(null);setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");sonidoBienvenida();refreshAll(60000);};
+  const login=(u)=>{permVerComoActivar(false);setVerComo(null);setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");(NAVIDAD&&sonidosNavidadActivos()?sonidoNavidadIngreso:sonidoBienvenida)();refreshAll(60000);};
   const logout=()=>{permVerComoActivar(false);setVerComo(null);setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOrdenACobrar(null);setOpExternas([]);setOpInternas([]);setOpCampana([]);opCampanaRef.current=0;setOpFoco(null);setOpPedido(null);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
   const entrarVerComo=(u)=>{ if(!puede(usuarioSesion,"cuenta.permisos")) return; permVerComoActivar(true); setVerComo(u); setMostrarUsuarios(false); setArea(null); setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin"); };
   const salirVerComo=()=>{ permVerComoActivar(false); setVerComo(null); setArea(null); setTab(eligeModulo(usuarioSesion)?null:"checkin"); setMostrarUsuarios(true); };
