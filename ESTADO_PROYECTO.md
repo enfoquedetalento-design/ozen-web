@@ -1053,7 +1053,7 @@ el líder los tiene por `OPER_ACCIONES_LIDER`).
   a Felipe excepciones "extra" (operaciones.ver + los 4 de Producto). Santiago aprobó Producto en
   práctica el 18 nov 2026 ("todo perfecto") y pidió publicarlo en `main`.
 
-## Ventas — Flexipago: avisar por WhatsApp y recibo (18 nov 2026, en `staging`, falta probar)
+## Ventas — Flexipago: avisar por WhatsApp y recibo (18 nov 2026; probado en `staging`, publicado en `main` el 19 nov 2026)
 
 - **Avisar por WhatsApp:** en cada Flexipago por vencer (30+ días o 5 días o menos) o vencido, en la
   campana de Registrar venta y en la tarjeta de la venta (`FlexiAvisarWhatsApp`). Abre
@@ -1073,10 +1073,39 @@ el líder los tiene por `OPER_ACCIONES_LIDER`).
   de antes. Cambios en el comprobante: se agregó "Fecha límite de pago" y el saldo ahora descuenta el
   descuento del renglón Flexipago (antes el impreso no lo restaba y podía mostrar un saldo mayor
   que la tarjeta). El aviso legal no cambió.
-- **Para publicar en la REAL:** correr `sql/ventas_flexipago_avisos.sql` en la real antes de subir el
-  código a `main`.
+- **Publicado en la REAL el 19 nov 2026:** SQL corrido en las dos bases; código en `main` (commit 4c09caa).
 - Se le pasó al chat de Operaciones la propuesta de usar el mismo formato (y la impresión de 80 mm)
   en su orden para el cliente; si lo hace, revisar aquí que los dos recibos queden iguales.
+
+## Ventas — Flexipago: pasar un producto a un Flexipago nuevo (20 nov 2026, en `staging`, falta probar)
+
+Caso real: una clienta con varios anillos en un Flexipago decide pagar solo unos y dejar otro en un
+Flexipago nuevo. Botón "↪️ Pasar un producto a un Flexipago nuevo" en la tarjeta del Flexipago
+(abierto, no vencido sin reabrir, un solo renglón Flexipago y 2+ productos con valor; permiso
+`ventas.abono.registrar`). Ventana `FlexiPasarProducto`: se elige el producto, muestra cómo quedan
+los dos y se confirma escribiendo PASAR.
+- **Base:** `sql/ventas_flexipago_pasar_producto.sql` → columna `ventas.flexipago_separaciones`
+  (constancia: fecha, valor, código, quién, venta nueva, traslado) y función
+  `flexipago_pasar_producto` que hace TODO en una transacción (si falla, no cambia nada).
+- **Qué hace:** el original baja renglón, `total`, `valor_bruto` y `valor_original` en el valor del
+  producto. Se crea el nuevo (mismo cliente, tienda y asesor; observación "Producto pasado desde…").
+  Si lo abonado < lo que queda: el original sigue abierto. Si lo abonado ≥ lo que queda: el
+  original se cierra ese día con un abono `medio_pago='traslado'` de −sobrante y el nuevo recibe
+  uno de +sobrante (su plazo de 60 días arranca ese día; sin traslado, con su primer abono).
+- **Regla de cálculo (no tocar sin revisar):** `flexiValorEnFecha` — para fechas ANTERIORES a una
+  separación, el Flexipago vale lo de antes. `flexiIdxCierre` decide el abono que lo completa; sin
+  separaciones es exactamente la regla de siempre (probado con 5.000 Flexipagos al azar: idéntico).
+  Lo usan `calcularCierresFlexipago` (Métricas, metas, Consultas), Caja (`resumenDia`) y la Lista
+  (fila de la venta y grupos de abonos). Los días pasados no cambian.
+- **Traslado = no es plata nueva:** Caja no lo suma al ingreso (cuando el cierre es por traslado, la
+  venta sale como "Flexipago redimido" y se reparte por los medios de sus abonos); efectivo no lo
+  ve (no es efectivo); Métricas ("con servicios") y Consultas no lo cuentan como ingreso.
+  Ejemplo probado: 4 × $300.000 con $1.000.000 abonados → original $900.000 cerrado ese día (Caja:
+  ventas $900.000, ingreso $0) y nuevo $300.000 con $100.000 trasladados; al completarlo con
+  $200.000: ventas $300.000, ingreso $200.000.
+- Un abono de traslado no se puede corregir, y un Flexipago con separación o traslado no se puede
+  eliminar desde la app (el otro quedaría descuadrado).
+- **Para publicar en la REAL:** correr `sql/ventas_flexipago_pasar_producto.sql` antes de subir a `main`.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
