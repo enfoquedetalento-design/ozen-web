@@ -2,8 +2,8 @@ import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, cre
 import { createPortal } from "react-dom";
 import { supabase } from "./supabase";
 import { activarNotificacionesPush, notificacionesSoportadas, pushActivo, requiereInstalarEnIOS } from "./push";
-import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError, sonidoBienvenida, sonidoNavidadVenta, sonidoNavidadEstrella, sonidoNavidadMeta, sonidoNavidadIngreso } from "./sounds";
-import { NAVIDAD, sonidosNavidadActivos, guardarSonidosNavidad, EstilosNavidad, BrilloEstrellaLogo, DestellosQueCaen, GuirnaldaBarra, ChipCuentaNavidad, GuirnaldaMeta, CelebracionVenta } from "./navidad";
+import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError, sonidoBienvenida, sonidoNavidadVenta, sonidoNavidadEstrella, sonidoNavidadMeta, sonidoNavidadIngreso, sonidoNavidadEntrada, sonidoNavidadSalida } from "./sounds";
+import { NAVIDAD, sonidosNavidadActivos, guardarSonidosNavidad, EstilosNavidad, BrilloEstrellaLogo, DestellosQueCaen, GuirnaldaBarra, ChipCuentaNavidad, GuirnaldaMeta, CelebracionVenta, CelebracionAsistencia, MagiaNavidad, avisarOlaNavidad } from "./navidad";
 import { PDFDocument } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
@@ -3932,6 +3932,7 @@ function MiAsistenciaScreen({ user, records, onRecord, onRefresh, onRecordUpdate
 // ── SCREEN: CheckIn ───────────────────────────────────────────────────────────
 function CheckInScreen({ user, records, onRecord, onRefresh, onRecordUpdated, stores, asignaciones, turnosHorarios }) {
   const [selStore,setSelStore]=useState(""),[selShift,setSelShift]=useState(""),[locked,setLocked]=useState(false),[showCamera,setShowCamera]=useState(false),[recording,setRecording]=useState(false),[toast,setToast]=useState(null),[toastError,setToastError]=useState(false);
+  const [celebraAsis,setCelebraAsis]=useState(null), celebraAsisN=useRef(0); // Navidad: celebración al marcar asistencia
   // Sin conexión, ni la cámara ni el guardado tienen caso — mejor bloquear el botón de una vez con
   // un aviso claro que dejar que la persona haga todo el proceso (foto + confirmar) para enterarse
   // al final que no se guardó nada. navigator.onLine detecta el caso más común (wifi/datos
@@ -4115,11 +4116,14 @@ function CheckInScreen({ user, records, onRecord, onRefresh, onRecordUpdated, st
         body:`${user.name} marcó ${EVENT_LABELS[nextEvent].toLowerCase()} en ${stores[selStore]?.name||selStore}${selShift?` · ${selShift}`:""} · ${fmtTime(horaReal)}`,
         url:"/",
       }}).catch(()=>{});
+      const sonNav = NAVIDAD && sonidosNavidadActivos();
       if(nextEvent==="entrada"){
-        sonidoEntrada();
+        (sonNav ? sonidoNavidadEntrada : sonidoEntrada)();
       } else if(nextEvent==="salida"){
-        sonidoSalida();
+        (sonNav ? sonidoNavidadSalida : sonidoSalida)();
       }
+      // Navidad: destellos que caen y un saludo de temporada según lo que se marcó.
+      if(NAVIDAD){ const k = ++celebraAsisN.current; setCelebraAsis({ k, evento:nextEvent }); setTimeout(()=>setCelebraAsis(c=>c&&c.k===k?null:c), 3600); }
       setToastError(false);setToast(`✓ ${EVENT_LABELS[nextEvent]} registrada`);setTimeout(()=>setToast(null),3000);
     } else {
       sonidoError();
@@ -4136,6 +4140,7 @@ function CheckInScreen({ user, records, onRecord, onRefresh, onRecordUpdated, st
   return (
     <div>
       {showCamera&&<CameraModal eventLabel={EVENT_LABELS[nextEvent]} onCapture={handleCapture} onCancel={()=>setShowCamera(false)}/>}
+      {celebraAsis && <CelebracionAsistencia key={celebraAsis.k} evento={celebraAsis.evento}/>}
       {toast&&<div style={{position:"fixed",top:16,right:16,left:16,background:toastError?C.redDim:C.greenDim,border:`1px solid ${toastError?C.red:C.green}`,borderRadius:10,padding:"12px 16px",color:toastError?C.red:C.green,fontFamily:font.body,fontSize:13,fontWeight:600,zIndex:200,textAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
         <span>{toast}</span>
         {toastError && <button onClick={()=>setToast(null)} style={{background:"none",border:`1px solid ${C.red}`,color:C.red,borderRadius:6,padding:"3px 10px",fontFamily:font.body,fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}>Entendido</button>}
@@ -16161,6 +16166,8 @@ export default function App() {
   const prevAreaRef = useRef(area);
   const esCambioModulo = prevAreaRef.current !== area;
   useEffect(()=>{ prevAreaRef.current = area; }, [area]);
+  // Navidad: al entrar a un módulo o cambiar de pestaña, la guirnalda de arriba se enciende en ola.
+  useEffect(()=>{ if(NAVIDAD && area) avisarOlaNavidad(); }, [area, tab]);
   // TurnosScreen avisa aquí en qué sub-pestaña está (ver/editar/administrar) — se usa solo para
   // alargar el cierre de sesión por inactividad mientras se edita Borrador o Administrar.
   const [turnosSub, setTurnosSub] = useState(null);
@@ -16758,6 +16765,7 @@ export default function App() {
         {bandaVerComo}
         <TopeEstado color="#ffffff"/>
         <BarraSuperiorMovil {...propsBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
+        {NAVIDAD && <MagiaNavidad/>}
         {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
         <main style={{flex:1,overflowY:"auto",padding:16}}>{panel}</main>
         <BottomNav tab={tab} setTab={setTab} user={user} area={area} liderOper={liderOper}/>
@@ -16778,6 +16786,7 @@ export default function App() {
         {bandaVerComo}
         <TopeEstado color="#ffffff"/>
         <BarraSuperior {...propsBarra}/>
+        {NAVIDAD && <MagiaNavidad/>}
         <BarraPestanas tabs={tabsVisibles} tab={tab} setTab={setTab} derecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
         {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
         <main style={{flex:1,overflowY:"auto",padding:"26px 28px 40px"}}>{panel}</main>
