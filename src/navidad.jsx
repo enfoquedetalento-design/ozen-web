@@ -8,7 +8,7 @@
 // guirnalda bajo la barra de arriba, cuenta regresiva en el saludo, celebración al registrar una
 // venta (la estrella dibuja el ensō) y la guirnalda de la meta del mes (10 estrellas).
 /* eslint-disable react-refresh/only-export-components -- módulo de temporada: comparte constantes y componentes */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 
 const SOMBRA = "#1A3B52", BASE = "#265D7F", TINTA = "#E5D5CC", FONT = "'Josefin Sans', 'Segoe UI', system-ui, sans-serif";
@@ -77,13 +77,27 @@ export const DestellosQueCaen = ({ cantidad = 26 }) => {
 };
 
 // Guirnalda fina que cuelga debajo de la barra de arriba (dentro de un contenedor position:relative).
+// Al entrar a un módulo o cambiar de pestaña, las estrellas se encienden en ola de izquierda a
+// derecha (la app avisa con el evento "ozen-navidad-ola"; ver avisarOlaNavidad).
+export const avisarOlaNavidad = () => { try { window.dispatchEvent(new Event("ozen-navidad-ola")); } catch { /* sin window */ } };
 export const GuirnaldaBarra = ({ isMobile }) => {
   const n = isMobile ? 12 : 30, alto = isMobile ? 15 : 16;
+  const fila = useRef(null);
+  useEffect(() => {
+    const ola = () => {
+      if (reduceMov() || !fila.current) return;
+      [...fila.current.children].forEach((e, i) => e.animate(
+        [{ transform:"scale(1)", filter:"none" }, { transform:"scale(1.9)", filter:"drop-shadow(0 0 4px rgba(38,93,127,.9))", opacity:1 }, { transform:"scale(1)", filter:"none" }],
+        { duration:420, delay:i*(isMobile?40:22), easing:"ease-out" }));
+    };
+    window.addEventListener("ozen-navidad-ola", ola);
+    return () => window.removeEventListener("ozen-navidad-ola", ola);
+  }, [isMobile]);
   let p = "M0 2"; for (let i = 0; i < n; i++) { const x0 = i*1000/n, x1 = (i+1)*1000/n; p += ` Q${(x0+x1)/2} 22 ${x1} 2`; }
   return (
     <div aria-hidden="true" className="ozen-nav-anim" style={{ position:"absolute", left:0, right:0, top:"100%", height:alto, pointerEvents:"none", zIndex:1 }}>
       <svg viewBox="0 0 1000 24" preserveAspectRatio="none" style={{ position:"absolute", inset:0, width:"100%", height:"100%" }}><path d={p} fill="none" stroke="rgba(26,59,82,.22)" strokeWidth="1.1" vectorEffect="non-scaling-stroke"/></svg>
-      <div style={{ position:"absolute", inset:0, display:"flex", justifyContent:"space-around", alignItems:"flex-start" }}>
+      <div ref={fila} style={{ position:"absolute", inset:0, display:"flex", justifyContent:"space-around", alignItems:"flex-start" }}>
         {Array.from({ length:n }, (_, i) => (
           <EstrellaSvg key={i} size={8} color={i%3===1?SOMBRA:BASE} style={{ marginTop:alto*0.5 - 4, animation:`ozenNavEnciende 2.4s ${(i*0.18).toFixed(2)}s ease-in-out infinite` }}/>
         ))}
@@ -194,4 +208,141 @@ export const CelebracionVenta = ({ tipo = "venta", detalle }) => {
     </div>,
     document.body
   );
+};
+
+// ── Magia de vez en cuando ───────────────────────────────────────────────────────────────────────
+// Con la app abierta (y la pestaña a la vista), de vez en cuando cruza una estrella fugaz (cada 4 a
+// 8 minutos) o un venado saltando por la parte de abajo (cada 12 a 20 minutos). No tapan nada ni
+// reciben clics; con «reducir movimiento» no salen. Para probar rápido: ?navidad=demo en el link.
+const DEMO = (() => { try { return new URLSearchParams(window.location.search).get("navidad") === "demo"; } catch { return false; } })();
+const azar = (a, b) => a + Math.random() * (b - a);
+
+const EstrellaFugaz = ({ onFin }) => {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current, W = window.innerWidth, H = window.innerHeight;
+    const izq = Math.random() < 0.5, x0 = izq ? azar(-0.05, 0.35)*W : azar(0.65, 1.05)*W, y0 = azar(0.04, 0.22)*H;
+    const largo = Math.min(W, 900) * azar(0.5, 0.8), rad = azar(18, 30) * Math.PI / 180, dirX = izq ? 1 : -1;
+    const tx = Math.cos(rad) * largo * dirX, dy = Math.sin(rad) * largo;
+    el.style.left = `${x0}px`; el.style.top = `${y0}px`;
+    el.style.transform = `rotate(${Math.atan2(dy, tx) * 180 / Math.PI}deg)`;
+    const a = el.animate([{ translate:"0 0", opacity:0 }, { opacity:1, offset:0.15 }, { opacity:1, offset:0.7 }, { translate:`${tx}px ${dy}px`, opacity:0 }], { duration:1300, easing:"cubic-bezier(.3,.1,.5,1)", fill:"forwards" });
+    a.onfinish = onFin;
+    return () => a.cancel();
+  }, [onFin]);
+  return createPortal(
+    <div aria-hidden="true" style={{ position:"fixed", inset:0, pointerEvents:"none", zIndex:9998, overflow:"hidden" }}>
+      <div ref={ref} style={{ position:"absolute", width:0, height:0, transformOrigin:"0 0" }}>
+        <div style={{ position:"absolute", right:4, top:-1.5, width:150, height:3, borderRadius:3, background:"linear-gradient(90deg, rgba(38,93,127,0), rgba(38,93,127,.55))" }}/>
+        <div style={{ position:"absolute", left:-11, top:-11, width:22, height:22, filter:"drop-shadow(0 0 6px rgba(38,93,127,.8))" }}><EstrellaSvg size={22} color={BASE}/></div>
+      </div>
+    </div>, document.body);
+};
+
+// Venado saltando — silueta en Sombra, cruza la parte de abajo dando saltos y suelta destellos.
+const PARTES_VENADO = [
+  "M30 38 C40 30 70 30 82 34 C88 36 90 42 86 46 C78 50 50 50 36 48 C30 47 26 42 30 38 Z",
+  "M80 37 C84 29 88 23 92 19 L100 16 C104 16 106 19 104 21 L98 24 C95 28 92 34 88 41 Z",
+  "M95 20 L90 16 L93 21 Z",
+  "M30 38 L23 33 L28 41 Z",
+  "M82 43 L96 51 L105 49 L106 51.5 L96 55 L80 47 Z",
+  "M78 45 L90 57 L98 59 L97.5 61.5 L88 61 L75 48 Z",
+  "M36 43 L22 51 L10 53 L10 55.5 L24 55.5 L40 46.5 Z",
+  "M40 45 L28 57 L18 61 L19 63.5 L30 61 L44 47.5 Z",
+];
+const VenadoSvg = ({ w = 110, color = SOMBRA }) => (
+  <svg width={w} height={w * 66 / 112} viewBox="0 0 112 66" aria-hidden="true">
+    {PARTES_VENADO.map((d, i) => <path key={i} d={d} fill={color}/>)}
+    <path d="M96 17 C94 10 92 6 88 2 M94.5 11 L99.5 6.5 M92.5 7.5 L87.5 8.5 M99 16 C100 9 103 5 108 2 M101 9.5 L106.5 9 M102.5 6 L100.5 1.5" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round"/>
+  </svg>
+);
+const VenadoSaltando = ({ onFin }) => {
+  const ref = useRef(null), cuerpo = useRef(null);
+  useEffect(() => {
+    const el = ref.current, W = window.innerWidth, H = window.innerHeight, movil = W < 700;
+    const haciaDerecha = Math.random() < 0.6, w = movil ? 70 : 96, dur = movil ? 6500 : 8500, saltos = movil ? 7 : 10;
+    const base = H - (movil ? 150 : 70);
+    el.style.top = `${base}px`;
+    if (!haciaDerecha) cuerpo.current.style.transform = "scaleX(-1)";
+    const x0 = haciaDerecha ? -w - 20 : W + 20, x1 = haciaDerecha ? W + 20 : -w - 20;
+    const cruza = el.animate([{ transform:`translateX(${x0}px)` }, { transform:`translateX(${x1}px)` }], { duration:dur, easing:"linear", fill:"forwards" });
+    const salto = cuerpo.current.firstChild.animate(
+      [{ transform:"translateY(0) rotate(4deg)" }, { transform:"translateY(-34px) rotate(-7deg)", offset:0.45 }, { transform:"translateY(-30px) rotate(0deg)", offset:0.6 }, { transform:"translateY(0) rotate(6deg)" }],
+      { duration:dur / saltos, iterations:saltos, easing:"ease-in-out" });
+    // Al caer cada salto, un par de destellos que se quedan atrás.
+    const capa = el.parentNode, timers = [];
+    for (let k = 1; k < saltos; k++) timers.push(setTimeout(() => {
+      const r = el.getBoundingClientRect();
+      for (let j = 0; j < 2; j++) {
+        const z = 6 + Math.random() * 7, sp = document.createElement("div");
+        sp.style.cssText = `position:absolute;left:${r.left + w / 2 + azar(-20, 20)}px;top:${base + w * 0.5 + azar(-6, 10)}px;width:${z}px;height:${z}px`;
+        sp.innerHTML = `<svg width="${z}" height="${z}" viewBox="-10 -10 20 20"><path d="${pathEstrella(10)}" fill="${BASE}"/></svg>`;
+        capa.appendChild(sp);
+        sp.animate([{ opacity:0.9, transform:"scale(1)" }, { opacity:0, transform:`translateY(${azar(-25, -8)}px) scale(.4) rotate(90deg)` }], { duration:1100, fill:"forwards" }).onfinish = () => sp.remove();
+      }
+    }, (dur / saltos) * k));
+    cruza.onfinish = onFin;
+    return () => { cruza.cancel(); salto.cancel(); timers.forEach(clearTimeout); };
+  }, [onFin]);
+  return createPortal(
+    <div aria-hidden="true" style={{ position:"fixed", inset:0, pointerEvents:"none", zIndex:9998, overflow:"hidden" }}>
+      <div ref={ref} style={{ position:"absolute", left:0, opacity:0.85 }}>
+        <div ref={cuerpo}><div><VenadoSvg w={window.innerWidth < 700 ? 70 : 96}/></div></div>
+      </div>
+    </div>, document.body);
+};
+
+export const MagiaNavidad = () => {
+  const [actual, setActual] = useState(null); // { tipo, k }
+  const fin = useCallback(() => setActual(null), []);
+  useEffect(() => {
+    if (reduceMov()) return;
+    const timers = [];
+    const programar = (tipo, min, max) => {
+      const ms = DEMO ? (tipo === "fugaz" ? azar(5, 9) : azar(11, 15)) * 1000 : azar(min, max) * 60000;
+      timers.push(setTimeout(() => {
+        if (!document.hidden) setActual(a => a || { tipo, k:Math.random() });
+        programar(tipo, min, max);
+      }, ms));
+    };
+    programar("fugaz", 4, 8);
+    programar("venado", 12, 20);
+    return () => timers.forEach(clearTimeout);
+  }, []);
+  if (!actual) return null;
+  return actual.tipo === "fugaz" ? <EstrellaFugaz key={actual.k} onFin={fin}/> : <VenadoSaltando key={actual.k} onFin={fin}/>;
+};
+
+// Al marcar asistencia: destellos que caen desde arriba y un saludo de temporada según el evento.
+const SALUDOS_ASISTENCIA = {
+  entrada: ["✦ ¡Buen turno!", null],
+  inicio_almuerzo: ["✦ ¡Buen provecho!", "Recarga energías para la temporada"],
+  fin_almuerzo: ["✦ ¡De vuelta!", "A seguir regalando momentos"],
+  salida: ["✦ ¡Gracias por hoy!", "Descansa, la Navidad también es tuya"],
+};
+export const CelebracionAsistencia = ({ evento }) => {
+  const capa = useRef(null);
+  useEffect(() => {
+    const el = capa.current; if (!el) return;
+    const W = window.innerWidth, H = window.innerHeight, quieto = reduceMov();
+    const toast = el.querySelector("[data-toast]");
+    toast.animate([{ opacity:0, transform:"translate(-50%,-10px)" }, { opacity:1, transform:"translate(-50%,0)", offset:0.12 }, { opacity:1, offset:0.85 }, { opacity:0 }], { duration:3200, fill:"forwards" });
+    if (quieto) return;
+    const n = W < 700 ? 22 : 34;
+    for (let i = 0; i < n; i++) {
+      const z = 7 + Math.random() * 13, sp = document.createElement("div");
+      sp.style.cssText = `position:absolute;left:${Math.random() * W}px;top:-20px;width:${z}px;height:${z}px`;
+      sp.innerHTML = `<svg width="${z}" height="${z}" viewBox="-10 -10 20 20"><path d="${pathEstrella(10)}" fill="${i % 3 ? BASE : SOMBRA}"/></svg>`;
+      el.appendChild(sp);
+      sp.animate([{ transform:"translateY(0) rotate(0)", opacity:0 }, { opacity:0.9, offset:0.1 }, { transform:`translate(${azar(-40, 40)}px, ${H * azar(0.45, 0.8)}px) rotate(${azar(-160, 160)}deg)`, opacity:0 }],
+        { duration:azar(1800, 2800), delay:azar(0, 600), easing:"cubic-bezier(.25,.5,.45,1)", fill:"forwards" });
+    }
+  }, [evento]);
+  const [titulo, sub] = SALUDOS_ASISTENCIA[evento] || SALUDOS_ASISTENCIA.entrada;
+  return createPortal(
+    <div ref={capa} aria-hidden="true" style={{ position:"fixed", inset:0, pointerEvents:"none", zIndex:9999, overflow:"hidden" }}>
+      <div data-toast="" style={{ position:"absolute", left:"50%", top:"calc(96px + env(safe-area-inset-top, 0px))", transform:"translateX(-50%)", opacity:0, textAlign:"center", color:TINTA, background:SOMBRA, borderRadius:16, padding:"10px 20px", whiteSpace:"nowrap", boxShadow:"0 16px 34px -18px rgba(26,59,82,.7)", fontFamily:FONT, zIndex:2 }}>
+        <b style={{ display:"block", fontSize:18 }}>{titulo}</b><small style={{ fontSize:13, opacity:.85 }}>{sub || textoCuentaNavidad(new Date())}</small>
+      </div>
+    </div>, document.body);
 };

@@ -152,3 +152,6 @@ export const sonidoNavidadMeta = () => navidad((a, o, t0) => {
 });
 // 🎄 Al entrar: un destello corto.
 export const sonidoNavidadIngreso = () => navidad((a, o, t) => { campana(a, o, t, NOTAS.E6, 0.12, 1.6); campana(a, o, t + 0.12, NOTAS.G6, 0.12, 1.8); cascabeles(a, o, t, 0.4, 0.035); });
+// 🎄 Asistencia: entrada (campanitas que suben) y salida (que bajan, más cálidas).
+export const sonidoNavidadEntrada = () => navidad((a, o, t) => { [["C6", 0], ["E6", 0.12], ["G6", 0.24]].forEach(([n, dt]) => campana(a, o, t + dt, NOTAS[n], 0.15, 1.5)); cascabeles(a, o, t + 0.24, 0.6, 0.05); });
+export const sonidoNavidadSalida = () => navidad((a, o, t) => { [["G6", 0], ["E6", 0.16], ["C6", 0.32]].forEach(([n, dt]) => campana(a, o, t + dt, NOTAS[n], 0.15, 1.8)); campana(a, o, t + 0.32, NOTAS.C5, 0.08, 2.4); });
