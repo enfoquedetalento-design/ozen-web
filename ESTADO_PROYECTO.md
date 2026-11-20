@@ -1077,7 +1077,7 @@ el líder los tiene por `OPER_ACCIONES_LIDER`).
 - Se le pasó al chat de Operaciones la propuesta de usar el mismo formato (y la impresión de 80 mm)
   en su orden para el cliente; si lo hace, revisar aquí que los dos recibos queden iguales.
 
-## Ventas — Flexipago: pasar un producto a un Flexipago nuevo (20 nov 2026, en `staging`, falta probar)
+## Ventas — Flexipago: pasar un producto a un Flexipago nuevo (20 nov 2026; probado en `staging`, publicado en `main` el 20 nov 2026)
 
 Caso real: una clienta con varios anillos en un Flexipago decide pagar solo unos y dejar otro en un
 Flexipago nuevo. Botón "↪️ Pasar un producto a un Flexipago nuevo" en la tarjeta del Flexipago
@@ -1106,6 +1106,18 @@ los dos y se confirma escribiendo PASAR.
 - Un abono de traslado no se puede corregir, y un Flexipago con separación o traslado no se puede
   eliminar desde la app (el otro quedaría descuadrado).
 - **Para publicar en la REAL:** correr `sql/ventas_flexipago_pasar_producto.sql` antes de subir a `main`.
+
+## Ventas — cuentas de tienda ven todas las tiendas (20 nov 2026, en `staging`, falta probar)
+
+- **Lista de ventas:** la cuenta de tienda ya no está amarrada a su tienda: arranca con su tienda
+  marcada en el filtro y puede ver cualquier otra o todas (filtro Tienda y columna Tienda visibles).
+  En una venta de OTRA tienda todo queda en solo ver: en `VentaCard` las acciones preguntan con
+  `puedeAqui` (= `puede` y que la venta sea de su tienda); el WhatsApp del Flexipago también.
+- **Caja:** sigue solo con su tienda (decisión de Santiago).
+- **Métricas:** en la vista de una tienda, la cuenta de tienda ve "Ventas por asesor": cada asesor
+  que vendió algo en el mes, con su total y lo de cada tienda (`ventasAsesorPorTienda`, mismo
+  cálculo sin servicios que "Ventas por asesor": productos con recorte + ajustes + Flexipagos
+  cerrados en el mes). No muestra el Top.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 

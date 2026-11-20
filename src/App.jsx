@@ -6265,9 +6265,9 @@ const flexiMensajeWhatsApp = (venta, stores, saldo, fechaLimite) => {
 };
 // Botón "Avisar por WhatsApp" (igual al de Operaciones). Si ya se avisó hoy, en vez del botón dice
 // quién avisó, para no avisarle dos veces el mismo día. Sin teléfono: "Sin teléfono para avisar".
-function FlexiAvisarWhatsApp({ venta, stores, user, saldo, fechaLimite }) {
+function FlexiAvisarWhatsApp({ venta, stores, user, saldo, fechaLimite, soloVer:soloVerVenta }) {
   const { avisos, agregar } = useContext(FlexiAvisosContext);
-  const soloVer = useReadOnly();
+  const soloVer = useReadOnly() || !!soloVerVenta;
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState("");
   const numero = operNumeroWhatsApp(venta.cliente_telefono);
@@ -6784,6 +6784,11 @@ function TablaVentas({ filas, stores, isMobile, conFecha, conTienda, vacio, limi
 // lados se ven y funcionan exactamente igual, con detalle desplegable al hacer click en los dos.
 function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdmin, isMobile, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes }) {
   const v = venta; // alias — el resto de esta lógica viene tal cual de Lista de ventas
+  // Cuentas de tienda (20 nov 2026, pedido de Santiago): en la Lista ven las ventas de TODAS las
+  // tiendas, pero solo tocan las de su propia tienda. En una venta de otra tienda todas las
+  // acciones (abonar, corregir, eliminar, pasar producto, WhatsApp…) quedan en solo ver.
+  const esDeOtraTienda = esCuentaTienda(user) && v.tienda_id!==user.tienda_id;
+  const puedeAqui = (id, hechos) => !esDeOtraTienda && puede(user, id, hechos);
 
   const [expandido, setExpandido] = useState(!!inicialExpandido);
   const [detalle, setDetalle] = useState(null);
@@ -6833,7 +6838,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   // días y se está registrando apenas ahora). Solo master/admin_finanzas pueden cambiarla —
   // igual que con abonoFecha — el resto siempre queda con la fecha de hoy.
   const [ajusteFecha, setAjusteFecha] = useState(todayStr);
-  const puedeEditarFechaAjuste = puede(user, "ventas.fecha_libre");
+  const puedeEditarFechaAjuste = puedeAqui("ventas.fecha_libre");
 
   // Cambio de producto, mismo valor: para Siigo ESTO ES una Notacrédito (mismo mecanismo, genera
   // un N.º de factura nuevo), así que vive DENTRO del flujo de "Notacrédito Siigo" — un check que
@@ -6893,9 +6898,9 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   // Permisos, Fase 3: cada acción de la venta pregunta con puede(). `{ hoy:false }` = "aunque la
   // venta NO sea de hoy": lo cumple quien tiene el permiso sin condición (master, admin finanzas)
   // y no la cuenta de tienda, que lo tiene "solo hoy".
-  const puedeCorregirError = puede(user, "ventas.factura.corregir", { hoy:false });
-  const puedeNotacredito = puede(user, "ventas.notacredito.hacer");
-  const puedeFechaLibreVenta = puede(user, "ventas.fecha_libre");
+  const puedeCorregirError = puedeAqui("ventas.factura.corregir", { hoy:false });
+  const puedeNotacredito = puedeAqui("ventas.notacredito.hacer");
+  const puedeFechaLibreVenta = puedeAqui("ventas.fecha_libre");
   const [modoErrorId, setModoErrorId] = useState(false);
   // true = la sesión de corrección abierta ahora mismo es "Notacrédito Siigo"; false = es
   // "Corregir factura". Se fija al abrir cada sesión (según qué botón se usó), no por rol solo.
@@ -6903,7 +6908,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
 
   // Reabrir un Flexipago vencido (pasados los 60 días) — solo si la tienda decide honrarlo con
   // el cliente igual. Deja rastro de quién lo reabrió y cuándo, igual que en Junta.
-  const puedeReabrirVencido = puede(user, "ventas.flexipago.reabrir");
+  const puedeReabrirVencido = puedeAqui("ventas.flexipago.reabrir");
   const reabrirFlexipagoVencido = async (venta) => {
     if(!await confirmarEscribiendo(`Vas a REABRIR el Flexipago vencido de la factura #${venta.numero_factura||"—"}${venta.cliente_nombre?` (cliente: ${venta.cliente_nombre})`:""}.\n\nEsto permite seguir abonando y completar la venta aunque ya pasaron los ${FLEXIPAGO_PLAZO_DIAS} días. Úsalo solo si la tienda decidió honrarlo con el cliente.\n\nEscribe REABRIR para confirmar.`, "REABRIR")) return;
     const { data } = await supabase.from("ventas").update({ flexipago_reabierto_por:user.name, flexipago_reabierto_en:new Date().toISOString() }).eq("id",venta.id).select().single();
@@ -7442,7 +7447,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   const [verRecibo, setVerRecibo] = useState(false);
 
   const abiertoEdicion = editando;
-  const puedeEditar = puede(user, "ventas.correccion.aplicar") && (d?.solicitudes||[]).some(s=>s.estado==="aprobada" && !s.aplicada_at);
+  const puedeEditar = puedeAqui("ventas.correccion.aplicar") && (d?.solicitudes||[]).some(s=>s.estado==="aprobada" && !s.aplicada_at);
   // Los totales/estado del Flexipago se calculan desde ventasItems/ventasAbonos (siempre
   // cargados) en vez del detalle (que solo se carga al abrir la tarjeta) — así el badge de
   // estado y el bloqueo de edición son correctos aunque todavía no se haya abierto.
@@ -7480,13 +7485,13 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   // La cuenta de tienda puede corregir por error y eliminar SIN pedir permiso, pero solo
   // para lo que se registró hoy mismo. Para días anteriores, tiene que pedir Notacrédito.
   const esHoyTienda = esCuentaTienda(user) && v.fecha===todayStr;   // solo para los textos de ayuda
-  const puedeCorregirErrorAqui = puede(user, "ventas.factura.corregir", { hoy:v.fecha===todayStr });
+  const puedeCorregirErrorAqui = puedeAqui("ventas.factura.corregir", { hoy:v.fecha===todayStr });
   // Un Flexipago que entregó o recibió un producto/traslado no se elimina desde la app: el otro
   // Flexipago quedaría descuadrado.
-  const puedeEliminarAqui = puede(user, "ventas.eliminar", { hoy:v.fecha===todayStr }) && !tieneTraslado;
+  const puedeEliminarAqui = puedeAqui("ventas.eliminar", { hoy:v.fecha===todayStr }) && !tieneTraslado;
   const [pasarAbierto, setPasarAbierto] = useState(false);
   const [msgPasar, setMsgPasar] = useState("");
-  const puedePasarProducto = v.es_flexipago && !flexipagoCompletado && !flexipagoVencido && puede(user, "ventas.abono.registrar")
+  const puedePasarProducto = v.es_flexipago && !flexipagoCompletado && !flexipagoVencido && puedeAqui("ventas.abono.registrar")
     && itemsFlexDeVenta.length===1 && (itemsFlexDeVenta[0].codigos_producto||[]).filter(c=>Number(String(c?.valor??"").replace(/[^\d]/g,""))>0).length>=2;
   const alPasarProducto = async (res) => {
     const ids = [v.id, res.venta_nueva_id];
@@ -7936,7 +7941,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
                             {/* El abono INICIAL (idx 0, el más antiguo) nunca se puede corregir desde
                                 acá — Santiago pidió que ese quede intocable. Los siguientes sí, y ya
                                 soportan varios medios de pago a la vez (ver eaPagos arriba). */}
-                            {puede(user, "ventas.abono.corregir") && idx!==0 && !flexiEsTraslado(a) && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
+                            {puedeAqui("ventas.abono.corregir") && idx!==0 && !flexiEsTraslado(a) && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
                           </span>
                         </div>
                       )
@@ -7949,7 +7954,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
                     </div>
                   ))}
                   {msgPasar && <div style={{ fontFamily:font.body, fontSize:12, color:C.green, fontWeight:700, marginBottom:6 }}>{msgPasar}</div>}
-                  {saldoPendiente>0 && puede(user, "ventas.abono.registrar") && (
+                  {saldoPendiente>0 && puedeAqui("ventas.abono.registrar") && (
                     flexipagoVencido ? (
                       <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"8px 10px", fontFamily:font.body, fontSize:12, color:C.red }}>
                         ⛔ Pasaron {diasDesdeAbono} días desde el primer abono (máximo {FLEXIPAGO_PLAZO_DIAS}, según el aviso legal). No se puede abonar más ni completar esta venta — el cliente pierde lo abonado y el producto.
@@ -8026,7 +8031,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
                           <Badge color={s.estado==="pendiente"?C.amber:s.estado==="aprobada"?C.green:C.red} sm>{s.estado}{s.aplicada_at?" · aplicada":""}</Badge>
                         </div>
                         <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2 }}>Pidió: {s.solicitado_por} · {fmtFechaHora(s.fecha_solicitud)}{s.resuelto_por?` · Resolvió: ${s.resuelto_por}`:""}</div>
-                        {puede(user, "ventas.correccion.resolver") && s.estado==="pendiente" && (
+                        {puedeAqui("ventas.correccion.resolver") && s.estado==="pendiente" && (
                           <div style={{ display:"flex", gap:6, marginTop:6 }}>
                             <Btn onClick={()=>resolverSolicitud(s,"aprobada")} variant="success" sm>Aprobar</Btn>
                             <Btn onClick={()=>resolverSolicitud(s,"rechazada")} variant="danger" sm>Rechazar</Btn>
@@ -8050,12 +8055,12 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
               <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:6 }}>
                 {v.es_flexipago && <Btn onClick={()=>setVerRecibo(true)} variant="ghost" sm><Icon n="receipt" s={14}/>Recibo para el cliente</Btn>}
                 {puedePasarProducto && !abiertoEdicion && <Btn onClick={()=>setPasarAbierto(true)} variant="ghost" sm>↪️ Pasar un producto a un Flexipago nuevo</Btn>}
-                {(flexipagoVencido || flexipagoUrgente || flexipagoAviso30) && <FlexiAvisarWhatsApp venta={v} stores={stores} user={user} saldo={saldoPendiente} fechaLimite={fechaLimite}/>}
+                {(flexipagoVencido || flexipagoUrgente || flexipagoAviso30) && <FlexiAvisarWhatsApp venta={v} stores={stores} user={user} saldo={saldoPendiente} fechaLimite={fechaLimite} soloVer={esDeOtraTienda}/>}
                 {puedeEditar && !abiertoEdicion && !flexipagoVencido && !flexipagoCompletado && <Btn onClick={()=>iniciarEdicion(v)} sm title="Ya te aprobaron el Notacrédito — usa este botón para aplicarlo.">📝 Aplicar Notacrédito</Btn>}
                 {puedeNotacredito && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarNotacredito(v)} variant="ghost" sm style={{ color:C.amber }} title="Usa esto cuando la corrección SÍ genera un número de factura nuevo en Siigo (incluye cambio de producto por el mismo valor). El valor no puede bajar del ya registrado, y necesitas el N.º de factura nuevo.">🧾 Notacrédito Siigo</Btn>}
                 {puedeCorregirErrorAqui && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarCorregirFactura(v)} variant="ghost" sm style={{ color:C.textMuted }} title={esHoyTienda && !puedeCorregirError ? "Puedes corregir libremente lo registrado hoy mismo (sube o baja el valor sin límite). Para días anteriores, pide Notacrédito." : "Usa esto cuando NO cambió nada en Siigo — fue un error al registrar. Sube o baja el valor libremente, sin necesitar número de factura nuevo."}>🛠️ Corregir factura</Btn>}
                 {puedeEliminarAqui && <Btn onClick={()=>eliminarVenta(v)} variant="ghost" sm style={{ color:C.red }} title={esHoyTienda && !esAdmin ? "Puedes eliminar lo registrado hoy mismo." : undefined}>🗑️ Eliminar venta</Btn>}
-                {puede(user, "ventas.correccion.solicitar") && !puedeCorregirErrorAqui && !flexipagoCompletado && (mostrarSolicitud ? (
+                {puedeAqui("ventas.correccion.solicitar") && !puedeCorregirErrorAqui && !flexipagoCompletado && (mostrarSolicitud ? (
                   <div style={{ display:"flex", gap:8, flex:1, minWidth:220, alignItems:"end" }}>
                     <div style={{ flex:1 }}><Field label="¿Qué hay que corregir y por qué?" value={motivoSolicitud} onChange={setMotivoSolicitud} multiline rows={2}/></div>
                     <div style={{ marginBottom:14, display:"flex", gap:6 }}>
@@ -8702,8 +8707,10 @@ function LvFicha({ label, n, icono, children, ancho=250 }) {
 
 function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, metas, esAdmin, soloLectura }) {
   const isMobile = useIsMobile();
+  // Cuenta de tienda: antes solo veía su tienda; desde el 20 nov 2026 ve todas (arranca con la suya
+  // marcada en el filtro y puede quitarla). Solo edita lo de su tienda (ver VentaCard, puedeAqui).
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
-  const [f, setF] = useState(LV_FILTROS_VACIOS);
+  const [f, setF] = useState(()=> tiendaFija ? { ...LV_FILTROS_VACIOS, tiendas:[tiendaFija] } : LV_FILTROS_VACIOS);
   const [busqueda, setBusqueda] = useState("");
   const [hojaAbierta, setHojaAbierta] = useState(false);
   const setFil = (k, v) => setF(prev=>({ ...prev, [k]:v }));
@@ -8745,7 +8752,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     }
     return false;
   };
-  const pasaTiendaAsesor = (v) => (!tiendaFija || v.tienda_id===tiendaFija) && (!f.tiendas.length || f.tiendas.includes(v.tienda_id)) && (!f.asesores.length || f.asesores.includes(v.vendedor_id));
+  const pasaTiendaAsesor = (v) => (!f.tiendas.length || f.tiendas.includes(v.tienda_id)) && (!f.asesores.length || f.asesores.includes(v.vendedor_id));
   const tiposVenta = f.tipos.filter(t=>t!=="nota");
   const quiereNotas = !f.tipos.length || f.tipos.includes("nota");
   const quiereVentas = !f.tipos.length || tiposVenta.length>0;
@@ -8955,7 +8962,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
               {segmentoFechas}
               {rangoInputs}
               <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
-                {!tiendaFija && <LvFicha label="Tienda" n={f.tiendas.length} icono={puntosTiendas}><LvTituloSec>Tienda</LvTituloSec>{opcionesTienda}</LvFicha>}
+                {<LvFicha label="Tienda" n={f.tiendas.length} icono={puntosTiendas}><LvTituloSec>Tienda</LvTituloSec>{opcionesTienda}</LvFicha>}
                 <LvFicha label="Asesor" n={f.asesores.length} ancho={270}><LvTituloSec>Asesor</LvTituloSec>{opcionesAsesor}</LvFicha>
                 <LvFicha label="Tipo" n={f.tipos.length + (f.flexEstado?1:0)}>
                   <LvTituloSec>Tipo</LvTituloSec>{opcionesTipo}
@@ -8973,7 +8980,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
         {resumen}
       </Card>
 
-      <TablaVentas key={`${JSON.stringify(f)}|${busqueda}`} stores={stores} isMobile={isMobile} conFecha agruparPorDia conCliente resaltar={busqueda} conTienda={!tiendaFija && f.tiendas.length!==1}
+      <TablaVentas key={`${JSON.stringify(f)}|${busqueda}`} stores={stores} isMobile={isMobile} conFecha agruparPorDia conCliente resaltar={busqueda} conTienda={f.tiendas.length!==1}
         vacio={busqueda.trim() ? `No hay nada que coincida con “${busqueda.trim()}”${rango?` en ${textoRango}`:""}. Prueba con “Todo” en las fechas.` : "No hay ventas con estos filtros."}
         filas={filas}/>
 
@@ -8987,7 +8994,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
               <button onClick={limpiarTodo} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:13, color:C.gold, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3 }}>Limpiar</button>
             </div>
             {seccionHoja("Fecha", <>{LV_PERIODOS.map(p=>chipHoja(f.periodo===p.value, ()=>elegirPeriodo(p.value), p.label, p.value))}{f.periodo==="rango" && <div style={{ width:"100%" }}>{rangoInputs}</div>}</>)}
-            {!tiendaFija && seccionHoja("Tienda", tiendas.map(t=>chipHoja(f.tiendas.includes(t.id), ()=>toggle("tiendas", t.id), <><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)}</>, t.id)))}
+            {seccionHoja("Tienda", tiendas.map(t=>chipHoja(f.tiendas.includes(t.id), ()=>toggle("tiendas", t.id), <><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)}</>, t.id)))}
             {seccionHoja("Asesor", asesores.map(a=>chipHoja(f.asesores.includes(a.id), ()=>toggle("asesores", a.id), a.name.split(" ").slice(0,2).join(" "), a.id)))}
             {seccionHoja("Tipo", LV_TIPOS.map(t=>chipHoja(f.tipos.includes(t.value), ()=>toggle("tipos", t.value), t.label, t.value)))}
             {seccionHoja("Flexipago", [["abierto","Abiertos"],["completo","Completados"]].map(([k,l])=>chipHoja(f.flexEstado===k, ()=>setFil("flexEstado", f.flexEstado===k?"":k), l, k)))}
@@ -10724,6 +10731,22 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const itemsDelMesTodasTiendas = ventasItems.filter(i => idsVentasDelMesTodasTiendas.has(i.venta_id));
   const itemsDelMesProductoTodasTiendas = itemsDelMesTodasTiendas.filter(i=>i.tipo==="producto");
   const cierresDelMesTodasTiendas = cierresFlexipago.filter(c => c.fechaCierre && c.fechaCierre.slice(0,7)===mesKey);
+  // Ventas del mes de cada asesor en TODAS las tiendas, separadas por tienda (20 nov 2026, pedido de
+  // Santiago): desde cualquier cuenta de tienda el asesor ve cuánto lleva en cada tienda. Se cuenta
+  // igual que "Ventas por asesor" (sin servicios): productos (con el recorte de Notacrédito) +
+  // ajustes del mes + Flexipagos que se terminaron de pagar este mes. Sin importar la tienda elegida.
+  const ventasAsesorPorTienda = (()=>{
+    const idsMes = new Set(ventas.filter(v=>v.fecha && v.fecha.slice(0,7)===mesKey).map(v=>v.id));
+    const netos = netoProductoAjustadoPorVenta(ventasItems.filter(i=>i.tipo==="producto" && idsMes.has(i.venta_id)));
+    const acc = {};
+    const sumar = (asesorId, tiendaId, x) => { if(!asesorId || !x) return; acc[asesorId] = acc[asesorId] || {}; acc[asesorId][tiendaId] = (acc[asesorId][tiendaId]||0) + x; };
+    Object.entries(netos).forEach(([ventaId, neto])=>{ const v = ventaByIdGlobal[ventaId]; if(v) sumar(v.vendedor_id, v.tienda_id, neto); });
+    ajustesDelMesTodasTiendas.forEach(aj=>{ const v = ventaByIdGlobal[aj.venta_id]; if(v) sumar(v.vendedor_id, v.tienda_id, Number(aj.diferencia||0)); });
+    cierresDelMesTodasTiendas.forEach(c=>sumar(c.vendedorId, c.tiendaId, c.valorNeto));
+    return asesores.map(a=>{ const porTienda = acc[a.id] || {}; return { asesor:a, porTienda, total:Object.values(porTienda).reduce((t,x)=>t+x,0) }; })
+      .filter(d=>Math.round(d.total)!==0).sort((a,b)=>b.total-a.total);
+  })();
+
   const dataAsesoresTodasTiendas = asesores.map(a=>{
     const ventasAsesor = ventasDelMesTodasTiendas.filter(v=>v.vendedor_id===a.id);
     const idsAsesor = new Set(ventasAsesor.map(v=>v.id));
@@ -11058,6 +11081,30 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
         })()}
       </SeccionVenta>
       </>)}
+
+      {vistaAsesor && tiendaSel && (
+        <SeccionVenta icon="user" titulo="Ventas por asesor" subtitulo="Lo que lleva cada asesor este mes en cada tienda (sin servicios)">
+          {ventasAsesorPorTienda.length ? (
+            <div style={{ display:"flex", flexDirection:"column" }}>
+              {ventasAsesorPorTienda.map((d,i)=>(
+                <div key={d.asesor.id} style={{ padding:"10px 4px", borderBottom:i<ventasAsesorPorTienda.length-1?`1px solid ${C.border}`:"none" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:10 }}>
+                    <span style={{ fontFamily:font.body, fontSize:14, fontWeight:600, color:C.text }}>{d.asesor.name}</span>
+                    <span style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.text }}>{fmtCOP(d.total)}</span>
+                  </div>
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:"4px 14px", marginTop:4 }}>
+                    {tiendasList.filter(t=>Math.round(d.porTienda[t.id]||0)!==0).map(t=>(
+                      <span key={t.id} style={{ display:"inline-flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12, color:C.textMuted }}>
+                        <PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)} <span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(d.porTienda[t.id])}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, textAlign:"center", padding:16 }}>Todavía no hay ventas este mes.</div>}
+        </SeccionVenta>
+      )}
 
       <SeccionVenta icon="cal" titulo={`Ventas por día — ${tiendaSel ? nombreTiendaCorto(stores[tiendaSel]) : "Todas las tiendas"}`}>
         {(() => {
