@@ -1107,7 +1107,7 @@ los dos y se confirma escribiendo PASAR.
   eliminar desde la app (el otro quedaría descuadrado).
 - **Para publicar en la REAL:** correr `sql/ventas_flexipago_pasar_producto.sql` antes de subir a `main`.
 
-## Ventas — cuentas de tienda ven todas las tiendas (20 nov 2026, en `staging`, falta probar)
+## Ventas — cuentas de tienda ven todas las tiendas (20 nov 2026; probado en `staging`, publicado en `main` el 20 nov 2026)
 
 - **Lista de ventas:** la cuenta de tienda ya no está amarrada a su tienda: arranca con su tienda
   marcada en el filtro y puede ver cualquier otra o todas (filtro Tienda y columna Tienda visibles).
