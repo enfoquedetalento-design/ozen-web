@@ -5500,8 +5500,11 @@ const VueloMurcielagos = () => {
 // Login: azul de la franja; dentro de la app: blanco de la barra superior.
 // Ojo (iOS 26): el iPhone igual pone un difuminado que baja un poco MÁS que la zona de la hora; no
 // se puede quitar, así que las barras de arriba dejan ese espacio de más (safe-area × 1.55) para que
-// el logo y los botones empiecen justo debajo del difuminado y no se vean borrosos. En computador y
-// Android safe-area-inset-top es 0, así que no cambia nada ahí.
+// el logo y los botones empiecen justo debajo del difuminado y no se vean borrosos. La franja en sí
+// mide SOLO la zona segura (antes también × 1.55 y en algunos celulares se veía como una banda
+// gruesa, y tapaba la parte de arriba de Usuarios/Permisos). Las pantallas que se abren encima de
+// todo (Usuarios y Permisos, Acceso tiendas, Firmar, ventanas) empiezan debajo de la zona segura.
+// En computador y Android safe-area-inset-top es 0, así que no cambia nada ahí.
 function TopeEstado({ color }) {
   useEffect(()=>{
     const meta = document.querySelector('meta[name="theme-color"]');
@@ -5509,7 +5512,7 @@ function TopeEstado({ color }) {
     document.documentElement.style.backgroundColor = color;
   }, [color]);
   return createPortal(
-    <div aria-hidden="true" style={{ position:"fixed", top:0, left:0, right:0, height:"calc(env(safe-area-inset-top, 0px) * 1.55)", background:color, zIndex:2147483000, pointerEvents:"none" }}/>,
+    <div aria-hidden="true" style={{ position:"fixed", top:0, left:0, right:0, height:"env(safe-area-inset-top, 0px)", background:color, zIndex:2147483000, pointerEvents:"none" }}/>,
     document.body
   );
 }
@@ -16795,6 +16798,8 @@ export default function App() {
       @keyframes ozenModalOverlay { from { opacity:0; } to { opacity:1; } }
       @keyframes ozenModalPop { from { opacity:0; transform:scale(.92) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
       .ozen-modal-overlay { animation: ozenModalOverlay .18s ease both; }
+      /* Celular (iPhone): las ventanas empiezan debajo de la hora/batería, no tapadas por la franja. */
+      .ozen-modal-overlay { padding-top: max(16px, calc(env(safe-area-inset-top, 0px) + 12px)) !important; }
       .ozen-modal-pop { animation: ozenModalPop .38s cubic-bezier(.34,1.56,.64,1) both; }
       /* Barra de scroll del navegador/SO: por defecto se ve pálida y desentona con el fondo oscuro
          (se nota como una franja rara al pasar el mouse justo después de hacer scroll). Se
@@ -16865,7 +16870,7 @@ export default function App() {
   );
 
   const modalUsuarios = mostrarUsuarios && (
-    <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}} className="ozen-pane-anim-modulo">
+    <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?"calc(env(safe-area-inset-top, 0px) + 16px) 16px 16px":"32px 36px"}} className="ozen-pane-anim-modulo">
       <div style={{maxWidth:900,margin:"0 auto"}}>
         <Btn onClick={()=>setMostrarUsuarios(false)} variant="ghost" sm style={{marginBottom:14}}>← Volver</Btn>
         <UsuariosYPermisos users={users} setUsers={setUsers} stores={stores} lideres={juntaLideres} setLideres={setJuntaLideres} user={user} onVerComo={entrarVerComo}/>
@@ -16874,7 +16879,7 @@ export default function App() {
   );
 
   const modalFirmas = mostrarFirmas && (
-    <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}} className="ozen-pane-anim-modulo">
+    <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?"calc(env(safe-area-inset-top, 0px) + 16px) 16px 16px":"32px 36px"}} className="ozen-pane-anim-modulo">
       <div style={{maxWidth:900,margin:"0 auto"}}>
         <Btn onClick={()=>setMostrarFirmas(false)} variant="ghost" sm style={{marginBottom:14}}>← Volver</Btn>
         <FirmarDocumentoScreen/>
@@ -16883,7 +16888,7 @@ export default function App() {
   );
 
   const modalAccesoTiendas = mostrarAccesoTiendas && (
-    <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?16:"32px 36px"}} className="ozen-pane-anim-modulo">
+    <div style={{position:"fixed",inset:0,background:C.dark,zIndex:1000,overflowY:"auto",padding:isMobile?"calc(env(safe-area-inset-top, 0px) + 16px) 16px 16px":"32px 36px"}} className="ozen-pane-anim-modulo">
       <div style={{maxWidth:900,margin:"0 auto"}}>
         <Btn onClick={()=>setMostrarAccesoTiendas(false)} variant="ghost" sm style={{marginBottom:14}}>← Volver</Btn>
         <TiendasAccesoScreen users={users} setUsers={setUsers} stores={stores}/>
