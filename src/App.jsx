@@ -6128,7 +6128,7 @@ const VENTAS_MEDIOS_REALES = VENTAS_MEDIOS_PAGO;
 const mediosDeAbono = (a) => (a && a.pagos && a.pagos.length)
   ? a.pagos
   : [{ medio_pago:a?.medio_pago, valor:a?.valor, numero_autorizacion:a?.numero_autorizacion }];
-const textoMediosAbono = (a) => mediosDeAbono(a).map(p=>`${VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago}${p.numero_autorizacion?` (AUT ${p.numero_autorizacion})`:""} $${Number(p.valor||0).toLocaleString("es-CO")}`).join(" + ");
+const textoMediosAbono = (a) => mediosDeAbono(a).map(p=>`${p.medio_pago==="traslado" ? "Traslado" : (VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label||p.medio_pago)}${p.numero_autorizacion?` (AUT ${p.numero_autorizacion})`:""} $${Number(p.valor||0).toLocaleString("es-CO")}`).join(" + ");
 
 const VENTAS_TIPOS = [
   { value:"producto", label:"Venta" },
@@ -6183,6 +6183,31 @@ const FLEXIPAGO_AVISO_ITEMS = [
   { n:5, titulo:"Aceptación", texto:"El pago realizado constituye aceptación expresa de las condiciones del presente acuerdo." },
   { texto:"Este acuerdo se rige por las normas comerciales y civiles vigentes en Colombia." },
 ];
+
+// ── Pasar un producto de un Flexipago a un Flexipago nuevo (20 nov 2026, pedido de Santiago) ──
+// Lo hace la función de la base `flexipago_pasar_producto` (sql/ventas_flexipago_pasar_producto.sql)
+// en una sola transacción. El original baja su valor y guarda la constancia en
+// `ventas.flexipago_separaciones` [{ fecha, valor, codigo, por, venta_nueva_id, traslado, se_cerro }].
+// Si lo abonado ya alcanzaba para lo que queda, el original se cierra ESE día con un abono
+// "traslado" de -sobrante y el nuevo recibe uno de +sobrante. Un traslado no es plata nueva: Caja,
+// efectivo, Métricas y Consultas no lo cuentan como ingreso.
+// Regla clave: para los días ANTERIORES a la separación, el Flexipago sigue valiendo lo de antes
+// (valor de hoy + lo que salió después de ese día) — así ningún abono viejo lo "completa" y no cambia
+// ninguna cifra de días pasados. Un Flexipago SIN separaciones se calcula exactamente igual que siempre.
+const FLEXI_MEDIO_TRASLADO = "traslado";
+const flexiEsTraslado = (a) => a?.medio_pago===FLEXI_MEDIO_TRASLADO;
+const flexiSeparaciones = (v) => Array.isArray(v?.flexipago_separaciones) ? v.flexipago_separaciones : [];
+const flexiValorEnFecha = (v, valorNeto, fecha) => valorNeto + flexiSeparaciones(v).filter(sp=>sp.fecha && fecha && String(sp.fecha) > String(fecha)).reduce((t,sp)=>t+Number(sp.valor||0),0);
+// Índice (en la lista de abonos YA ordenada) del abono que completa el Flexipago, o -1.
+const flexiIdxCierre = (v, valorNeto, abonos) => {
+  let acumulado = 0;
+  if(!flexiSeparaciones(v).length){
+    for(let k=0; k<abonos.length; k++){ const antes = acumulado; acumulado += Number(abonos[k].valor||0); if(antes<valorNeto && acumulado>=valorNeto) return k; }
+    return -1;
+  }
+  for(let k=0; k<abonos.length; k++){ acumulado += Number(abonos[k].valor||0); if(acumulado >= flexiValorEnFecha(v, valorNeto, abonos[k].fecha)) return k; }
+  return -1;
+};
 
 // Flexipagos abiertos de una tienda que están vencidos, urgentes (5 días o menos) o a mitad de
 // plazo (30+ días) — mismos umbrales que ya se usan en la tarjeta de cada venta (VentaCard), acá
@@ -6424,6 +6449,73 @@ function FlexipagoRecibo({ venta, stores, ventasItems, ventasAbonos, onCerrar })
   );
 }
 
+// Ventana "Pasar un producto a un Flexipago nuevo": se elige el producto, se ve en cifras cómo
+// quedan los dos Flexipagos y se confirma escribiendo PASAR. Todo lo hace la base en una sola
+// transacción (flexipago_pasar_producto); después se recargan las dos ventas con sus renglones y abonos.
+function FlexiPasarProducto({ venta, item, totalAbonado, user, onCerrar, onHecho }) {
+  const [sel, setSel] = useState(null);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
+  const codigos = Array.isArray(item?.codigos_producto) ? item.codigos_producto : [];
+  const valorDe = (c) => Number(String(c?.valor??"").replace(/[^\d]/g,"")) || 0;
+  const valorNeto = Number(item?.valor||0) - Number(item?.descuento||0);
+  const r = sel!==null ? valorDe(codigos[sel]) : 0;
+  const valorNuevo = valorNeto - r;
+  const seCierra = sel!==null && totalAbonado >= valorNuevo;
+  const sobrante = seCierra ? totalAbonado - valorNuevo : 0;
+  const valido = sel!==null && r>0 && valorNuevo>0 && totalAbonado < valorNeto;
+  const linea = { display:"flex", justifyContent:"space-between", gap:10, fontFamily:font.body, fontSize:13, color:C.text, padding:"3px 0" };
+  const pasar = async () => {
+    if(!valido) return;
+    const prod = codigos[sel];
+    const texto = `Vas a pasar el producto ${prod.codigo||"sin código"} (${fmtCOP(r)}) a un Flexipago NUEVO de ${venta.cliente_nombre||"este cliente"}.\n\n`
+      + `• El Flexipago original queda en ${fmtCOP(valorNuevo)}${seCierra ? " y se CIERRA HOY (cuenta como venta hoy)." : `, con ${fmtCOP(valorNuevo-totalAbonado)} por pagar.`}\n`
+      + `• El nuevo queda en ${fmtCOP(r)}${sobrante>0 ? `, con ${fmtCOP(sobrante)} trasladados de lo ya abonado.` : ", sin abonos."}\n\n`
+      + `Esto no se puede deshacer desde la app. Escribe PASAR para confirmar.`;
+    if(!await confirmarEscribiendo(texto, "PASAR")) return;
+    setGuardando(true); setError("");
+    const { data, error:err } = await supabase.rpc("flexipago_pasar_producto", { p_venta_id:String(venta.id), p_indice:sel, p_por:user?.name||"", p_fecha:todayStr });
+    if(err || !data){ setGuardando(false); setError(err?.message || "No se pudo pasar el producto. No se cambió nada."); return; }
+    await onHecho(data);
+    setGuardando(false);
+  };
+  return createPortal(
+    <div className="ozen-modal-overlay" onClick={guardando?undefined:onCerrar} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"flex-start", justifyContent:"center", zIndex:1000, padding:16, overflowY:"auto" }}>
+      <div className="ozen-modal-pop" onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:440, margin:"auto 0", background:C.surface, borderRadius:14, padding:18, boxSizing:"border-box", border:`1px solid ${C.border}` }}>
+        <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text, marginBottom:4 }}>Pasar un producto a un Flexipago nuevo</div>
+        <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginBottom:12 }}>Elige el producto que sale. El nuevo Flexipago queda con el mismo cliente, tienda y asesor.</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:12 }}>
+          {codigos.map((c,i)=>{ const val = valorDe(c); const on = sel===i; return (
+            <button key={i} disabled={val<=0 || guardando} onClick={()=>setSel(i)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:9, cursor:val>0?"pointer":"not-allowed", border:`1.5px solid ${on?C.gold:C.border}`, background:on?`${C.gold}14`:C.surfaceAlt, fontFamily:font.body, fontSize:13, color:val>0?C.text:C.textMuted, textAlign:"left" }}>
+              <span>{on?"● ":"○ "}Cód. {c.codigo||"—"}</span>
+              <span style={{ fontFamily:font.mono, fontWeight:700 }}>{val>0 ? fmtCOP(val) : "sin valor"}</span>
+            </button>
+          ); })}
+        </div>
+        {sel!==null && (
+          <div style={{ background:C.surfaceAlt, borderRadius:10, padding:"10px 12px", marginBottom:12 }}>
+            <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.1em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, marginBottom:4 }}>Flexipago original</div>
+            <div style={linea}><span>Valor</span><span style={{ fontFamily:font.mono }}>{fmtCOP(valorNeto)} → <b>{fmtCOP(Math.max(0,valorNuevo))}</b></span></div>
+            <div style={linea}><span>Abonado</span><span style={{ fontFamily:font.mono }}>{fmtCOP(totalAbonado)}</span></div>
+            <div style={{ ...linea, fontWeight:700, color:seCierra?C.green:C.amber }}><span>{seCierra ? "Se cierra hoy (cuenta como venta hoy)" : "Queda por pagar"}</span><span style={{ fontFamily:font.mono }}>{seCierra ? "✓" : fmtCOP(valorNuevo-totalAbonado)}</span></div>
+            <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.1em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, margin:"10px 0 4px" }}>Flexipago nuevo</div>
+            <div style={linea}><span>Valor</span><span style={{ fontFamily:font.mono, fontWeight:700 }}>{fmtCOP(r)}</span></div>
+            <div style={linea}><span>Traslado de lo abonado</span><span style={{ fontFamily:font.mono }}>{fmtCOP(sobrante)}</span></div>
+            <div style={{ ...linea, fontWeight:700, color:C.amber }}><span>Queda por pagar</span><span style={{ fontFamily:font.mono }}>{fmtCOP(r-sobrante)}</span></div>
+            {!valido && <div style={{ fontFamily:font.body, fontSize:12, color:C.red, marginTop:6 }}>{valorNuevo<=0 ? "El original quedaría sin valor: no se puede pasar este producto." : "No se puede pasar este producto."}</div>}
+          </div>
+        )}
+        {error && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.red, marginBottom:10 }}>{error}</div>}
+        <div style={{ display:"flex", gap:8 }}>
+          <Btn onClick={pasar} disabled={!valido || guardando} sm style={{ flex:1 }}>{guardando ? "Pasando..." : "Pasar producto"}</Btn>
+          <Btn onClick={onCerrar} disabled={guardando} variant="ghost" sm style={{ flex:1 }}>Cancelar</Btn>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 // Tarjeta de un registro de Nota crédito (el "espejo" del excedente, con su propio N.º de
 // factura) — usada tanto en "Ventas de hoy" como en "Lista de ventas". En Lista de ventas es
 // desplegable: colapsada solo muestra la etiqueta "🧾 Notacrédito" (para identificarla a simple
@@ -6555,7 +6647,7 @@ function AbonoFlexipagoCard({ venta, abonos, valorFlex, antes, totalHoy, complet
 // repetir lo que la fila ya dice), con todas las acciones de siempre.
 const horaCol = (iso) => iso ? new Date(iso).toLocaleTimeString("es-CO",{ hour:"2-digit", minute:"2-digit", hour12:false, timeZone:"America/Bogota" }) : "—";
 const fechaCorta = (f) => { if(!f) return "—"; const d = new Date(f+"T12:00:00"); return `${d.getDate()} ${d.toLocaleDateString("es-CO",{ month:"short" }).replace(".","")}`; };
-const medioCortoLabel = (m) => m==="tarjeta" ? "Tarjeta" : (VENTAS_MEDIOS_PAGO.find(x=>x.value===m)?.label || m);
+const medioCortoLabel = (m) => m==="tarjeta" ? "Tarjeta" : m==="traslado" ? "Traslado" : (VENTAS_MEDIOS_PAGO.find(x=>x.value===m)?.label || m);
 const colorDeTipoVenta = (tipo) => tipo==="producto" ? C.gold : tipo==="flexipago" ? C.goldDark : tipo==="nota" ? C.red : C.amber;
 // props: todo lo que necesita VentaCard para desplegar el detalle.
 const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItems, ventasAbonos, props }) => [
@@ -6569,10 +6661,10 @@ const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItem
     // plata que entró ese día (el primer abono); los días siguientes salen como registros de abono con
     // lo que entró cada día, y el día que se completa sale el valor completo del Flexipago.
     const abonosDia = v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id && a.fecha===v.fecha) : [];
-    const abonadoDia = abonosDia.reduce((t,a)=>t+Number(a.valor||0),0);
+    const abonadoDia = abonosDia.filter(a=>!flexiEsTraslado(a)).reduce((t,a)=>t+Number(a.valor||0),0);   // un traslado no es plata que entró ese día
     const abonadoHastaDia = v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id && a.fecha && a.fecha<=v.fecha).reduce((t,a)=>t+Number(a.valor||0),0) : 0;
     const valorFlex = v.es_flexipago ? its.filter(i=>i.tipo==="flexipago").reduce((t,i)=>t+Number(i.valor||0)-Number(i.descuento||0),0) : 0;
-    const flexCompletoDia = v.es_flexipago && valorFlex>0 && abonadoHastaDia>=valorFlex;
+    const flexCompletoDia = v.es_flexipago && valorFlex>0 && abonadoHastaDia>=flexiValorEnFecha(v, valorFlex, v.fecha);
     return { key:`v-${v.id}`, fecha:v.fecha, orden:`${v.fecha||""} ${v.created_at||""}`, hora:horaCol(v.created_at), tiendaId:v.tienda_id, asesor:v.vendedor_nombre||"—", cliente:v.cliente_nombre||"", documento:v.cliente_documento||"",
       tipo: v.es_flexipago ? (flexCompletoDia ? "Flexipago · completado" : "Flexipago") : tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta", colorTipo:colorDeTipoVenta(tipoPrincipal),
       medios: v.es_flexipago ? ([...new Set(abonosDia.flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))].map(medioCortoLabel).join(" + ") || "Sin abono") : (medios.join(" + ")||"—"), factura:v.numero_factura||"—",
@@ -7356,6 +7448,11 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   const valorFlexipago = v.es_flexipago ? (ventasItems||[]).filter(i=>i.venta_id===v.id && i.tipo==="flexipago").reduce((a,i)=>a+Number(i.valor||0)-Number(i.descuento||0),0) : 0;
   const saldoPendiente = valorFlexipago - totalAbonado;
   const flexipagoCompletado = v.es_flexipago && valorFlexipago>0 && saldoPendiente<=0;
+  // Pasar un producto a un Flexipago nuevo (20 nov 2026): Flexipago abierto (ni completo ni vencido
+  // sin reabrir), con un solo renglón Flexipago y al menos dos productos con valor.
+  const itemsFlexDeVenta = v.es_flexipago ? (ventasItems||[]).filter(i=>i.venta_id===v.id && i.tipo==="flexipago") : [];
+  const separacionesV = flexiSeparaciones(v);
+  const tieneTraslado = separacionesV.length>0 || abonosVenta.some(flexiEsTraslado);
   // Regla del aviso legal: 60 días calendario desde el primer abono para completar el pago.
   const primerAbonoFecha = abonosVenta.length>0 ? abonosVenta[0].fecha : null;
   const diasDesdeAbono = primerAbonoFecha ? diasEntre(primerAbonoFecha, todayStr) : null;
@@ -7381,7 +7478,30 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   // para lo que se registró hoy mismo. Para días anteriores, tiene que pedir Notacrédito.
   const esHoyTienda = esCuentaTienda(user) && v.fecha===todayStr;   // solo para los textos de ayuda
   const puedeCorregirErrorAqui = puede(user, "ventas.factura.corregir", { hoy:v.fecha===todayStr });
-  const puedeEliminarAqui = puede(user, "ventas.eliminar", { hoy:v.fecha===todayStr });
+  // Un Flexipago que entregó o recibió un producto/traslado no se elimina desde la app: el otro
+  // Flexipago quedaría descuadrado.
+  const puedeEliminarAqui = puede(user, "ventas.eliminar", { hoy:v.fecha===todayStr }) && !tieneTraslado;
+  const [pasarAbierto, setPasarAbierto] = useState(false);
+  const [msgPasar, setMsgPasar] = useState("");
+  const puedePasarProducto = v.es_flexipago && !flexipagoCompletado && !flexipagoVencido && puede(user, "ventas.abono.registrar")
+    && itemsFlexDeVenta.length===1 && (itemsFlexDeVenta[0].codigos_producto||[]).filter(c=>Number(String(c?.valor??"").replace(/[^\d]/g,""))>0).length>=2;
+  const alPasarProducto = async (res) => {
+    const ids = [v.id, res.venta_nueva_id];
+    const idsTxt = new Set(ids.map(String));
+    const [rv, ri, ra] = await Promise.all([
+      supabase.from("ventas").select("*").in("id", ids),
+      supabase.from("ventas_items").select("*").in("venta_id", ids),
+      supabase.from("ventas_abonos").select("*").in("venta_id", ids),
+    ]);
+    if(rv.data) setVentas(prev=>[...prev.filter(x=>!idsTxt.has(String(x.id))), ...rv.data]);
+    if(ri.data && setVentasItems) setVentasItems(prev=>[...prev.filter(x=>!idsTxt.has(String(x.venta_id))), ...ri.data]);
+    if(ra.data && setVentasAbonos) setVentasAbonos(prev=>[...prev.filter(x=>!idsTxt.has(String(x.venta_id))), ...ra.data]);
+    setPasarAbierto(false);
+    setMsgPasar(res.se_cerro
+      ? `✓ Listo: este Flexipago quedó cerrado hoy en ${fmtCOP(res.valor_nuevo)} y se creó el Flexipago nuevo de ${fmtCOP(res.valor_producto)}${Number(res.traslado)>0?` con ${fmtCOP(res.traslado)} trasladados`:""}.`
+      : `✓ Listo: este Flexipago quedó en ${fmtCOP(res.valor_nuevo)} y se creó el Flexipago nuevo de ${fmtCOP(res.valor_producto)}.`);
+    fetchDetalle();
+  };
   // Lo que realmente ingresó el día de la venta es valor_original — el excedente de una
   // Nota crédito posterior se muestra aparte, sin agrandar la fila (cuenta en Métricas en
   // su propia fecha, no en la fecha de esta venta).
@@ -7813,13 +7933,19 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
                             {/* El abono INICIAL (idx 0, el más antiguo) nunca se puede corregir desde
                                 acá — Santiago pidió que ese quede intocable. Los siguientes sí, y ya
                                 soportan varios medios de pago a la vez (ver eaPagos arriba). */}
-                            {puede(user, "ventas.abono.corregir") && idx!==0 && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
+                            {puede(user, "ventas.abono.corregir") && idx!==0 && !flexiEsTraslado(a) && <button onClick={()=>iniciarEdicionAbono(a)} title="Corregir este abono" style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:12 }}>✏️</button>}
                           </span>
                         </div>
                       )
                     ))}
                     {(d?.abonos||[]).length===0 && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Sin abonos todavía.</div>}
                   </div>
+                  {separacionesV.map((sp,si)=>(
+                    <div key={si} style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginBottom:4 }}>
+                      ↪️ Cód. {sp.codigo||"—"} ({fmtCOP(sp.valor)}) pasado a un Flexipago nuevo el {fechaCorta(sp.fecha)}{sp.por?` por ${sp.por}`:""}{Number(sp.traslado)>0?` · se trasladaron ${fmtCOP(sp.traslado)}`:""}.
+                    </div>
+                  ))}
+                  {msgPasar && <div style={{ fontFamily:font.body, fontSize:12, color:C.green, fontWeight:700, marginBottom:6 }}>{msgPasar}</div>}
                   {saldoPendiente>0 && puede(user, "ventas.abono.registrar") && (
                     flexipagoVencido ? (
                       <div style={{ background:C.redDim, border:`1px solid ${C.red}44`, borderRadius:7, padding:"8px 10px", fontFamily:font.body, fontSize:12, color:C.red }}>
@@ -7920,6 +8046,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
               )}
               <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:6 }}>
                 {v.es_flexipago && <Btn onClick={()=>setVerRecibo(true)} variant="ghost" sm><Icon n="receipt" s={14}/>Recibo para el cliente</Btn>}
+                {puedePasarProducto && !abiertoEdicion && <Btn onClick={()=>setPasarAbierto(true)} variant="ghost" sm>↪️ Pasar un producto a un Flexipago nuevo</Btn>}
                 {(flexipagoVencido || flexipagoUrgente || flexipagoAviso30) && <FlexiAvisarWhatsApp venta={v} stores={stores} user={user} saldo={saldoPendiente} fechaLimite={fechaLimite}/>}
                 {puedeEditar && !abiertoEdicion && !flexipagoVencido && !flexipagoCompletado && <Btn onClick={()=>iniciarEdicion(v)} sm title="Ya te aprobaron el Notacrédito — usa este botón para aplicarlo.">📝 Aplicar Notacrédito</Btn>}
                 {puedeNotacredito && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarNotacredito(v)} variant="ghost" sm style={{ color:C.amber }} title="Usa esto cuando la corrección SÍ genera un número de factura nuevo en Siigo (incluye cambio de producto por el mismo valor). El valor no puede bajar del ya registrado, y necesitas el N.º de factura nuevo.">🧾 Notacrédito Siigo</Btn>}
@@ -7941,6 +8068,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
           )}
         </div>
       </Collapse>
+      {pasarAbierto && <FlexiPasarProducto venta={v} item={itemsFlexDeVenta[0]} totalAbonado={totalAbonado} user={user} onCerrar={()=>setPasarAbierto(false)} onHecho={alPasarProducto}/>}
       {verRecibo && <FlexipagoRecibo venta={v} stores={stores} ventasItems={ventasItems} ventasAbonos={ventasAbonos} onCerrar={()=>setVerRecibo(false)}/>}
     </Card>
   );
@@ -8189,7 +8317,7 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, opAvisos, onIrAOr
     const antes = todasDeEstaVenta.slice(0,primerIdxHoy).reduce((s,ab)=>s+Number(ab.valor||0),0);
     const abonosOrdenados = [...abonos].sort((p,q)=> new Date(p.created_at||p.fecha) - new Date(q.created_at||q.fecha) || String(p.id).localeCompare(String(q.id)));
     const totalHoy = abonosOrdenados.reduce((s,a)=>s+Number(a.valor||0),0);
-    const completa = valorFlex>0 && (antes + totalHoy) >= valorFlex;
+    const completa = valorFlex>0 && (antes + totalHoy) >= flexiValorEnFecha(venta, valorFlex, abonosOrdenados[0]?.fecha);
     const mediosHoy = [...new Set(abonosOrdenados.flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))];
     return { venta, abonos:abonosOrdenados, valorFlex, antes, totalHoy, completa, mediosHoy };
   });
@@ -8678,7 +8806,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       const antes = todasDeEstaVenta.slice(0,primerIdxFiltrado).reduce((s,ab)=>s+Number(ab.valor||0),0);
       const abonosOrdenados = [...abonos].sort((p,q2)=> new Date(p.created_at||p.fecha) - new Date(q2.created_at||q2.fecha) || String(p.id).localeCompare(String(q2.id)));
       const totalHoy = abonosOrdenados.reduce((s,a)=>s+Number(a.valor||0),0);
-      const completa = valorFlex>0 && (antes + totalHoy) >= valorFlex;
+      const completa = valorFlex>0 && (antes + totalHoy) >= flexiValorEnFecha(venta, valorFlex, abonosOrdenados[0]?.fecha);
       const mediosHoy = [...new Set(abonosOrdenados.flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))];
       return { venta, abonos:abonosOrdenados, valorFlex, antes, totalHoy, completa, mediosHoy };
     }).filter(g=>!f.flexEstado || (f.flexEstado==="completo" ? g.completa : !g.completa));
@@ -8934,15 +9062,10 @@ const calcularCierresFlexipago = (ventas, ventasItems, ventasAbonos) => {
     const valorNeto = ventasItems.filter(i=>i.venta_id===v.id && i.tipo==="flexipago").reduce((s,i)=>s+(Number(i.valor||0)-Number(i.descuento||0)),0);
     if(valorNeto<=0) return;
     const abonos = ventasAbonos.filter(a=>a.venta_id===v.id).sort((a,b)=> new Date(a.created_at||a.fecha) - new Date(b.created_at||b.fecha));
-    let acumulado = 0;
-    for(const ab of abonos){
-      const antes = acumulado;
-      acumulado += Number(ab.valor||0);
-      if(antes<valorNeto && acumulado>=valorNeto){
-        cierres.push({ ventaId:v.id, tiendaId:v.tienda_id, vendedorId:v.vendedor_id, valorNeto, fechaCierre:ab.fecha });
-        break;
-      }
-    }
+    // Sin separaciones es la misma regla de siempre (primer abono que alcanza el valor). Con
+    // separaciones, ver flexiIdxCierre.
+    const k = flexiIdxCierre(v, valorNeto, abonos);
+    if(k>=0) cierres.push({ ventaId:v.id, tiendaId:v.tienda_id, vendedorId:v.vendedor_id, valorNeto, fechaCierre:abonos[k].fecha });
   });
   return cierres;
 };
@@ -9501,7 +9624,8 @@ const construirHechosVentas = (ventas, ventasItems, ventasAbonos, ventasAjustes)
   const abonosPorVenta = {}; ventasAbonos.forEach(ab=>{ (abonosPorVenta[ab.venta_id] = abonosPorVenta[ab.venta_id] || []).push(ab); });
   cierres.forEach(c=>{
     const v = ventaById[c.ventaId]; if(!v || !c.fechaCierre) return;
-    const abonos = abonosPorVenta[v.id] || [];
+    // Los traslados entre Flexipagos no son plata nueva: no cuentan para repartir por medio.
+    const abonos = (abonosPorVenta[v.id] || []).filter(ab=>!flexiEsTraslado(ab));
     const tot = abonos.reduce((s,ab)=>s+Number(ab.valor||0),0);
     const porMedio = {};
     abonos.forEach(ab=>mediosDeAbono(ab).forEach(p=>{ const m = p.medio_pago||"efectivo"; porMedio[m]=(porMedio[m]||0)+Number(p.valor||0); }));
@@ -9515,7 +9639,7 @@ const construirHechosVentas = (ventas, ventasItems, ventasAbonos, ventasAjustes)
   });
   ventasAbonos.forEach(ab=>{
     const v = ventaById[ab.venta_id];
-    if(!v || !v.es_flexipago || cerrados.has(v.id) || !ab.fecha) return;
+    if(!v || !v.es_flexipago || cerrados.has(v.id) || !ab.fecha || flexiEsTraslado(ab)) return;
     mediosDeAbono(ab).forEach(p=>{
       const x = Number(p.valor||0); if(x<=0) return;
       H.push({ ...base(v, ab.fecha, ab.created_at), tipo:"flexipago", medio:p.medio_pago||"efectivo", sin:0, servicios:0, ingreso:x, descuento:0, cuenta:0 });
@@ -10555,6 +10679,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     const v = ventaByIdGlobal[ab.venta_id];
     if(!v || !v.es_flexipago) return false;
     if(idsVentasFlexipagoCerradas.has(v.id)) return false;
+    if(flexiEsTraslado(ab)) return false;   // traslado entre Flexipagos: no es plata nueva
     return !tiendaSel || v.tienda_id===tiendaSel;
   });
   const sumaPagos = (items) => items.reduce((a,i)=>a+(i.pagos||[]).reduce((s,p)=>s+Number(p.valor||0),0), 0);
@@ -11959,11 +12084,14 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
     ventasFlexipago.forEach(v=>{
       const valorTotal = ventasItems.filter(i=>i.venta_id===v.id && i.tipo==="flexipago").reduce((s,i)=>s+(Number(i.valor||0)-Number(i.descuento||0)),0);
       const abonos = ventasAbonos.filter(a=>a.venta_id===v.id).sort((a,b)=> new Date(a.created_at||a.fecha) - new Date(b.created_at||b.fecha));
+      // Flexipago con un producto pasado a otro Flexipago: el abono que lo cierra sale de
+      // flexiIdxCierre (ver ahí). Sin separaciones, la regla de siempre, sin ningún cambio.
+      const idxCierreSep = flexiSeparaciones(v).length ? flexiIdxCierre(v, valorTotal, abonos) : null;
       let acumulado = 0;
-      abonos.forEach(ab=>{
+      abonos.forEach((ab, k)=>{
         const antes = acumulado;
         acumulado += Number(ab.valor||0);
-        const completaHoy = antes < valorTotal && acumulado >= valorTotal && ab.fecha===fecha;
+        const completaHoy = idxCierreSep===null ? (antes < valorTotal && acumulado >= valorTotal && ab.fecha===fecha) : (k===idxCierreSep && ab.fecha===fecha);
         // Un abono puede venir dividido en varios medios de pago (mediosDeAbono normaliza los
         // abonos viejos de un solo medio a una lista de un solo renglón, para que esto no cambie
         // en nada el cálculo de los de siempre).
@@ -11979,6 +12107,19 @@ function VentasCajaScreen({ tiendaActiva, user, stores, users, ventas, ventasIte
           // "Flexipagos de ese día" — mostrarlo ahí además del ingreso neto hacía parecer que esa
           // plata no contaba, cuando en realidad es justo la que cerró la venta.
           flexipagoCerradoHoy += valorTotal;
+          if(flexiEsTraslado(ab)){
+            // Se cerró al pasar un producto a otro Flexipago: hoy no entró plata. La venta completa
+            // sí cuenta en "Total ventas" (sale como Flexipago redimido); para repartirla por medio
+            // se usan los medios con que se pagaron sus abonos. "Ingreso del día" no cambia.
+            const reales = abonos.slice(0, k).filter(x=>!flexiEsTraslado(x)).flatMap(mediosDeAbono).filter(p=>CAJA_MEDIOS.includes(p.medio_pago) && Number(p.valor||0)>0);
+            const totReales = reales.reduce((t,p)=>t+Number(p.valor||0),0);
+            (totReales>0 ? reales : [{ medio_pago:"efectivo", valor:1 }]).forEach(p=>{
+              const proporcion = totReales>0 ? Number(p.valor||0)/totReales : 1;
+              ingresoNeto[p.medio_pago] += valorTotal * proporcion;
+              flexipagoCerradoHoyMedios[p.medio_pago] += valorTotal * proporcion;
+            });
+            return;
+          }
           subPagos.forEach(p=>{
             if(!CAJA_MEDIOS.includes(p.medio_pago)) return;
             const parte = Number(p.valor||0);
