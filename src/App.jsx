@@ -6142,7 +6142,7 @@ const VENTAS_TIPOS = [
 ];
 // Píldora de tipo (Venta, Arreglo, Flexipago...) para la tabla de "Ventas de hoy".
 const PildoraTipo = ({ t, c }) => (
-  <span style={{ display:"inline-block", borderRadius:99, padding:"3px 11px", fontFamily:font.body, fontSize:12, fontWeight:600, background:hexToRgba(c,0.12), color:c, whiteSpace:"nowrap" }}>{t}</span>
+  <span title={typeof t==="string" ? t : undefined} style={{ display:"inline-block", maxWidth:"100%", boxSizing:"border-box", overflow:"hidden", textOverflow:"ellipsis", verticalAlign:"middle", borderRadius:99, padding:"3px 11px", fontFamily:font.body, fontSize:12, fontWeight:600, background:hexToRgba(c,0.12), color:c, whiteSpace:"nowrap" }}>{t}</span>
 );
 // Íconos de línea (Propuesta A) para las fichas de tipo y de medio de pago en Registrar venta.
 const TIPO_VENTA_ICON = { producto:"bag", arreglo:"wrench", marcacion:"tag", grabado:"nib", flexipago:"box" };
@@ -6759,7 +6759,7 @@ function TablaVentas({ filas, stores, isMobile, conFecha, conTienda, vacio, limi
               </span>
             ) : (
               <>
-                {conTienda && <span>{tienda ? <EtiquetaTienda store={tienda} sm/> : "—"}</span>}
+                {conTienda && <span style={{ minWidth:0, overflow:"hidden" }}>{tienda ? <EtiquetaTienda store={tienda} sm/> : "—"}</span>}
                 {conCliente && (
                   <span style={{ minWidth:0, overflow:"hidden" }}>
                     {f.cliente ? <span style={{ display:"block", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}><Resaltar texto={f.cliente} q={resaltar}/></span> : <span style={{ color:C.textMuted }}>—</span>}
@@ -6770,9 +6770,9 @@ function TablaVentas({ filas, stores, isMobile, conFecha, conTienda, vacio, limi
                   <span style={{ display:"block", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}><Resaltar texto={f.asesor} q={resaltar}/></span>
                   {!conCliente && f.cliente && <span style={{ display:"block", fontSize:11.5, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.cliente}</span>}
                 </span>
-                <span><PildoraTipo t={f.tipo} c={f.colorTipo}/></span>
-                <span style={{ color:C.textSub }}>{f.medios}</span>
-                <span style={{ fontFamily:font.mono, fontSize:12.5, color:f.factura==="—"?C.textMuted:C.text }}><Resaltar texto={f.factura} q={resaltar}/></span>
+                <span style={{ minWidth:0, overflow:"hidden" }}><PildoraTipo t={f.tipo} c={f.colorTipo}/></span>
+                <span title={f.medios} style={{ minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:C.textSub }}>{f.medios}</span>
+                <span style={{ minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", fontFamily:font.mono, fontSize:12.5, color:f.factura==="—"?C.textMuted:C.text }}><Resaltar texto={f.factura} q={resaltar}/></span>
               </>
             )}
             <span style={{ fontFamily:font.mono, fontWeight:700, textAlign:"right", color:f.negativo?C.amber:C.text }}>{fmtCOP(f.total)}{f.subTotal && <span style={{ display:"block", fontSize:11, fontWeight:500, color:C.amber }}>{f.subTotal}</span>}</span>
@@ -8653,35 +8653,6 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, opAvisos, onIrAOr
 // asesor, N.º de autorización y valor; fechas rápidas + rango; fichas que abren una listita de
 // opciones (varias a la vez); línea "Filtrando:" con cada filtro quitable; resumen que responde a
 // los filtros; tabla agrupada por día. En celular: buscador + botón "Filtros" que abre una hoja.
-const LV_PERIODOS = [
-  { value:"hoy", label:"Hoy" }, { value:"ayer", label:"Ayer" }, { value:"semana", label:"Esta semana" },
-  { value:"mes", label:"Este mes" }, { value:"mes_pasado", label:"Mes pasado" }, { value:"todo", label:"Todo" }, { value:"rango", label:"Rango" },
-];
-const LV_TIPOS = [
-  { value:"producto", label:"Venta" }, { value:"arreglo", label:"Arreglo" }, { value:"marcacion", label:"Marcación" },
-  { value:"grabado", label:"Grabado" }, { value:"flexipago", label:"Flexipago" }, { value:"nota", label:"Nota crédito" },
-];
-const LV_MAS = [
-  { value:"descuento", label:"Con descuento" },
-  { value:"sinFactura", label:"Sin N.º de factura" },
-  { value:"conNota", label:"Con nota crédito" },
-  { value:"servicio", label:"Con servicio (arreglo, marcación, grabado)" },
-];
-const LV_FILTROS_VACIOS = { periodo:"mes", desde:"", hasta:"", tiendas:[], asesores:[], tipos:[], flexEstado:"", medios:[], mas:[] };
-
-const lvRango = (f) => {
-  const hoyS = todayStr;
-  switch(f.periodo){
-    case "hoy": return [hoyS, hoyS];
-    case "ayer": { const a = consSumarDias(hoyS,-1); return [a,a]; }
-    case "semana": return [consLunes(hoyS), hoyS];
-    case "mes": return [hoyS.slice(0,8)+"01", hoyS];
-    case "mes_pasado": { const d = consParse(hoyS); return [consFecha(new Date(d.getFullYear(), d.getMonth()-1, 1)), consFecha(new Date(d.getFullYear(), d.getMonth(), 0))]; }
-    case "rango": { const a = f.desde||f.hasta||hoyS, b = f.hasta||f.desde||hoyS; return a<=b ? [a,b] : [b,a]; }
-    default: return null; // todo
-  }
-};
-
 const LvCheck = ({ on }) => (
   <span style={{ width:17, height:17, borderRadius:5, border:`1.5px solid ${on?C.gold:"rgba(38,93,127,0.45)"}`, background:on?C.gold:"#fff", display:"grid", placeItems:"center", color:"#fff", flexShrink:0 }}>{on && <Icon n="check" s={12} sw={3}/>}</span>
 );
@@ -8697,7 +8668,12 @@ const LvNum = ({ n }) => n>0 ? <span style={{ background:C.goldDark, color:C.tin
 // Ficha con listita desplegable (se cierra tocando afuera o con Esc).
 function LvFicha({ label, n, icono, children, ancho=250 }) {
   const [abierta, setAbierta] = useState(false);
+  const [aDerecha, setADerecha] = useState(false);
   const ref = useRef(null);
+  const abrir = () => {
+    if(!abierta && ref.current){ const r = ref.current.getBoundingClientRect(); setADerecha(r.left + Math.min(ancho, window.innerWidth-16) > window.innerWidth - 8); }
+    setAbierta(a=>!a);
+  };
   useEffect(()=>{
     if(!abierta) return;
     const fuera = (e) => { if(ref.current && !ref.current.contains(e.target)) setAbierta(false); };
@@ -8707,9 +8683,9 @@ function LvFicha({ label, n, icono, children, ancho=250 }) {
   }, [abierta]);
   return (
     <span ref={ref} style={{ position:"relative", display:"inline-flex" }}>
-      <button onClick={()=>setAbierta(a=>!a)} style={lvChipEstilo(n>0 || abierta)}>{icono}{label}<LvNum n={n}/><Icon n="down" s={12} sw={2.2} style={{ opacity:0.6, transform:abierta?"rotate(180deg)":"none", transition:"transform .2s" }}/></button>
+      <button onClick={abrir} style={lvChipEstilo(n>0 || abierta)}>{icono}{label}<LvNum n={n}/><Icon n="down" s={12} sw={2.2} style={{ opacity:0.6, transform:abierta?"rotate(180deg)":"none", transition:"transform .2s" }}/></button>
       {abierta && (
-        <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:30, width:ancho, maxHeight:380, overflowY:"auto", background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, boxShadow:"0 14px 40px rgba(26,59,82,0.16)", padding:12 }}>
+        <div style={{ position:"absolute", top:"calc(100% + 6px)", ...(aDerecha ? { right:0 } : { left:0 }), zIndex:30, width:ancho, maxWidth:"calc(100vw - 16px)", maxHeight:380, overflowY:"auto", background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, boxShadow:"0 14px 40px rgba(26,59,82,0.16)", padding:12 }}>
           {children}
         </div>
       )}
@@ -8717,36 +8693,48 @@ function LvFicha({ label, n, icono, children, ancho=250 }) {
   );
 }
 
-function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, metas, esAdmin, soloLectura }) {
+function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, esAdmin, soloLectura }) {
+  // Lista de ventas — rediseño del 21 nov 2026 (pedido de Santiago). Arriba: buscador + Fecha (todas /
+  // un día / rango) + Tienda + Asesor + un solo botón "Flexipagos". Sin fechas puestas de entrada:
+  // todo, de lo más nuevo a lo más viejo. Sin cifras de resumen (esto no es Métricas).
+  // La cuenta de tienda arranca con SU tienda marcada; para ver otra tiene que elegirla (y en las de
+  // otra tienda solo mira, ver VentaCard).
   const isMobile = useIsMobile();
-  // Cuenta de tienda: antes solo veía su tienda; desde el 20 nov 2026 ve todas (arranca con la suya
-  // marcada en el filtro y puede quitarla). Solo edita lo de su tienda (ver VentaCard, puedeAqui).
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
-  const [f, setF] = useState(()=> tiendaFija ? { ...LV_FILTROS_VACIOS, tiendas:[tiendaFija] } : LV_FILTROS_VACIOS);
+  const filtrosIniciales = { fechaModo:"todas", dia:"", desde:"", hasta:"", tiendas: tiendaFija ? [tiendaFija] : [], asesores:[], soloFlex:false };
+  const [f, setF] = useState(filtrosIniciales);
   const [busqueda, setBusqueda] = useState("");
-  const [hojaAbierta, setHojaAbierta] = useState(false);
   const setFil = (k, v) => setF(prev=>({ ...prev, [k]:v }));
   const toggle = (k, v) => setF(prev=>({ ...prev, [k]: prev[k].includes(v) ? prev[k].filter(x=>x!==v) : [...prev[k], v] }));
   const asesores = users.filter(u=>puede(u, "ventas.vendedor")).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   const tiendas = tiendasVenta(stores);
-  const rango = lvRango(f);
+  const rango = f.fechaModo==="dia" && f.dia ? [f.dia, f.dia]
+    : f.fechaModo==="rango" && (f.desde||f.hasta) ? (()=>{ const a = f.desde||f.hasta, b = f.hasta||f.desde; return a<=b ? [a,b] : [b,a]; })()
+    : null;
   const enRango = (fecha) => !rango || (fecha && fecha>=rango[0] && fecha<=rango[1]);
 
   // Índices para no recorrer todos los renglones/abonos por cada venta.
   const idx = useMemo(()=>{
     const items = {}; ventasItems.forEach(i=>{ (items[i.venta_id] = items[i.venta_id] || []).push(i); });
     const abonos = {}; (ventasAbonos||[]).forEach(a=>{ (abonos[a.venta_id] = abonos[a.venta_id] || []).push(a); });
-    const conNota = new Set((ajustes||[]).filter(a=>!a.es_correccion_error).map(a=>a.venta_id));
     const userNombre = {}; users.forEach(u=>{ userNombre[u.id] = u.name; });
-    return { items, abonos, conNota, userNombre };
-  }, [ventasItems, ventasAbonos, ajustes, users]);
+    return { items, abonos, userNombre };
+  }, [ventasItems, ventasAbonos, users]);
+  const ventaById = useMemo(()=>{ const m = {}; ventas.forEach(v=>{ m[v.id]=v; }); return m; }, [ventas]);
 
   const valorFlexDe = (v) => (idx.items[v.id]||[]).filter(i=>i.tipo==="flexipago").reduce((s,i)=>s+Number(i.valor||0)-Number(i.descuento||0),0);
   const abonadoDe = (v) => (idx.abonos[v.id]||[]).reduce((s,a)=>s+Number(a.valor||0),0);
-  const flexCompleto = (v) => { const vf = valorFlexDe(v); return vf>0 && abonadoDe(v)>=vf; };
-  const mediosDeVenta = (v) => v.es_flexipago
-    ? new Set((idx.abonos[v.id]||[]).flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))
-    : new Set((idx.items[v.id]||[]).flatMap(i=>(i.pagos||[]).map(p=>p.medio_pago)));
+  // Estado de HOY de un Flexipago (para el botón Flexipagos y la tarjeta del cliente).
+  const estadoFlexDe = (v) => {
+    const valor = valorFlexDe(v), saldo = valor - abonadoDe(v);
+    if(valor>0 && saldo<=0) return { saldo:0, texto:"Completado", color:C.green };
+    const primer = [...(idx.abonos[v.id]||[])].sort((a,b)=>String(a.fecha||"").localeCompare(String(b.fecha||"")))[0];
+    const dias = primer ? diasEntre(primer.fecha, todayStr) : null;
+    if(dias!==null && dias>FLEXIPAGO_PLAZO_DIAS && !v.flexipago_reabierto_en) return { saldo, texto:"Vencido", color:C.red };
+    const faltan = dias!==null ? FLEXIPAGO_PLAZO_DIAS - dias : null;
+    if(faltan!==null && faltan<=5) return { saldo, texto:`Vence en ${Math.max(0,faltan)}d`, color:C.amber };
+    return { saldo, texto:"Abierto", color:C.blue };
+  };
 
   // Búsqueda: cliente, cédula, factura, asesor, N.º de autorización y valor (con o sin puntos).
   const q = sinTildes(busqueda).trim();
@@ -8765,55 +8753,29 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     return false;
   };
   const pasaTiendaAsesor = (v) => (!f.tiendas.length || f.tiendas.includes(v.tienda_id)) && (!f.asesores.length || f.asesores.includes(v.vendedor_id));
-  const tiposVenta = f.tipos.filter(t=>t!=="nota");
-  const quiereNotas = !f.tipos.length || f.tipos.includes("nota");
-  const quiereVentas = !f.tipos.length || tiposVenta.length>0;
-  const soloDeVentas = f.mas.some(m=>m==="descuento"||m==="servicio"); // filtros que solo aplican a facturas
 
-  const ventasFiltradas = !quiereVentas ? [] : ventas.filter(v=>{
+  const ventasFiltradas = ventas.filter(v=>{
     if(!enRango(v.fecha) || !pasaTiendaAsesor(v)) return false;
-    const its = idx.items[v.id]||[];
-    if(tiposVenta.length){
-      const tipos = new Set(v.es_flexipago ? ["flexipago"] : its.map(i=>i.tipo));
-      if(!tiposVenta.some(t=>tipos.has(t))) return false;
-    }
-    if(v.es_flexipago && f.flexEstado){ const c = flexCompleto(v); if(f.flexEstado==="abierto" ? c : !c) return false; }
-    if(f.medios.length){ const ms = mediosDeVenta(v); if(!f.medios.some(m=>ms.has(m))) return false; }
-    if(f.mas.includes("descuento") && !(Number(v.descuento_total||0)>0 || its.some(i=>Number(i.descuento||0)>0))) return false;
-    if(f.mas.includes("sinFactura") && v.numero_factura) return false;
-    if(f.mas.includes("conNota") && !idx.conNota.has(v.id)) return false;
-    if(f.mas.includes("servicio") && !its.some(i=>["arreglo","marcacion","grabado"].includes(i.tipo))) return false;
+    if(f.soloFlex && !v.es_flexipago) return false;
     return coincide(v);
   }).sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||"") || (b.created_at||"").localeCompare(a.created_at||""));
 
-  // Notas crédito: un registro aparte por cada excedente, en su fecha REAL.
-  const ventaById = useMemo(()=>{ const m = {}; ventas.forEach(v=>{ m[v.id]=v; }); return m; }, [ventas]);
-  const notaCreditosFiltradas = (!quiereNotas || soloDeVentas) ? [] : (ajustes||[])
+  // Notas crédito: un registro aparte por cada excedente, en su fecha REAL. Con "Flexipagos" no salen.
+  const notaCreditosFiltradas = f.soloFlex ? [] : (ajustes||[])
     .filter(aj => !aj.es_correccion_error && enRango(aj.fecha))
     .map(aj => ({ ajuste:aj, venta: ventaById[aj.venta_id] }))
     .filter(({venta}) => !!venta && pasaTiendaAsesor(venta))
-    .filter(({ajuste}) => !f.mas.includes("sinFactura") || !(ajuste.numero_factura))
-    .filter(({ajuste}) => {
-      if(!f.medios.length) return true;
-      const its = (idx.items[ajuste.venta_id]||[]).filter(i=>i.es_original===false && i.fecha_item===ajuste.fecha);
-      return its.some(i=>(i.pagos||[]).some(p=>f.medios.includes(p.medio_pago)));
-    })
-    .filter(({venta, ajuste}) => coincide(venta, ajuste.numero_factura, [ajuste.diferencia]))
-    .sort((a,b)=> (b.ajuste.fecha||"").localeCompare(a.ajuste.fecha||""));
+    .filter(({venta, ajuste}) => coincide(venta, ajuste.numero_factura, [ajuste.diferencia]));
 
-  // Abonos de Flexipago que entraron un día distinto al de la venta — el dinero se recibió ese día
-  // aunque la factura se haya creado antes. Se agrupan por venta y por día. También en "Todo": cada día
-  // del Flexipago tiene su propio registro (pedido de Santiago).
-  const quiereAbonos = (!f.tipos.length || f.tipos.includes("flexipago")) && !soloDeVentas && !f.mas.includes("sinFactura") && !f.mas.includes("conNota");
-  const abonosFiltrados = (() => {
-    if(!quiereAbonos) return [];
+  // Abonos de Flexipago que entraron un día distinto al de la venta (cada día del Flexipago tiene su
+  // registro). Con el botón "Flexipagos" prendido NO salen: ahí se ve un renglón por Flexipago.
+  const abonosFiltrados = f.soloFlex ? [] : (() => {
     const grupos = {};
     (ventasAbonos||[]).forEach(a=>{
       if(!enRango(a.fecha)) return;
       const venta = ventaById[a.venta_id];
       if(!venta || venta.fecha===a.fecha) return; // mismo día que la venta: ya sale en la fila normal
       if(!pasaTiendaAsesor(venta)) return;
-      if(f.medios.length && !mediosDeAbono(a).some(p=>f.medios.includes(p.medio_pago))) return;
       if(!coincide(venta, null, [a.valor])) return;
       const k = `${venta.id}|${a.fecha}`;
       if(!grupos[k]) grupos[k] = { venta, abonos:[] };
@@ -8831,35 +8793,49 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       const completa = valorFlex>0 && (antes + totalHoy) >= flexiValorEnFecha(venta, valorFlex, abonosOrdenados[0]?.fecha);
       const mediosHoy = [...new Set(abonosOrdenados.flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))];
       return { venta, abonos:abonosOrdenados, valorFlex, antes, totalHoy, completa, mediosHoy };
-    }).filter(g=>!f.flexEstado || (f.flexEstado==="completo" ? g.completa : !g.completa));
+    });
   })();
 
-  const filas = construirFilasVentas({ ventasLista:ventasFiltradas, abonosLista:abonosFiltrados, notasLista:notaCreditosFiltradas, ventasItems, ventasAbonos,
+  let filas = construirFilasVentas({ ventasLista:ventasFiltradas, abonosLista:abonosFiltrados, notasLista:notaCreditosFiltradas, ventasItems, ventasAbonos,
     props:{ stores, user, esAdmin, soloLectura, isMobile, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes } });
+  // Con "Flexipagos": cada renglón dice cómo está HOY ese Flexipago y cuánto debe.
+  if(f.soloFlex) filas = filas.map(fl=>{
+    const v = ventaById[String(fl.key).replace(/^v-/,"")];
+    if(!v || !v.es_flexipago) return fl;
+    const e = estadoFlexDe(v);
+    return { ...fl, tipo:`Flexipago · ${e.texto.toLowerCase()}`, colorTipo: e.saldo>0 ? e.color : fl.colorTipo, subTotal: e.saldo>0 ? `debe ${fmtCOP(e.saldo)}` : fl.subTotal };
+  });
 
-  // ── Resumen ──
-  const sumaLista = filas.reduce((s,x)=>s+Number(x.total||0),0);
-  const sumaNotas = notaCreditosFiltradas.reduce((s,n)=>s+Number(n.ajuste.diferencia||0),0);
-  const flexEnLista = ventasFiltradas.filter(v=>v.es_flexipago);
-  const porCobrar = flexEnLista.reduce((s,v)=>s+Math.max(0, valorFlexDe(v)-abonadoDe(v)),0);
-  const abonadoFlex = flexEnLista.reduce((s,v)=>s+Math.min(abonadoDe(v), valorFlexDe(v)),0);
+  // Tarjeta del cliente: si lo escrito es un nombre o una cédula de cliente, arriba sale su ficha con
+  // sus Flexipagos (solo los Flexipagos guardan datos del cliente). Respeta Tienda y Asesor, no la fecha.
+  const clientes = (()=>{
+    if(q.length<3) return [];
+    const porCliente = {};
+    ventas.forEach(v=>{
+      if(!v.es_flexipago || !pasaTiendaAsesor(v)) return;
+      const porNombre = v.cliente_nombre && sinTildes(v.cliente_nombre).includes(q);
+      const porDoc = qNum.length>=4 && v.cliente_documento && String(v.cliente_documento).replace(/\D/g,"").includes(qNum);
+      if(!porNombre && !porDoc) return;
+      const k = v.cliente_documento ? `d-${String(v.cliente_documento).replace(/\D/g,"")}` : `n-${sinTildes(v.cliente_nombre)}`;
+      if(!porCliente[k]) porCliente[k] = { nombre:v.cliente_nombre, documento:v.cliente_documento, tipoDoc:v.cliente_tipo_doc, telefono:v.cliente_telefono, flex:[] };
+      if(!porCliente[k].telefono && v.cliente_telefono) porCliente[k].telefono = v.cliente_telefono;
+      porCliente[k].flex.push(v);
+    });
+    return Object.values(porCliente).map(c=>({ ...c, flex:c.flex.sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"")) })).slice(0,4);
+  })();
 
-  // ── Filtros activos (línea "Filtrando:") ──
-  const nombreTipo = (t) => LV_TIPOS.find(x=>x.value===t)?.label;
-  const textoRango = rango ? consTextoRango(rango) : "";
+  // ── Filtros activos ──
+  const textoFecha = f.fechaModo==="dia" && f.dia ? (f.dia===todayStr ? "Hoy" : f.dia===consSumarDias(todayStr,-1) ? "Ayer" : fechaCorta(f.dia))
+    : rango ? consTextoRango(rango) : "Todas las fechas";
   const activos = [
-    ...(busqueda.trim() ? [{ k:"q", t:`“${busqueda.trim()}”`, quitar:()=>setBusqueda("") }] : []),
-    { k:"periodo", t: f.periodo==="todo" ? "Todas las fechas" : `${f.periodo==="rango" ? "Del" : LV_PERIODOS.find(p=>p.value===f.periodo)?.label+" ·"} ${textoRango}`, quitar: f.periodo==="mes" ? null : ()=>setF(prev=>({ ...prev, periodo:"mes", desde:"", hasta:"" })) },
+    ...(rango ? [{ k:"fecha", t:textoFecha, quitar:()=>setF(prev=>({ ...prev, fechaModo:"todas", dia:"", desde:"", hasta:"" })) }] : []),
     ...(f.tiendas.length ? [{ k:"tiendas", t:f.tiendas.map(id=>nombreTiendaCorto(stores[id])).join(", "), quitar:()=>setFil("tiendas",[]) }] : []),
     ...(f.asesores.length ? [{ k:"asesores", t:f.asesores.length>2 ? `${f.asesores.length} asesores` : f.asesores.map(id=>(idx.userNombre[id]||"").split(" ")[0]).join(", "), quitar:()=>setFil("asesores",[]) }] : []),
-    ...(f.tipos.length ? [{ k:"tipos", t:f.tipos.map(t=>t==="flexipago"&&f.flexEstado ? `Flexipago ${f.flexEstado==="abierto"?"abiertos":"completados"}` : nombreTipo(t)).join(", "), quitar:()=>setF(prev=>({ ...prev, tipos:[], flexEstado:"" })) }] : []),
-    ...(!f.tipos.length && f.flexEstado ? [{ k:"flex", t:`Flexipago ${f.flexEstado==="abierto"?"abiertos":"completados"}`, quitar:()=>setFil("flexEstado","") }] : []),
-    ...(f.medios.length ? [{ k:"medios", t:f.medios.map(medioCortoLabel).join(", "), quitar:()=>setFil("medios",[]) }] : []),
-    ...f.mas.map(m=>({ k:`mas-${m}`, t:LV_MAS.find(x=>x.value===m)?.label.replace(/ \(.*\)/,""), quitar:()=>toggle("mas", m) })),
+    ...(f.soloFlex ? [{ k:"flex", t:"Solo Flexipagos", quitar:()=>setFil("soloFlex", false) }] : []),
   ];
-  const nFiltros = f.tiendas.length + f.asesores.length + f.tipos.length + (f.flexEstado?1:0) + f.medios.length + f.mas.length;
-  const hayAlgo = busqueda.trim() || nFiltros>0 || f.periodo!=="mes";
-  const limpiarTodo = () => { setF(LV_FILTROS_VACIOS); setBusqueda(""); };
+  // Vuelve a como arranca la pantalla (la cuenta de tienda, con su tienda marcada).
+  const quitarFiltros = () => { setF(filtrosIniciales); setBusqueda(""); };
+  const hayCambios = JSON.stringify(f)!==JSON.stringify(filtrosIniciales);
 
   // ── Piezas ──
   const buscador = (
@@ -8870,151 +8846,98 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
       {busqueda && <button aria-label="Borrar búsqueda" onClick={()=>setBusqueda("")} style={{ all:"unset", cursor:"pointer", width:26, height:26, borderRadius:7, border:`1px solid ${C.border}`, background:C.surfaceAlt, display:"grid", placeItems:"center", color:C.textMuted }}><Icon n="x" s={12} sw={2.2}/></button>}
     </div>
   );
-  const rangoInputs = f.periodo==="rango" && (
-    <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:13, color:C.textSub, flexWrap:"wrap" }}>
-      <input type="date" value={f.desde} max={todayStr} onChange={e=>setFil("desde",e.target.value)} style={{ height:34, borderRadius:10, border:`1px solid ${C.border}`, padding:"0 8px", fontFamily:font.body, fontSize:14, color:C.text, background:"#fff" }}/>
-      a
-      <input type="date" value={f.hasta} max={todayStr} onChange={e=>setFil("hasta",e.target.value)} style={{ height:34, borderRadius:10, border:`1px solid ${C.border}`, padding:"0 8px", fontFamily:font.body, fontSize:14, color:C.text, background:"#fff" }}/>
-    </span>
+  const inputFecha = (valor, onChange) => (
+    <input type="date" value={valor} max={todayStr} onChange={e=>onChange(e.target.value)} style={{ height:36, borderRadius:10, border:`1px solid ${C.border}`, padding:"0 8px", fontFamily:font.body, fontSize:14, color:C.text, background:"#fff", boxSizing:"border-box", width:"100%" }}/>
   );
-  const elegirPeriodo = (p) => setF(prev=>({ ...prev, periodo:p, ...(p==="rango" && !prev.desde ? { desde:(lvRango(prev)||[todayStr])[0], hasta:(lvRango(prev)||[todayStr,todayStr])[1] } : {}) }));
-  const segmentoFechas = (
-    <div className="ozen-sin-barra" style={{ display:"inline-flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, maxWidth:"100%", overflowX:"auto" }}>
-      {LV_PERIODOS.map(p=>(
-        <button key={p.value} onClick={()=>elegirPeriodo(p.value)} style={{ border:"none", cursor:"pointer", borderRadius:99, padding:"7px 14px", fontFamily:font.body, fontSize:13, fontWeight:600, whiteSpace:"nowrap", background:f.periodo===p.value?C.goldDark:"transparent", color:f.periodo===p.value?C.tinta:C.textSub, display:"inline-flex", alignItems:"center", gap:6 }}>{p.value==="rango" && <Icon n="cal" s={13}/>}{p.label}{p.value==="rango"?"…":""}</button>
-      ))}
-    </div>
+  const fichaFecha = (
+    <LvFicha label={textoFecha} n={0} icono={<Icon n="cal" s={13}/>} ancho={280}>
+      <LvOpcion on={f.fechaModo==="todas"} onClick={()=>setF(prev=>({ ...prev, fechaModo:"todas", dia:"", desde:"", hasta:"" }))}>Todas las fechas</LvOpcion>
+      <div style={{ borderTop:`1px solid ${C.border}`, margin:"8px 0" }}/>
+      <LvTituloSec>Un día</LvTituloSec>
+      <div style={{ display:"flex", gap:6, padding:"0 6px 6px" }}>
+        <button onClick={()=>setF(prev=>({ ...prev, fechaModo:"dia", dia:todayStr }))} style={{ ...lvChipEstilo(f.fechaModo==="dia" && f.dia===todayStr), height:30 }}>Hoy</button>
+        <button onClick={()=>setF(prev=>({ ...prev, fechaModo:"dia", dia:consSumarDias(todayStr,-1) }))} style={{ ...lvChipEstilo(f.fechaModo==="dia" && f.dia===consSumarDias(todayStr,-1)), height:30 }}>Ayer</button>
+      </div>
+      <div style={{ padding:"0 6px" }}>{inputFecha(f.fechaModo==="dia" ? f.dia : "", v=>setF(prev=>({ ...prev, fechaModo:v?"dia":"todas", dia:v })))}</div>
+      <div style={{ borderTop:`1px solid ${C.border}`, margin:"10px 0 8px" }}/>
+      <LvTituloSec>Rango</LvTituloSec>
+      <div style={{ display:"flex", alignItems:"center", gap:6, padding:"0 6px", fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>
+        {inputFecha(f.fechaModo==="rango" ? f.desde : "", v=>setF(prev=>({ ...prev, fechaModo:"rango", desde:v, dia:"" })))}
+        a
+        {inputFecha(f.fechaModo==="rango" ? f.hasta : "", v=>setF(prev=>({ ...prev, fechaModo:"rango", hasta:v, dia:"" })))}
+      </div>
+    </LvFicha>
   );
-  const opcionesTienda = tiendas.map(t=><LvOpcion key={t.id} on={f.tiendas.includes(t.id)} onClick={()=>toggle("tiendas", t.id)}><PuntoTienda color={colorTienda(t)} size={8}/>{nombreTiendaCorto(t)}</LvOpcion>);
-  const opcionesAsesor = asesores.map(a=><LvOpcion key={a.id} on={f.asesores.includes(a.id)} onClick={()=>toggle("asesores", a.id)}>{a.name}</LvOpcion>);
-  const opcionesTipo = LV_TIPOS.map(t=><LvOpcion key={t.value} on={f.tipos.includes(t.value)} onClick={()=>toggle("tipos", t.value)}>{t.label}</LvOpcion>);
-  const estadoFlex = (
-    <div style={{ display:"flex", gap:6, flexWrap:"wrap", padding:"0 6px" }}>
-      {[["abierto","Abiertos"],["completo","Completados"]].map(([k,l])=>(
-        <button key={k} onClick={()=>setFil("flexEstado", f.flexEstado===k?"":k)} style={{ ...lvChipEstilo(f.flexEstado===k), height:30 }}>{l}</button>
-      ))}
-    </div>
-  );
-  const opcionesMedio = VENTAS_MEDIOS_PAGO.map(m=><LvOpcion key={m.value} on={f.medios.includes(m.value)} onClick={()=>toggle("medios", m.value)}>{medioCortoLabel(m.value)}</LvOpcion>);
-  const opcionesMas = LV_MAS.map(m=><LvOpcion key={m.value} on={f.mas.includes(m.value)} onClick={()=>toggle("mas", m.value)}>{m.label}</LvOpcion>);
   const puntosTiendas = f.tiendas.length>0 && <span style={{ display:"inline-flex" }}>{f.tiendas.slice(0,3).map((id,i)=><span key={id} style={{ marginLeft:i?-3:0, display:"inline-flex" }}><PuntoTienda color={colorTienda(stores[id])} size={8}/></span>)}</span>;
+  const fichaTienda = (
+    <LvFicha label="Tienda" n={f.tiendas.length} icono={puntosTiendas}>
+      <LvTituloSec>Tienda</LvTituloSec>
+      {tiendas.map(t=><LvOpcion key={t.id} on={f.tiendas.includes(t.id)} onClick={()=>toggle("tiendas", t.id)}><PuntoTienda color={colorTienda(t)} size={8}/>{nombreTiendaCorto(t)}</LvOpcion>)}
+    </LvFicha>
+  );
+  const fichaAsesor = (
+    <LvFicha label="Asesor" n={f.asesores.length} ancho={270}>
+      <LvTituloSec>Asesor</LvTituloSec>
+      {asesores.map(a=><LvOpcion key={a.id} on={f.asesores.includes(a.id)} onClick={()=>toggle("asesores", a.id)}>{a.name}</LvOpcion>)}
+    </LvFicha>
+  );
+  const botonFlex = <button onClick={()=>setFil("soloFlex", !f.soloFlex)} style={lvChipEstilo(f.soloFlex)}>{f.soloFlex && <Icon n="check" s={13} sw={2.6}/>}Flexipagos</button>;
 
-  const lineaActivos = (
-    <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
-      <span style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginRight:2 }}>Filtrando:</span>
+  const lineaActivos = activos.length>0 && (
+    <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginTop:12 }}>
       {activos.map(a=>(
-        <span key={a.k} style={{ display:"inline-flex", alignItems:"center", gap:6, height:28, padding:a.quitar?"0 5px 0 11px":"0 11px", borderRadius:99, background:C.goldDark, color:C.tinta, fontFamily:font.body, fontSize:12, fontWeight:600, maxWidth:"100%" }}>
+        <span key={a.k} style={{ display:"inline-flex", alignItems:"center", gap:6, height:28, padding:"0 5px 0 11px", borderRadius:99, background:C.goldDark, color:C.tinta, fontFamily:font.body, fontSize:12, fontWeight:600, maxWidth:"100%" }}>
           <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.t}</span>
-          {a.quitar && <button aria-label={`Quitar ${a.t}`} onClick={a.quitar} style={{ all:"unset", cursor:"pointer", width:18, height:18, borderRadius:"50%", background:"rgba(229,213,204,0.18)", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="x" s={10} sw={2.6}/></button>}
+          <button aria-label={`Quitar ${a.t}`} onClick={a.quitar} style={{ all:"unset", cursor:"pointer", width:18, height:18, borderRadius:"50%", background:"rgba(229,213,204,0.18)", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="x" s={10} sw={2.6}/></button>
         </span>
       ))}
-      {hayAlgo && <button onClick={limpiarTodo} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:12.5, color:C.gold, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3, marginLeft:4 }}>Limpiar todo</button>}
+      {hayCambios && <button onClick={quitarFiltros} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:12.5, color:C.gold, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3, marginLeft:4 }}>Quitar filtros</button>}
     </div>
   );
 
-  const resumenCeldas = [
-    { t:"Ventas", v:ventasFiltradas.length.toLocaleString("es-CO"), s: abonosFiltrados.length ? `+ ${abonosFiltrados.length} ${abonosFiltrados.length===1?"abono":"abonos"} de flexipago` : "facturas que cumplen" },
-    { t:"Suma de la lista", v:fmtCOP(sumaLista), s:"lo que ves abajo" },
-    ...(flexEnLista.length ? [{ t:"Flexipago", v:fmtCOP(abonadoFlex), s:`abonado · falta ${fmtCOP(porCobrar)} por cobrar` }] : []),
-    { t:"Notas crédito", v:notaCreditosFiltradas.length.toLocaleString("es-CO"), s: notaCreditosFiltradas.length ? fmtCOP(sumaNotas) : "—" },
-  ];
-  const resumen = isMobile ? (
-    <div style={{ borderTop:`1px solid ${C.border}`, padding:"12px 14px" }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:10 }}>
-        <span style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:700 }}>{ventasFiltradas.length.toLocaleString("es-CO")} ventas{abonosFiltrados.length?` + ${abonosFiltrados.length} ${abonosFiltrados.length===1?"abono":"abonos"}`:""}</span>
-        <span style={{ fontFamily:font.mono, fontSize:18, fontWeight:600, color:C.text }}>{fmtCOP(sumaLista)}</span>
-      </div>
-      {(flexEnLista.length>0 || notaCreditosFiltradas.length>0) && (
-        <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:5, lineHeight:1.5 }}>
-          {flexEnLista.length>0 && <>Flexipago: abonado {fmtCOP(abonadoFlex)} · falta {fmtCOP(porCobrar)}</>}
-          {flexEnLista.length>0 && notaCreditosFiltradas.length>0 && <br/>}
-          {notaCreditosFiltradas.length>0 && <>{notaCreditosFiltradas.length} {notaCreditosFiltradas.length===1?"nota crédito":"notas crédito"} · {fmtCOP(sumaNotas)}</>}
-        </div>
-      )}
-    </div>
-  ) : (
-    <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${resumenCeldas.length}, 1fr)`, borderTop:`1px solid ${C.border}` }}>
-      {resumenCeldas.map((c,i)=>(
-        <div key={c.t} style={{ padding:isMobile?"12px 14px":"14px 20px", borderRight: (isMobile ? i%2===0 : i<resumenCeldas.length-1) ? `1px solid ${C.border}` : "none", borderTop: isMobile && i>=2 ? `1px solid ${C.border}` : "none", minWidth:0 }}>
-          <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:600 }}>{c.t}</div>
-          <div style={{ fontFamily:font.mono, fontSize:isMobile?16:19, fontWeight:600, color:C.text, marginTop:6 }}>{c.v}</div>
-          <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:3 }}>{c.s}</div>
-        </div>
+  const tarjetasCliente = clientes.length>0 && (
+    <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill, minmax(320px, 1fr))", gap:10, marginBottom:14 }}>
+      {clientes.map((c,ci)=>(
+        <Card key={ci} p={isMobile?"12px 14px":"14px 16px"}>
+          <div style={{ fontFamily:font.body, fontSize:15, fontWeight:700, color:C.text }}>{c.nombre||"Cliente sin nombre"}</div>
+          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:2 }}>{[c.documento ? `${c.tipoDoc||"CC"} ${c.documento}` : null, c.telefono ? `Tel: ${c.telefono}` : null].filter(Boolean).join(" · ")}</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:5, marginTop:10 }}>
+            {c.flex.map(v=>{ const e = estadoFlexDe(v); return (
+              <div key={v.id} style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", fontFamily:font.body, fontSize:12.5, color:C.text, padding:"6px 8px", background:C.surfaceAlt, borderRadius:8 }}>
+                <span style={{ color:C.textMuted }}>{fechaCorta(v.fecha)}</span>
+                {stores[v.tienda_id] && <EtiquetaTienda store={stores[v.tienda_id]} sm/>}
+                <span style={{ fontFamily:font.mono }}>{fmtCOP(valorFlexDe(v))}</span>
+                <span style={{ marginLeft:"auto", display:"inline-flex", alignItems:"center", gap:6 }}>
+                  {e.saldo>0 && <span style={{ fontFamily:font.mono, fontWeight:700, color:C.amber }}>debe {fmtCOP(e.saldo)}</span>}
+                  <Badge color={e.color} sm>{e.texto}</Badge>
+                </span>
+              </div>
+            ); })}
+          </div>
+        </Card>
       ))}
     </div>
   );
-
-  const seccionHoja = (titulo, contenido) => (
-    <div style={{ marginTop:16 }}>
-      <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, marginBottom:8 }}>{titulo}</div>
-      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>{contenido}</div>
-    </div>
-  );
-  const chipHoja = (on, onClick, contenido, key) => <button key={key} onClick={onClick} style={lvChipEstilo(on)}>{contenido}</button>;
 
   return (
     <div>
-      <PageHeader title="Lista de ventas" subtitle={`${ventasFiltradas.length.toLocaleString("es-CO")} ventas${notaCreditosFiltradas.length>0?` · ${notaCreditosFiltradas.length} notas crédito`:""}${abonosFiltrados.length>0?` · ${abonosFiltrados.length} ${abonosFiltrados.length===1?"abono":"abonos"} Flexipago`:""}`}
-        action={<MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaFija||(f.tiendas.length===1?f.tiendas[0]:"")} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ajustes} metas={metas} isMobile={isMobile}/>}
-      />
+      <PageHeader title="Lista de ventas" subtitle="De la más nueva a la más vieja"/>
 
       <Card style={{ marginBottom:14, overflow:"visible" }} p="0">
         <div style={{ padding:isMobile?"14px 14px 12px":"18px 20px 14px" }}>
           {buscador}
-          {isMobile ? (
-            <div className="ozen-sin-barra" style={{ display:"flex", gap:8, marginTop:10, overflowX:"auto" }}>
-              <button onClick={()=>setHojaAbierta(true)} style={lvChipEstilo(nFiltros>0)}><Icon n="list" s={14}/>Filtros<LvNum n={nFiltros}/></button>
-              {LV_PERIODOS.filter(p=>p.value!=="rango").map(p=>(
-                <button key={p.value} onClick={()=>elegirPeriodo(p.value)} style={lvChipEstilo(f.periodo===p.value)}>{p.label}</button>
-              ))}
-              <button onClick={()=>elegirPeriodo("rango")} style={lvChipEstilo(f.periodo==="rango")}><Icon n="cal" s={13}/>Rango</button>
-            </div>
-          ) : (
-            <div style={{ display:"flex", gap:14, flexWrap:"wrap", alignItems:"center", marginTop:14 }}>
-              {segmentoFechas}
-              {rangoInputs}
-              <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
-                {<LvFicha label="Tienda" n={f.tiendas.length} icono={puntosTiendas}><LvTituloSec>Tienda</LvTituloSec>{opcionesTienda}</LvFicha>}
-                <LvFicha label="Asesor" n={f.asesores.length} ancho={270}><LvTituloSec>Asesor</LvTituloSec>{opcionesAsesor}</LvFicha>
-                <LvFicha label="Tipo" n={f.tipos.length + (f.flexEstado?1:0)}>
-                  <LvTituloSec>Tipo</LvTituloSec>{opcionesTipo}
-                  <div style={{ borderTop:`1px solid ${C.border}`, margin:"8px 0 8px" }}/>
-                  <LvTituloSec>Flexipago</LvTituloSec>{estadoFlex}
-                </LvFicha>
-                <LvFicha label="Medio de pago" n={f.medios.length}><LvTituloSec>Medio de pago</LvTituloSec>{opcionesMedio}</LvFicha>
-                <LvFicha label="Más" n={f.mas.length} ancho={290}><LvTituloSec>Más</LvTituloSec>{opcionesMas}</LvFicha>
-              </div>
-            </div>
-          )}
-          {isMobile && f.periodo==="rango" && <div style={{ marginTop:10 }}>{rangoInputs}</div>}
-          <div style={{ marginTop:12 }}>{lineaActivos}</div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginTop:12 }}>
+            {fichaFecha}{fichaTienda}{fichaAsesor}{botonFlex}
+          </div>
+          {lineaActivos}
         </div>
-        {resumen}
       </Card>
 
-      <TablaVentas key={`${JSON.stringify(f)}|${busqueda}`} stores={stores} isMobile={isMobile} conFecha agruparPorDia conCliente resaltar={busqueda} conTienda={f.tiendas.length!==1}
-        vacio={busqueda.trim() ? `No hay nada que coincida con “${busqueda.trim()}”${rango?` en ${textoRango}`:""}. Prueba con “Todo” en las fechas.` : "No hay ventas con estos filtros."}
-        filas={filas}/>
+      {tarjetasCliente}
 
-      {/* Celular: hoja de filtros desde abajo */}
-      {isMobile && hojaAbierta && createPortal(
-        <div onClick={()=>setHojaAbierta(false)} style={{ position:"fixed", inset:0, zIndex:1000, background:"rgba(26,59,82,0.35)", display:"flex", alignItems:"flex-end" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxHeight:"86vh", overflowY:"auto", background:"#fff", borderRadius:"22px 22px 0 0", padding:"10px 18px calc(18px + env(safe-area-inset-bottom))", boxShadow:"0 -10px 30px rgba(26,59,82,0.15)", boxSizing:"border-box" }}>
-            <div style={{ width:40, height:5, borderRadius:9, background:"#d9cdc4", margin:"0 auto 12px" }}/>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <b style={{ fontFamily:font.body, fontSize:17, color:C.text }}>Filtros</b>
-              <button onClick={limpiarTodo} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:13, color:C.gold, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3 }}>Limpiar</button>
-            </div>
-            {seccionHoja("Fecha", <>{LV_PERIODOS.map(p=>chipHoja(f.periodo===p.value, ()=>elegirPeriodo(p.value), p.label, p.value))}{f.periodo==="rango" && <div style={{ width:"100%" }}>{rangoInputs}</div>}</>)}
-            {seccionHoja("Tienda", tiendas.map(t=>chipHoja(f.tiendas.includes(t.id), ()=>toggle("tiendas", t.id), <><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)}</>, t.id)))}
-            {seccionHoja("Asesor", asesores.map(a=>chipHoja(f.asesores.includes(a.id), ()=>toggle("asesores", a.id), a.name.split(" ").slice(0,2).join(" "), a.id)))}
-            {seccionHoja("Tipo", LV_TIPOS.map(t=>chipHoja(f.tipos.includes(t.value), ()=>toggle("tipos", t.value), t.label, t.value)))}
-            {seccionHoja("Flexipago", [["abierto","Abiertos"],["completo","Completados"]].map(([k,l])=>chipHoja(f.flexEstado===k, ()=>setFil("flexEstado", f.flexEstado===k?"":k), l, k)))}
-            {seccionHoja("Medio de pago", VENTAS_MEDIOS_PAGO.map(m=>chipHoja(f.medios.includes(m.value), ()=>toggle("medios", m.value), medioCortoLabel(m.value), m.value)))}
-            {seccionHoja("Más", LV_MAS.map(m=>chipHoja(f.mas.includes(m.value), ()=>toggle("mas", m.value), m.label.replace(/ \(.*\)/,""), m.value)))}
-            <button onClick={()=>setHojaAbierta(false)} style={{ width:"100%", height:48, marginTop:20, border:"none", borderRadius:12, background:C.goldDark, color:C.tinta, fontFamily:font.body, fontSize:15, fontWeight:700, cursor:"pointer" }}>Ver {filas.length.toLocaleString("es-CO")} {filas.length===1?"registro":"registros"}</button>
-          </div>
-        </div>, document.body)}
+      <TablaVentas key={`${JSON.stringify(f)}|${busqueda}`} stores={stores} isMobile={isMobile} conFecha agruparPorDia conCliente resaltar={busqueda} conTienda={f.tiendas.length!==1}
+        vacio={busqueda.trim() ? `No hay nada que coincida con “${busqueda.trim()}”${activos.length?" con estos filtros":""}.` : "No hay ventas con estos filtros."}
+        filas={filas}/>
     </div>
   );
 }
