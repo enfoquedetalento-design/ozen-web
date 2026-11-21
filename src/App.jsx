@@ -6459,6 +6459,11 @@ function FlexiPasarProducto({ venta, item, totalAbonado, user, onCerrar, onHecho
   const [sel, setSel] = useState(null);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState("");
+  // Fecha de la separación (21 nov 2026): quien puede usar fecha libre la puede poner en el día en
+  // que de verdad pasó (y debe registrarse ANTES que un abono de ese mismo día con fecha atrás).
+  const fechaLibre = puede(user, "ventas.fecha_libre");
+  const [fecha, setFecha] = useState(todayStr);
+  const fechaOk = !!fecha && fecha<=todayStr && (!venta.fecha || fecha>=venta.fecha);
   const codigos = Array.isArray(item?.codigos_producto) ? item.codigos_producto : [];
   const valorDe = (c) => Number(String(c?.valor??"").replace(/[^\d]/g,"")) || 0;
   const valorNeto = Number(item?.valor||0) - Number(item?.descuento||0);
@@ -6466,7 +6471,7 @@ function FlexiPasarProducto({ venta, item, totalAbonado, user, onCerrar, onHecho
   const valorNuevo = valorNeto - r;
   const seCierra = sel!==null && totalAbonado >= valorNuevo;
   const sobrante = seCierra ? totalAbonado - valorNuevo : 0;
-  const valido = sel!==null && r>0 && valorNuevo>0 && totalAbonado < valorNeto;
+  const valido = sel!==null && r>0 && valorNuevo>0 && totalAbonado < valorNeto && fechaOk;
   const linea = { display:"flex", justifyContent:"space-between", gap:10, fontFamily:font.body, fontSize:13, color:C.text, padding:"3px 0" };
   const pasar = async () => {
     if(!valido) return;
@@ -6474,10 +6479,11 @@ function FlexiPasarProducto({ venta, item, totalAbonado, user, onCerrar, onHecho
     const texto = `Vas a pasar el producto ${prod.codigo||"sin código"} (${fmtCOP(r)}) a un Flexipago NUEVO de ${venta.cliente_nombre||"este cliente"}.\n\n`
       + `• El Flexipago original queda en ${fmtCOP(valorNuevo)}${seCierra ? " y se CIERRA HOY (cuenta como venta hoy)." : `, con ${fmtCOP(valorNuevo-totalAbonado)} por pagar.`}\n`
       + `• El nuevo queda en ${fmtCOP(r)}${sobrante>0 ? `, con ${fmtCOP(sobrante)} trasladados de lo ya abonado.` : ", sin abonos."}\n\n`
+      + (fecha!==todayStr ? `Fecha de la separación: ${fechaCorta(fecha)}.\n\n` : "")
       + `Esto no se puede deshacer desde la app. Escribe PASAR para confirmar.`;
     if(!await confirmarEscribiendo(texto, "PASAR")) return;
     setGuardando(true); setError("");
-    const { data, error:err } = await supabase.rpc("flexipago_pasar_producto", { p_venta_id:String(venta.id), p_indice:sel, p_por:user?.name||"", p_fecha:todayStr });
+    const { data, error:err } = await supabase.rpc("flexipago_pasar_producto", { p_venta_id:String(venta.id), p_indice:sel, p_por:user?.name||"", p_fecha:fecha });
     if(err || !data){ setGuardando(false); setError(err?.message || "No se pudo pasar el producto. No se cambió nada."); return; }
     await onHecho(data);
     setGuardando(false);
@@ -6487,6 +6493,12 @@ function FlexiPasarProducto({ venta, item, totalAbonado, user, onCerrar, onHecho
       <div className="ozen-modal-pop" onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:440, margin:"auto 0", background:C.surface, borderRadius:14, padding:18, boxSizing:"border-box", border:`1px solid ${C.border}` }}>
         <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text, marginBottom:4 }}>Pasar un producto a un Flexipago nuevo</div>
         <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginBottom:12 }}>Elige el producto que sale. El nuevo Flexipago queda con el mismo cliente, tienda y asesor.</div>
+        {fechaLibre && (
+          <div style={{ marginBottom:10 }}>
+            <Field label="Fecha en que pasó (si no fue hoy)" type="date" value={fecha} onChange={setFecha} disabled={guardando}/>
+            {!fechaOk && <div style={{ fontFamily:font.body, fontSize:12, color:C.red, marginTop:-8, marginBottom:6 }}>La fecha debe estar entre el día de la venta ({venta.fecha}) y hoy.</div>}
+          </div>
+        )}
         <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:12 }}>
           {codigos.map((c,i)=>{ const val = valorDe(c); const on = sel===i; return (
             <button key={i} disabled={val<=0 || guardando} onClick={()=>setSel(i)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:9, cursor:val>0?"pointer":"not-allowed", border:`1.5px solid ${on?C.gold:C.border}`, background:on?`${C.gold}14`:C.surfaceAlt, fontFamily:font.body, fontSize:13, color:val>0?C.text:C.textMuted, textAlign:"left" }}>

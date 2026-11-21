@@ -1106,6 +1106,12 @@ los dos y se confirma escribiendo PASAR.
 - Un abono de traslado no se puede corregir, y un Flexipago con separación o traslado no se puede
   eliminar desde la app (el otro quedaría descuadrado).
 - **Para publicar en la REAL:** correr `sql/ventas_flexipago_pasar_producto.sql` antes de subir a `main`.
+- **21 nov 2026 — fecha de la separación:** quien tiene `ventas.fecha_libre` puede poner en la
+  ventana la fecha en que de verdad pasó (entre el día de la venta y hoy). Motivo: en la real se
+  separó el caso Matteos con fecha de hoy y luego se abonó con fecha atrás (11 nov); como el abono
+  quedó "antes" de la separación, Caja y Métricas no daban el Flexipago por completado. Se arregló
+  con SQL (separación y Flexipago nuevo al 11 nov; recolección del 13 nov a $1.249.000, lo que de
+  verdad se recogió). Orden correcto: primero separar con la fecha real, después el abono.
 
 ## Ventas — cuentas de tienda ven todas las tiendas (20 nov 2026; probado en `staging`, publicado en `main` el 20 nov 2026)
 
