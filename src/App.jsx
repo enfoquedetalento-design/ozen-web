@@ -6142,7 +6142,7 @@ const VENTAS_TIPOS = [
 ];
 // Píldora de tipo (Venta, Arreglo, Flexipago...) para la tabla de "Ventas de hoy".
 const PildoraTipo = ({ t, c }) => (
-  <span style={{ display:"inline-block", borderRadius:99, padding:"3px 11px", fontFamily:font.body, fontSize:12, fontWeight:600, background:hexToRgba(c,0.12), color:c, whiteSpace:"nowrap" }}>{t}</span>
+  <span title={typeof t==="string" ? t : undefined} style={{ display:"inline-block", maxWidth:"100%", boxSizing:"border-box", overflow:"hidden", textOverflow:"ellipsis", verticalAlign:"middle", borderRadius:99, padding:"3px 11px", fontFamily:font.body, fontSize:12, fontWeight:600, background:hexToRgba(c,0.12), color:c, whiteSpace:"nowrap" }}>{t}</span>
 );
 // Íconos de línea (Propuesta A) para las fichas de tipo y de medio de pago en Registrar venta.
 const TIPO_VENTA_ICON = { producto:"bag", arreglo:"wrench", marcacion:"tag", grabado:"nib", flexipago:"box" };
@@ -6759,7 +6759,7 @@ function TablaVentas({ filas, stores, isMobile, conFecha, conTienda, vacio, limi
               </span>
             ) : (
               <>
-                {conTienda && <span>{tienda ? <EtiquetaTienda store={tienda} sm/> : "—"}</span>}
+                {conTienda && <span style={{ minWidth:0, overflow:"hidden" }}>{tienda ? <EtiquetaTienda store={tienda} sm/> : "—"}</span>}
                 {conCliente && (
                   <span style={{ minWidth:0, overflow:"hidden" }}>
                     {f.cliente ? <span style={{ display:"block", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}><Resaltar texto={f.cliente} q={resaltar}/></span> : <span style={{ color:C.textMuted }}>—</span>}
@@ -6770,9 +6770,9 @@ function TablaVentas({ filas, stores, isMobile, conFecha, conTienda, vacio, limi
                   <span style={{ display:"block", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}><Resaltar texto={f.asesor} q={resaltar}/></span>
                   {!conCliente && f.cliente && <span style={{ display:"block", fontSize:11.5, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.cliente}</span>}
                 </span>
-                <span><PildoraTipo t={f.tipo} c={f.colorTipo}/></span>
-                <span style={{ color:C.textSub }}>{f.medios}</span>
-                <span style={{ fontFamily:font.mono, fontSize:12.5, color:f.factura==="—"?C.textMuted:C.text }}><Resaltar texto={f.factura} q={resaltar}/></span>
+                <span style={{ minWidth:0, overflow:"hidden" }}><PildoraTipo t={f.tipo} c={f.colorTipo}/></span>
+                <span title={f.medios} style={{ minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:C.textSub }}>{f.medios}</span>
+                <span style={{ minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", fontFamily:font.mono, fontSize:12.5, color:f.factura==="—"?C.textMuted:C.text }}><Resaltar texto={f.factura} q={resaltar}/></span>
               </>
             )}
             <span style={{ fontFamily:font.mono, fontWeight:700, textAlign:"right", color:f.negativo?C.amber:C.text }}>{fmtCOP(f.total)}{f.subTotal && <span style={{ display:"block", fontSize:11, fontWeight:500, color:C.amber }}>{f.subTotal}</span>}</span>
@@ -8803,7 +8803,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     const v = ventaById[String(fl.key).replace(/^v-/,"")];
     if(!v || !v.es_flexipago) return fl;
     const e = estadoFlexDe(v);
-    return { ...fl, tipo: e.saldo>0 ? `Flexipago · ${e.texto.toLowerCase()} · debe ${fmtCOP(e.saldo)}` : "Flexipago · completado" };
+    return { ...fl, tipo:`Flexipago · ${e.texto.toLowerCase()}`, colorTipo: e.saldo>0 ? e.color : fl.colorTipo, subTotal: e.saldo>0 ? `debe ${fmtCOP(e.saldo)}` : fl.subTotal };
   });
 
   // Tarjeta del cliente: si lo escrito es un nombre o una cédula de cliente, arriba sale su ficha con

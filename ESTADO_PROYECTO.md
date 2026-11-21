@@ -1125,7 +1125,7 @@ los dos y se confirma escribiendo PASAR.
   arriba y solo los asesores que vendieron algo ahí en el mes (`tablaVentasAsesor`). No muestra el
   Top. Para Master y demás roles sigue sin aparecer en la vista de una tienda (pedido anterior).
 
-## Ventas — Lista de ventas: buscador y filtros nuevos (21 nov 2026, en `staging`, falta probar)
+## Ventas — Lista de ventas: buscador y filtros nuevos (21 nov 2026; probado en `staging`, publicado en `main` el 21 nov 2026)
 
 Pedido de Santiago: el menú anterior (periodos, Tipo, Medio de pago, "Más", cifras de resumen) no
 servía para la operación. Ahora (`VentasListaScreen`):
@@ -1138,6 +1138,9 @@ servía para la operación. Ahora (`VentasListaScreen`):
 - Tarjeta del cliente: si lo escrito (3+ letras o 4+ números de cédula) es de un cliente, arriba sale
   su ficha (nombre, cédula, teléfono) con sus Flexipagos, estado y saldo. Solo los Flexipagos
   guardan datos del cliente. Respeta Tienda y Asesor, no la fecha.
+- Tabla (`TablaVentas`, también en Ventas de hoy): ninguna celda se sale de su columna; la píldora
+  de tipo se corta con "…" (texto completo al pasar el mouse). Con "Flexipagos" la píldora dice el
+  estado y lo que debe sale debajo del total.
 - Se quitaron: cifras de resumen, burbuja de meta, filtros Tipo / Medio de pago / Más y la hoja de
   filtros del celular (en el celular salen las mismas fichas; la listita se acomoda si no cabe).
 
