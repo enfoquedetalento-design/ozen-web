@@ -122,18 +122,34 @@ export const ChipCuentaNavidad = ({ fecha }) => (
   </span>
 );
 
-// Guirnalda de la meta: 10 estrellas, cada 10 % de la meta del mes enciende una; al 100 % titilan todas.
-export const GuirnaldaMeta = ({ pct, alto = 54 }) => {
-  const on = Math.max(0, Math.min(10, Math.floor(pct/10))), llena = pct >= 100;
+// Guirnalda de la meta: 10 estrellas — cada una es un 10 % de la meta del mes y se va llenando
+// (la que está en curso queda llena a medias, así se lee el avance exacto como en una barra). Va en
+// el color de la tienda. `esperado` (opcional): marquita de "lo que debería llevar hoy". Al 100 %
+// titilan todas.
+const rgba = (hex, a) => { const h = String(hex||"").replace("#",""); if(h.length!==6) return `rgba(38,93,127,${a})`; return `rgba(${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)},${a})`; };
+let idGuirnalda = 0;
+export const GuirnaldaMeta = ({ pct, alto = 54, color = BASE, esperado = null, colorEsperado = "#B7791F" }) => {
+  const [uid] = useState(() => `ozg${++idGuirnalda}`);
+  const llena = pct >= 100, tam = Math.round(alto*0.46);
   let p = "M10 10"; for (let i = 0; i < 10; i++) { const x0 = 10 + i*98, x1 = 10 + (i+1)*98; p += ` Q${(x0+x1)/2} 34 ${x1} 10`; }
   return (
-    <div className="ozen-nav-anim" style={{ position:"relative", height:alto }}>
-      <svg viewBox="0 0 1000 40" preserveAspectRatio="none" style={{ position:"absolute", left:0, right:0, top:0, width:"100%", height:alto*0.62 }}><path d={p} fill="none" stroke="rgba(26,59,82,.28)" strokeWidth="1.4" vectorEffect="non-scaling-stroke"/></svg>
-      <div style={{ position:"absolute", left:"1%", right:"1%", top:0, bottom:0, display:"flex", justifyContent:"space-around", alignItems:"center" }}>
-        {Array.from({ length:10 }, (_, i) => (
-          <EstrellaSvg key={i} size={Math.round(alto*0.46)} color={i<on?BASE:"#E7DCD4"} style={{ marginTop:alto*0.14, filter:i<on?"drop-shadow(0 0 5px rgba(38,93,127,.55))":"none", animation:llena?`ozenNavTitila .9s ${(i*0.07).toFixed(2)}s ease-in-out infinite alternate`:"none", transition:"fill .3s" }}/>
-        ))}
+    <div className="ozen-nav-anim" style={{ position:"relative", height:alto + (esperado!=null ? 16 : 0) }}>
+      <svg viewBox="0 0 1000 40" preserveAspectRatio="none" style={{ position:"absolute", left:0, right:0, top:0, width:"100%", height:alto*0.62 }}><path d={p} fill="none" stroke={rgba(color,.35)} strokeWidth="1.4" vectorEffect="non-scaling-stroke"/></svg>
+      <div style={{ position:"absolute", left:"1%", right:"1%", top:0, height:alto, display:"flex", justifyContent:"space-around", alignItems:"center" }}>
+        {Array.from({ length:10 }, (_, i) => { const f = Math.max(0, Math.min(1, pct/10 - i)); return (
+          <svg key={i} width={tam} height={tam} viewBox="-10 -10 20 20" aria-hidden="true" style={{ marginTop:alto*0.14, overflow:"visible", filter:f>=1?`drop-shadow(0 0 4px ${rgba(color,.55)})`:"none", animation:llena?`ozenNavTitila .9s ${(i*0.07).toFixed(2)}s ease-in-out infinite alternate`:"none" }}>
+            <defs><clipPath id={`${uid}-${i}`}><rect x="-10" y="-10" width={20*f} height="20"/></clipPath></defs>
+            <path d={pathEstrella(10)} fill="#E7DCD4"/>
+            {f>0 && <path d={pathEstrella(10)} fill={color} clipPath={`url(#${uid}-${i})`}/>}
+          </svg>
+        ); })}
       </div>
+      {esperado!=null && esperado>0 && esperado<100 && (
+        <div title={`Debería llevar ${esperado}%`} style={{ position:"absolute", left:`calc(1% + 98% * ${esperado/100})`, top:alto - 4, transform:"translateX(-50%)", display:"flex", flexDirection:"column", alignItems:"center", gap:1 }}>
+          <span style={{ width:0, height:0, borderLeft:"5px solid transparent", borderRight:"5px solid transparent", borderBottom:`7px solid ${colorEsperado}` }}/>
+          <span style={{ fontFamily:FONT, fontSize:9.5, fontWeight:700, color:colorEsperado }}>hoy</span>
+        </div>
+      )}
     </div>
   );
 };

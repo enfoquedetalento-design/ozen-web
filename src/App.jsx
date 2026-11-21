@@ -9088,7 +9088,7 @@ const MetaMesNavidad = ({ lista, mesNombre, isMobile }) => {
               <span style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>{x.pct>=100 ? "✦ ¡Meta cumplida!" : `Faltan ${10-on} estrella${10-on===1?"":"s"} · ${fmtCOP(Math.max(0,x.meta-x.vendido))}`}</span>
             </div>
           </div>
-          <GuirnaldaMeta pct={x.pct} alto={una&&!isMobile?52:44}/>
+          <GuirnaldaMeta pct={x.pct} alto={una&&!isMobile?52:44} color={colorTienda(x.tienda)}/>
         </div>
       ); })}
     </div>
@@ -10347,8 +10347,6 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const tdDia = isMobile ? { ...tdMet, padding:"10px 6px" } : tdMet;
   const thDia = isMobile ? { ...thMet, padding:"0 6px 8px", letterSpacing:"0.05em" } : thMet;
   const mesKey = `${anio}-${String(mesIdx+1).padStart(2,"0")}`;
-  // Navidad: guirnalda de la meta del mes por tienda (ver MetaMesNavidad).
-  const metasNavidad = useMemo(() => NAVIDAD ? Object.values(stores).map(t=>({ tienda:t, ...calcularMetaMesTienda(t.id, mesKey, ventas, ventasItems||[], ventasAbonos||[], ventasAjustes||[], metas) })).filter(x=>x.meta>0) : [], [stores, mesKey, ventas, ventasItems, ventasAbonos, ventasAjustes, metas]);
   const esMesActual = anio===hoy.getFullYear() && mesIdx===hoy.getMonth();
   const diasTotalesMes = diasDelMes(anio, mesIdx);
   const diasRestantes = esMesActual ? (diasTotalesMes - hoy.getDate() + 1) : 0;
@@ -10851,7 +10849,6 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
         </div>
       </Card>
 
-      {NAVIDAD && <MetaMesNavidad lista={tiendaSel ? metasNavidad.filter(x=>x.tienda.id===tiendaSel) : metasNavidad} mesNombre={MESES_NOMBRE[mesIdx].toLowerCase()} isMobile={isMobile}/>}
       {/* Fila con scroll horizontal en vez de wrap — con wrap, una tarjeta que quedaba sola en la
           última fila (ej. MDA) se estiraba a lo ancho de toda la pantalla, viéndose enorme y
           fuera de proporción con las demás. Así todas las tarjetas mantienen SIEMPRE el mismo
@@ -10906,7 +10903,10 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                     : <span style={{ display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap", borderRadius:99, padding:"4px 9px", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.red, background:C.redDim }}><span style={{ fontSize:9 }}>▼</span>Atrasada</span>
                   ) : <EstadoIDC idc={d.idc}/>}
                 </div>
-                <div style={{ margin:"14px 0 6px" }}><BarraConMeta idc={d.idc} escala={esc} color={col||C.gold} etiqueta esperado={esMesActual?d.esperado:null}/></div>
+                <div style={{ margin:"14px 0 6px" }}>{NAVIDAD
+                  // Navidad: la barra se vuelve la guirnalda de 10 estrellas, en el color de la tienda.
+                  ? <GuirnaldaMeta pct={d.idc} alto={isMobile?40:46} color={col||C.gold} esperado={esMesActual?d.esperado:null} colorEsperado={C.amber}/>
+                  : <BarraConMeta idc={d.idc} escala={esc} color={col||C.gold} etiqueta esperado={esMesActual?d.esperado:null}/>}</div>
                 {esMesActual && d.esperado!=null && (() => { const dif = Math.round((d.idc - d.esperado)*10)/10; return (
                   <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:8, flexWrap:"wrap", fontFamily:font.body, fontSize:12.5, color:C.textMuted, margin:"2px 0 8px" }}>
                     <span>Debería llevar <b style={{ fontFamily:font.mono, color:C.amber }}>{d.esperado}%</b></span>
