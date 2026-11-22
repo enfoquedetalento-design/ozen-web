@@ -958,7 +958,9 @@ const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento 
 // Asesor: desde el 8 oct 2026 también elige módulo al entrar (Asistencia o Escuela OZEN), igual que
 // los admins. "Firmar documento" ya no es pestaña ni módulo: es una herramienta del menú de la cuenta.
 const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Turnos" }];
-const ADMIN_TABS_VENTAS     = [{ id:"registrar",icon:"🧾",label:"Registrar venta" },{ id:"lista",icon:"📋",label:"Lista de ventas" },{ id:"metricas",icon:"📊",label:"Métricas" },{ id:"caja",icon:"💰",label:"Caja" }];
+// Ventas (22 nov 2026): Métricas · ( + ) · Lista de ventas. "mas" no es una pantalla: abre Registrar
+// venta como ventana encima de todo. Caja vive dentro de Métricas (Resumen · Consultas · Caja).
+const ADMIN_TABS_VENTAS     = [{ id:"metricas",icon:"📊",label:"Métricas" },{ id:"mas",icon:"➕",label:"Registrar venta" },{ id:"lista",icon:"📋",label:"Lista de ventas" }];
 // Escuela OZEN (área "capacitacion"): "Mis cursos" para quien toma cursos (no visualizador),
 // "Progreso" para admins y visualizador, y "Administrar cursos" para todos los admins.
 const ADMIN_TABS_CAPACITACION = [{ id:"mis_cursos",icon:"📚",label:"Mis cursos" },{ id:"progreso",icon:"📊",label:"Progreso" },{ id:"cursos_admin",icon:"🛠️",label:"Administrar cursos" }];
@@ -1045,8 +1047,9 @@ const esAdminDeVentas = (user) => user.role==="master" || user.role==="admin_fin
 // Qué pestañas le corresponden a cada quien, según su rol y el área elegida. La cuenta de tienda
 // no elige área (va directo a Ventas), así que Operaciones le llega como una pestaña más.
 // Pestañas de Ventas que le tocan a cada quien. Caja ya se decide con puede() (Permisos, Fase 3).
-const PERMISO_DE_TAB_VENTAS = { registrar:"ventas.registrar.ver", lista:"ventas.lista.ver", metricas:"ventas.metricas.ver", caja:"caja.ver" };
-const tabsVentas = (user) => ADMIN_TABS_VENTAS.filter(t => puede(user, PERMISO_DE_TAB_VENTAS[t.id]));
+const PERMISO_DE_TAB_VENTAS = { registrar:"ventas.registrar.ver", mas:"ventas.registrar.ver", lista:"ventas.lista.ver", metricas:"ventas.metricas.ver", caja:"caja.ver" };
+// Quien ve Caja pero no Métricas conserva Caja como pestaña propia.
+const tabsVentas = (user) => { const t = ADMIN_TABS_VENTAS.filter(x => puede(user, PERMISO_DE_TAB_VENTAS[x.id])); if(!puede(user, "ventas.metricas.ver") && puede(user, "caja.ver")) t.push({ id:"caja", icon:"💰", label:"Caja" }); return t; };
 // Asistencia y Turnos (Permisos, Fase 3): cada pestaña sale si la persona tiene su permiso.
 const PERMISO_DE_TAB_ASISTENCIA = { dashboard:"asistencia.panel", records:"asistencia.registros.ver", turnos:"turnos.ver", mi_asistencia:"asistencia.marcar", reports:"asistencia.informes", checkin:"asistencia.marcar", history:"asistencia.historial", schedule:"turnos.ver" };
 const tabsAsistencia = (user) => ADMIN_TABS_ASISTENCIA.filter(t => puede(user, PERMISO_DE_TAB_ASISTENCIA[t.id]));
@@ -1277,7 +1280,9 @@ function BarraPestanas({ tabs, tab, setTab, derecha }) {
   }, [tab, tabs.length]);
   return (
     <div style={{ height:50, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"stretch", padding:"0 24px", gap:30, flexShrink:0, position:"relative" }}>
-      {tabs.map(t=>{ const on=t.id===tab; return (
+      {tabs.map(t=>{ const on=t.id===tab; if(t.id==="mas") return (
+        <button key="mas" onClick={()=>setTab("mas")} title="Registrar venta" aria-label="Registrar venta" className="ozen-boton-mas" style={{ alignSelf:"center", width:40, height:40, borderRadius:"50%", border:"none", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 6px 16px -6px rgba(26,59,82,0.55)", flexShrink:0 }}><Icon n="plus" s={20} sw={2.6}/></button>
+      ); return (
         <button key={t.id} ref={el=>{ refs.current[t.id]=el; }} onClick={()=>setTab(t.id)} className="ozen-tab-btn" style={{ display:"flex", alignItems:"center", gap:8, border:"none", background:"none", padding:0, cursor:"pointer", fontFamily:font.body, fontSize:14, fontWeight:on?600:400, color:on?C.goldDark:C.textMuted, transition:"color .2s ease", whiteSpace:"nowrap" }}>
           <Icon n={TAB_ICON[t.id]||"right"} s={16}/>{t.label}
         </button>
@@ -1312,7 +1317,11 @@ function BottomNav({ tab, setTab, user, area, liderOper }) {
   const tabs = tabsPara(user, area, liderOper);
   return (
     <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:"#fff", padding:"0 10px", paddingBottom:"max(12px, calc(env(safe-area-inset-bottom, 0px) + 4px))", flexShrink:0 }}>
-      {tabs.map(t => { const active=tab===t.id; return (
+      {tabs.map(t => { const active=tab===t.id; if(t.id==="mas") return (
+        <div key="mas" style={{ flex:1, display:"flex", justifyContent:"center" }}>
+          <button onClick={()=>setTab("mas")} aria-label="Registrar venta" style={{ marginTop:-18, width:58, height:58, borderRadius:"50%", border:"4px solid #fff", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 8px 20px -6px rgba(26,59,82,0.6)" }}><Icon n="plus" s={26} sw={2.6}/></button>
+        </div>
+      ); return (
         <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:1, padding:"10px 2px 6px", background:"none", border:"none", display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer", color:active?C.goldDark:C.textMuted, position:"relative" }}>
           <span style={{ position:"absolute", top:0, left:"28%", right:"28%", height:2.5, borderRadius:2, background:active?C.gold:"transparent", transition:"background .25s ease" }}/>
           <Icon n={TAB_ICON[t.id]||"right"} s={23} sw={active?2:1.7}/>
@@ -8094,7 +8103,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   );
 }
 
-function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, opAvisos, onIrAOrden, tiendaActiva, onVerLista, user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
+function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, opAvisos, onIrAOrden, tiendaActiva, onVerLista, user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   // OJO: el valor por defecto debe salir de tiendasVenta() (las que sí venden), no de todas las
   // tiendas — si no, el dropdown solo MUESTRA tiendas válidas pero el valor de por debajo puede
@@ -8408,7 +8417,7 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, opAvisos, onIrAOr
       {/* Encabezado: título + tienda/fecha, y la campana de Flexipagos por recordar. */}
       <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:18 }}>
         <div>
-          <h1 style={{ margin:0, fontFamily:font.body, fontSize:isMobile?22:26, fontWeight:700, color:C.text }}>Registrar venta</h1>
+          {!enVentana && <h1 style={{ margin:0, fontFamily:font.body, fontSize:isMobile?22:26, fontWeight:700, color:C.text }}>Registrar venta</h1>}
           <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:4, display:"flex", alignItems:"center", gap:8 }}>
             <PuntoTienda color={colorTienda(tiendaActual)} size={8}/>{nombreTiendaCorto(tiendaActual)} · {esHoyVenta ? "hoy" : fecha}
           </div>
@@ -8417,7 +8426,7 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, opAvisos, onIrAOr
             grande de metas — pedido de Santiago. */}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:10, width:isMobile?"100%":"50%" }}>
           {bellButton}
-          <MetaHoyCompetencia llenar stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>
+          {!enVentana && <MetaHoyCompetencia llenar stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>}
         </div>
       </div>
 
@@ -8634,6 +8643,7 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, opAvisos, onIrAOr
         </div>
       )}
 
+      {!enVentana && <>
       {/* Ventas de hoy como TABLA (Propuesta A): hora, asesor, tipo, medios, factura y total. Al
           tocar una fila se despliega debajo la tarjeta completa, con todas sus acciones. */}
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, margin:"28px 0 12px", flexWrap:"wrap" }}>
@@ -8641,6 +8651,7 @@ function VentasRegistrarScreen({ ordenACobrar, onOrdenCobrada, opAvisos, onIrAOr
         {onVerLista && <button onClick={onVerLista} style={{ background:"none", border:"none", color:C.gold, fontFamily:font.body, fontSize:13.5, fontWeight:600, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6, padding:0 }}>Ver todas en Lista de ventas<Icon n="right" s={15}/></button>}
       </div>
       <TablaVentas filas={filasHoy} stores={stores} isMobile={isMobile} vacio="Sin ventas registradas hoy en esta tienda."/>
+      </>}
     </div>
     </>
   );
@@ -8693,7 +8704,7 @@ function LvFicha({ label, n, icono, children, ancho=250, estilo }) {
   );
 }
 
-function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, esAdmin, soloLectura }) {
+function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ajustes, setAjustes, esAdmin, soloLectura, pedido }) {
   // Lista de ventas — rediseño del 21 nov 2026 (pedido de Santiago). Arriba: buscador + Fecha (todas /
   // un día / rango) + Tienda + Asesor + un solo botón "Flexipagos". Sin fechas puestas de entrada:
   // todo, de lo más nuevo a lo más viejo. Sin cifras de resumen (esto no es Métricas).
@@ -8702,7 +8713,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   const isMobile = useIsMobile();
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const filtrosIniciales = { fechaModo:"todas", dia:"", desde:"", hasta:"", tiendas: tiendaFija ? [tiendaFija] : [], asesores:[], soloFlex:false };
-  const [f, setF] = useState(filtrosIniciales);
+  const [f, setF] = useState(()=> pedido ? { ...filtrosIniciales, tiendas:[pedido.tienda], fechaModo:"dia", dia:pedido.dia } : filtrosIniciales);
   const [busqueda, setBusqueda] = useState("");
   const setFil = (k, v) => setF(prev=>({ ...prev, [k]:v }));
   const toggle = (k, v) => setF(prev=>({ ...prev, [k]: prev[k].includes(v) ? prev[k].filter(x=>x!==v) : [...prev[k], v] }));
@@ -10537,7 +10548,120 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   );
 }
 
-function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile, turnosAsignaciones, turnosGlobales }) {
+// ── Ventas: navegación nueva (22 nov 2026, pedido de Santiago) ─────────────────────────────────
+// Barra del módulo: Métricas · ( + ) · Lista de ventas. El + abre Registrar venta como una ventana
+// encima de todo (VentanaRegistrar, en App). Caja pasó a estar dentro de Métricas (Resumen ·
+// Consultas · Caja). Todos entran por Métricas.
+function SelectorVistaMetricas({ vista, onElegir, puedeConsultas, puedeCaja }) {
+  const opciones = [["resumen","Resumen","chart"], ...(puedeConsultas?[["consultas","Consultas","search"]]:[]), ...(puedeCaja?[["caja","Caja","wallet"]]:[])];
+  if(opciones.length<2) return null;
+  return (
+    <div style={{ display:"inline-flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, marginBottom:16 }}>
+      {opciones.map(([k,l,ic])=>(
+        <button key={k} onClick={()=>onElegir(k)} style={{ display:"inline-flex", alignItems:"center", gap:7, border:"none", cursor:"pointer", borderRadius:99, padding:"8px 16px", fontFamily:font.body, fontSize:13, fontWeight:600, background:vista===k?C.goldDark:"transparent", color:vista===k?C.tinta:C.textSub }}>
+          <Icon n={ic} s={14}/>{l}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Lo de HOY de una tienda (para "Hoy" en Métricas y las tarjetas para elegir tienda). Vendido,
+// meta y falta son los de la burbuja de siempre (calcularMetaHoyTienda: productos + Flexipagos que
+// se completan hoy + notas crédito, sin servicios).
+const resumenHoyTienda = (tiendaId, ventas, ventasItems, ventasAbonos, ventasAjustes, metas) => {
+  const { meta, vendido, falta } = calcularMetaHoyTienda(tiendaId, todayStr, ventas, ventasItems, ventasAbonos, ventasAjustes, metas);
+  const facturas = ventas.filter(v=>v.tienda_id===tiendaId && v.fecha===todayStr && !v.es_flexipago);
+  const cierres = calcularCierresFlexipago(ventas, ventasItems, ventasAbonos).filter(c=>c.tiendaId===tiendaId && c.fechaCierre===todayStr);
+  const nVentas = facturas.filter(v=>(ventasItems||[]).some(i=>i.venta_id===v.id && i.tipo==="producto")).length + cierres.length;
+  const idsTienda = new Set(ventas.filter(v=>v.tienda_id===tiendaId && v.es_flexipago).map(v=>v.id));
+  const abonosFlex = (ventasAbonos||[]).filter(a=>a.fecha===todayStr && idsTienda.has(a.venta_id) && !flexiEsTraslado(a)).reduce((s,a)=>s+Number(a.valor||0),0);
+  const ultimas = ventas.filter(v=>v.tienda_id===tiendaId && v.fecha===todayStr).sort((a,b)=>String(b.created_at||"").localeCompare(String(a.created_at||""))).slice(0,3);
+  return { meta, vendido, falta, nVentas, ticket: nVentas ? vendido/nVentas : 0, abonosFlex, ultimas, pct: meta>0 ? vendido/meta*100 : null };
+};
+
+// "Hoy" en Métricas: una tarjeta por tienda (la de la cuenta de tienda, o la elegida, va primera y
+// más grande). Reemplaza la burbuja de progreso de hoy.
+function HoyVentas({ stores, primera, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile, onVerLista }) {
+  const tiendas = tiendasVenta(stores).filter(t=>!esTiendaOficina(t));
+  const orden = primera ? [...tiendas.filter(t=>t.id===primera), ...tiendas.filter(t=>t.id!==primera)] : tiendas;
+  const tarjeta = (t, grande) => {
+    const r = resumenHoyTienda(t.id, ventas, ventasItems, ventasAbonos, ventasAjustes, metas);
+    const col = colorTienda(t);
+    const pct = r.pct===null ? null : Math.round(r.pct);
+    const colPct = pct===null ? C.textMuted : pct>=100 ? C.green : pct>=70 ? C.amber : C.red;
+    return (
+      <Card key={t.id} p={grande?"16px 18px":"14px 16px"} style={{ borderTop:`3px solid ${col}`, minWidth:0 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+          <PuntoTienda color={col} size={9}/>
+          <b style={{ fontFamily:font.body, fontSize:grande?16:14.5, color:C.text }}>{nombreTiendaCorto(t)}</b>
+          <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>hoy</span>
+        </div>
+        <div style={{ display:"flex", alignItems:"baseline", gap:8, flexWrap:"wrap" }}>
+          <span style={{ fontFamily:font.mono, fontSize:grande?26:21, fontWeight:700, color:C.text }}>{fmtCOP(r.vendido)}</span>
+          {r.meta>0 && <span style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>de {fmtCOP(r.meta)}</span>}
+          {pct!==null && <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:grande?18:15, fontWeight:800, color:colPct }}>{pct} %</span>}
+        </div>
+        <div style={{ height:8, borderRadius:99, background:C.surfaceHover, overflow:"hidden", margin:"8px 0 10px" }}>
+          <div style={{ height:"100%", width:`${Math.min(100, Math.max(0, r.pct||0))}%`, background:pct!==null && pct>=100 ? C.green : col, borderRadius:99, transition:"width .5s ease" }}/>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3, minmax(0,1fr))", gap:8, fontFamily:font.body }}>
+          {[
+            [r.meta>0 ? (r.falta>0 ? "Falta" : "Pasó la meta por") : "Meta del día", r.meta>0 ? fmtCOP(Math.abs(r.meta-r.vendido)) : "sin meta", r.meta>0 && r.falta<=0 ? C.green : C.text],
+            ["Ventas · ticket", `${r.nVentas} · ${r.nVentas ? fmtCOP(r.ticket) : "—"}`, C.text],
+            ["Abonos Flexipago", fmtCOP(r.abonosFlex), C.text],
+          ].map(([l,v,c])=>(
+            <div key={l} style={{ minWidth:0 }}>
+              <div style={{ fontSize:10, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:700 }}>{l}</div>
+              <div style={{ fontFamily:font.mono, fontSize:12.5, fontWeight:700, color:c, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{v}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ borderTop:`1px solid ${C.border}`, marginTop:10, paddingTop:8 }}>
+          {r.ultimas.length ? r.ultimas.map(v=>(
+            <div key={v.id} style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:12, color:C.textSub, padding:"2px 0" }}>
+              <span style={{ fontFamily:font.mono, color:C.textMuted, minWidth:38 }}>{horaCol(v.created_at)}</span>
+              <span style={{ flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{v.vendedor_nombre||"—"}{v.es_flexipago?" · Flexipago":""}</span>
+              <span style={{ fontFamily:font.mono, fontWeight:700, color:C.text }}>{fmtCOP(v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id && a.fecha===todayStr && !flexiEsTraslado(a)).reduce((s,a)=>s+Number(a.valor||0),0) : Number(v.valor_original ?? v.total ?? 0))}</span>
+            </div>
+          )) : <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Todavía no hay ventas hoy.</div>}
+          {onVerLista && <button onClick={()=>onVerLista(t.id)} style={{ all:"unset", cursor:"pointer", marginTop:6, display:"inline-flex", alignItems:"center", gap:4, fontFamily:font.body, fontSize:12, fontWeight:700, color:C.gold }}>Ver todas las de hoy <Icon n="right" s={12} sw={2.2}/></button>}
+        </div>
+      </Card>
+    );
+  };
+  return (
+    <div style={{ marginBottom:16 }}>
+      <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, margin:"0 0 8px 2px" }}>Hoy · {fechaLargaDia(todayStr)}</div>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":`repeat(${Math.min(orden.length,4)}, minmax(0,1fr))`, gap:10 }}>
+        {orden.map((t,i)=>tarjeta(t, !!primera && i===0))}
+      </div>
+    </div>
+  );
+}
+
+// En vez de dejar la pantalla vacía cuando falta elegir tienda: las tiendas como tarjetas grandes,
+// con su color y lo vendido hoy. Al tocar una se entra.
+function ElegirTiendaTarjetas({ stores, onElegir, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, titulo="Elige la tienda", isMobile }) {
+  const tiendas = tiendasVenta(stores).filter(t=>!esTiendaOficina(t));
+  return (
+    <div style={{ maxWidth:820, margin:"10px auto" }}>
+      <div style={{ fontFamily:font.body, fontSize:isMobile?18:21, fontWeight:700, color:C.text, marginBottom:4 }}>{titulo}</div>
+      <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginBottom:14 }}>Toca una tienda para seguir. Puedes cambiarla después arriba.</div>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(auto-fill, minmax(180px, 1fr))", gap:10 }}>
+        {tiendas.map(t=>{ const r = calcularMetaHoyTienda(t.id, todayStr, ventas, ventasItems, ventasAbonos, ventasAjustes, metas); const col = colorTienda(t); return (
+          <button key={t.id} onClick={()=>onElegir(t.id)} className="ozen-fila-venta" style={{ all:"unset", boxSizing:"border-box", cursor:"pointer", background:"#fff", border:`1px solid ${C.border}`, borderTop:`4px solid ${col}`, borderRadius:14, padding:"16px 16px 14px", display:"flex", flexDirection:"column", gap:8 }}>
+            <span style={{ display:"inline-flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}><PuntoTienda color={col} size={10}/>{nombreTiendaCorto(t)}</span>
+            <span style={{ fontFamily:font.body, fontSize:11, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:700 }}>Vendido hoy</span>
+            <span style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ fontSize:12, color:C.textMuted, fontWeight:500 }}> · {Math.round(r.vendido/r.meta*100)} %</span>}</span>
+          </button>
+        ); })}
+      </div>
+    </div>
+  );
+}
+
+function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, setMetas, metasAsesor, setMetasAsesor, esAdmin, puedeAsignarMetas, isMobile, turnosAsignaciones, turnosGlobales, vistaMet="resumen", onVerListaHoy }) {
   const hoy = toColombiaDate();
   const [anio, setAnio] = useState(hoy.getFullYear());
   const [mesIdx, setMesIdx] = useState(hoy.getMonth());
@@ -10551,7 +10675,6 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   const [guardandoDetalle, setGuardandoDetalle] = useState(null);
   const [asesorExpandido, setAsesorExpandido] = useState(null);
   // "Resumen" (lo de siempre) o "Consultas" (motor de preguntas, solo administración).
-  const [vistaMet, setVistaMet] = useState("resumen");
 
   // Orden de la tabla "Ventas por asesor": por defecto de mayor a menor venta; se cambia tocando
   // el título de una columna (tocar de nuevo invierte el orden).
@@ -11027,13 +11150,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   // Consultas: cualquier admin (master, admin, admin_finanzas, admin_turnos) y visualizador — es
   // solo lectura, no toca datos. Cuentas de tienda y asesores no la ven.
   const puedeConsultas = puede(user, "ventas.metricas.consultas");
-  const selectorVistaMet = puedeConsultas && (
-    <div style={{ display:"inline-flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, marginBottom:16 }}>
-      {[["resumen","Resumen","chart"],["consultas","Consultas","search"]].map(([k,l,ic])=>(
-        <button key={k} onClick={()=>setVistaMet(k)} style={{ display:"inline-flex", alignItems:"center", gap:7, border:"none", cursor:"pointer", borderRadius:99, padding:"8px 16px", fontFamily:font.body, fontSize:13, fontWeight:600, background:vistaMet===k?C.goldDark:"transparent", color:vistaMet===k?C.tinta:C.textSub }}><Icon n={ic} s={15}/>{l}</button>
-      ))}
-    </div>
-  );
+  const selectorVistaMet = null; // el selector Resumen · Consultas · Caja lo pone App (SelectorVistaMetricas)
   if(puedeConsultas && vistaMet==="consultas") return (
     <div>
       <PageHeader title="Métricas" subtitle="Consultas · arma cualquier pregunta sobre las ventas"/>
@@ -11044,10 +11161,10 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
 
   return (
     <div>
-      <PageHeader title="Métricas" subtitle={tiendaSel ? `${stores[tiendaSel]?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`}
-        action={<MetaHoyCompetencia stores={stores} tiendaIdActual={tiendaSel} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>}
-      />
+      <PageHeader title="Métricas" subtitle={tiendaSel ? `${stores[tiendaSel]?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`}/>
       {selectorVistaMet}
+      {/* "Hoy" (22 nov 2026): reemplaza la burbuja de progreso de hoy. */}
+      <HoyVentas stores={stores} primera={esCuentaTienda(user) ? user.tienda_id : tiendaSel} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile} onVerListaHoy={onVerListaHoy} onVerLista={onVerListaHoy}/>
 
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12, flexWrap:"wrap" }}>
@@ -16509,10 +16626,15 @@ export default function App() {
   const [opPedido,setOpPedido]=useState(null);
   // Campana de Registrar venta: solo las órdenes ABIERTAS (pocas columnas), como mucho cada 5
   // minutos y solo en esa pestaña — no se descarga Operaciones entero (tope de Supabase).
+  // Registrar venta como ventana (22 nov 2026). Una vez abierta queda montada (escondida al cerrar),
+  // así lo que se llevaba escrito no se pierde si se cierra sin guardar.
+  const [registrarAbierto,setRegistrarAbierto]=useState(false);
+  const [registrarMontado,setRegistrarMontado]=useState(false);
+  const abrirRegistrar = () => { setRegistrarMontado(true); setRegistrarAbierto(true); };
   const [opCampana,setOpCampana]=useState([]);
   const opCampanaRef = useRef(0);
   useEffect(()=>{
-    if(!user || tab!=="registrar" || !puedeOper(user, "operaciones.ver")) return;
+    if(!user || !registrarAbierto || !puedeOper(user, "operaciones.ver")) return;
     if(!operHayCambiosFuera && Date.now()-opCampanaRef.current < 5*60000) return;
     opCampanaRef.current = Date.now();
     (async()=>{
@@ -16521,7 +16643,7 @@ export default function App() {
         .not("etapa","in","(entregada,cancelada)").limit(1000);
       if(!error && data) setOpCampana(data);
     })();
-  }, [tab, user?.id]);
+  }, [registrarAbierto, user?.id]);
   const opCargaRef = useRef(0), opTodoRef = useRef(false);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
@@ -16532,11 +16654,18 @@ export default function App() {
   // Tienda activa de TODA el área de Ventas (Propuesta A): se elige una sola vez en la barra
   // superior y la usan Registrar venta y Caja — antes cada pantalla tenía su propio selector. La
   // cuenta de tienda siempre queda fija en su propia tienda.
-  const [tiendaElegida,setTiendaActiva]=useState("");
+  // La última tienda elegida se recuerda en este equipo (22 nov 2026: antes, al recargar, Caja y
+  // Registrar quedaban vacíos hasta elegir otra vez). No hay tienda "por defecto" para nadie.
+  const [tiendaElegida,setTiendaElegidaEstado]=useState(()=>{ try { return localStorage.getItem("ozen-tienda-elegida")||""; } catch { return ""; } });
+  const setTiendaActiva = (id) => { setTiendaElegidaEstado(id); try { localStorage.setItem("ozen-tienda-elegida", id||""); } catch { /* sin almacenamiento */ } };
+  // Métricas: Resumen · Consultas · Caja (Caja es la pestaña "caja" de siempre).
+  const [vistaMet,setVistaMet]=useState("resumen");
+  // "Ver todas las de hoy" desde Métricas → Lista con esa tienda y hoy.
+  const [listaPedido,setListaPedido]=useState(null);
   // Orden de Operaciones que se está cobrando: el botón "Cobrar" de la orden trae a Registrar venta
   // con sus datos ya puestos; al guardar la venta, la orden pasa sola a "Pago".
   const [ordenACobrar,setOrdenACobrar]=useState(null);
-  const cobrarOrden=(op)=>{ setOrdenACobrar(op); if(!esCuentaTienda(user)){ setTiendaActiva(op.tienda_id); setArea("ventas"); } setTab("registrar"); };
+  const cobrarOrden=(op)=>{ setOrdenACobrar(op); if(!esCuentaTienda(user)) setTiendaActiva(op.tienda_id); abrirRegistrar(); };
   const ordenCobrada=(fila)=>{ if(fila) setOpExternas(prev=>prev.map(o=>o.id===fila.id?fila:o)); setOrdenACobrar(null); };
 
   // `todayStr` se calcula UNA sola vez cuando carga la página (no es reactivo). Si alguien deja
@@ -16739,9 +16868,9 @@ export default function App() {
   // Al iniciar sesión se refresca todo del servidor en segundo plano (sin bloquear la entrada) —
   // en un dispositivo compartido donde una cuenta entra justo después de que otra salió, sin esto
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
-  const login=(u)=>{permVerComoActivar(false);setVerComo(null);setUser(u);setArea(null);setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin");(NAVIDAD&&sonidosNavidadActivos()?sonidoNavidadIngreso:sonidoBienvenida)();refreshAll(60000);};
+  const login=(u)=>{permVerComoActivar(false);setVerComo(null);setUser(u);setArea(null);setTab(esCuentaTienda(u)?"metricas":eligeModulo(u)?null:"checkin");(NAVIDAD&&sonidosNavidadActivos()?sonidoNavidadIngreso:sonidoBienvenida)();refreshAll(60000);};
   const logout=()=>{permVerComoActivar(false);setVerComo(null);setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOrdenACobrar(null);setOpExternas([]);setOpInternas([]);setOpCampana([]);opCampanaRef.current=0;setOpFoco(null);setOpPedido(null);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
-  const entrarVerComo=(u)=>{ if(!puede(usuarioSesion,"cuenta.permisos")) return; permVerComoActivar(true); setVerComo(u); setMostrarUsuarios(false); setArea(null); setTab(esCuentaTienda(u)?"registrar":eligeModulo(u)?null:"checkin"); };
+  const entrarVerComo=(u)=>{ if(!puede(usuarioSesion,"cuenta.permisos")) return; permVerComoActivar(true); setVerComo(u); setMostrarUsuarios(false); setArea(null); setTab(esCuentaTienda(u)?"metricas":eligeModulo(u)?null:"checkin"); };
   const salirVerComo=()=>{ permVerComoActivar(false); setVerComo(null); setArea(null); setTab(eligeModulo(usuarioSesion)?null:"checkin"); setMostrarUsuarios(true); };
   const bandaVerComo = verComo ? <BandaVerComo u={verComo} onSalir={salirVerComo}/> : null;
   const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="operaciones"?"op_externas":a==="ventas"?"metricas":a==="capacitacion"?(tomaCapacitaciones(user)?"mis_cursos":"progreso"):user.role==="advisor"?"checkin":"dashboard");};
@@ -16898,6 +17027,13 @@ export default function App() {
   // sin datos (SinTiendaElegida). Las cuentas de tienda siguen fijas en la suya. Además, al entrar
   // a Ventas todos los admin arrancan en Métricas.
   const tiendaActiva = esCuentaTienda(user) ? (user.tienda_id||"") : (tiendasVenta(stores).some(t=>t.id===tiendaElegida) ? tiendaElegida : "");
+  // Métricas · Caja (22 nov 2026): el selector Resumen · Consultas · Caja va arriba de las tres.
+  const puedeCajaMet = puede(user, "caja.ver") && puede(user, "ventas.metricas.ver");
+  const vistaMetActual = tab==="caja" ? "caja" : vistaMet;
+  const elegirVistaMet = (v) => { if(v==="caja") setTab("caja"); else { setVistaMet(v); setTab("metricas"); } };
+  const conSelectorMet = (contenido) => <>{puede(user, "ventas.metricas.ver") && <SelectorVistaMetricas vista={vistaMetActual} onElegir={elegirVistaMet} puedeConsultas={puede(user, "ventas.metricas.consultas")} puedeCaja={puedeCajaMet}/>}{contenido}</>;
+  const elegirTiendaPantalla = (titulo) => <ElegirTiendaTarjetas stores={stores} onElegir={setTiendaActiva} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} titulo={titulo} isMobile={isMobile}/>;
+  const verListaHoy = (tiendaId) => { setListaPedido({ tienda:tiendaId, dia:todayStr, t:Date.now() }); setTab("lista"); };
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
   // El líder de Operaciones (operaciones_config): decide si se ve la pestaña Producto.
   const liderOper = opConfig.find(c=>c.clave==="lider_usuario_id")?.valor || "";
@@ -16912,9 +17048,9 @@ export default function App() {
         if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
       } else if(area==="ventas"){
         if(tab==="registrar" && puede(user, "ventas.registrar.ver")) return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} opAvisos={opEstado==="listo" ? opExternas : opCampana} onIrAOrden={(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); }} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/>;
-        if(tab==="lista" && puede(user, "ventas.lista.ver")) return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
-        if(tab==="metricas" && puede(user, "ventas.metricas.ver")) return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puede(user, "ventas.metas.asignar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
-        if(tab==="caja" && puede(user, "caja.ver")) return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
+        if(tab==="lista" && puede(user, "ventas.lista.ver")) return <VentasListaScreen key={listaPedido?.t||"lista"} pedido={listaPedido} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
+        if(tab==="metricas" && puede(user, "ventas.metricas.ver")) return conSelectorMet(<VentasMetricasScreen vistaMet={vistaMet} onVerListaHoy={verListaHoy} user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={esAdminDeVentas(user)} puedeAsignarMetas={puede(user, "ventas.metas.asignar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>);
+        if(tab==="caja" && puede(user, "caja.ver")) return conSelectorMet(tiendaActiva ? <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/> : elegirTiendaPantalla("Elige la tienda para ver su caja"));
       } else if(area==="operaciones"){
         if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesExternasScreen {...propsOperaciones}/>;
         if(tab==="op_internas" && puedeOper(user, "operaciones.ver")) return <OperacionesInternasScreen {...propsOperaciones}/>;
@@ -16933,9 +17069,9 @@ export default function App() {
       }
     } else if(esCuentaTienda(user)){
       if(tab==="registrar") return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} opAvisos={opEstado==="listo" ? opExternas : opCampana} onIrAOrden={(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); }} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/>;
-      if(tab==="lista" && puede(user, "ventas.lista.ver")) return <VentasListaScreen user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
-      if(tab==="metricas" && puede(user, "ventas.metricas.ver")) return <VentasMetricasScreen user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puede(user, "ventas.metas.asignar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>;
-      if(tab==="caja" && puede(user, "caja.ver")) return <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/>;
+      if(tab==="lista" && puede(user, "ventas.lista.ver")) return <VentasListaScreen key={listaPedido?.t||"lista"} pedido={listaPedido} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>;
+      if(tab==="metricas" && puede(user, "ventas.metricas.ver")) return conSelectorMet(<VentasMetricasScreen vistaMet={vistaMet} onVerListaHoy={verListaHoy} user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puede(user, "ventas.metas.asignar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>);
+      if(tab==="caja" && puede(user, "caja.ver")) return conSelectorMet(tiendaActiva ? <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/> : elegirTiendaPantalla("Elige la tienda para ver su caja"));
       if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesTiendaScreen {...propsOperaciones}/>;
       // La misma pantalla de Turnos que ven todos (encabezado de mes incluido), pero sin Editar ni
       // Administrar — la cuenta de tienda ve quién tiene turno sin poder cambiar nada.
@@ -17071,7 +17207,27 @@ export default function App() {
 
   const tabsVisibles = tabsPara(user, area, liderOper);
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
-  const mostrarTienda = esAreaVentas && (tab==="registrar" || tab==="caja");
+  const mostrarTienda = esAreaVentas && tab==="caja";
+  const setTabNav = (id) => id==="mas" ? abrirRegistrar() : setTab(id);
+  const modalRegistrar = registrarMontado && createPortal(
+    <FlexiAvisosContext.Provider value={flexiAvisosCtx}>
+      <div onClick={()=>setRegistrarAbierto(false)} style={{ display:registrarAbierto?"flex":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.45)", alignItems:isMobile?"flex-end":"flex-start", justifyContent:"center", padding:isMobile?0:"26px 16px 40px", overflowY:isMobile?"hidden":"auto" }}>
+        <style>{`@keyframes ozenSubeVentana{from{transform:translateY(${isMobile?"100%":"24px"});opacity:${isMobile?1:0}}to{transform:none;opacity:1}}`}</style>
+        <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:1180, background:C.dark, borderRadius:isMobile?"20px 20px 0 0":20, boxShadow:"0 30px 80px -20px rgba(26,59,82,0.55)", animation:"ozenSubeVentana .28s ease-out", ...(isMobile ? { height:"94vh", display:"flex", flexDirection:"column" } : {}) }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, padding:isMobile?"12px 14px":"14px 20px", background:"#fff", borderBottom:`1px solid ${C.border}`, borderRadius:isMobile?"20px 20px 0 0":"20px 20px 0 0", flexShrink:0 }}>
+            <span style={{ width:34, height:34, borderRadius:"50%", background:C.gold, color:"#fff", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="plus" s={18} sw={2.6}/></span>
+            <b style={{ fontFamily:font.body, fontSize:isMobile?16:18, color:C.text }}>Registrar venta</b>
+            <span style={{ flex:1 }}/>
+            {!esCuentaTienda(user) && tiendaActiva && <SelectorTienda stores={stores} tiendaId={tiendaActiva} setTiendaId={setTiendaActiva} compact={isMobile}/>}
+            <button onClick={()=>setRegistrarAbierto(false)} aria-label="Cerrar" title="Cerrar (lo que llevas escrito se guarda)" style={{ width:36, height:36, borderRadius:10, border:`1px solid ${C.border}`, background:"#fff", color:C.text, display:"grid", placeItems:"center", cursor:"pointer", flexShrink:0 }}><Icon n="x" s={16} sw={2.4}/></button>
+          </div>
+          <div style={{ padding:isMobile?"14px":"20px 24px 26px", ...(isMobile ? { flex:1, overflowY:"auto" } : {}) }}>
+            {tiendaActiva ? <VentasRegistrarScreen enVentana ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} opAvisos={opEstado==="listo" ? opExternas : opCampana} onIrAOrden={(tipo,id)=>{ setRegistrarAbierto(false); setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); }} tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/> : elegirTiendaPantalla("¿En qué tienda vas a registrar la venta?")}
+          </div>
+        </div>
+      </div>
+    </FlexiAvisosContext.Provider>, document.body);
+  const tabNav = tab==="caja" && puede(user, "ventas.metricas.ver") ? "metricas" : tab;
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
   const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
   const panel = <FlexiAvisosContext.Provider value={flexiAvisosCtx}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></FlexiAvisosContext.Provider>;
@@ -17087,11 +17243,12 @@ export default function App() {
         {NAVIDAD && <MagiaNavidad/>}
         {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
         <main style={{flex:1,overflowY:"auto",padding:16}}>{panel}</main>
-        <BottomNav tab={tab} setTab={setTab} user={user} area={area} liderOper={liderOper}/>
+        <BottomNav tab={tabNav} setTab={setTabNav} user={user} area={area} liderOper={liderOper}/>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
         {modalFirmas}
+        {modalRegistrar}
         {bannerActualizacion}
       </div>
     </ReadOnlyContext.Provider>
@@ -17106,13 +17263,14 @@ export default function App() {
         <TopeEstado color="#ffffff"/>
         <BarraSuperior {...propsBarra}/>
         {NAVIDAD && <MagiaNavidad/>}
-        <BarraPestanas tabs={tabsVisibles} tab={tab} setTab={setTab} derecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
+        <BarraPestanas tabs={tabsVisibles} tab={tabNav} setTab={setTabNav} derecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
         {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
         <main style={{flex:1,overflowY:"auto",padding:"26px 28px 40px"}}>{panel}</main>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
         {modalFirmas}
+        {modalRegistrar}
         {bannerActualizacion}
       </div>
     </ReadOnlyContext.Provider>

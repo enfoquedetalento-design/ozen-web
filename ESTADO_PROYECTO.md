@@ -1183,6 +1183,27 @@ ahora es una tabla dinámica sencilla:
   %, puntos), sin cuadrícula, encabezado y columnas de nombres fijos. Se puede reusar para otros
   Excel de la app.
 
+## Ventas — navegación nueva (22 nov 2026, en `staging`, falta probar)
+
+Pedido de Santiago: el módulo más intuitivo.
+- **Barra:** Métricas · ( + ) · Lista de ventas (`ADMIN_TABS_VENTAS`; "mas" no es pantalla). En
+  computador el + es un botón redondo entre las pestañas; en celular, redondo grande y levantado en
+  la barra de abajo. Todos entran por Métricas (también las cuentas de tienda; `login`).
+- **Registrar venta = ventana** encima de todo (`modalRegistrar` en `App`, con
+  `VentasRegistrarScreen enVentana`): sin título grande, sin burbuja y sin "Ventas de hoy". Arriba,
+  selector de tienda (cuentas que no son de tienda) y ✕. Al guardar NO se cierra (para no cortar la
+  celebración y seguir con la siguiente venta). Una vez abierta queda montada (escondida al cerrar):
+  lo escrito no se pierde. "Cobrar" una orden de Operaciones abre esta ventana sin cambiar de módulo.
+- **Caja dentro de Métricas:** `SelectorVistaMetricas` (Resumen · Consultas · Caja) arriba de las tres;
+  Caja sigue siendo la pestaña "caja" (la barra ilumina Métricas). Quien tiene Caja sin Métricas la
+  conserva como pestaña.
+- **"Hoy" en Métricas** (`HoyVentas`, reemplaza la burbuja): tarjeta por tienda (la de la cuenta de
+  tienda o la elegida, primera y más grande) con vendido vs meta del día, %, falta/pasó, N.º de ventas
+  y ticket, abonos de Flexipago de hoy (sin traslados) y las últimas 3 ventas, con "Ver todas las de
+  hoy" → Lista con esa tienda y Fecha: hoy (`listaPedido`).
+- **Sin tienda elegida:** en vez de pantalla vacía, `ElegirTiendaTarjetas` (las tiendas como tarjetas
+  con lo vendido hoy). La última tienda elegida se recuerda en el equipo (`ozen-tienda-elegida`).
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
