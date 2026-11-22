@@ -1222,6 +1222,11 @@ Pedido de Santiago: el módulo más intuitivo.
   - **Cuentas de tienda en computador:** pestañas en una barra flotante abajo y centrada
     (`DockTienda`), + en el medio; "Nadie en turno" pasa a la barra de arriba (`extraDerecha`). La
     ventana de Registrar sube desde el + cuando el + está abajo (`haciaArriba`).
+  - **Ajustes (22 nov, tarde 2):** el + del celular ya no queda tapado por el contenido (barra de
+    abajo con zIndex); tarjetas para elegir tienda centradas; recuadros de Métricas centrados cuando
+    caben (`justifyContent:"safe center"`); colita de la nube en curva (SVG); **campana de avisos**
+    (Flexipagos y órdenes de Operaciones) pasó de Registrar a la barra de arriba, junto al perfil
+    (`CampanaVentas`; cuenta de tienda: solo la suya; demás: todas las tiendas, con el nombre).
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
