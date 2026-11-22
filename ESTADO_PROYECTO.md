@@ -1144,7 +1144,7 @@ servía para la operación. Ahora (`VentasListaScreen`):
 - Se quitaron: cifras de resumen, burbuja de meta, filtros Tipo / Medio de pago / Más y la hoja de
   filtros del celular (en el celular salen las mismas fichas; la listita se acomoda si no cabe).
 
-## Ventas — Métricas › Consultas como tabla dinámica (21 nov 2026, en `staging`, falta probar)
+## Ventas — Métricas › Consultas como tabla dinámica (21 nov 2026; probado en `staging`, publicado en `main` el 21 nov 2026)
 
 Pedido de Santiago y Felipe: la frase se quedaba corta (no se podía, p. ej., medios de pago por
 tienda y por día, ni cumplimiento de un asesor del 1 al 16 contra otro periodo). `ConsultasVentas`
