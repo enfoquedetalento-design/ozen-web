@@ -10621,6 +10621,10 @@ function CarreraDelDia({ stores, primera, ventas, ventasItems, ventasAbonos, ven
   const filas = tiendas.map(t=>({ t, r:resumenDiaTienda(t.id, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, cierresTodos) }))
     .sort((a,b)=> (b.r.pct??-1)-(a.r.pct??-1) || b.r.vendido-a.r.vendido);
   const total = filas.reduce((s,f)=>({ vendido:s.vendido+f.r.vendido, meta:s.meta+f.r.meta, n:s.n+f.r.nVentas }), { vendido:0, meta:0, n:0 });
+  // Los valores se ven SIEMPRE completos: la columna toma el ancho del texto más largo (la fuente
+  // de montos es de ancho fijo, así que "ch" = un carácter).
+  const textoValor = (r) => `${fmtCOP(r.vendido)}${r.meta>0?` / ${fmtCOP(r.meta)}`:""}`;
+  const anchoValor = `${Math.max(8, ...filas.map(f=>textoValor(f.r).length)) + 1}ch`;
   const esHoy = fecha===todayStr;
   const mover = (d) => { const n = consSumarDias(fecha, d); if(n<=todayStr) setFecha(n); };
   const flechita = { all:"unset", cursor:"pointer", width:22, height:22, borderRadius:6, display:"grid", placeItems:"center", color:C.textSub, fontSize:14 };
@@ -10653,14 +10657,14 @@ function CarreraDelDia({ stores, primera, ventas, ventasItems, ventasAbonos, ven
           const propia = t.id===primera;
           return (
             <div key={t.id} title={`${nombreTiendaCorto(t)}: ${fmtCOP(r.vendido)}${r.meta>0?` de ${fmtCOP(r.meta)}`:""} · ${r.nVentas} ${r.nVentas===1?"venta":"ventas"}${r.nVentas?` · ticket ${fmtCOP(r.ticket)}`:""}${r.abonosFlex>0?` · abonos Flexipago ${fmtCOP(r.abonosFlex)}`:""}`}
-              style={{ display:"grid", gridTemplateColumns:isMobile?"16px 92px minmax(0,1fr) 44px":"16px 120px minmax(0,1fr) 46px 150px 34px", alignItems:"center", gap:10, height:24, padding:"0 6px", borderRadius:7, background:propia?hexToRgba(col,0.08):"transparent" }}>
+              style={{ display:"grid", gridTemplateColumns:isMobile?`16px minmax(0,1fr) 40px`:`16px 120px minmax(0,1fr) 46px ${anchoValor} 34px`, gridTemplateRows:isMobile?"auto auto":"auto", columnGap:10, rowGap:2, alignItems:"center", minHeight:24, paddingTop:isMobile?3:0, paddingBottom:isMobile?3:0, padding:"0 6px", borderRadius:7, background:propia?hexToRgba(col,0.08):"transparent" }}>
               <span style={{ fontFamily:font.body, fontSize:11, fontWeight:800, color:i===0 && r.vendido>0 ? C.goldDark : C.textMuted, textAlign:"center" }}>{i+1}</span>
-              <span style={{ display:"inline-flex", alignItems:"center", gap:6, minWidth:0 }}><PuntoTienda color={col} size={7}/><span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:propia?800:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreTiendaCorto(t)}</span></span>
-              <span style={{ position:"relative", height:6, borderRadius:99, background:C.surfaceHover, overflow:"hidden" }}>
+              <span style={{ display:"inline-flex", alignItems:"center", gap:6, minWidth:0 }}><PuntoTienda color={col} size={7}/><span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:propia?800:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreTiendaCorto(t)}</span>{isMobile && <span style={{ marginLeft:"auto", fontFamily:font.mono, fontSize:11.5, color:C.text, whiteSpace:"nowrap" }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ color:C.textMuted }}> / {fmtCOP(r.meta)}</span>}</span>}</span>
+              <span style={{ position:"relative", height:6, ...(isMobile ? { gridColumn:"2 / 3", gridRow:"2" } : {}), borderRadius:99, background:C.surfaceHover, overflow:"hidden" }}>
                 <span style={{ position:"absolute", left:0, top:0, bottom:0, width:`${Math.min(100, Math.max(0, r.pct||0))}%`, background:pct!==null && pct>=100 ? C.green : col, borderRadius:99, transition:"width .6s ease" }}/>
               </span>
-              <span style={{ fontFamily:font.body, fontSize:12, fontWeight:800, color:colPct, textAlign:"right" }}>{pct===null ? "—" : `${pct} %`}</span>
-              {!isMobile && <span style={{ fontFamily:font.mono, fontSize:12, color:C.text, textAlign:"right", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ color:C.textMuted }}> / {fmtCOP(r.meta)}</span>}</span>}
+              <span style={{ fontFamily:font.body, fontSize:12, fontWeight:800, color:colPct, textAlign:"right", ...(isMobile ? { gridColumn:"3", gridRow:"1 / 3" } : {}) }}>{pct===null ? "—" : `${pct} %`}</span>
+              {!isMobile && <span style={{ fontFamily:font.mono, fontSize:12, color:C.text, textAlign:"right", whiteSpace:"nowrap" }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ color:C.textMuted }}> / {fmtCOP(r.meta)}</span>}</span>}
               {!isMobile && (onVerLista ? <button onClick={()=>onVerLista(t.id, fecha)} title="Ver las ventas de ese día" style={{ all:"unset", cursor:"pointer", color:C.gold, display:"grid", placeItems:"center" }}><Icon n="right" s={13} sw={2.4}/></button> : <span/>)}
             </div>
           );
