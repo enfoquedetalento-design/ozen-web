@@ -15054,7 +15054,7 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ven
         tiendaId={esTienda ? user.tienda_id : (tiendasF.length===1 ? tiendasF[0] : "")}
         onIr={(f)=>{ setFase(f); setVista("lista"); setLimite(40); }}/>}
       <PageHeader title="Operaciones externas" subtitle="Arreglos, marcaciones y garantías de clientes"
-        action={<div style={{ display:"flex", alignItems:"center", gap:10 }}><OperCampana ops={ops} sols={sols} user={user} stores={stores} onIrA={onIrA}/>{puedeOper(user, "operaciones.externas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva orden</Btn> : null}</div>}/>
+        action={<div style={{ display:"flex", alignItems:"center", gap:10 }}>{puedeOper(user, "operaciones.externas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva orden</Btn> : null}</div>}/>
       <OperLider user={user} users={users} liderId={liderId} onGuardar={guardarLider}/>
       {creando && <OperNuevaOrden user={user} users={users} stores={stores} clientes={clientes} isMobile={isMobile} onCancelar={()=>setCreando(false)} onCreada={(fila)=>{ setOps(prev=>[fila, ...prev]); setCreando(false); setFase("abiertas"); setAbiertoId(fila.id); setOrdenVista(fila); }}/>}
       <OperFiltros fichas={fichas} ficha={fase} setFicha={(f)=>{ setFase(f); setLimite(40); }}
@@ -15366,7 +15366,7 @@ function OperacionesInternasScreen({ user, users, stores, ops, sols, setSols, on
         tiendaId={esTienda ? user.tienda_id : (tiendasF.length===1 ? tiendasF[0] : "")}
         onIr={(f)=>{ setFiltro(f); setVista("lista"); setLimite(40); }}/>}
       <PageHeader title="Operaciones internas" subtitle="Insumos, novedades y arreglos del inventario y del punto"
-        action={<div style={{ display:"flex", alignItems:"center", gap:10 }}><OperCampana ops={ops} sols={sols} user={user} stores={stores} onIrA={onIrA}/>{puedeOper(user, "operaciones.internas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva solicitud</Btn> : null}</div>}/>
+        action={<div style={{ display:"flex", alignItems:"center", gap:10 }}>{puedeOper(user, "operaciones.internas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva solicitud</Btn> : null}</div>}/>
       <OperLider user={user} users={users} liderId={liderId} onGuardar={(id)=>operGuardarLider(user, id, setConfig)}/>
       {creando && <OperNuevaSolicitud user={user} users={users} stores={stores} isMobile={isMobile} onCancelar={()=>setCreando(false)} onCreada={(fila)=>{ setSols(prev=>[fila, ...prev]); setCreando(false); setFiltro("abiertas"); setAbiertoId(fila.id); }}/>}
       <OperFiltros fichas={fichas} ficha={filtro} setFicha={(f)=>{ setFiltro(f); setLimite(40); }}
@@ -17262,6 +17262,12 @@ export default function App() {
       <CampanaVentas user={user} stores={stores} tiendaIds={esCuentaTienda(user) ? [user.tienda_id] : tiendasVenta(stores).map(t=>t.id)} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ops={puedeOper(user, "operaciones.ver") ? (opEstado==="listo" ? opExternas : opCampana) : []} onIrAOrden={irAOrdenDesdeAviso} onIrAFlexipago={irAFlexipagoDesdeAviso}/>
     </FlexiAvisosContext.Provider>
   );
+  // Campana de Operaciones (22 nov 2026): en la barra de arriba, junto al perfil, igual que la de
+  // Ventas. Solo en el área de Operaciones (admins); las cuentas de tienda siempre ven la de Ventas,
+  // que ya trae las órdenes de su tienda.
+  const campanaBarra = esAreaVentas ? campanaVentas
+    : area==="operaciones" ? <OperCampana ops={opExternas} sols={opInternas} user={user} stores={stores} onIrA={propsOperaciones.onIrA}/>
+    : null;
   // Ventana de Registrar venta como "nube" que sale del + (22 nov 2026), con vidrio esmerilado
   // ("liquid glass", en prueba en staging): en computador baja desde
   // el + con una colita que lo señala; en celular sube desde el + de la barra de abajo.
@@ -17309,7 +17315,7 @@ export default function App() {
         <ConfirmacionGlobal/>
         {bandaVerComo}
         <TopeEstado color="#ffffff"/>
-        <BarraSuperiorMovil {...propsBarra} campana={campanaVentas} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
+        <BarraSuperiorMovil {...propsBarra} campana={campanaBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
         {NAVIDAD && <MagiaNavidad/>}
         {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
         <main style={{flex:1,overflowY:"auto",padding:16}}>{panel}</main>
@@ -17331,7 +17337,7 @@ export default function App() {
         <ConfirmacionGlobal/>
         {bandaVerComo}
         <TopeEstado color="#ffffff"/>
-        <BarraSuperior {...propsBarra} campana={campanaVentas} extraDerecha={esCuentaTienda(user) ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
+        <BarraSuperior {...propsBarra} campana={campanaBarra} extraDerecha={esCuentaTienda(user) ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
         {NAVIDAD && <MagiaNavidad/>}
         {esCuentaTienda(user)
           ? <DockTienda tabs={tabsVisibles} tab={tabNav} setTab={setTabNav}/>
