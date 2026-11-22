@@ -1263,7 +1263,7 @@ const BotonRefrescar = ({ onRefresh, refreshing }) => (
   </button>
 );
 
-function BarraSuperior({ extraDerecha, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
+function BarraSuperior({ extraDerecha, campana, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   return (
     <div style={{ height:62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", padding:"0 24px", gap:20, flexShrink:0, position:"relative", zIndex:20 }}>
       {/* 22 nov 2026: los módulos van centrados (marca a la izquierda, cuenta a la derecha). */}
@@ -1273,6 +1273,7 @@ function BarraSuperior({ extraDerecha, user, area, onChooseArea, stores, tiendaI
         {extraDerecha}
         {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija}/>}
         <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
+        {campana}
         <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones} onAbrirFirmas={onAbrirFirmas}/>
       </div>
       {NAVIDAD && <GuirnaldaBarra/>}
@@ -1312,7 +1313,7 @@ function BarraPestanas({ tabs, tab, setTab, derecha }) {
 // Franja de 3 px con el color de la tienda activa — dice "dónde estás" en toda el área de Ventas.
 const FranjaTienda = ({ color }) => <div style={{ height:3, background:color, transition:"background-color .35s ease", flexShrink:0 }}/>;
 
-function BarraSuperiorMovil({ extra, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
+function BarraSuperiorMovil({ extra, campana, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   return (
     <div style={{ background:"#fff", borderBottom:`1px solid ${C.border}`, padding:"10px 14px", paddingTop:"calc(10px + env(safe-area-inset-top, 0px) * 1.55)", flexShrink:0, position:"relative", zIndex:20 }}>
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -1320,6 +1321,7 @@ function BarraSuperiorMovil({ extra, user, area, onChooseArea, stores, tiendaId,
         <div style={{ flex:1 }}/>
         {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija} compact/>}
         <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
+        {campana}
         <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones} onAbrirFirmas={onAbrirFirmas}/>
       </div>
       {eligeModulo(user) && <div style={{ marginTop:10 }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/></div>}
@@ -1346,10 +1348,31 @@ function DockTienda({ tabs, tab, setTab }) {
   );
 }
 
+// Campana de avisos de Ventas (22 nov 2026: pasó de Registrar venta a la barra de arriba, al lado
+// del perfil): Flexipagos por recordarle al cliente (vencidos, por vencer o a mitad de plazo) y
+// órdenes de Operaciones de la(s) tienda(s). Cuenta de tienda: solo la suya; las demás: todas.
+function CampanaVentas({ user, stores, tiendaIds, ventas, ventasItems, ventasAbonos, ops, onIrAOrden }) {
+  const variasTiendas = tiendaIds.length>1;
+  const flex = tiendaIds.flatMap(tid=>flexipagosPorVencer(tid, ventas, ventasItems, ventasAbonos, todayStr))
+    .sort((a,b)=> a.vencido!==b.vencido ? (a.vencido?-1:1) : (a.diasRestantes60??999)-(b.diasRestantes60??999));
+  return (
+    <CampanaAvisos titulo="Avisos" grupos={[
+      { titulo:"Flexipagos por recordarle al cliente", items:flex.map(({venta:v, saldoPendiente, diasRestantes60, vencido, fechaLimite})=>({
+        key:`flex-${v.id}`, titulo:v.cliente_nombre||"Cliente sin nombre",
+        accion:<FlexiAvisarWhatsApp venta={v} stores={stores} user={user} saldo={saldoPendiente} fechaLimite={fechaLimite} soloVer={esCuentaTienda(user) && v.tienda_id!==user.tienda_id}/>,
+        sub:`${variasTiendas?`${nombreTiendaCorto(stores[v.tienda_id])} · `:""}${v.cliente_telefono?`Tel: ${v.cliente_telefono} · `:""}Debe ${fmtCOP(saldoPendiente)}`,
+        badge:{ color:vencido?C.red:(diasRestantes60!==null && diasRestantes60<=5?C.amber:C.gold), label:vencido ? "⛔ Vencido" : `⏳ Vence en ${diasRestantes60}d` },
+        urgente:vencido || (diasRestantes60!==null && diasRestantes60<=5),
+      })) },
+      { titulo:"Órdenes de Operaciones", items:operItemsCampana((ops||[]).filter(o=>tiendaIds.includes(o.tienda_id)), stores, onIrAOrden) },
+    ]}/>
+  );
+}
+
 function BottomNav({ tab, setTab, user, area, liderOper }) {
   const tabs = tabsPara(user, area, liderOper);
   return (
-    <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:"#fff", padding:"0 10px", paddingBottom:"max(12px, calc(env(safe-area-inset-bottom, 0px) + 4px))", flexShrink:0 }}>
+    <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:"#fff", padding:"0 10px", paddingBottom:"max(12px, calc(env(safe-area-inset-bottom, 0px) + 4px))", flexShrink:0, position:"relative", zIndex:30 }}>
       {tabs.map(t => { const active=tab===t.id; if(t.id==="mas") return (
         <div key="mas" style={{ flex:1, display:"flex", justifyContent:"center" }}>
           <button onClick={(e)=>setTab("mas", e.currentTarget.getBoundingClientRect())} aria-label="Registrar venta" style={{ marginTop:-18, width:58, height:58, borderRadius:"50%", border:"4px solid #fff", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 8px 20px -6px rgba(26,59,82,0.6)" }}><Icon n="plus" s={26} sw={2.6}/></button>
@@ -8136,7 +8159,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   );
 }
 
-function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, opAvisos, onIrAOrden, tiendaActiva, onVerLista, user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
+function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tiendaActiva, onVerLista, user, stores, users, ventas, setVentas, ventasItems, setVentasItems, ventasAbonos, setVentasAbonos, ventasAjustes, setVentasAjustes, metas, isMobile, soloLectura, esAdmin }) {
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   // OJO: el valor por defecto debe salir de tiendasVenta() (las que sí venden), no de todas las
   // tiendas — si no, el dropdown solo MUESTRA tiendas válidas pero el valor de por debajo puede
@@ -8394,27 +8417,6 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, opAvis
     return venta && venta.tienda_id===tiendaId ? { venta, ajuste:aj } : null;
   }).filter(Boolean);
 
-  // Flexipagos de esta tienda que hay que recordarle al cliente que venga a pagar — vencidos,
-  // urgentes (5 días o menos) o a mitad de plazo (30+ días), mismos umbrales que ya usa la
-  // tarjeta de cada venta. Se muestra arriba de todo para que sea lo primero que vea el asesor.
-  const flexipagosAvisar = tiendaId ? flexipagosPorVencer(tiendaId, ventas, ventasItems, ventasAbonos, todayStr) : [];
-
-  // Botón de campana + su desplegable — igual en escritorio y celular, solo cambia dónde se ubica
-  // (por eso se separa en una variable en vez de repetir todo el JSX en las dos ramas de abajo).
-  const bellButton = (
-    <CampanaAvisos titulo="Avisos de la tienda" grupos={[
-      { titulo:"Flexipagos por recordarle al cliente", items:flexipagosAvisar.map(({venta:v, saldoPendiente, diasRestantes60, vencido, fechaLimite})=>({
-        key:`flex-${v.id}`, titulo:v.cliente_nombre||"Cliente sin nombre",
-        accion:<FlexiAvisarWhatsApp venta={v} stores={stores} user={user} saldo={saldoPendiente} fechaLimite={fechaLimite}/>,
-        sub:`${v.cliente_telefono?`Tel: ${v.cliente_telefono} · `:""}Debe ${fmtCOP(saldoPendiente)}`,
-        badge:{ color:vencido?C.red:(diasRestantes60!==null && diasRestantes60<=5?C.amber:C.gold), label:vencido ? "⛔ Vencido" : `⏳ Vence en ${diasRestantes60}d` },
-        urgente:vencido || (diasRestantes60!==null && diasRestantes60<=5),
-      })) },
-      // Órdenes de Operaciones de ESTA tienda (pedido de Santiago, 18 nov 2026). Tocar una lleva a la orden.
-      { titulo:"Órdenes de Operaciones", items:operItemsCampana((opAvisos||[]).filter(o=>o.tienda_id===tiendaId), stores, onIrAOrden) },
-    ]}/>
-  );
-
   const esHoyVenta = fecha===todayStr;
   const tiendaActual = stores[tiendaId];
   const vendedorSel = asesores.find(a=>a.id===vendedorId);
@@ -8458,7 +8460,6 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, opAvis
         {/* Burbuja de progreso de hoy (la misma de Lista de ventas y Métricas) en vez de la franja
             grande de metas — pedido de Santiago. */}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:10, width:isMobile?"100%":"50%" }}>
-          {bellButton}
           {!enVentana && <MetaHoyCompetencia llenar stores={stores} tiendaIdActual={tiendaId} fecha={fecha} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile}/>}
         </div>
       </div>
@@ -10679,12 +10680,12 @@ function CarreraDelDia({ stores, primera, ventas, ventasItems, ventasAbonos, ven
 function ElegirTiendaTarjetas({ stores, onElegir, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, titulo="Elige la tienda", isMobile }) {
   const tiendas = tiendasVenta(stores).filter(t=>!esTiendaOficina(t));
   return (
-    <div style={{ maxWidth:820, margin:"10px auto" }}>
+    <div style={{ maxWidth:820, margin:"10px auto", textAlign:"center" }}>
       <div style={{ fontFamily:font.body, fontSize:isMobile?18:21, fontWeight:700, color:C.text, marginBottom:4 }}>{titulo}</div>
       <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginBottom:14 }}>Toca una tienda para seguir. Puedes cambiarla después arriba.</div>
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(auto-fill, minmax(180px, 1fr))", gap:10 }}>
+      <div style={{ display:"flex", flexWrap:"wrap", justifyContent:"center", gap:10, textAlign:"left" }}>
         {tiendas.map(t=>{ const r = calcularMetaHoyTienda(t.id, todayStr, ventas, ventasItems, ventasAbonos, ventasAjustes, metas); const col = colorTienda(t); return (
-          <button key={t.id} onClick={()=>onElegir(t.id)} className="ozen-fila-venta" style={{ all:"unset", boxSizing:"border-box", cursor:"pointer", background:"#fff", border:`1px solid ${C.border}`, borderTop:`4px solid ${col}`, borderRadius:14, padding:"16px 16px 14px", display:"flex", flexDirection:"column", gap:8 }}>
+          <button key={t.id} onClick={()=>onElegir(t.id)} className="ozen-fila-venta" style={{ all:"unset", boxSizing:"border-box", width:isMobile?"calc(50% - 5px)":190, cursor:"pointer", background:"#fff", border:`1px solid ${C.border}`, borderTop:`4px solid ${col}`, borderRadius:14, padding:"16px 16px 14px", display:"flex", flexDirection:"column", gap:8 }}>
             <span style={{ display:"inline-flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}><PuntoTienda color={col} size={10}/>{nombreTiendaCorto(t)}</span>
             <span style={{ fontFamily:font.body, fontSize:11, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:700 }}>Vendido hoy</span>
             <span style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ fontSize:12, color:C.textMuted, fontWeight:500 }}> · {Math.round(r.vendido/r.meta*100)} %</span>}</span>
@@ -11222,7 +11223,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
           fuera de proporción con las demás. Así todas las tarjetas mantienen SIEMPRE el mismo
           tamaño compacto y prolijo, y si no caben todas, se desliza (con la barra de scroll fina
           del tema, no la del navegador) en vez de deformarse. */}
-      <div style={{ display:"flex", flexWrap:"nowrap", overflowX:"auto", gap:10, marginBottom:16, paddingBottom:6 }}>
+      <div style={{ display:"flex", flexWrap:"nowrap", overflowX:"auto", gap:10, marginBottom:16, paddingBottom:6, justifyContent:"safe center" }}>
         <div style={{ flex:"0 0 148px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
           <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Ventas hoy</div>
           <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(ingresosHoy)}</div>
@@ -16669,7 +16670,7 @@ export default function App() {
   const [opCampana,setOpCampana]=useState([]);
   const opCampanaRef = useRef(0);
   useEffect(()=>{
-    if(!user || !registrarAbierto || !puedeOper(user, "operaciones.ver")) return;
+    if(!user || !(esCuentaTienda(user) || area==="ventas") || !puedeOper(user, "operaciones.ver")) return;
     if(!operHayCambiosFuera && Date.now()-opCampanaRef.current < 5*60000) return;
     opCampanaRef.current = Date.now();
     (async()=>{
@@ -16678,7 +16679,7 @@ export default function App() {
         .not("etapa","in","(entregada,cancelada)").limit(1000);
       if(!error && data) setOpCampana(data);
     })();
-  }, [registrarAbierto, user?.id]);
+  }, [area, registrarAbierto, user?.id]);
   const opCargaRef = useRef(0), opTodoRef = useRef(false);
   const [mostrarCambiarPassword,setMostrarCambiarPassword]=useState(false);
   const [mostrarUsuarios,setMostrarUsuarios]=useState(false);
@@ -17250,6 +17251,12 @@ export default function App() {
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
   const mostrarTienda = esAreaVentas && tab==="caja";
   const setTabNav = (id, rect) => id==="mas" ? abrirRegistrar(rect) : setTab(id);
+  const irAOrdenDesdeAviso = (tipo,id)=>{ setRegistrarAbierto(false); setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); };
+  const campanaVentas = esAreaVentas && (
+    <FlexiAvisosContext.Provider value={flexiAvisosCtx}>
+      <CampanaVentas user={user} stores={stores} tiendaIds={esCuentaTienda(user) ? [user.tienda_id] : tiendasVenta(stores).map(t=>t.id)} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ops={puedeOper(user, "operaciones.ver") ? (opEstado==="listo" ? opExternas : opCampana) : []} onIrAOrden={irAOrdenDesdeAviso}/>
+    </FlexiAvisosContext.Provider>
+  );
   // Ventana de Registrar venta como "nube" que sale del + (22 nov 2026): en computador baja desde
   // el + con una colita que lo señala; en celular sube desde el + de la barra de abajo.
   const vw = typeof window!=="undefined" ? window.innerWidth : 1200, vh = typeof window!=="undefined" ? window.innerHeight : 800;
@@ -17266,8 +17273,10 @@ export default function App() {
       <div onClick={()=>setRegistrarAbierto(false)} style={{ display:registrarAbierto?"block":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.32)", overflowY:haciaArriba?"hidden":"auto" }}>
         <style>{`@keyframes ozenNube{from{transform:scale(.35);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
         <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, height:altoMovil, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), background:C.dark, borderRadius:20, boxShadow:"0 30px 80px -20px rgba(26,59,82,0.55), 0 0 0 1px rgba(26,59,82,0.08)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: haciaArriba ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
-          {/* Colita de la nube, apuntando al + */}
-          <span style={{ position:"absolute", left:colaX-11, ...(haciaArriba ? { bottom:-11, background:C.dark } : { top:-11, background:"#fff" }), width:22, height:22, transform:"rotate(45deg)", borderRadius:4, boxShadow: haciaArriba ? "4px 4px 8px -4px rgba(26,59,82,0.25)" : "-2px -2px 6px -3px rgba(26,59,82,0.2)" }}/>
+          {/* Colita de la nube, apuntando al + (curva suave, del mismo color de la ventana) */}
+          <svg width="40" height="16" viewBox="0 0 40 16" aria-hidden="true" style={{ position:"absolute", left:colaX-20, ...(haciaArriba ? { bottom:-15 } : { top:-15, transform:"scaleY(-1)" }), overflow:"visible", filter:"drop-shadow(0 3px 3px rgba(26,59,82,0.12))" }}>
+            <path d="M0 0 C12 0 15 12 20 16 C25 12 28 0 40 0 Z" fill={haciaArriba ? C.dark : "#fff"}/>
+          </svg>
           <div style={{ position:"relative", display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", gap:10, padding:isMobile?"10px 12px":"12px 20px", background:"#fff", borderBottom:`1px solid ${C.border}`, borderRadius:"20px 20px 0 0", flexShrink:0 }}>
             <span style={{ display:"inline-flex", alignItems:"center", gap:10, minWidth:0 }}>
               <span style={{ width:32, height:32, borderRadius:"50%", background:C.gold, color:"#fff", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="plus" s={17} sw={2.6}/></span>
@@ -17294,7 +17303,7 @@ export default function App() {
         <ConfirmacionGlobal/>
         {bandaVerComo}
         <TopeEstado color="#ffffff"/>
-        <BarraSuperiorMovil {...propsBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
+        <BarraSuperiorMovil {...propsBarra} campana={campanaVentas} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
         {NAVIDAD && <MagiaNavidad/>}
         {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
         <main style={{flex:1,overflowY:"auto",padding:16}}>{panel}</main>
@@ -17316,7 +17325,7 @@ export default function App() {
         <ConfirmacionGlobal/>
         {bandaVerComo}
         <TopeEstado color="#ffffff"/>
-        <BarraSuperior {...propsBarra} extraDerecha={esCuentaTienda(user) ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
+        <BarraSuperior {...propsBarra} campana={campanaVentas} extraDerecha={esCuentaTienda(user) ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
         {NAVIDAD && <MagiaNavidad/>}
         {esCuentaTienda(user)
           ? <DockTienda tabs={tabsVisibles} tab={tabNav} setTab={setTabNav}/>
