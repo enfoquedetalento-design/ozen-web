@@ -1213,7 +1213,7 @@ function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, o
   const nombre = esCuentaTienda(user) ? user.name : user.name.split(" ")[0];
   return (
     <div style={{ position:"relative" }}>
-      <button onClick={()=>setAbierto(a=>!a)} title="Tu cuenta" style={{ width:36, height:36, borderRadius:"50%", background:C.tinta, border:"none", display:"grid", placeItems:"center", fontFamily:font.body, fontSize:14, fontWeight:700, color:C.goldDark, cursor:"pointer" }}>{user.name[0]}</button>
+      <button onClick={()=>setAbierto(a=>!a)} title="Tu cuenta" style={{ width:36, height:36, borderRadius:"50%", background:C.tinta, border:"none", display:"grid", placeItems:"center", fontFamily:font.body, fontSize:14, fontWeight:700, color:C.goldDark, cursor:"pointer" }}>{(esCuentaTienda(user) ? (user.name||"").replace(/^\s*ozen\s+/i,"") : (user.name||""))[0]?.toUpperCase() || "?"}</button>
       <MenuFlotante abierto={abierto} onCerrar={()=>setAbierto(false)} width={250}>
         <div style={{ padding:"10px 12px 12px", borderBottom:`1px solid ${C.border}`, marginBottom:4 }}>
           <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{nombre}</div>
@@ -1351,7 +1351,7 @@ function DockTienda({ tabs, tab, setTab }) {
 // Campana de avisos de Ventas (22 nov 2026: pasó de Registrar venta a la barra de arriba, al lado
 // del perfil): Flexipagos por recordarle al cliente (vencidos, por vencer o a mitad de plazo) y
 // órdenes de Operaciones de la(s) tienda(s). Cuenta de tienda: solo la suya; las demás: todas.
-function CampanaVentas({ user, stores, tiendaIds, ventas, ventasItems, ventasAbonos, ops, onIrAOrden }) {
+function CampanaVentas({ user, stores, tiendaIds, ventas, ventasItems, ventasAbonos, ops, onIrAOrden, onIrAFlexipago }) {
   const variasTiendas = tiendaIds.length>1;
   const flex = tiendaIds.flatMap(tid=>flexipagosPorVencer(tid, ventas, ventasItems, ventasAbonos, todayStr))
     .sort((a,b)=> a.vencido!==b.vencido ? (a.vencido?-1:1) : (a.diasRestantes60??999)-(b.diasRestantes60??999));
@@ -1359,6 +1359,7 @@ function CampanaVentas({ user, stores, tiendaIds, ventas, ventasItems, ventasAbo
     <CampanaAvisos titulo="Avisos" grupos={[
       { titulo:"Flexipagos por recordarle al cliente", items:flex.map(({venta:v, saldoPendiente, diasRestantes60, vencido, fechaLimite})=>({
         key:`flex-${v.id}`, titulo:v.cliente_nombre||"Cliente sin nombre",
+        onClick: onIrAFlexipago ? ()=>onIrAFlexipago(v) : undefined,
         accion:<FlexiAvisarWhatsApp venta={v} stores={stores} user={user} saldo={saldoPendiente} fechaLimite={fechaLimite} soloVer={esCuentaTienda(user) && v.tienda_id!==user.tienda_id}/>,
         sub:`${variasTiendas?`${nombreTiendaCorto(stores[v.tienda_id])} · `:""}${v.cliente_telefono?`Tel: ${v.cliente_telefono} · `:""}Debe ${fmtCOP(saldoPendiente)}`,
         badge:{ color:vencido?C.red:(diasRestantes60!==null && diasRestantes60<=5?C.amber:C.gold), label:vencido ? "⛔ Vencido" : `⏳ Vence en ${diasRestantes60}d` },
@@ -6783,8 +6784,8 @@ const fechaLargaDia = (f) => { if(!f) return "—"; const d = new Date(f+"T12:00
 // agruparPorDia: mete una franja por día (con el total y # de filas de ESE día completo, no solo
 // de lo que alcanza a verse) y la primera columna pasa a ser solo la hora. conCliente: columna
 // propia de Cliente (nombre + cédula) en vez de ir debajo del asesor. resaltar: texto buscado.
-function TablaVentas({ filas, stores, isMobile, conFecha, conTienda, vacio, limiteInicial=60, agruparPorDia, conCliente, resaltar }) {
-  const [abierta, setAbierta] = useState(null);
+function TablaVentas({ filas, stores, isMobile, conFecha, conTienda, vacio, limiteInicial=60, agruparPorDia, conCliente, resaltar, abrirInicial }) {
+  const [abierta, setAbierta] = useState(abrirInicial || null);
   const [limite, setLimite] = useState(limiteInicial);
   const mostrarFecha = conFecha && !agruparPorDia;
   const cols = [ mostrarFecha ? "82px" : "64px", ...(conTienda?["minmax(110px,.9fr)"]:[]), ...(conCliente?["minmax(140px,1.4fr)"]:[]), "minmax(120px,1.3fr)", "minmax(110px,1.1fr)", "minmax(100px,1.1fr)", "minmax(80px,.8fr)", "118px", "22px" ];
@@ -8745,8 +8746,10 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   const isMobile = useIsMobile();
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
   const filtrosIniciales = { fechaModo:"todas", dia:"", desde:"", hasta:"", tiendas: tiendaFija ? [tiendaFija] : [], asesores:[], soloFlex:false };
-  const [f, setF] = useState(()=> pedido ? { ...filtrosIniciales, tiendas:[pedido.tienda], fechaModo:"dia", dia:pedido.dia } : filtrosIniciales);
-  const [busqueda, setBusqueda] = useState("");
+  const [f, setF] = useState(()=> !pedido ? filtrosIniciales
+    : pedido.dia ? { ...filtrosIniciales, tiendas:[pedido.tienda], fechaModo:"dia", dia:pedido.dia }
+    : { ...filtrosIniciales, tiendas:pedido.tienda?[pedido.tienda]:filtrosIniciales.tiendas, soloFlex:!!pedido.soloFlex });
+  const [busqueda, setBusqueda] = useState(pedido?.busqueda || "");
   const setFil = (k, v) => setF(prev=>({ ...prev, [k]:v }));
   const toggle = (k, v) => setF(prev=>({ ...prev, [k]: prev[k].includes(v) ? prev[k].filter(x=>x!==v) : [...prev[k], v] }));
   const asesores = users.filter(u=>puede(u, "ventas.vendedor")).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
@@ -8978,7 +8981,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
 
       {tarjetasCliente}
 
-      <TablaVentas key={`${JSON.stringify(f)}|${busqueda}`} stores={stores} isMobile={isMobile} conFecha agruparPorDia conCliente resaltar={busqueda} conTienda={f.tiendas.length!==1}
+      <TablaVentas key={`${JSON.stringify(f)}|${busqueda}`} abrirInicial={pedido?.abrir} stores={stores} isMobile={isMobile} conFecha agruparPorDia conCliente resaltar={busqueda} conTienda={f.tiendas.length!==1}
         vacio={busqueda.trim() ? `No hay nada que coincida con “${busqueda.trim()}”${activos.length?" con estos filtros":""}.` : "No hay ventas con estos filtros."}
         filas={filas}/>
     </div>
@@ -17252,9 +17255,11 @@ export default function App() {
   const mostrarTienda = esAreaVentas && tab==="caja";
   const setTabNav = (id, rect) => id==="mas" ? abrirRegistrar(rect) : setTab(id);
   const irAOrdenDesdeAviso = (tipo,id)=>{ setRegistrarAbierto(false); setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); };
+  // Desde la campana: abre Lista de ventas con ese Flexipago buscado y desplegado.
+  const irAFlexipagoDesdeAviso = (v) => { setRegistrarAbierto(false); if(!esCuentaTienda(user)) setArea("ventas"); setListaPedido({ tienda:v.tienda_id, busqueda:v.cliente_documento||v.cliente_nombre||v.numero_factura||"", soloFlex:true, abrir:`v-${v.id}`, t:Date.now() }); setTab("lista"); };
   const campanaVentas = esAreaVentas && (
     <FlexiAvisosContext.Provider value={flexiAvisosCtx}>
-      <CampanaVentas user={user} stores={stores} tiendaIds={esCuentaTienda(user) ? [user.tienda_id] : tiendasVenta(stores).map(t=>t.id)} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ops={puedeOper(user, "operaciones.ver") ? (opEstado==="listo" ? opExternas : opCampana) : []} onIrAOrden={irAOrdenDesdeAviso}/>
+      <CampanaVentas user={user} stores={stores} tiendaIds={esCuentaTienda(user) ? [user.tienda_id] : tiendasVenta(stores).map(t=>t.id)} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ops={puedeOper(user, "operaciones.ver") ? (opEstado==="listo" ? opExternas : opCampana) : []} onIrAOrden={irAOrdenDesdeAviso} onIrAFlexipago={irAFlexipagoDesdeAviso}/>
     </FlexiAvisosContext.Provider>
   );
   // Ventana de Registrar venta como "nube" que sale del + (22 nov 2026), con vidrio esmerilado
