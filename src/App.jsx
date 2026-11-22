@@ -1335,9 +1335,12 @@ function BarraSuperiorMovil({ extra, campana, user, area, onChooseArea, stores, 
 // `origen` = dónde está el + en pantalla (getBoundingClientRect); `centro` = lo que va en el medio
 // de la franja de arriba (ej. selector de tienda). Mostrar/esconder con `abierta` (escondida queda
 // montada, así lo escrito no se pierde — Registrar venta lo usa así).
-function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo, centro, tituloCerrar="Cerrar", children }) {
+// Alto: la ventana se ajusta a lo que contiene (22 nov 2026, pedido de Santiago: "no toda grande");
+// solo si no cabe llega hasta arriba y adentro se desplaza. Ancho en computador: `ancho` (máximo),
+// para formularios angostos; sin él, 1180 px.
+function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo, centro, tituloCerrar="Cerrar", ancho, children }) {
   const vw = typeof window!=="undefined" ? window.innerWidth : 1200, vh = typeof window!=="undefined" ? window.innerHeight : 800;
-  const anchoVent = isMobile ? vw-16 : Math.min(1180, vw-32);
+  const anchoVent = isMobile ? vw-16 : Math.min(ancho||1180, vw-32);
   const origenX = origen ? origen.left + origen.width/2 : vw/2;
   const izqVent = isMobile ? 8 : Math.max(16, Math.min(vw-anchoVent-16, origenX-anchoVent/2));
   const colaX = Math.max(30, Math.min(anchoVent-30, origenX-izqVent));
@@ -1350,7 +1353,7 @@ function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo
   return (
       <div onClick={onCerrar} style={{ display:abierta?"block":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.14)", overflowY:haciaArriba?"hidden":"auto" }}>
         <style>{`@keyframes ozenNube{from{transform:scale(.35);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
-        <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, top:topeArriba, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), ...(isMobile
+        <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, maxHeight:`calc(100dvh - ${abajoMovil}px - ${topeArriba})`, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), ...(isMobile
             // Celular: sin desenfoque en vivo (hacía lento el desplazamiento); fondo casi sólido.
             ? { background:"linear-gradient(160deg, rgba(255,255,255,0.98) 0%, rgba(248,244,240,0.97) 55%, rgba(255,255,255,0.97) 100%)" }
             : { background:"linear-gradient(160deg, rgba(255,255,255,0.62) 0%, rgba(246,240,235,0.48) 55%, rgba(255,255,255,0.40) 100%)", backdropFilter:"blur(26px) saturate(170%)", WebkitBackdropFilter:"blur(26px) saturate(170%)" }), border:"1px solid rgba(255,255,255,0.7)", borderRadius:22, boxShadow:"inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(255,255,255,0.25), 0 30px 80px -18px rgba(26,59,82,0.45)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: haciaArriba ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
@@ -1366,7 +1369,7 @@ function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo
             <span style={{ display:"flex", justifyContent:"center" }}>{centro}</span>
             <span style={{ display:"flex", justifyContent:"flex-end" }}><button onClick={onCerrar} aria-label="Cerrar" title={tituloCerrar} style={{ width:36, height:36, borderRadius:10, border:`1px solid ${C.border}`, background:"#fff", color:C.text, display:"grid", placeItems:"center", cursor:"pointer" }}><Icon n="x" s={16} sw={2.4}/></button></span>
           </div>
-          <div style={{ position:"relative", padding:isMobile?"14px":"20px 24px 26px", ...(haciaArriba ? { flex:1, overflowY:"auto", overscrollBehavior:"contain", WebkitOverflowScrolling:"touch" } : {}) }}>
+          <div style={{ position:"relative", padding:isMobile?"14px":"20px 24px 26px", ...(haciaArriba ? { flex:"1 1 auto", minHeight:0, overflowY:"auto", overscrollBehavior:"contain", WebkitOverflowScrolling:"touch" } : {}) }}>
             {children}
           </div>
         </div>
@@ -14809,7 +14812,8 @@ function OperOrdenCliente({ op, stores, onCerrar }) {
           <Btn onClick={onCerrar} variant="ghost" sm style={{ flex:1, background:"#fff" }}>Cerrar</Btn>
         </div>
       </div>
-      {toast && <div style={{ position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:9999, background:C.goldDark, borderRadius:10, padding:"10px 18px", color:C.tinta, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", maxWidth:"calc(100% - 32px)", textAlign:"center" }}>{toast}</div>}
+      {/* 22 nov 2026: el aviso sube a 130 px para quedar por encima de la barra de pestañas de abajo (DockPestanas). */}
+      {toast && <div style={{ position:"fixed", left:"50%", bottom:130, transform:"translateX(-50%)", zIndex:9999, background:C.goldDark, borderRadius:10, padding:"10px 18px", color:C.tinta, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", maxWidth:"calc(100% - 32px)", textAlign:"center" }}>{toast}</div>}
     </div>,
     document.body
   );
@@ -17631,7 +17635,7 @@ export default function App() {
   const juntaTipo = !juntaPuedeTarea ? "acuerdo" : !juntaPuedeAcuerdo ? "tarea" : juntaNuevaTipo;
   const cerrarJuntaNueva = () => setJuntaNuevaAbierta(false);
   const modalJuntaNueva = juntaNuevaAbierta && (juntaPuedeTarea || juntaPuedeAcuerdo) && createPortal(
-    <VentanaNube abierta origen={juntaNuevaOrigen} isMobile={isMobile} onCerrar={cerrarJuntaNueva} icono="plus" titulo={juntaTipo==="tarea" ? "Nueva tarea" : "Nuevo acuerdo"}
+    <VentanaNube abierta origen={juntaNuevaOrigen} isMobile={isMobile} ancho={840} onCerrar={cerrarJuntaNueva} icono="plus" titulo={juntaTipo==="tarea" ? "Nueva tarea" : "Nuevo acuerdo"}
       centro={juntaPuedeTarea && juntaPuedeAcuerdo
         ? <SelectorVistas sinMargen compacto={isMobile} opciones={[["tarea","Tarea","check"],["acuerdo","Acuerdo","lock"]]} vista={juntaTipo} onElegir={setJuntaNuevaTipo}/>
         : <b style={{ fontFamily:font.body, fontSize:14, color:C.text, whiteSpace:"nowrap" }}>{juntaTipo==="tarea" ? "Nueva tarea" : "Nuevo acuerdo"}</b>}>
