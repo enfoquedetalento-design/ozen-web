@@ -1263,13 +1263,14 @@ const BotonRefrescar = ({ onRefresh, refreshing }) => (
   </button>
 );
 
-function BarraSuperior({ user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
+function BarraSuperior({ extraDerecha, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   return (
     <div style={{ height:62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", padding:"0 24px", gap:20, flexShrink:0, position:"relative", zIndex:20 }}>
       {/* 22 nov 2026: los módulos van centrados (marca a la izquierda, cuenta a la derecha). */}
       <div style={{ display:"flex", alignItems:"center", minWidth:0 }}><MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios}/></div>
       <div style={{ display:"flex", justifyContent:"center" }}>{eligeModulo(user) && <SelectorArea user={user} area={area} onChooseArea={onChooseArea}/>}</div>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:14, minWidth:0 }}>
+        {extraDerecha}
         {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija}/>}
         <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
         <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones} onAbrirFirmas={onAbrirFirmas}/>
@@ -1324,6 +1325,23 @@ function BarraSuperiorMovil({ extra, user, area, onChooseArea, stores, tiendaId,
       {eligeModulo(user) && <div style={{ marginTop:10 }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/></div>}
       {extra && <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>{extra}</div>}
       {NAVIDAD && <GuirnaldaBarra isMobile/>}
+    </div>
+  );
+}
+
+// Cuentas de tienda en computador (22 nov 2026): las pestañas van en una barra flotante abajo y
+// centrada (como en el celular), con el + en el medio. Deja libre la parte de arriba.
+function DockTienda({ tabs, tab, setTab }) {
+  return (
+    <div style={{ position:"fixed", left:"50%", bottom:16, transform:"translateX(-50%)", zIndex:60, display:"flex", alignItems:"center", gap:4, padding:"6px 10px", background:"#fff", border:`1px solid ${C.border}`, borderRadius:22, boxShadow:"0 14px 40px -14px rgba(26,59,82,0.35)" }}>
+      {tabs.map(t=>{ const on = t.id===tab; if(t.id==="mas") return (
+        <button key="mas" onClick={(e)=>setTab("mas", e.currentTarget.getBoundingClientRect())} aria-label="Registrar venta" title="Registrar venta" style={{ margin:"-22px 8px 0", width:58, height:58, borderRadius:"50%", border:"4px solid #fff", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 8px 20px -6px rgba(26,59,82,0.6)" }}><Icon n="plus" s={26} sw={2.6}/></button>
+      ); return (
+        <button key={t.id} onClick={()=>setTab(t.id)} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, minWidth:84, padding:"6px 10px", border:"none", borderRadius:14, background:on?C.surfaceHover:"transparent", color:on?C.goldDark:C.textMuted, cursor:"pointer", fontFamily:font.body }}>
+          <Icon n={TAB_ICON[t.id]||"right"} s={20} sw={on?2:1.7}/>
+          <span style={{ fontSize:11.5, fontWeight:on?700:500, whiteSpace:"nowrap" }}>{t.label}</span>
+        </button>
+      ); })}
     </div>
   );
 }
@@ -10592,72 +10610,63 @@ const resumenDiaTienda = (tiendaId, fecha, ventas, ventasItems, ventasAbonos, ve
   return { meta, vendido, falta, nVentas, ticket: nVentas ? vendido/nVentas : 0, abonosFlex, pct: meta>0 ? vendido/meta*100 : null };
 };
 
-// "Carrera del día" en Métricas (22 nov 2026, pedido de Santiago): un solo cuadro con todas las
-// tiendas como en una carrera (ordenadas por % de cumplimiento de la meta del día), y la fecha se
-// puede cambiar para ver cómo fue cualquier día pasado. Reemplaza la burbuja de progreso de hoy.
+// "Carrera del día" en Métricas (22 nov 2026, pedido de Santiago): una franja delgada con todas las
+// tiendas como en una carrera (ordenadas por % de la meta del día). La fecha se cambia para ver
+// cualquier día pasado. Reemplaza la burbuja de progreso de hoy. Compacta a propósito: lo principal
+// de Métricas es lo de abajo.
 function CarreraDelDia({ stores, primera, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile, onVerLista }) {
   const [fecha, setFecha] = useState(todayStr);
   const cierresTodos = useMemo(()=>calcularCierresFlexipago(ventas, ventasItems, ventasAbonos), [ventas, ventasItems, ventasAbonos]);
   const tiendas = tiendasVenta(stores).filter(t=>!esTiendaOficina(t));
   const filas = tiendas.map(t=>({ t, r:resumenDiaTienda(t.id, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, cierresTodos) }))
     .sort((a,b)=> (b.r.pct??-1)-(a.r.pct??-1) || b.r.vendido-a.r.vendido);
-  const total = filas.reduce((s,f)=>({ vendido:s.vendido+f.r.vendido, meta:s.meta+f.r.meta, n:s.n+f.r.nVentas, ab:s.ab+f.r.abonosFlex }), { vendido:0, meta:0, n:0, ab:0 });
+  const total = filas.reduce((s,f)=>({ vendido:s.vendido+f.r.vendido, meta:s.meta+f.r.meta, n:s.n+f.r.nVentas }), { vendido:0, meta:0, n:0 });
   const esHoy = fecha===todayStr;
   const mover = (d) => { const n = consSumarDias(fecha, d); if(n<=todayStr) setFecha(n); };
-  const btnDia = { width:32, height:32, borderRadius:9, border:`1px solid ${C.border}`, background:"#fff", color:C.text, cursor:"pointer", display:"grid", placeItems:"center", fontSize:16 };
-  const medalla = ["🥇","🥈","🥉"];
+  const flechita = { all:"unset", cursor:"pointer", width:22, height:22, borderRadius:6, display:"grid", placeItems:"center", color:C.textSub, fontSize:14 };
+  const dia = new Date(fecha+"T12:00:00");
+  const diaTxt = esHoy ? "Hoy" : `${CONS_DIAS_SEMANA[(dia.getDay()+6)%7].slice(0,3)} ${dia.getDate()} ${MESES_NOMBRE[dia.getMonth()].slice(0,3).toLowerCase()}`;
   return (
-    <Card style={{ marginBottom:16 }} p={isMobile?"14px":"18px 22px"}>
-      <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:14 }}>
-        <span style={{ width:34, height:34, borderRadius:10, background:C.gold, color:"#fff", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="flag" s={17} sw={2}/></span>
-        <div style={{ minWidth:0 }}>
-          <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>Carrera del día</div>
-          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>{fechaLargaDia(fecha)}{esHoy?" · hoy":""}</div>
-        </div>
-        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:6 }}>
-          <button onClick={()=>mover(-1)} aria-label="Día anterior" style={btnDia}>‹</button>
-          <input type="date" value={fecha} max={todayStr} onChange={e=>e.target.value && setFecha(e.target.value<=todayStr?e.target.value:todayStr)} style={{ height:32, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 8px", fontFamily:font.body, fontSize:13, color:C.text, background:"#fff" }}/>
-          <button onClick={()=>mover(1)} aria-label="Día siguiente" disabled={esHoy} style={{ ...btnDia, opacity:esHoy?0.35:1, cursor:esHoy?"default":"pointer" }}>›</button>
-          {!esHoy && <button onClick={()=>setFecha(todayStr)} style={{ ...btnDia, width:"auto", padding:"0 12px", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.gold }}>Hoy</button>}
-        </div>
+    <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:isMobile?"10px 12px":"10px 16px 12px", marginBottom:16 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+        <span style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.13em", textTransform:"uppercase", color:C.textMuted, fontWeight:800 }}>Carrera del día</span>
+        <span style={{ display:"inline-flex", alignItems:"center", gap:2, marginLeft:4, padding:"1px 4px", borderRadius:8, background:C.surfaceAlt, border:`1px solid ${C.border}` }}>
+          <button onClick={()=>mover(-1)} aria-label="Día anterior" style={flechita}>‹</button>
+          <label style={{ position:"relative", fontFamily:font.body, fontSize:12, fontWeight:700, color:C.text, padding:"0 4px", cursor:"pointer" }}>
+            {diaTxt}
+            <input type="date" value={fecha} max={todayStr} onChange={e=>e.target.value && setFecha(e.target.value<=todayStr?e.target.value:todayStr)} aria-label="Elegir día" style={{ position:"absolute", inset:0, opacity:0, cursor:"pointer", width:"100%" }}/>
+          </label>
+          <button onClick={()=>mover(1)} aria-label="Día siguiente" style={{ ...flechita, opacity:esHoy?0.3:1, cursor:esHoy?"default":"pointer" }}>›</button>
+        </span>
+        {!esHoy && <button onClick={()=>setFecha(todayStr)} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:11.5, fontWeight:700, color:C.gold }}>Volver a hoy</button>}
+        <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:12, color:C.textMuted, whiteSpace:"nowrap" }}>
+          <b style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(total.vendido)}</b>
+          {total.meta>0 && <> · <b style={{ color:total.vendido>=total.meta?C.green:C.text }}>{Math.round(total.vendido/total.meta*100)} %</b></>}
+          {!isMobile && <> · {total.n} {total.n===1?"venta":"ventas"}</>}
+        </span>
       </div>
-
-      <div style={{ display:"flex", flexDirection:"column", gap:isMobile?14:10 }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
         {filas.map(({t, r}, i)=>{
           const col = colorTienda(t);
           const pct = r.pct===null ? null : Math.round(r.pct);
           const colPct = pct===null ? C.textMuted : pct>=100 ? C.green : pct>=70 ? C.amber : C.red;
           const propia = t.id===primera;
           return (
-            <div key={t.id} style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"190px minmax(0,1fr) 210px", alignItems:"center", gap:isMobile?6:14, padding:propia?"8px 10px":"2px 10px", borderRadius:12, background:propia?hexToRgba(col,0.07):"transparent", border:propia?`1px solid ${hexToRgba(col,0.3)}`:"1px solid transparent" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}>
-                <span style={{ width:22, textAlign:"center", fontSize:pct!==null && i<3 && r.vendido>0 ? 17 : 12, color:C.textMuted, fontWeight:700 }}>{pct!==null && i<3 && r.vendido>0 ? medalla[i] : i+1}</span>
-                <PuntoTienda color={col} size={9}/>
-                <b style={{ fontFamily:font.body, fontSize:14, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreTiendaCorto(t)}</b>
-                {isMobile && pct!==null && <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:15, fontWeight:800, color:colPct }}>{pct} %</span>}
-              </div>
-              <div style={{ position:"relative", height:isMobile?14:18, borderRadius:99, background:C.surfaceHover, overflow:"hidden" }}>
-                <div style={{ height:"100%", width:`${Math.min(100, Math.max(0, r.pct||0))}%`, background:pct!==null && pct>=100 ? C.green : col, borderRadius:99, transition:"width .6s ease" }}/>
-                {!isMobile && pct!==null && <span style={{ position:"absolute", right:8, top:"50%", transform:"translateY(-50%)", fontFamily:font.body, fontSize:11.5, fontWeight:800, color:pct>=92?"#fff":colPct }}>{pct} %</span>}
-              </div>
-              <div style={{ display:"flex", flexDirection:isMobile?"row":"column", alignItems:isMobile?"center":"flex-end", justifyContent:"space-between", gap:isMobile?8:1, fontFamily:font.body }}>
-                <span style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.text }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ fontSize:11.5, fontWeight:500, color:C.textMuted }}> / {fmtCOP(r.meta)}</span>}</span>
-                <span style={{ fontSize:11.5, color:C.textMuted, whiteSpace:"nowrap" }}>
-                  {r.meta>0 ? (r.falta>0 ? <>Falta <b style={{ color:C.text }}>{fmtCOP(r.falta)}</b></> : <b style={{ color:C.green }}>¡Meta cumplida!</b>) : "Sin meta"} · {r.nVentas} {r.nVentas===1?"venta":"ventas"}{r.abonosFlex>0?` · abonos ${fmtCOP(r.abonosFlex)}`:""}
-                  {onVerLista && <button onClick={()=>onVerLista(t.id, fecha)} title="Ver las ventas de ese día" style={{ all:"unset", cursor:"pointer", marginLeft:6, color:C.gold, fontWeight:700 }}>Ver ›</button>}
-                </span>
-              </div>
+            <div key={t.id} title={`${nombreTiendaCorto(t)}: ${fmtCOP(r.vendido)}${r.meta>0?` de ${fmtCOP(r.meta)}`:""} · ${r.nVentas} ${r.nVentas===1?"venta":"ventas"}${r.nVentas?` · ticket ${fmtCOP(r.ticket)}`:""}${r.abonosFlex>0?` · abonos Flexipago ${fmtCOP(r.abonosFlex)}`:""}`}
+              style={{ display:"grid", gridTemplateColumns:isMobile?"16px 92px minmax(0,1fr) 44px":"16px 120px minmax(0,1fr) 46px 150px 34px", alignItems:"center", gap:10, height:24, padding:"0 6px", borderRadius:7, background:propia?hexToRgba(col,0.08):"transparent" }}>
+              <span style={{ fontFamily:font.body, fontSize:11, fontWeight:800, color:i===0 && r.vendido>0 ? C.goldDark : C.textMuted, textAlign:"center" }}>{i+1}</span>
+              <span style={{ display:"inline-flex", alignItems:"center", gap:6, minWidth:0 }}><PuntoTienda color={col} size={7}/><span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:propia?800:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreTiendaCorto(t)}</span></span>
+              <span style={{ position:"relative", height:6, borderRadius:99, background:C.surfaceHover, overflow:"hidden" }}>
+                <span style={{ position:"absolute", left:0, top:0, bottom:0, width:`${Math.min(100, Math.max(0, r.pct||0))}%`, background:pct!==null && pct>=100 ? C.green : col, borderRadius:99, transition:"width .6s ease" }}/>
+              </span>
+              <span style={{ fontFamily:font.body, fontSize:12, fontWeight:800, color:colPct, textAlign:"right" }}>{pct===null ? "—" : `${pct} %`}</span>
+              {!isMobile && <span style={{ fontFamily:font.mono, fontSize:12, color:C.text, textAlign:"right", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ color:C.textMuted }}> / {fmtCOP(r.meta)}</span>}</span>}
+              {!isMobile && (onVerLista ? <button onClick={()=>onVerLista(t.id, fecha)} title="Ver las ventas de ese día" style={{ all:"unset", cursor:"pointer", color:C.gold, display:"grid", placeItems:"center" }}><Icon n="right" s={13} sw={2.4}/></button> : <span/>)}
             </div>
           );
         })}
       </div>
-
-      <div style={{ display:"flex", flexWrap:"wrap", gap:"6px 18px", borderTop:`1px solid ${C.border}`, marginTop:14, paddingTop:10, fontFamily:font.body, fontSize:12.5, color:C.textSub }}>
-        <span>Todas: <b style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(total.vendido)}</b>{total.meta>0 && <> de <b style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(total.meta)}</b> · <b style={{ color:total.vendido>=total.meta?C.green:C.text }}>{Math.round(total.vendido/total.meta*100)} %</b></>}</span>
-        <span>{total.n} {total.n===1?"venta":"ventas"}{total.n?` · ticket ${fmtCOP(total.vendido/total.n)}`:""}</span>
-        {total.ab>0 && <span>Abonos de Flexipago: <b style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(total.ab)}</b></span>}
-      </div>
-    </Card>
+    </div>
   );
 }
 
@@ -17245,15 +17254,16 @@ export default function App() {
   const izqVent = isMobile ? 8 : Math.max(16, Math.min(vw-anchoVent-16, origenX-anchoVent/2));
   const colaX = Math.max(30, Math.min(anchoVent-30, origenX-izqVent));
   const arribaVent = registrarOrigen ? registrarOrigen.bottom + 14 : 28;
+  const haciaArriba = isMobile || (!!registrarOrigen && registrarOrigen.top > vh/2);
   const abajoMovil = registrarOrigen ? Math.max(70, vh - registrarOrigen.top + 12) : 80;
-  const altoMovil = Math.max(320, vh - abajoMovil - 18);
+  const altoMovil = Math.max(320, vh - abajoMovil - (isMobile ? 18 : 24));
   const modalRegistrar = registrarMontado && createPortal(
     <FlexiAvisosContext.Provider value={flexiAvisosCtx}>
-      <div onClick={()=>setRegistrarAbierto(false)} style={{ display:registrarAbierto?"block":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.32)", overflowY:isMobile?"hidden":"auto" }}>
+      <div onClick={()=>setRegistrarAbierto(false)} style={{ display:registrarAbierto?"block":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.32)", overflowY:haciaArriba?"hidden":"auto" }}>
         <style>{`@keyframes ozenNube{from{transform:scale(.35);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
-        <div onClick={e=>e.stopPropagation()} style={{ position:isMobile?"fixed":"absolute", left:izqVent, width:anchoVent, ...(isMobile ? { bottom:abajoMovil, height:altoMovil, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), background:C.dark, borderRadius:20, boxShadow:"0 30px 80px -20px rgba(26,59,82,0.55), 0 0 0 1px rgba(26,59,82,0.08)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: isMobile ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
+        <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, height:altoMovil, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), background:C.dark, borderRadius:20, boxShadow:"0 30px 80px -20px rgba(26,59,82,0.55), 0 0 0 1px rgba(26,59,82,0.08)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: haciaArriba ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
           {/* Colita de la nube, apuntando al + */}
-          <span style={{ position:"absolute", left:colaX-11, ...(isMobile ? { bottom:-11, background:C.dark } : { top:-11, background:"#fff" }), width:22, height:22, transform:"rotate(45deg)", borderRadius:4, boxShadow: isMobile ? "4px 4px 8px -4px rgba(26,59,82,0.25)" : "-2px -2px 6px -3px rgba(26,59,82,0.2)" }}/>
+          <span style={{ position:"absolute", left:colaX-11, ...(haciaArriba ? { bottom:-11, background:C.dark } : { top:-11, background:"#fff" }), width:22, height:22, transform:"rotate(45deg)", borderRadius:4, boxShadow: haciaArriba ? "4px 4px 8px -4px rgba(26,59,82,0.25)" : "-2px -2px 6px -3px rgba(26,59,82,0.2)" }}/>
           <div style={{ position:"relative", display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", gap:10, padding:isMobile?"10px 12px":"12px 20px", background:"#fff", borderBottom:`1px solid ${C.border}`, borderRadius:"20px 20px 0 0", flexShrink:0 }}>
             <span style={{ display:"inline-flex", alignItems:"center", gap:10, minWidth:0 }}>
               <span style={{ width:32, height:32, borderRadius:"50%", background:C.gold, color:"#fff", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="plus" s={17} sw={2.6}/></span>
@@ -17262,7 +17272,7 @@ export default function App() {
             <span style={{ display:"flex", justifyContent:"center" }}>{tiendaActiva && <SelectorTienda stores={stores} tiendaId={tiendaActiva} setTiendaId={esCuentaTienda(user) ? null : setTiendaActiva} fija={esCuentaTienda(user)} compact={isMobile}/>}</span>
             <span style={{ display:"flex", justifyContent:"flex-end" }}><button onClick={()=>setRegistrarAbierto(false)} aria-label="Cerrar" title="Cerrar (lo que llevas escrito se guarda)" style={{ width:36, height:36, borderRadius:10, border:`1px solid ${C.border}`, background:"#fff", color:C.text, display:"grid", placeItems:"center", cursor:"pointer" }}><Icon n="x" s={16} sw={2.4}/></button></span>
           </div>
-          <div style={{ position:"relative", padding:isMobile?"14px":"20px 24px 26px", ...(isMobile ? { flex:1, overflowY:"auto" } : {}) }}>
+          <div style={{ position:"relative", padding:isMobile?"14px":"20px 24px 26px", ...(haciaArriba ? { flex:1, overflowY:"auto" } : {}) }}>
             {tiendaActiva ? <VentasRegistrarScreen enVentana onVerLista={()=>{ setRegistrarAbierto(false); verListaHoy(tiendaActiva); }} ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} opAvisos={opEstado==="listo" ? opExternas : opCampana} onIrAOrden={(tipo,id)=>{ setRegistrarAbierto(false); setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); }} tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/> : elegirTiendaPantalla("¿En qué tienda vas a registrar la venta?")}
           </div>
         </div>
@@ -17302,11 +17312,13 @@ export default function App() {
         <ConfirmacionGlobal/>
         {bandaVerComo}
         <TopeEstado color="#ffffff"/>
-        <BarraSuperior {...propsBarra}/>
+        <BarraSuperior {...propsBarra} extraDerecha={esCuentaTienda(user) ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
         {NAVIDAD && <MagiaNavidad/>}
-        <BarraPestanas tabs={tabsVisibles} tab={tabNav} setTab={setTabNav} derecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
+        {esCuentaTienda(user)
+          ? <DockTienda tabs={tabsVisibles} tab={tabNav} setTab={setTabNav}/>
+          : <BarraPestanas tabs={tabsVisibles} tab={tabNav} setTab={setTabNav} derecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>}
         {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
-        <main style={{flex:1,overflowY:"auto",padding:"26px 28px 40px"}}>{panel}</main>
+        <main style={{flex:1,overflowY:"auto",padding:esCuentaTienda(user)?"26px 28px 120px":"26px 28px 40px"}}>{panel}</main>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}

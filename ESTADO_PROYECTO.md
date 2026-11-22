@@ -1215,6 +1215,12 @@ Pedido de Santiago: el módulo más intuitivo.
     (ordenadas por % de la meta del día, medallas), fecha cambiable (‹ fecha › y "Hoy") para ver días
     pasados, total de todas y "Ver ›" a la Lista con esa tienda y ese día. La tienda de la cuenta (o la
     elegida en Métricas) va resaltada.
+  - **Carrera compacta (22 nov):** franja delgada (una línea fina por tienda, barra de 6 px, día
+    pequeño "‹ Hoy ›" que abre calendario, total a la derecha). El detalle (ventas, ticket, abonos)
+    sale al pasar el mouse.
+  - **Cuentas de tienda en computador:** pestañas en una barra flotante abajo y centrada
+    (`DockTienda`), + en el medio; "Nadie en turno" pasa a la barra de arriba (`extraDerecha`). La
+    ventana de Registrar sube desde el + cuando el + está abajo (`haciaArriba`).
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
