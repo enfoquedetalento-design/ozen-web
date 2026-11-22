@@ -1235,6 +1235,29 @@ Pedido de Santiago: el módulo más intuitivo.
     (Lista de ventas u Operaciones). Datos: si Operaciones no está cargada, consulta liviana de lo
     abierto (externas e internas, solo columnas de la campana) cada 5 min como máximo.
 
+## Asistencia — navegación nueva (22 nov 2026; en `staging`, falta que Santiago lo pruebe)
+
+Pedido de Santiago: la misma navegación de Ventas.
+- **Barra (admins):** Turnos · ( + ) · Registros (`ADMIN_TABS_ASISTENCIA`, ordenadas con `centrarMas`).
+  El + tiene id `"marcar"` (el de Ventas sigue siendo `"mas"`; `esBotonMas` reconoce los dos).
+  Desaparecen las pestañas Panel, Marcar Asistencia e Informes.
+- **Asesores:** Turnos · ( + ) · Mi Historial (`ADVISOR_TABS`). Entran por Turnos.
+- **Cuentas de tienda:** sin cambios (no entran a Asistencia; su Turnos sigue siendo solo la malla).
+- **Turnos** abre por defecto (`inicioAsistencia`) y arriba lleva el selector Malla · Resumen ·
+  Informes · Mi Historial (`VISTAS_TURNOS_ASISTENCIA`, `SelectorVistas`, `conSelectorTurnos`). Cada
+  opción sale solo con su permiso (turnos.ver, asistencia.panel, asistencia.informes,
+  asistencia.historial). Las vistas son pestañas "escondidas" (`dashboard`, `reports`,
+  `mi_historial`); la barra ilumina Turnos.
+- **+ = ventana en burbuja** para marcar (`modalMarcar` con `CheckInScreen enVentana`). La nube es
+  ahora un componente compartido, `VentanaNube`, que también usa Registrar venta (mismo dibujo y
+  animación). La de Marcar se desmonta al cerrarse (apaga la cámara); la cámara y los avisos de
+  CheckIn se pintan encima de todo (portal) cuando va en la burbuja. Sale si tiene asistencia.marcar.
+- **Resumen** (`ResumenAsistenciaScreen`, reemplaza `DashboardScreen`): En turno ahora, Llegaron
+  tarde, Faltan, Aún no llegan. Tarde = mismo cálculo de Registros (`calcPuntualidad` contra el turno
+  publicado del día). Falta = turno publicado hoy con tienda, nada marcado hoy y ya pasó su hora de
+  entrada (`entrada_custom` o horario vigente); antes de esa hora sale en "Aún no llegan"; sin horario
+  definido nunca es falta. Solo lee; no cambia cómo se evalúa ninguna jornada.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.

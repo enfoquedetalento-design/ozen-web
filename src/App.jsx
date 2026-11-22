@@ -949,7 +949,15 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
 }
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
-const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id:"records",icon:"📋",label:"Registros" },{ id:"turnos",icon:"📅",label:"Turnos" },{ id:"mi_asistencia",icon:"📍",label:"Marcar Asistencia" },{ id:"reports",icon:"📈",label:"Informes" }];
+// Asistencia (22 nov 2026, navegación nueva como Ventas): Turnos · ( + ) · Registros. "marcar" no es
+// una pantalla: abre Marcar asistencia como ventana en burbuja (igual que el + de Ventas). Resumen
+// (antes "Panel"), Informes y Mi Historial viven dentro de Turnos, con el selector de arriba.
+const ADMIN_TABS_ASISTENCIA = [{ id:"turnos",icon:"📅",label:"Turnos" },{ id:"marcar",icon:"📍",label:"Marcar asistencia" },{ id:"records",icon:"📋",label:"Registros" }];
+// Vistas dentro de Turnos (Malla · Resumen · Informes · Mi Historial). Cada una es una pestaña
+// "escondida": la barra ilumina Turnos. Cada vista sale solo si la persona tiene su permiso.
+const VISTAS_TURNOS_ASISTENCIA = [["turnos","Malla","cal"],["dashboard","Resumen","grid"],["reports","Informes","chart"],["mi_historial","Mi Historial","history"]];
+// Botones redondos "+" de la barra: "mas" = Registrar venta (Ventas), "marcar" = Marcar asistencia.
+const esBotonMas = (id) => id==="mas" || id==="marcar";
 // Las pestañas "Asesores" y "Tiendas" ya no van sueltas — ahora viven dentro de Turnos ▸
 // Administrar (ver TurnosAdminScreen), junto con los códigos de turno especiales.
 // Usuarios (control total de contraseñas) ya no va en esta lista de pestañas — es solo para
@@ -957,7 +965,8 @@ const ADMIN_TABS_ASISTENCIA = [{ id:"dashboard",icon:"📊",label:"Panel" },{ id
 const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
 // Asesor: desde el 8 oct 2026 también elige módulo al entrar (Asistencia o Escuela OZEN), igual que
 // los admins. "Firmar documento" ya no es pestaña ni módulo: es una herramienta del menú de la cuenta.
-const ADVISOR_TABS          = [{ id:"checkin",icon:"📍",label:"Marcar Asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" },{ id:"schedule",icon:"📅",label:"Turnos" }];
+// Asesores (22 nov 2026): misma navegación nueva — Turnos · ( + ) · Mi Historial.
+const ADVISOR_TABS          = [{ id:"schedule",icon:"📅",label:"Turnos" },{ id:"marcar",icon:"📍",label:"Marcar asistencia" },{ id:"history",icon:"📋",label:"Mi Historial" }];
 // Ventas (22 nov 2026): Métricas · ( + ) · Lista de ventas. "mas" no es una pantalla: abre Registrar
 // venta como ventana encima de todo. Caja vive dentro de Métricas (Resumen · Consultas · Caja).
 const ADMIN_TABS_VENTAS     = [{ id:"metricas",icon:"📊",label:"Métricas" },{ id:"mas",icon:"➕",label:"Registrar venta" },{ id:"lista",icon:"📋",label:"Lista de ventas" }];
@@ -1051,9 +1060,16 @@ const PERMISO_DE_TAB_VENTAS = { registrar:"ventas.registrar.ver", mas:"ventas.re
 // Quien ve Caja pero no Métricas conserva Caja como pestaña propia.
 const tabsVentas = (user) => { const t = ADMIN_TABS_VENTAS.filter(x => puede(user, PERMISO_DE_TAB_VENTAS[x.id])); if(!puede(user, "ventas.metricas.ver") && puede(user, "caja.ver")) t.push({ id:"caja", icon:"💰", label:"Caja" }); return t; };
 // Asistencia y Turnos (Permisos, Fase 3): cada pestaña sale si la persona tiene su permiso.
-const PERMISO_DE_TAB_ASISTENCIA = { dashboard:"asistencia.panel", records:"asistencia.registros.ver", turnos:"turnos.ver", mi_asistencia:"asistencia.marcar", reports:"asistencia.informes", checkin:"asistencia.marcar", history:"asistencia.historial", schedule:"turnos.ver" };
-const tabsAsistencia = (user) => ADMIN_TABS_ASISTENCIA.filter(t => puede(user, PERMISO_DE_TAB_ASISTENCIA[t.id]));
-const tabsAsesor = (user) => ADVISOR_TABS.filter(t => puede(user, PERMISO_DE_TAB_ASISTENCIA[t.id]));
+const PERMISO_DE_TAB_ASISTENCIA = { dashboard:"asistencia.panel", records:"asistencia.registros.ver", turnos:"turnos.ver", marcar:"asistencia.marcar", mi_historial:"asistencia.historial", reports:"asistencia.informes", checkin:"asistencia.marcar", history:"asistencia.historial", schedule:"turnos.ver" };
+// Las vistas de Turnos que le tocan a cada quien. La pestaña Turnos sale si tiene al menos una.
+const vistasTurnosAsistencia = (user) => VISTAS_TURNOS_ASISTENCIA.filter(([id]) => puede(user, PERMISO_DE_TAB_ASISTENCIA[id]));
+const tabsAsistencia = (user) => centrarMas(ADMIN_TABS_ASISTENCIA.filter(t => t.id==="turnos" ? vistasTurnosAsistencia(user).length>0 : puede(user, PERMISO_DE_TAB_ASISTENCIA[t.id])));
+const tabsAsesor = (user) => centrarMas(ADVISOR_TABS.filter(t => puede(user, PERMISO_DE_TAB_ASISTENCIA[t.id])));
+// Pantalla con la que abre Asistencia: Turnos (o la primera vista que pueda ver); el + nunca.
+const inicioAsistencia = (user) => {
+  if(user.role==="advisor") return tabsAsesor(user).find(t=>!esBotonMas(t.id))?.id || "schedule";
+  return vistasTurnosAsistencia(user)[0]?.[0] || (puede(user, "asistencia.registros.ver") ? "records" : "turnos");
+};
 // Qué puede hacer en Turnos, acción por acción. `algo` = tiene al menos una (para mostrar Editar/⚙).
 const permisosTurnos = (user) => {
   const t = { editar:puede(user, "turnos.editar"), publicar:puede(user, "turnos.publicar"), asesores:puede(user, "turnos.asesores"), tiendas:puede(user, "turnos.tiendas"), especiales:puede(user, "turnos.especiales"), horarios:puede(user, "turnos.horarios"), mallaActivos:puede(user, "turnos.malla_activos") };
@@ -1062,7 +1078,7 @@ const permisosTurnos = (user) => {
 // El + (Registrar venta) siempre en el centro: sus vecinos son las pestañas de Ventas y lo demás
 // (Turnos, Operaciones…) se reparte por fuera, una a cada lado (22 nov 2026).
 const centrarMas = (tabs) => {
-  const i = tabs.findIndex(t=>t.id==="mas"); if(i<0) return tabs;
+  const i = tabs.findIndex(t=>esBotonMas(t.id)); if(i<0) return tabs;
   const izq = tabs.slice(0, i), der = tabs.slice(i+1);
   const extras = [...izq.slice(0, Math.max(0, izq.length-1)), ...der.slice(1)];
   const L = izq.slice(-1), R = der.slice(0,1);
@@ -1087,7 +1103,7 @@ const passwordVencida = (u) => {
 // las pestañas del área con una línea que se desliza a la pestaña elegida, y bajo ellas una franja
 // fina del color de la tienda (cuando la pantalla trabaja sobre una tienda). En celular las
 // pestañas bajan a una barra inferior, como antes.
-const TAB_ICON = { dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench", op_externas:"wrench", op_internas:"box", op_indicadores:"chart", op_producto:"tag" };
+const TAB_ICON = { marcar:"pin", mi_historial:"history", dashboard:"grid", records:"list", turnos:"cal", mi_asistencia:"pin", reports:"chart", seguimiento:"check", acuerdos:"lock", equipo:"users", guion:"flag", indicadores:"chart", checkin:"pin", history:"history", schedule:"cal", firmar:"pen", registrar:"plus", lista:"list", metricas:"chart", caja:"wallet", mis_cursos:"book", progreso:"chart", cursos_admin:"wrench", op_externas:"wrench", op_internas:"box", op_indicadores:"chart", op_producto:"tag" };
 const AREAS_NAV = [
   { id:"ventas", label:"Ventas", ic:"receipt" },
   { id:"operaciones", label:"Operaciones", ic:"box" },
@@ -1296,8 +1312,8 @@ function BarraPestanas({ tabs, tab, setTab, derecha }) {
     <div style={{ height:50, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"stretch", padding:"0 24px", gap:20, flexShrink:0 }}>
       <div/>
       <div style={{ display:"flex", alignItems:"stretch", gap:30, position:"relative" }}>
-      {tabs.map(t=>{ const on=t.id===tab; if(t.id==="mas") return (
-        <button key="mas" onClick={(e)=>setTab("mas", e.currentTarget.getBoundingClientRect())} title="Registrar venta" aria-label="Registrar venta" className="ozen-boton-mas" style={{ alignSelf:"center", width:40, height:40, borderRadius:"50%", border:"none", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 6px 16px -6px rgba(26,59,82,0.55)", flexShrink:0 }}><Icon n="plus" s={20} sw={2.6}/></button>
+      {tabs.map(t=>{ const on=t.id===tab; if(esBotonMas(t.id)) return (
+        <button key={t.id} onClick={(e)=>setTab(t.id, e.currentTarget.getBoundingClientRect())} title={t.label} aria-label={t.label} className="ozen-boton-mas" style={{ alignSelf:"center", width:40, height:40, borderRadius:"50%", border:"none", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 6px 16px -6px rgba(26,59,82,0.55)", flexShrink:0 }}><Icon n="plus" s={20} sw={2.6}/></button>
       ); return (
         <button key={t.id} ref={el=>{ refs.current[t.id]=el; }} onClick={()=>setTab(t.id)} className="ozen-tab-btn" style={{ display:"flex", alignItems:"center", gap:8, border:"none", background:"none", padding:0, cursor:"pointer", fontFamily:font.body, fontSize:14, fontWeight:on?600:400, color:on?C.goldDark:C.textMuted, transition:"color .2s ease", whiteSpace:"nowrap" }}>
           <Icon n={TAB_ICON[t.id]||"right"} s={16}/>{t.label}
@@ -1331,13 +1347,53 @@ function BarraSuperiorMovil({ extra, campana, user, area, onChooseArea, stores, 
   );
 }
 
+// Ventana en "nube" que sale de un botón + (22 nov 2026), con vidrio esmerilado ("liquid glass"):
+// en computador baja desde el + con una colita que lo señala; en celular (o si el + está abajo)
+// sube desde el +. La usan Registrar venta (Ventas) y Marcar asistencia (Asistencia).
+// `origen` = dónde está el + en pantalla (getBoundingClientRect); `centro` = lo que va en el medio
+// de la franja de arriba (ej. selector de tienda). Mostrar/esconder con `abierta` (escondida queda
+// montada, así lo escrito no se pierde — Registrar venta lo usa así).
+function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo, centro, tituloCerrar="Cerrar", children }) {
+  const vw = typeof window!=="undefined" ? window.innerWidth : 1200, vh = typeof window!=="undefined" ? window.innerHeight : 800;
+  const anchoVent = isMobile ? vw-16 : Math.min(1180, vw-32);
+  const origenX = origen ? origen.left + origen.width/2 : vw/2;
+  const izqVent = isMobile ? 8 : Math.max(16, Math.min(vw-anchoVent-16, origenX-anchoVent/2));
+  const colaX = Math.max(30, Math.min(anchoVent-30, origenX-izqVent));
+  const arribaVent = origen ? origen.bottom + 14 : 28;
+  const haciaArriba = isMobile || (!!origen && origen.top > vh/2);
+  const abajoMovil = origen ? Math.max(70, vh - origen.top + 12) : 80;
+  const altoMovil = Math.max(320, vh - abajoMovil - (isMobile ? 18 : 24));
+  return (
+      <div onClick={onCerrar} style={{ display:abierta?"block":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.14)", overflowY:haciaArriba?"hidden":"auto" }}>
+        <style>{`@keyframes ozenNube{from{transform:scale(.35);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
+        <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, height:altoMovil, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), background:"linear-gradient(160deg, rgba(255,255,255,0.62) 0%, rgba(246,240,235,0.48) 55%, rgba(255,255,255,0.40) 100%)", backdropFilter:"blur(26px) saturate(170%)", WebkitBackdropFilter:"blur(26px) saturate(170%)", border:"1px solid rgba(255,255,255,0.7)", borderRadius:22, boxShadow:"inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(255,255,255,0.25), 0 30px 80px -18px rgba(26,59,82,0.45)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: haciaArriba ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
+          {/* Colita de la nube, apuntando al + (curva suave, del mismo color de la ventana) */}
+          <svg width="40" height="16" viewBox="0 0 40 16" aria-hidden="true" style={{ position:"absolute", left:colaX-20, ...(haciaArriba ? { bottom:-15 } : { top:-15, transform:"scaleY(-1)" }), overflow:"visible", filter:"drop-shadow(0 3px 3px rgba(26,59,82,0.12))" }}>
+            <path d="M0 0 C12 0 15 12 20 16 C25 12 28 0 40 0 Z" fill={haciaArriba ? "rgba(250,246,242,0.78)" : "rgba(255,255,255,0.85)"}/>
+          </svg>
+          <div style={{ position:"relative", display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", gap:10, padding:isMobile?"10px 12px":"12px 20px", background:"linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0.35))", borderBottom:"1px solid rgba(255,255,255,0.55)", borderRadius:"22px 22px 0 0", flexShrink:0 }}>
+            <span style={{ display:"inline-flex", alignItems:"center", gap:10, minWidth:0 }}>
+              <span style={{ width:32, height:32, borderRadius:"50%", background:C.gold, color:"#fff", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n={icono} s={17} sw={2.6}/></span>
+              {!isMobile && <b style={{ fontFamily:font.body, fontSize:17, color:C.text, whiteSpace:"nowrap" }}>{titulo}</b>}
+            </span>
+            <span style={{ display:"flex", justifyContent:"center" }}>{centro}</span>
+            <span style={{ display:"flex", justifyContent:"flex-end" }}><button onClick={onCerrar} aria-label="Cerrar" title={tituloCerrar} style={{ width:36, height:36, borderRadius:10, border:`1px solid ${C.border}`, background:"#fff", color:C.text, display:"grid", placeItems:"center", cursor:"pointer" }}><Icon n="x" s={16} sw={2.4}/></button></span>
+          </div>
+          <div style={{ position:"relative", padding:isMobile?"14px":"20px 24px 26px", ...(haciaArriba ? { flex:1, overflowY:"auto" } : {}) }}>
+            {children}
+          </div>
+        </div>
+      </div>
+  );
+}
+
 // Cuentas de tienda en computador (22 nov 2026): las pestañas van en una barra flotante abajo y
 // centrada (como en el celular), con el + en el medio. Deja libre la parte de arriba.
 function DockTienda({ tabs, tab, setTab }) {
   return (
     <div style={{ position:"fixed", left:"50%", bottom:16, transform:"translateX(-50%)", zIndex:60, display:"flex", alignItems:"center", gap:4, padding:"6px 10px", background:"#fff", border:`1px solid ${C.border}`, borderRadius:22, boxShadow:"0 14px 40px -14px rgba(26,59,82,0.35)" }}>
-      {tabs.map(t=>{ const on = t.id===tab; if(t.id==="mas") return (
-        <button key="mas" onClick={(e)=>setTab("mas", e.currentTarget.getBoundingClientRect())} aria-label="Registrar venta" title="Registrar venta" style={{ margin:"-22px 8px 0", width:58, height:58, borderRadius:"50%", border:"4px solid #fff", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 8px 20px -6px rgba(26,59,82,0.6)" }}><Icon n="plus" s={26} sw={2.6}/></button>
+      {tabs.map(t=>{ const on = t.id===tab; if(esBotonMas(t.id)) return (
+        <button key={t.id} onClick={(e)=>setTab(t.id, e.currentTarget.getBoundingClientRect())} aria-label={t.label} title={t.label} style={{ margin:"-22px 8px 0", width:58, height:58, borderRadius:"50%", border:"4px solid #fff", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 8px 20px -6px rgba(26,59,82,0.6)" }}><Icon n="plus" s={26} sw={2.6}/></button>
       ); return (
         <button key={t.id} onClick={()=>setTab(t.id)} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, minWidth:84, padding:"6px 10px", border:"none", borderRadius:14, background:on?C.surfaceHover:"transparent", color:on?C.goldDark:C.textMuted, cursor:"pointer", fontFamily:font.body }}>
           <Icon n={TAB_ICON[t.id]||"right"} s={20} sw={on?2:1.7}/>
@@ -1377,9 +1433,9 @@ function BottomNav({ tab, setTab, user, area, liderOper }) {
   const tabs = tabsPara(user, area, liderOper);
   return (
     <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:"#fff", padding:"0 10px", paddingBottom:"max(12px, calc(env(safe-area-inset-bottom, 0px) + 4px))", flexShrink:0, position:"relative", zIndex:30 }}>
-      {tabs.map(t => { const active=tab===t.id; if(t.id==="mas") return (
-        <div key="mas" style={{ flex:1, display:"flex", justifyContent:"center" }}>
-          <button onClick={(e)=>setTab("mas", e.currentTarget.getBoundingClientRect())} aria-label="Registrar venta" style={{ marginTop:-18, width:58, height:58, borderRadius:"50%", border:"4px solid #fff", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 8px 20px -6px rgba(26,59,82,0.6)" }}><Icon n="plus" s={26} sw={2.6}/></button>
+      {tabs.map(t => { const active=tab===t.id; if(esBotonMas(t.id)) return (
+        <div key={t.id} style={{ flex:1, display:"flex", justifyContent:"center" }}>
+          <button onClick={(e)=>setTab(t.id, e.currentTarget.getBoundingClientRect())} aria-label={t.label} style={{ marginTop:-18, width:58, height:58, borderRadius:"50%", border:"4px solid #fff", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 8px 20px -6px rgba(26,59,82,0.6)" }}><Icon n="plus" s={26} sw={2.6}/></button>
         </div>
       ); return (
         <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:1, padding:"10px 2px 6px", background:"none", border:"none", display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer", color:active?C.goldDark:C.textMuted, position:"relative" }}>
@@ -1392,55 +1448,102 @@ function BottomNav({ tab, setTab, user, area, liderOper }) {
   );
 }
 
-// ── SCREEN: Dashboard ─────────────────────────────────────────────────────────
-function DashboardScreen({ records, stores, isMobile }) {
-  const todayRecs  = records.filter(r=>r.date===todayStr);
-  const conEntrada = new Set(todayRecs.filter(r=>r.event==="entrada").map(r=>r.user_id));
-  const conCierre  = new Set(todayRecs.filter(r=>r.event==="salida"||(r.event==="omitido"&&r.time==="salida")).map(r=>r.user_id));
-  const trabajaronHoy = conEntrada.size;
-  const enTurnoAhora  = [...conEntrada].filter(id=>!conCierre.has(id)).length;
-  const incompletas   = new Set(todayRecs.filter(r=>r.event==="omitido").map(r=>r.user_id)).size;
-  const recent = [...records].filter(r=>r.event!=="omitido").sort((a,b)=>b.date.localeCompare(a.date)||b.time.localeCompare(a.time)).slice(0,8);
-  const activosAhora = todayRecs.filter(r=>r.event==="entrada"&&!conCierre.has(r.user_id)).reduce((acc,r)=>{ if(!acc.find(x=>x.user_id===r.user_id))acc.push(r); return acc; },[]);
+// ── SCREEN: Resumen de asistencia (antes "Panel") ──────────────────────────────
+// 22 nov 2026 (pedido de Santiago): versión corta del Panel, dentro de Turnos ▸ Resumen. Lo esencial
+// de HOY: quién está, quién llegó tarde, quién falta y quién aún no llega.
+// - Tarde: el MISMO cálculo de puntualidad de Registros (calcPuntualidad contra el turno publicado
+//   de ese día si lo hay; si no, contra lo que marcó la persona; 5 min de gracia).
+// - Falta: tiene turno publicado hoy (turnos_asignaciones, con tienda), no ha marcado NADA hoy y ya
+//   pasó su hora de entrada (entrada_custom del día o la del horario vigente de su turno). Antes de
+//   esa hora sale en "Aún no llegan". Si su turno no tiene horario definido, nunca sale como falta.
+// No guarda nada ni cambia cómo se evalúa ninguna jornada: solo lee.
+const minutosDeHHMM = (hhmm) => { if(!hhmm) return null; const [h,m]=hhmm.split(":").map(Number); return h*60+m; };
+const resumenAsistenciaDia = (fecha, ahoraMin, records, users, turnosHorarios, turnosAsignaciones) => {
+  const delDia = records.filter(r=>r.date===fecha);
+  const nombreDe = (id, porDefecto) => users.find(u=>u.id===id)?.name || porDefecto || "—";
+  const asigDe = (id) => (turnosAsignaciones||[]).find(a=>a.asesor_id===id && a.fecha===fecha);
+  const cerro = (id) => delDia.some(r=>r.user_id===id && (r.event==="salida" || (r.event==="omitido" && r.time==="salida")));
+  const enAlmuerzo = (id) => delDia.some(r=>r.user_id===id && r.event==="inicio_almuerzo") && !delDia.some(r=>r.user_id===id && (r.event==="fin_almuerzo" || (r.event==="omitido" && r.time==="fin_almuerzo")));
+  // Una entrada por persona (la primera del día).
+  const entradas = [];
+  [...delDia].filter(r=>r.event==="entrada").sort((a,b)=>a.time.localeCompare(b.time)).forEach(r=>{ if(!entradas.some(e=>e.user_id===r.user_id)) entradas.push(r); });
+  const conEntrada = entradas.map(r=>{
+    const asig = asigDe(r.user_id);
+    const shiftReal = asig?.tienda_id ? (asig.shift||r.shift) : r.shift;   // igual que Registros
+    const storeReal = asig?.tienda_id || r.store;
+    const punt = calcPuntualidad(r.time, shiftReal, fecha, storeReal, turnosHorarios, asig?.entrada_custom);
+    return { id:r.user_id, nombre:nombreDe(r.user_id, r.user_name), store:r.store, entrada:r.time, punt, cerro:cerro(r.user_id), almuerzo:enAlmuerzo(r.user_id) };
+  });
+  const sinMarcar = [];
+  (turnosAsignaciones||[]).filter(a=>a.fecha===fecha && a.tienda_id).forEach(a=>{
+    if(sinMarcar.some(x=>x.id===a.asesor_id)) return;
+    if(delDia.some(r=>r.user_id===a.asesor_id)) return;          // ya marcó algo hoy
+    const esperada = a.entrada_custom ? minutosDeHHMM(a.entrada_custom) : getExpectedEntry(a.shift, fecha, a.tienda_id, turnosHorarios);
+    sinMarcar.push({ id:a.asesor_id, nombre:nombreDe(a.asesor_id), store:a.tienda_id, shift:a.shift, esperada, falta: esperada!==null && esperada!==undefined && ahoraMin > esperada });
+  });
+  const porNombre = (a,b)=>a.nombre.localeCompare(b.nombre);
+  return {
+    enTurno: conEntrada.filter(p=>!p.cerro).sort(porNombre),
+    tarde: conEntrada.filter(p=>p.punt && !p.punt.puntual).sort((a,b)=>b.punt.diff-a.punt.diff),
+    faltan: sinMarcar.filter(p=>p.falta).sort((a,b)=>a.esperada-b.esperada),
+    aunNo: sinMarcar.filter(p=>!p.falta).sort((a,b)=>(a.esperada??9999)-(b.esperada??9999)),
+  };
+};
+const hhmmDeMinutos = (m) => `${String(Math.floor(m/60)).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`;
 
+const FilaResumenAsis = ({ nombre, sub, derecha, ultima }) => (
+  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, padding:"8px 0", borderBottom:ultima?"none":`1px solid ${C.border}` }}>
+    <div style={{ minWidth:0 }}>
+      <div style={{ fontFamily:font.body, fontSize:13, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombre}</div>
+      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{sub}</div>
+    </div>
+    <div style={{ flexShrink:0 }}>{derecha}</div>
+  </div>
+);
+const ListaResumenAsis = ({ titulo, vacio, items }) => (
+  <Card style={{ marginBottom:12 }}>
+    <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:8 }}>{titulo}</div>
+    {items.length ? items : <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, padding:"6px 0" }}>{vacio}</div>}
+  </Card>
+);
+function ResumenAsistenciaScreen({ records, stores, users, turnosHorarios, turnosAsignaciones, isMobile }) {
+  // La hora avanza sola (cada minuto) para que alguien pase de "Aún no llega" a "Falta" sin recargar.
+  const [ahora,setAhora]=useState(()=>toColombiaDate());
+  useEffect(()=>{ const t=setInterval(()=>setAhora(toColombiaDate()), 60000); return ()=>clearInterval(t); },[]);
+  const ahoraMin = ahora.getHours()*60+ahora.getMinutes();
+  const { enTurno, tarde, faltan, aunNo } = resumenAsistenciaDia(todayStr, ahoraMin, records, users||[], turnosHorarios, turnosAsignaciones);
+  const tienda = (id) => nombreTiendaCorto(stores[id]);
   return (
     <div>
-      <PageHeader title="Panel General" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} />
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)", gap:10, marginBottom:16 }}>
-        <StatCard label="Trabajaron hoy"       value={trabajaronHoy} icon="👥" color={C.green} />
-        <StatCard label="En turno ahora"       value={enTurnoAhora}  icon="🟢" color={enTurnoAhora>0?C.blue:C.textMuted} />
-        <StatCard label="Jornadas incompletas" value={incompletas}   icon="⚠️" color={incompletas>0?C.red:C.textMuted} />
+      <PageHeader title="Resumen de hoy" subtitle={`${new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} · a las ${fmtHora12(hhmmDeMinutos(ahoraMin))}`}/>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)", gap:10, marginBottom:16 }}>
+        <StatCard label="En turno ahora"  value={enTurno.length} icon="🟢" color={enTurno.length>0?C.blue:C.textMuted}/>
+        <StatCard label="Llegaron tarde"  value={tarde.length}   icon="⏰" color={tarde.length>0?C.amber:C.textMuted}/>
+        <StatCard label="Faltan"          value={faltan.length}  icon="⚠️" color={faltan.length>0?C.red:C.textMuted}/>
+        <StatCard label="Aún no llegan"   value={aunNo.length}   icon="🕒" color={C.textMuted}/>
       </div>
-
-      {activosAhora.length > 0 && (
-        <Card style={{ marginBottom:16 }}>
-          <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:12 }}>🟢 En turno ahora</div>
-          {activosAhora.map((r,i)=>(
-            <div key={r.user_id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 0", borderBottom:i<activosAhora.length-1?`1px solid ${C.border}`:"none" }}>
-              <div>
-                <div style={{ fontFamily:font.body, fontSize:13, color:C.text }}>{r.user_name}</div>
-                <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{stores[r.store]?.name}</div>
-              </div>
-              <div style={{ fontFamily:font.mono, fontSize:12, color:C.green }}>Entrada {r.time}</div>
-            </div>
-          ))}
-        </Card>
-      )}
-
-      <Card>
-        <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:12 }}>Últimos eventos</div>
-        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-          {recent.map(r=>(
-            <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10 }}>
-              <div style={{ width:8, height:8, borderRadius:99, background:EVENT_COLORS[r.event], flexShrink:0 }} />
-              <div style={{ flex:1, fontFamily:font.body, fontSize:13, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.user_name}</div>
-              <Badge color={EVENT_COLORS[r.event]} sm>{EVENT_LABELS[r.event]}</Badge>
-              <div style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted, flexShrink:0, minWidth:40, textAlign:"right" }}>{r.time}</div>
-            </div>
-          ))}
-          {recent.length===0 && <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, textAlign:"center", padding:"12px 0" }}>Sin eventos hoy.</div>}
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:12, alignItems:"start" }}>
+        <div>
+          <ListaResumenAsis titulo="⚠️ Faltan" vacio="Nadie con turno hoy está pendiente de llegar después de su hora." items={faltan.map((p,i)=>(
+            <FilaResumenAsis key={p.id} ultima={i===faltan.length-1} nombre={p.nombre} sub={`${tienda(p.store)}${p.shift?` · ${p.shift}`:""} · debía entrar ${fmtHora12(hhmmDeMinutos(p.esperada))}`}
+              derecha={<Badge color={C.red} sm>{`${ahoraMin-p.esperada} min`}</Badge>}/>
+          ))}/>
+          <ListaResumenAsis titulo="⏰ Llegaron tarde" vacio="Nadie ha llegado tarde hoy." items={tarde.map((p,i)=>(
+            <FilaResumenAsis key={p.id} ultima={i===tarde.length-1} nombre={p.nombre} sub={`${tienda(p.store)} · entró ${fmtHora12(p.entrada)}`}
+              derecha={<Badge color={C.red} sm>{`Tarde ${p.punt.diff} min`}</Badge>}/>
+          ))}/>
         </div>
-      </Card>
+        <div>
+          <ListaResumenAsis titulo="🟢 En turno ahora" vacio="Nadie está en turno en este momento." items={enTurno.map((p,i)=>(
+            <FilaResumenAsis key={p.id} ultima={i===enTurno.length-1} nombre={p.nombre} sub={`${tienda(p.store)} · entrada ${fmtHora12(p.entrada)}`}
+              derecha={p.almuerzo ? <Badge color={C.amber} sm>Almuerzo</Badge> : p.punt && !p.punt.puntual ? <Badge color={C.red} sm>{`+${p.punt.diff} min`}</Badge> : null}/>
+          ))}/>
+          <ListaResumenAsis titulo="🕒 Aún no llegan" vacio="No hay más personas con turno pendientes por llegar hoy." items={aunNo.map((p,i)=>(
+            <FilaResumenAsis key={p.id} ultima={i===aunNo.length-1} nombre={p.nombre} sub={`${tienda(p.store)}${p.shift?` · ${p.shift}`:""}`}
+              derecha={<span style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{p.esperada!==null && p.esperada!==undefined ? `entra ${fmtHora12(hhmmDeMinutos(p.esperada))}` : "sin horario"}</span>}/>
+          ))}/>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3980,26 +4083,12 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
 }
 
 // ── SCREEN: Mi Asistencia (para cuentas de líder/admin) — agrupa Marcar + Mi Historial ──
-function MiAsistenciaScreen({ user, records, onRecord, onRefresh, onRecordUpdated, stores, asignaciones, turnosHorarios, turnosAsignaciones }) {
-  const [sub,setSub]=useState("marcar");
-  const subTabs=[{ id:"marcar", label:"📍 Marcar" },{ id:"historial", label:"📋 Mi Historial" }];
-  return (
-    <div>
-      <div style={{ display:"flex", gap:6, marginBottom:18, flexWrap:"wrap" }}>
-        {subTabs.map(t=>(
-          <button key={t.id} onClick={()=>setSub(t.id)} style={{ padding:"7px 16px", borderRadius:99, border:`1px solid ${sub===t.id?C.gold:C.border}`, background:sub===t.id?`${C.gold}18`:"transparent", color:sub===t.id?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>{t.label}</button>
-        ))}
-      </div>
-      <div key={sub} className="ozen-pane-anim-tab">
-        {sub==="marcar"    && <CheckInScreen user={user} records={records} onRecord={onRecord} onRefresh={onRefresh} onRecordUpdated={onRecordUpdated} stores={stores} asignaciones={asignaciones} turnosHorarios={turnosHorarios}/>}
-        {sub==="historial" && <HistoryScreen user={user} records={records} stores={stores} onRecordUpdated={onRecordUpdated} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>}
-      </div>
-    </div>
-  );
-}
-
 // ── SCREEN: CheckIn ───────────────────────────────────────────────────────────
-function CheckInScreen({ user, records, onRecord, onRefresh, onRecordUpdated, stores, asignaciones, turnosHorarios }) {
+// `enVentana` (22 nov 2026): se muestra dentro de la burbuja del + de Asistencia — sin título grande
+// (la burbuja ya lo tiene), y la cámara y los avisos se pintan encima de todo (portal al body),
+// porque dentro del vidrio de la burbuja quedarían encerrados en ella.
+function CheckInScreen({ user, records, onRecord, onRefresh, onRecordUpdated, stores, asignaciones, turnosHorarios, enVentana }) {
+  const encima = (el) => enVentana ? createPortal(<div style={{ position:"relative", zIndex:1100 }}>{el}</div>, document.body) : el;
   const [selStore,setSelStore]=useState(""),[selShift,setSelShift]=useState(""),[locked,setLocked]=useState(false),[showCamera,setShowCamera]=useState(false),[recording,setRecording]=useState(false),[toast,setToast]=useState(null),[toastError,setToastError]=useState(false);
   const [celebraAsis,setCelebraAsis]=useState(null), celebraAsisN=useRef(0); // Navidad: celebración al marcar asistencia
   // Sin conexión, ni la cámara ni el guardado tienen caso — mejor bloquear el botón de una vez con
@@ -4208,13 +4297,13 @@ function CheckInScreen({ user, records, onRecord, onRefresh, onRecordUpdated, st
 
   return (
     <div>
-      {showCamera&&<CameraModal eventLabel={EVENT_LABELS[nextEvent]} onCapture={handleCapture} onCancel={()=>setShowCamera(false)}/>}
+      {showCamera&&encima(<CameraModal eventLabel={EVENT_LABELS[nextEvent]} onCapture={handleCapture} onCancel={()=>setShowCamera(false)}/>)}
       {celebraAsis && <CelebracionAsistencia key={celebraAsis.k} evento={celebraAsis.evento}/>}
-      {toast&&<div style={{position:"fixed",top:16,right:16,left:16,background:toastError?C.redDim:C.greenDim,border:`1px solid ${toastError?C.red:C.green}`,borderRadius:10,padding:"12px 16px",color:toastError?C.red:C.green,fontFamily:font.body,fontSize:13,fontWeight:600,zIndex:200,textAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+      {toast&&encima(<div style={{position:"fixed",top:16,right:16,left:16,background:toastError?C.redDim:C.greenDim,border:`1px solid ${toastError?C.red:C.green}`,borderRadius:10,padding:"12px 16px",color:toastError?C.red:C.green,fontFamily:font.body,fontSize:13,fontWeight:600,zIndex:200,textAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
         <span>{toast}</span>
         {toastError && <button onClick={()=>setToast(null)} style={{background:"none",border:`1px solid ${C.red}`,color:C.red,borderRadius:6,padding:"3px 10px",fontFamily:font.body,fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}>Entendido</button>}
-      </div>}
-      <PageHeader title="Marcar Asistencia" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} />
+      </div>)}
+      {!enVentana && <PageHeader title="Marcar Asistencia" subtitle={new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} />}
       <Card style={{marginBottom:12}}>
         <Field label="Tienda" value={selStore} onChange={v=>{setSelStore(v);setSelShift("");}} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona tienda"},...Object.values(stores).map(s=>({value:s.id,label:s.name}))]}/>
         {selStore&&stores[selStore]?.shifts?.some(s=>s.activo!==false)&&<Field label="Turno" value={selShift} onChange={setSelShift} disabled={locked||!!asigHoy} options={[{value:"",label:"Selecciona turno"},...(stores[selStore]?.shifts||[]).filter(s=>s.activo!==false).map(s=>({value:s.nombre,label:s.nombre===selShift&&rangoHoy?`${s.nombre} - ${rangoHoy}`:s.nombre}))]}/>}
@@ -10592,11 +10681,17 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
 // Consultas · Caja). Todos entran por Métricas.
 function SelectorVistaMetricas({ vista, onElegir, puedeConsultas, puedeCaja }) {
   const opciones = [["resumen","Resumen","chart"], ...(puedeConsultas?[["consultas","Consultas","search"]]:[]), ...(puedeCaja?[["caja","Caja","wallet"]]:[])];
+  return <SelectorVistas opciones={opciones} vista={vista} onElegir={onElegir}/>;
+}
+// Selector de vistas en "píldora" (Resumen · Consultas · Caja en Ventas; Malla · Resumen ·
+// Informes · Mi Historial en Asistencia). `opciones` = [[id, texto, ícono], ...]. Con una sola
+// opción no se muestra. `compacto` (celular): botones más chicos y se puede deslizar de lado.
+function SelectorVistas({ opciones, vista, onElegir, compacto }) {
   if(opciones.length<2) return null;
   return (
-    <div style={{ display:"inline-flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, marginBottom:16 }}>
+    <div className={compacto?"ozen-sin-barra":undefined} style={{ display:"inline-flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, marginBottom:16, ...(compacto ? { maxWidth:"100%", overflowX:"auto" } : {}) }}>
       {opciones.map(([k,l,ic])=>(
-        <button key={k} onClick={()=>onElegir(k)} style={{ display:"inline-flex", alignItems:"center", gap:7, border:"none", cursor:"pointer", borderRadius:99, padding:"8px 16px", fontFamily:font.body, fontSize:13, fontWeight:600, background:vista===k?C.goldDark:"transparent", color:vista===k?C.tinta:C.textSub }}>
+        <button key={k} onClick={()=>onElegir(k)} style={{ display:"inline-flex", alignItems:"center", gap:7, border:"none", cursor:"pointer", borderRadius:99, padding:compacto?"7px 11px":"8px 16px", fontFamily:font.body, fontSize:compacto?12.5:13, fontWeight:600, background:vista===k?C.goldDark:"transparent", color:vista===k?C.tinta:C.textSub, whiteSpace:"nowrap", flexShrink:0 }}>
           <Icon n={ic} s={14}/>{l}
         </button>
       ))}
@@ -16665,6 +16760,10 @@ export default function App() {
   const [registrarAbierto,setRegistrarAbierto]=useState(false);
   const [registrarMontado,setRegistrarMontado]=useState(false);
   const [registrarOrigen,setRegistrarOrigen]=useState(null); // dónde está el + en pantalla
+  // Marcar asistencia como ventana (22 nov 2026), el + de Asistencia.
+  const [marcarAbierto,setMarcarAbierto]=useState(false);
+  const [marcarOrigen,setMarcarOrigen]=useState(null);
+  const abrirMarcar = (rect) => { setMarcarOrigen(rect ? { left:rect.left, top:rect.top, width:rect.width, height:rect.height, bottom:rect.bottom } : null); setMarcarAbierto(true); };
   const abrirRegistrar = (rect) => { setRegistrarOrigen(rect ? { left:rect.left, top:rect.top, width:rect.width, height:rect.height, bottom:rect.bottom } : null); setRegistrarMontado(true); setRegistrarAbierto(true); };
   const [opCampana,setOpCampana]=useState([]);
   const [opCampanaInt,setOpCampanaInt]=useState([]);
@@ -16916,7 +17015,7 @@ export default function App() {
   const entrarVerComo=(u)=>{ if(!puede(usuarioSesion,"cuenta.permisos")) return; permVerComoActivar(true); setVerComo(u); setMostrarUsuarios(false); setArea(null); setTab(esCuentaTienda(u)?"metricas":eligeModulo(u)?null:"checkin"); };
   const salirVerComo=()=>{ permVerComoActivar(false); setVerComo(null); setArea(null); setTab(eligeModulo(usuarioSesion)?null:"checkin"); setMostrarUsuarios(true); };
   const bandaVerComo = verComo ? <BandaVerComo u={verComo} onSalir={salirVerComo}/> : null;
-  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="operaciones"?"op_externas":a==="ventas"?"metricas":a==="capacitacion"?(tomaCapacitaciones(user)?"mis_cursos":"progreso"):user.role==="advisor"?"checkin":"dashboard");};
+  const chooseArea=(a)=>{setArea(a);setTab(a==="junta"?"seguimiento":a==="operaciones"?"op_externas":a==="ventas"?"metricas":a==="capacitacion"?(tomaCapacitaciones(user)?"mis_cursos":"progreso"):inicioAsistencia(user));};
   const addRecord=(r)=>setRecords(prev=>[r,...prev]);
   // Sin argumento (botón 🔄) siempre recarga. Con `maxEdadMs` solo recarga si la última carga es
   // más vieja que eso — así el login justo después de abrir la página, o "volver a la pestaña"
@@ -17081,6 +17180,10 @@ export default function App() {
     </div>
     {contenido}
   </>;
+  const conSelectorTurnos = (contenido) => <>
+    <div style={{ display:"flex", justifyContent:"center" }}><SelectorVistas opciones={vistasTurnosAsistencia(user)} vista={tab} onElegir={setTab} compacto={isMobile}/></div>
+    {contenido}
+  </>;
   const elegirTiendaPantalla = (titulo) => <ElegirTiendaTarjetas stores={stores} onElegir={setTiendaActiva} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} titulo={titulo} isMobile={isMobile}/>;
   const verListaHoy = (tiendaId, dia=todayStr) => { setListaPedido({ tienda:tiendaId, dia, t:Date.now() }); setTab("lista"); };
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
@@ -17110,11 +17213,13 @@ export default function App() {
         if(tab==="progreso")     return <CapacitacionProgresoScreen users={users} {...propsCapacitacion}/>;
         if(tab==="cursos_admin" && puedeEditarCapacitacion(user)) return <CapacitacionAdminScreen {...propsCapacitacion}/>;
       } else {
-        if(tab==="dashboard") return <DashboardScreen records={records} stores={stores} isMobile={isMobile}/>;
-        if(tab==="records")   return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones} user={user} onRecordDeleted={onRecordDeletedAdmin} onRecordUpdated={onRecordUpdatedAdmin}/>;
-        if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={permisosTurnos(user).algo} permisos={permisosTurnos(user)} onSubChange={setTurnosSub} userName={user.name}/>;
-        if(tab==="mi_asistencia") return <MiAsistenciaScreen user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} onRecordUpdated={onRecordUpdatedAdmin} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>;
-        if(tab==="reports")   return <ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>;
+        // Asistencia (22 nov 2026): Turnos lleva arriba el selector Malla · Resumen · Informes ·
+        // Mi Historial (como Métricas en Ventas); Registros es su propia pestaña.
+        if(tab==="dashboard" && puede(user, "asistencia.panel")) return conSelectorTurnos(<ResumenAsistenciaScreen records={records} stores={stores} users={users} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones} isMobile={isMobile}/>);
+        if(tab==="records" && puede(user, "asistencia.registros.ver")) return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones} user={user} onRecordDeleted={onRecordDeletedAdmin} onRecordUpdated={onRecordUpdatedAdmin}/>;
+        if(tab==="turnos" && puede(user, "turnos.ver")) return conSelectorTurnos(<TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={permisosTurnos(user).algo} permisos={permisosTurnos(user)} onSubChange={setTurnosSub} userName={user.name}/>);
+        if(tab==="mi_historial" && puede(user, "asistencia.historial")) return conSelectorTurnos(<HistoryScreen user={user} records={records} stores={stores} onRecordUpdated={onRecordUpdatedAdmin} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>);
+        if(tab==="reports" && puede(user, "asistencia.informes")) return conSelectorTurnos(<ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>);
       }
     } else if(esCuentaTienda(user)){
       if(tab==="registrar") return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} opAvisos={opEstado==="listo" ? opExternas : opCampana} onIrAOrden={(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); }} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/>;
@@ -17257,7 +17362,10 @@ export default function App() {
   const tabsVisibles = tabsPara(user, area, liderOper);
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
   const mostrarTienda = esAreaVentas && tab==="caja";
-  const setTabNav = (id, rect) => id==="mas" ? abrirRegistrar(rect) : setTab(id);
+  // Asistencia de admins: Turnos lleva a la primera vista que la persona puede ver (si no ve la Malla).
+  const esAsistenciaAdmin = puedeUsarAreas(user) && area==="asistencia";
+  const setTabNav = (id, rect) => id==="mas" ? abrirRegistrar(rect) : id==="marcar" ? abrirMarcar(rect)
+    : (id==="turnos" && esAsistenciaAdmin && !puede(user, "turnos.ver")) ? setTab(inicioAsistencia(user)) : setTab(id);
   const irAOrdenDesdeAviso = (tipo,id)=>{ setRegistrarAbierto(false); setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); };
   // Desde la campana: abre Lista de ventas con ese Flexipago buscado y desplegado.
   const irAFlexipagoDesdeAviso = (v) => { setRegistrarAbierto(false); if(!esCuentaTienda(user)) setArea("ventas"); setListaPedido({ tienda:v.tienda_id, busqueda:v.cliente_documento||v.cliente_nombre||v.numero_factura||"", soloFlex:true, abrir:`v-${v.id}`, t:Date.now() }); setTab("lista"); };
@@ -17272,42 +17380,24 @@ export default function App() {
         onIrAOrden={irAOrdenDesdeAviso} onIrAFlexipago={irAFlexipagoDesdeAviso}/>
     </FlexiAvisosContext.Provider>
   );
-  // Ventana de Registrar venta como "nube" que sale del + (22 nov 2026), con vidrio esmerilado
-  // ("liquid glass", en prueba en staging): en computador baja desde
-  // el + con una colita que lo señala; en celular sube desde el + de la barra de abajo.
-  const vw = typeof window!=="undefined" ? window.innerWidth : 1200, vh = typeof window!=="undefined" ? window.innerHeight : 800;
-  const anchoVent = isMobile ? vw-16 : Math.min(1180, vw-32);
-  const origenX = registrarOrigen ? registrarOrigen.left + registrarOrigen.width/2 : vw/2;
-  const izqVent = isMobile ? 8 : Math.max(16, Math.min(vw-anchoVent-16, origenX-anchoVent/2));
-  const colaX = Math.max(30, Math.min(anchoVent-30, origenX-izqVent));
-  const arribaVent = registrarOrigen ? registrarOrigen.bottom + 14 : 28;
-  const haciaArriba = isMobile || (!!registrarOrigen && registrarOrigen.top > vh/2);
-  const abajoMovil = registrarOrigen ? Math.max(70, vh - registrarOrigen.top + 12) : 80;
-  const altoMovil = Math.max(320, vh - abajoMovil - (isMobile ? 18 : 24));
+  // Ventana de Registrar venta como "nube" que sale del + (22 nov 2026). El dibujo de la nube es
+  // VentanaNube (compartida con Marcar asistencia).
   const modalRegistrar = registrarMontado && createPortal(
     <FlexiAvisosContext.Provider value={flexiAvisosCtx}>
-      <div onClick={()=>setRegistrarAbierto(false)} style={{ display:registrarAbierto?"block":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.14)", overflowY:haciaArriba?"hidden":"auto" }}>
-        <style>{`@keyframes ozenNube{from{transform:scale(.35);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
-        <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, height:altoMovil, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), background:"linear-gradient(160deg, rgba(255,255,255,0.62) 0%, rgba(246,240,235,0.48) 55%, rgba(255,255,255,0.40) 100%)", backdropFilter:"blur(26px) saturate(170%)", WebkitBackdropFilter:"blur(26px) saturate(170%)", border:"1px solid rgba(255,255,255,0.7)", borderRadius:22, boxShadow:"inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(255,255,255,0.25), 0 30px 80px -18px rgba(26,59,82,0.45)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: haciaArriba ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
-          {/* Colita de la nube, apuntando al + (curva suave, del mismo color de la ventana) */}
-          <svg width="40" height="16" viewBox="0 0 40 16" aria-hidden="true" style={{ position:"absolute", left:colaX-20, ...(haciaArriba ? { bottom:-15 } : { top:-15, transform:"scaleY(-1)" }), overflow:"visible", filter:"drop-shadow(0 3px 3px rgba(26,59,82,0.12))" }}>
-            <path d="M0 0 C12 0 15 12 20 16 C25 12 28 0 40 0 Z" fill={haciaArriba ? "rgba(250,246,242,0.78)" : "rgba(255,255,255,0.85)"}/>
-          </svg>
-          <div style={{ position:"relative", display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", gap:10, padding:isMobile?"10px 12px":"12px 20px", background:"linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0.35))", borderBottom:"1px solid rgba(255,255,255,0.55)", borderRadius:"22px 22px 0 0", flexShrink:0 }}>
-            <span style={{ display:"inline-flex", alignItems:"center", gap:10, minWidth:0 }}>
-              <span style={{ width:32, height:32, borderRadius:"50%", background:C.gold, color:"#fff", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="plus" s={17} sw={2.6}/></span>
-              {!isMobile && <b style={{ fontFamily:font.body, fontSize:17, color:C.text, whiteSpace:"nowrap" }}>Registrar venta</b>}
-            </span>
-            <span style={{ display:"flex", justifyContent:"center" }}>{tiendaActiva && <SelectorTienda stores={stores} tiendaId={tiendaActiva} setTiendaId={esCuentaTienda(user) ? null : setTiendaActiva} fija={esCuentaTienda(user)} compact={isMobile}/>}</span>
-            <span style={{ display:"flex", justifyContent:"flex-end" }}><button onClick={()=>setRegistrarAbierto(false)} aria-label="Cerrar" title="Cerrar (lo que llevas escrito se guarda)" style={{ width:36, height:36, borderRadius:10, border:`1px solid ${C.border}`, background:"#fff", color:C.text, display:"grid", placeItems:"center", cursor:"pointer" }}><Icon n="x" s={16} sw={2.4}/></button></span>
-          </div>
-          <div style={{ position:"relative", padding:isMobile?"14px":"20px 24px 26px", ...(haciaArriba ? { flex:1, overflowY:"auto" } : {}) }}>
+      <VentanaNube abierta={registrarAbierto} origen={registrarOrigen} isMobile={isMobile} onCerrar={()=>setRegistrarAbierto(false)} icono="plus" titulo="Registrar venta" tituloCerrar="Cerrar (lo que llevas escrito se guarda)"
+        centro={tiendaActiva && <SelectorTienda stores={stores} tiendaId={tiendaActiva} setTiendaId={esCuentaTienda(user) ? null : setTiendaActiva} fija={esCuentaTienda(user)} compact={isMobile}/>}>
             {tiendaActiva ? <VentasRegistrarScreen enVentana onVerLista={()=>{ setRegistrarAbierto(false); verListaHoy(tiendaActiva); }} ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} opAvisos={opEstado==="listo" ? opExternas : opCampana} onIrAOrden={(tipo,id)=>{ setRegistrarAbierto(false); setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); }} tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/> : elegirTiendaPantalla("¿En qué tienda vas a registrar la venta?")}
-          </div>
-        </div>
-      </div>
+      </VentanaNube>
     </FlexiAvisosContext.Provider>, document.body);
-  const tabNav = tab==="caja" && puede(user, "ventas.metricas.ver") ? "metricas" : tab;
+  // Marcar asistencia como "nube" que sale del + de Asistencia (22 nov 2026). Al cerrarla se
+  // desmonta (así la cámara se apaga y al volver a abrir muestra el siguiente evento al día).
+  const modalMarcar = marcarAbierto && createPortal(
+    <VentanaNube abierta origen={marcarOrigen} isMobile={isMobile} onCerrar={()=>setMarcarAbierto(false)} icono="pin" titulo="Marcar asistencia"
+      centro={<span style={{ fontFamily:font.body, fontSize:13, color:C.textSub, whiteSpace:"nowrap", textTransform:"capitalize" }}>{toColombiaDate().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}</span>}>
+      <CheckInScreen enVentana user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} onRecordUpdated={onRecordUpdatedAdmin} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>
+    </VentanaNube>, document.body);
+  const tabNav = tab==="caja" && puede(user, "ventas.metricas.ver") ? "metricas"
+    : (esAsistenciaAdmin && VISTAS_TURNOS_ASISTENCIA.some(([id])=>id===tab)) ? "turnos" : tab;
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
   const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda:false, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
   const panel = <FlexiAvisosContext.Provider value={flexiAvisosCtx}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></FlexiAvisosContext.Provider>;
@@ -17329,6 +17419,7 @@ export default function App() {
         {modalAccesoTiendas}
         {modalFirmas}
         {modalRegistrar}
+        {modalMarcar}
         {bannerActualizacion}
       </div>
     </ReadOnlyContext.Provider>
@@ -17353,6 +17444,7 @@ export default function App() {
         {modalAccesoTiendas}
         {modalFirmas}
         {modalRegistrar}
+        {modalMarcar}
         {bannerActualizacion}
       </div>
     </ReadOnlyContext.Provider>
