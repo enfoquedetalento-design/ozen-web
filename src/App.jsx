@@ -1363,15 +1363,19 @@ function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo
   const arribaVent = origen ? origen.bottom + 14 : 28;
   const haciaArriba = isMobile || (!!origen && origen.top > vh/2);
   const abajoMovil = origen ? Math.max(70, vh - origen.top + 12) : 80;
-  // Arriba la ventana nunca pasa por debajo de la hora / la isla del iPhone (zona segura).
-  const topeArriba = `max(${isMobile ? 18 : 24}px, calc(env(safe-area-inset-top, 0px) + 10px))`;
+  // Arriba la ventana empieza debajo de la hora / la isla del iPhone y del difuminado que iOS 26 pone
+  // un poco más abajo (zona segura × 1.55, igual que la barra de arriba).
+  const topeArriba = `max(${isMobile ? 18 : 24}px, calc(env(safe-area-inset-top, 0px) * 1.55 + 10px))`;
   return (
       <div onClick={onCerrar} style={{ display:abierta?"block":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.14)", overflowY:haciaArriba?"hidden":"auto" }}>
         <style>{`@keyframes ozenNube{from{transform:scale(.35);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
-        <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, top:topeArriba, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), background:"linear-gradient(160deg, rgba(255,255,255,0.62) 0%, rgba(246,240,235,0.48) 55%, rgba(255,255,255,0.40) 100%)", backdropFilter:"blur(26px) saturate(170%)", WebkitBackdropFilter:"blur(26px) saturate(170%)", border:"1px solid rgba(255,255,255,0.7)", borderRadius:22, boxShadow:"inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(255,255,255,0.25), 0 30px 80px -18px rgba(26,59,82,0.45)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: haciaArriba ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
+        <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, top:topeArriba, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), ...(isMobile
+            // Celular: sin desenfoque en vivo (hacía lento el desplazamiento); fondo casi sólido.
+            ? { background:"linear-gradient(160deg, rgba(255,255,255,0.98) 0%, rgba(248,244,240,0.97) 55%, rgba(255,255,255,0.97) 100%)" }
+            : { background:"linear-gradient(160deg, rgba(255,255,255,0.62) 0%, rgba(246,240,235,0.48) 55%, rgba(255,255,255,0.40) 100%)", backdropFilter:"blur(26px) saturate(170%)", WebkitBackdropFilter:"blur(26px) saturate(170%)" }), border:"1px solid rgba(255,255,255,0.7)", borderRadius:22, boxShadow:"inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(255,255,255,0.25), 0 30px 80px -18px rgba(26,59,82,0.45)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: haciaArriba ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
           {/* Colita de la nube, apuntando al + (curva suave, del mismo color de la ventana) */}
           <svg width="40" height="16" viewBox="0 0 40 16" aria-hidden="true" style={{ position:"absolute", left:colaX-20, ...(haciaArriba ? { bottom:-15 } : { top:-15, transform:"scaleY(-1)" }), overflow:"visible", filter:"drop-shadow(0 3px 3px rgba(26,59,82,0.12))" }}>
-            <path d="M0 0 C12 0 15 12 20 16 C25 12 28 0 40 0 Z" fill={haciaArriba ? "rgba(250,246,242,0.78)" : "rgba(255,255,255,0.85)"}/>
+            <path d="M0 0 C12 0 15 12 20 16 C25 12 28 0 40 0 Z" fill={isMobile ? "#FEFDFC" : haciaArriba ? "rgba(250,246,242,0.78)" : "rgba(255,255,255,0.85)"}/>
           </svg>
           <div style={{ position:"relative", display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", gap:10, padding:isMobile?"10px 12px":"12px 20px", background:"linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0.35))", borderBottom:"1px solid rgba(255,255,255,0.55)", borderRadius:"22px 22px 0 0", flexShrink:0 }}>
             <span style={{ display:"inline-flex", alignItems:"center", gap:10, minWidth:0 }}>
@@ -1381,7 +1385,7 @@ function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo
             <span style={{ display:"flex", justifyContent:"center" }}>{centro}</span>
             <span style={{ display:"flex", justifyContent:"flex-end" }}><button onClick={onCerrar} aria-label="Cerrar" title={tituloCerrar} style={{ width:36, height:36, borderRadius:10, border:`1px solid ${C.border}`, background:"#fff", color:C.text, display:"grid", placeItems:"center", cursor:"pointer" }}><Icon n="x" s={16} sw={2.4}/></button></span>
           </div>
-          <div style={{ position:"relative", padding:isMobile?"14px":"20px 24px 26px", ...(haciaArriba ? { flex:1, overflowY:"auto" } : {}) }}>
+          <div style={{ position:"relative", padding:isMobile?"14px":"20px 24px 26px", ...(haciaArriba ? { flex:1, overflowY:"auto", overscrollBehavior:"contain", WebkitOverflowScrolling:"touch" } : {}) }}>
             {children}
           </div>
         </div>
@@ -10964,7 +10968,7 @@ function ElegirTiendaTarjetas({ stores, onElegir, ventas, ventasItems, ventasAbo
       <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginBottom:14 }}>Toca una tienda para seguir. Puedes cambiarla después arriba.</div>
       <div style={{ display:"flex", flexWrap:"wrap", justifyContent:"center", gap:10, textAlign:"left" }}>
         {tiendas.map(t=>{ const r = calcularMetaHoyTienda(t.id, todayStr, ventas, ventasItems, ventasAbonos, ventasAjustes, metas); const col = colorTienda(t); return (
-          <button key={t.id} onClick={()=>onElegir(t.id)} className="ozen-fila-venta" style={{ all:"unset", boxSizing:"border-box", width:isMobile?"calc(50% - 5px)":190, cursor:"pointer", background:"#fff", border:`1px solid ${C.border}`, borderTop:`4px solid ${col}`, borderRadius:14, padding:"16px 16px 14px", display:"flex", flexDirection:"column", gap:8 }}>
+          <button key={t.id} onClick={()=>onElegir(t.id)} className="ozen-fila-venta" style={{ all:"unset", boxSizing:"border-box", width:isMobile?"min(100%, 320px)":190, cursor:"pointer", background:"#fff", border:`1px solid ${C.border}`, borderTop:`4px solid ${col}`, borderRadius:14, padding:"16px 16px 14px", display:"flex", flexDirection:"column", gap:8 }}>
             <span style={{ display:"inline-flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}><PuntoTienda color={col} size={10}/>{nombreTiendaCorto(t)}</span>
             <span style={{ fontFamily:font.body, fontSize:11, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:700 }}>Vendido hoy</span>
             <span style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ fontSize:12, color:C.textMuted, fontWeight:500 }}> · {Math.round(r.vendido/r.meta*100)} %</span>}</span>
