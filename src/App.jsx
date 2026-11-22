@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, createContext, useContext, Fragment } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, createContext, useContext, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "./supabase";
 import { activarNotificacionesPush, notificacionesSoportadas, pushActivo, requiereInstalarEnIOS } from "./push";
@@ -1308,35 +1308,6 @@ function BarraSuperior({ extraDerecha, campana, user, area, onChooseArea, stores
   );
 }
 
-// Pestañas del área, con la línea inferior que se DESLIZA hasta la pestaña elegida (en vez de
-// saltar). Se mide la posición real de la pestaña activa y la línea se anima a ese sitio.
-function BarraPestanas({ tabs, tab, setTab, derecha }) {
-  const refs = useRef({});
-  const [linea, setLinea] = useState(null);
-  useLayoutEffect(()=>{
-    const medir = () => { const el = refs.current[tab]; if(el) setLinea({ left:el.offsetLeft, width:el.offsetWidth }); };
-    medir();
-    window.addEventListener("resize", medir);
-    return () => window.removeEventListener("resize", medir);
-  }, [tab, tabs.length]);
-  return (
-    <div style={{ height:50, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"stretch", padding:"0 24px", gap:20, flexShrink:0 }}>
-      <div/>
-      <div style={{ display:"flex", alignItems:"stretch", gap:30, position:"relative" }}>
-      {tabs.map(t=>{ const on=t.id===tab; if(esBotonMas(t.id)) return (
-        <button key={t.id} onClick={(e)=>setTab(t.id, e.currentTarget.getBoundingClientRect())} title={t.label} aria-label={t.label} className="ozen-boton-mas" style={{ alignSelf:"center", width:40, height:40, borderRadius:"50%", border:"none", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 6px 16px -6px rgba(26,59,82,0.55)", flexShrink:0 }}><Icon n="plus" s={20} sw={2.6}/></button>
-      ); return (
-        <button key={t.id} ref={el=>{ refs.current[t.id]=el; }} onClick={()=>setTab(t.id)} className="ozen-tab-btn" style={{ display:"flex", alignItems:"center", gap:8, border:"none", background:"none", padding:0, cursor:"pointer", fontFamily:font.body, fontSize:14, fontWeight:on?600:400, color:on?C.goldDark:C.textMuted, transition:"color .2s ease", whiteSpace:"nowrap" }}>
-          <Icon n={TAB_ICON[t.id]||"right"} s={16}/>{t.label}
-        </button>
-      ); })}
-      {linea && <span className="ozen-tab-linea" style={{ position:"absolute", bottom:0, height:2.5, borderRadius:2, background:C.gold, left:linea.left, width:linea.width }}/>}
-      </div>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:10 }}>{derecha}</div>
-    </div>
-  );
-}
-
 // Franja de 3 px con el color de la tienda activa — dice "dónde estás" en toda el área de Ventas.
 const FranjaTienda = ({ color }) => <div style={{ height:3, background:color, transition:"background-color .35s ease", flexShrink:0 }}/>;
 
@@ -1403,9 +1374,11 @@ function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo
   );
 }
 
-// Cuentas de tienda en computador (22 nov 2026): las pestañas van en una barra flotante abajo y
-// centrada (como en el celular), con el + en el medio. Deja libre la parte de arriba.
-function DockTienda({ tabs, tab, setTab }) {
+// Pestañas del área en computador (22 nov 2026, decisión de Santiago: "las opciones del + abajo y
+// los módulos arriba", en celular y en computador, para todos): barra flotante abajo y centrada,
+// con el + en el medio cuando el área lo tiene. Arriba quedan solo los módulos, la campana y el
+// perfil. (Antes solo las cuentas de tienda la tenían; las demás usaban pestañas arriba.)
+function DockPestanas({ tabs, tab, setTab }) {
   return (
     <div style={{ position:"fixed", left:"50%", bottom:16, transform:"translateX(-50%)", zIndex:60, display:"flex", alignItems:"center", gap:4, padding:"6px 10px", background:"#fff", border:`1px solid ${C.border}`, borderRadius:22, boxShadow:"0 14px 40px -14px rgba(26,59,82,0.35)" }}>
       {tabs.map(t=>{ const on = t.id===tab; if(esBotonMas(t.id)) return (
@@ -17576,7 +17549,7 @@ export default function App() {
   // Tinta. A propósito NO se puede cerrar — se queda hasta que se actualice la página, porque
   // trabajar con una versión vieja puede mostrar datos desactualizados.
   const bannerActualizacion = actualizacionDisponible && (
-    <div className="ozen-aviso-version" role="status" style={{ position:"fixed", left:"50%", bottom:isMobile?84:22, transform:"translateX(-50%)", zIndex:500, width:isMobile?"calc(100% - 24px)":"max-content", maxWidth:isMobile?undefined:"calc(100% - 48px)", boxSizing:"border-box", background:C.goldDark, color:C.tinta, borderRadius:14, padding:"10px 10px 10px 14px", display:"flex", alignItems:"center", gap:12, fontFamily:font.body, lineHeight:1.3, letterSpacing:"0.01em", boxShadow:"0 20px 40px -18px rgba(26,59,82,0.65)" }}>
+    <div className="ozen-aviso-version" role="status" style={{ position:"fixed", left:"50%", bottom:isMobile?84:100, transform:"translateX(-50%)", zIndex:500, width:isMobile?"calc(100% - 24px)":"max-content", maxWidth:isMobile?undefined:"calc(100% - 48px)", boxSizing:"border-box", background:C.goldDark, color:C.tinta, borderRadius:14, padding:"10px 10px 10px 14px", display:"flex", alignItems:"center", gap:12, fontFamily:font.body, lineHeight:1.3, letterSpacing:"0.01em", boxShadow:"0 20px 40px -18px rgba(26,59,82,0.65)" }}>
       <span style={{ width:32, height:32, borderRadius:9, background:"rgba(229,213,204,0.14)", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="refresh" s={16}/></span>
       <span style={{ minWidth:0, flex:isMobile?1:"0 1 auto" }}>
         <b style={{ display:"block", fontSize:13.5, fontWeight:700, whiteSpace:isMobile?"normal":"nowrap" }}>Hay una versión nueva</b>
@@ -17706,13 +17679,11 @@ export default function App() {
         <ConfirmacionGlobal/>
         {bandaVerComo}
         <TopeEstado color="#ffffff"/>
-        <BarraSuperior {...propsBarra} campana={campanaBarra} extraDerecha={esCuentaTienda(user) ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
+        <BarraSuperior {...propsBarra} campana={campanaBarra} extraDerecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
         {NAVIDAD && <MagiaNavidad/>}
-        {esCuentaTienda(user)
-          ? <DockTienda tabs={tabsVisibles} tab={tabNav} setTab={setTabNav}/>
-          : <BarraPestanas tabs={tabsVisibles} tab={tabNav} setTab={setTabNav} derecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>}
+        {(tabsVisibles.length>1 || tabsVisibles.some(t=>esBotonMas(t.id))) && <DockPestanas tabs={tabsVisibles} tab={tabNav} setTab={setTabNav}/>}
         {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
-        <main style={{flex:1,overflowY:"auto",padding:esCuentaTienda(user)?"26px 28px 120px":"26px 28px 40px"}}>{panel}</main>
+        <main style={{flex:1,overflowY:"auto",padding:"26px 28px 120px"}}>{panel}</main>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}

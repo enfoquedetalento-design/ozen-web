@@ -1227,6 +1227,13 @@ Pedido de Santiago: el módulo más intuitivo.
     caben (`justifyContent:"safe center"`); colita de la nube en curva (SVG); **campana de avisos**
     (Flexipagos y órdenes de Operaciones) pasó de Registrar a la barra de arriba, junto al perfil
     (`CampanaVentas`; cuenta de tienda: solo la suya; demás: todas las tiendas, con el nombre).
+  - **Pestañas abajo para todos (22 nov, decisión de Santiago):** en celular y en computador,
+    arriba van los módulos, la campana y el perfil; abajo, las pestañas del módulo con el + en el
+    medio. En computador todos usan la barra flotante de abajo (`DockPestanas`, antes `DockTienda`,
+    que era solo de las cuentas de tienda); se quitó `BarraPestanas` (pestañas arriba). Si un área
+    tiene una sola pestaña y no tiene +, no sale la barra. "Nadie en turno" va arriba en Ventas. Las
+    pantallas dejan 120 px libres abajo para que la barra no tape lo último. Ningún módulo debe
+    volver a poner pestañas arriba.
   - **Una sola campana para todo (22 nov, decisión de Santiago):** ya no hay campana de Ventas y
     campana de Operaciones por separado (se quitó `OperCampana`). `CampanaGeneral` va en la barra de
     arriba, junto al perfil, en **todas** las áreas, y junta lo que la persona puede ver: Flexipagos
