@@ -1167,6 +1167,11 @@ ahora es una tabla dinámica sencilla:
   Mes o Día de la semana (no Hora, Tipo ni Medio de pago). Con Asesor en filas/columnas/filtro se usa
   la meta personal; si no, la de tienda.
 - Se quitaron la frase, los atajos sueltos y los 4 recuadros de cifras.
+- **Ajustes (21 nov, noche):** menú por temas (`CONS_COMUNES` con `grupo`: Metas y cumplimiento,
+  Ventas, Días y horas, Caja y medios de pago, Servicios y Flexipagos). Botones "Quitar filtros"
+  (caja Filtros) y "Empezar de cero". **"Las que más usas"** (por equipo, `ozen-consultas-uso` en
+  localStorage): una consulta cuenta si queda 20 s en pantalla, máximo una vez al día; sube al menú
+  al usarse en 3 días distintos de los últimos 30 (máx. 5); lo que no se usa en 60 días se borra.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 

@@ -9639,17 +9639,32 @@ const CONS_COMPARAR2 = [
   { value:"custom", label:"Otro periodo…" },
 ];
 const CONS_CFG_INICIAL = { filas:["tienda"], col:"", valores:["sin"], filtros:{}, periodo:"mes", desde:"", hasta:"", comparar:"", cdesde:"", chasta:"", equipoJunto:true };
+// Menú de consultas comunes, por tema (21 nov 2026: "aterrizado a la realidad" de la operación).
 const CONS_COMUNES = [
-  { id:"c1", nombre:"Medios de pago por tienda, día a día", cfg:{ filas:["dia","tienda"], col:"medio", valores:["ingreso"], periodo:"mes" } },
-  { id:"c2", nombre:"Cumplimiento por asesor (un periodo contra otro)", cfg:{ filas:["asesor"], valores:["sin","meta","cumpl"], periodo:"custom", comparar:"custom" } },
-  { id:"c3", nombre:"Ventas por asesor y tienda, este mes", cfg:{ filas:["asesor"], col:"tienda", valores:["sin"], periodo:"mes", comparar:"mes" } },
-  { id:"c4", nombre:"Cumplimiento por tienda, este mes", cfg:{ filas:["tienda"], valores:["sin","meta","cumpl"], periodo:"mes", comparar:"mes" } },
-  { id:"c5", nombre:"Ventas por día, este mes vs el pasado", cfg:{ filas:["dia"], valores:["sin"], periodo:"mes", comparar:"mes" } },
-  { id:"c6", nombre:"¿A qué hora se vende más? (últimos 30 días)", cfg:{ filas:["hora"], valores:["sin","count"], periodo:"30" } },
-  { id:"c7", nombre:"Día de la semana por tienda (últimos 3 meses)", cfg:{ filas:["dow"], col:"tienda", valores:["sin"], periodo:"90" } },
-  { id:"c8", nombre:"Medios de pago, este mes vs el pasado", cfg:{ filas:["medio"], valores:["ingreso"], periodo:"mes", comparar:"mes" } },
-  { id:"c9", nombre:"Servicios por tipo y tienda, este mes", cfg:{ filas:["tipo"], col:"tienda", valores:["servicios","count"], periodo:"mes", filtros:{ tipo:["arreglo","marcacion","grabado"] } } },
+  { id:"m1", grupo:"Metas y cumplimiento", nombre:"Cumplimiento por tienda, este mes", cfg:{ filas:["tienda"], valores:["sin","meta","cumpl"], periodo:"mes", comparar:"mes" } },
+  { id:"m2", grupo:"Metas y cumplimiento", nombre:"Cumplimiento por asesor, este mes", cfg:{ filas:["asesor"], valores:["sin","meta","cumpl"], periodo:"mes", comparar:"mes" } },
+  { id:"m3", grupo:"Metas y cumplimiento", nombre:"Cumplimiento de asesores: un periodo contra otro", cfg:{ filas:["asesor"], valores:["sin","meta","cumpl"], periodo:"custom", comparar:"custom" } },
+  { id:"m4", grupo:"Metas y cumplimiento", nombre:"Cumplimiento por tienda, semana a semana", cfg:{ filas:["semana"], col:"tienda", valores:["cumpl"], periodo:"mes" } },
+  { id:"v1", grupo:"Ventas", nombre:"Ventas por asesor y tienda, este mes", cfg:{ filas:["asesor"], col:"tienda", valores:["sin"], periodo:"mes", comparar:"mes" } },
+  { id:"v2", grupo:"Ventas", nombre:"Ventas por tienda, día a día, este mes", cfg:{ filas:["dia"], col:"tienda", valores:["sin"], periodo:"mes" } },
+  { id:"v3", grupo:"Ventas", nombre:"Ventas de este mes contra el mes pasado, por tienda", cfg:{ filas:["tienda"], valores:["sin","count","ticket"], periodo:"mes", comparar:"mes" } },
+  { id:"v4", grupo:"Ventas", nombre:"Ventas de este mes contra el mismo mes del año pasado", cfg:{ filas:["tienda"], valores:["sin"], periodo:"mes", comparar:"anio" } },
+  { id:"v5", grupo:"Ventas", nombre:"Ticket promedio y N.º de ventas por asesor, este mes", cfg:{ filas:["asesor"], valores:["ticket","count","sin"], periodo:"mes" } },
+  { id:"d1", grupo:"Días y horas", nombre:"¿Qué día de la semana se vende más? (3 meses, por tienda)", cfg:{ filas:["dow"], col:"tienda", valores:["sin"], periodo:"90" } },
+  { id:"d2", grupo:"Días y horas", nombre:"¿A qué hora se vende más? (30 días)", cfg:{ filas:["hora"], valores:["sin","count"], periodo:"30" } },
+  { id:"c1", grupo:"Caja y medios de pago", nombre:"Medios de pago por tienda, este mes", cfg:{ filas:["tienda"], col:"medio", valores:["ingreso"], periodo:"mes" } },
+  { id:"c2", grupo:"Caja y medios de pago", nombre:"Medios de pago por tienda, día a día", cfg:{ filas:["dia","tienda"], col:"medio", valores:["ingreso"], periodo:"mes" } },
+  { id:"c3", grupo:"Caja y medios de pago", nombre:"Descuentos dados por asesor, este mes", cfg:{ filas:["asesor"], valores:["descuento","sin"], periodo:"mes" } },
+  { id:"s1", grupo:"Servicios y Flexipagos", nombre:"Arreglos, marcación y grabado por tienda, este mes", cfg:{ filas:["tipo"], col:"tienda", valores:["servicios","count"], periodo:"mes", filtros:{ tipo:["arreglo","marcacion","grabado"] } } },
+  { id:"s2", grupo:"Servicios y Flexipagos", nombre:"Flexipagos completados por tienda y asesor, este mes", cfg:{ filas:["tienda","asesor"], valores:["sin"], periodo:"mes", filtros:{ tipo:["flexipago"] } } },
 ];
+const CONS_GRUPOS_MENU = ["Metas y cumplimiento","Ventas","Días y horas","Caja y medios de pago","Servicios y Flexipagos"];
+// "Las que más usas" (por equipo): una consulta cuenta como usada si queda en pantalla 20 s, una vez
+// por día como mucho; sube al menú cuando se usó en 3 días distintos de los últimos 30. Así una
+// consulta de un solo día no se cuela, y lo que se deja de usar sale solo.
+const CONS_USO_LS = "ozen-consultas-uso";
+const CONS_USO_DIAS_MIN = 3, CONS_USO_VENTANA = 30, CONS_USO_SEGUNDOS = 20, CONS_USO_MAX = 5;
+const consFirma = (c) => JSON.stringify({ filas:c.filas, col:c.col||"", valores:c.valores, filtros:Object.keys(c.filtros||{}).sort().map(k=>[k, [...(c.filtros[k]||[])].sort()]), periodo:c.periodo, comparar:c.comparar||"", eq:c.equipoJunto!==false });
 // Consultas guardadas con el formato anterior (medida, g1, g2, tiendas, asesor, tipos, medios).
 const consCfgDesdeViejo = (q) => {
   if(!q || q.filas) return { ...CONS_CFG_INICIAL, ...(q||{}) };
@@ -9669,6 +9684,23 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   const [nombrando, setNombrando] = useState(null);
   const [graficaForzada, setGraficaForzada] = useState(()=>{ try { return localStorage.getItem("ozen-consultas-vista")||"tabla"; } catch { return "tabla"; } });
   const [cerrados, setCerrados] = useState({}); // grupos de filas plegados
+  const [uso, setUso] = useState(()=>{ try { return JSON.parse(localStorage.getItem(CONS_USO_LS)||"{}"); } catch { return {}; } });
+  useEffect(()=>{
+    const t = setTimeout(()=>{
+      const firma = consFirma(cfg);
+      setUso(prev=>{
+        const reg = prev[firma] || { dias:[] };
+        if(reg.dias.includes(todayStr)) return prev;
+        const limite = consSumarDias(todayStr, -60);
+        const nuevo = { ...prev, [firma]:{ cfg, dias:[...reg.dias.filter(d=>d>=limite), todayStr] } };
+        // No dejar crecer la lista: se borran las que no se usan hace más de 60 días.
+        Object.keys(nuevo).forEach(k=>{ if(!nuevo[k].dias.some(d=>d>=limite)) delete nuevo[k]; });
+        try { localStorage.setItem(CONS_USO_LS, JSON.stringify(nuevo)); } catch { /* sin almacenamiento */ }
+        return nuevo;
+      });
+    }, CONS_USO_SEGUNDOS*1000);
+    return ()=>clearTimeout(t);
+  }, [cfg]);
   const cambiar = (cambios) => { setCfg(prev=>({ ...prev, ...cambios })); setComun(""); };
   const elegirVista = (v) => { setGraficaForzada(v); try { localStorage.setItem("ozen-consultas-vista", v); } catch { /* sin almacenamiento */ } };
   const persistir = (lista) => { setGuardadas(lista); try { localStorage.setItem(CONS_LS, JSON.stringify(lista)); } catch { /* sin almacenamiento: queda solo en esta sesión */ } };
@@ -10110,8 +10142,22 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
 
   // ── Consultas comunes y guardadas ──
   const aplicarCfg = (nc, id) => { setCfg({ ...CONS_CFG_INICIAL, ...nc, filtros:{ ...(nc.filtros||{}) } }); setComun(id); setCerrados({}); };
+  const desdeVentana = consSumarDias(todayStr, -CONS_USO_VENTANA);
+  const nombreDeCfg = (c) => {
+    const f = consFirma(c);
+    const comunIgual = CONS_COMUNES.find(x=>consFirma({ ...CONS_CFG_INICIAL, ...x.cfg })===f); if(comunIgual) return comunIgual.nombre;
+    const guardada = guardadas.find(g=>consFirma(consCfgDesdeViejo(g.cfg||g.q))===f); if(guardada) return `★ ${guardada.nombre}`;
+    const per = CONS_PERIODOS.find(x=>x.value===c.periodo)?.label || "";
+    return `${c.filas.map(campoLbl).join(" › ")}${c.col?` × ${campoLbl(c.col)}`:""} · ${c.valores.map(valorLbl).join(", ")} · ${per}`;
+  };
+  const masUsadas = Object.entries(uso)
+    .map(([firma, r])=>({ id:`u:${firma}`, cfg:r.cfg, n:r.dias.filter(d=>d>=desdeVentana).length, ultimo:r.dias[r.dias.length-1]||"" }))
+    .filter(x=>x.n>=CONS_USO_DIAS_MIN && x.cfg)
+    .sort((a,b)=>b.n-a.n || b.ultimo.localeCompare(a.ultimo))
+    .slice(0, CONS_USO_MAX);
   const elegirComun = (id) => {
     if(!id){ setComun(""); return; }
+    if(id.startsWith("u:")){ const u = masUsadas.find(x=>x.id===id); if(u) aplicarCfg(u.cfg, id); return; }
     const c = CONS_COMUNES.find(x=>x.id===id); if(c){ aplicarCfg(c.cfg, id); return; }
     const g = guardadas.find(x=>x.id===id); if(g) aplicarCfg(consCfgDesdeViejo(g.cfg||g.q), id);
   };
@@ -10262,10 +10308,12 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
         <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", marginBottom:14 }}>
           <div style={{ width:34, height:34, borderRadius:10, background:C.surfaceHover, color:C.gold, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="search" s={18}/></div>
           <div style={{ fontFamily:font.body, fontSize:16.5, fontWeight:700, color:C.text }}>Consultas</div>
+          {consFirma(cfg)!==consFirma(CONS_CFG_INICIAL) && <button onClick={()=>{ setCfg(CONS_CFG_INICIAL); setComun(""); setCerrados({}); }} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:12.5, color:C.gold, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3 }}>Empezar de cero</button>}
           <select value={comun} onChange={e=>elegirComun(e.target.value)} aria-label="Consultas comunes"
             style={{ marginLeft:isMobile?0:"auto", flex:isMobile?"1 1 100%":"0 1 380px", height:38, borderRadius:10, border:`1.5px solid ${C.gold}`, padding:"0 10px", fontFamily:font.body, fontSize:13.5, fontWeight:600, color:C.text, background:"#fff" }}>
             <option value="">Consultas comunes… (elige una y se arma sola)</option>
-            <optgroup label="Comunes">{CONS_COMUNES.map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}</optgroup>
+            {masUsadas.length>0 && <optgroup label="Las que más usas">{masUsadas.map(u=><option key={u.id} value={u.id}>{nombreDeCfg(u.cfg)}</option>)}</optgroup>}
+            {CONS_GRUPOS_MENU.map(g=><optgroup key={g} label={g}>{CONS_COMUNES.filter(c=>c.grupo===g).map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}</optgroup>)}
             {guardadas.length>0 && <optgroup label="Guardadas en este equipo">{guardadas.map(g=><option key={g.id} value={g.id}>★ {g.nombre}</option>)}</optgroup>}
           </select>
         </div>
@@ -10306,6 +10354,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
               </span>
             ))}
             {agregar("+ Agregar", CONS_GRUPOS.filter(g=>CONS_CAMPOS_FILTRO.includes(g.value) && !cfg.filtros[g.value]), v=>setCfg(prev=>({ ...prev, filtros:{ ...prev.filtros, [v]:[] } })))}
+            {Object.keys(cfg.filtros).length>0 && <button onClick={()=>cambiar({ filtros:{} })} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:12, color:C.gold, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3 }}>Quitar filtros</button>}
             {(todosDims.includes("asesor")) && <label style={{ display:"inline-flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12, color:C.textSub, cursor:"pointer" }}><input type="checkbox" checked={cfg.equipoJunto} onChange={e=>cambiar({ equipoJunto:e.target.checked })}/>Equipo admin junto</label>}
           </>)}
         </div>
