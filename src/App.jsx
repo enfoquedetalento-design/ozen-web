@@ -10625,7 +10625,7 @@ function CarreraDelDia({ stores, primera, ventas, ventasItems, ventasAbonos, ven
   // Los valores se ven SIEMPRE completos: la columna toma el ancho del texto más largo (la fuente
   // de montos es de ancho fijo, así que "ch" = un carácter).
   const textoValor = (r) => `${fmtCOP(r.vendido)}${r.meta>0?` / ${fmtCOP(r.meta)}`:""}`;
-  const anchoValor = `${Math.max(8, ...filas.map(f=>textoValor(f.r).length)) + 1}ch`;
+  const anchoValor = `${Math.max(8, ...filas.map(f=>textoValor(f.r).length))}ch`;
   const esHoy = fecha===todayStr;
   const mover = (d) => { const n = consSumarDias(fecha, d); if(n<=todayStr) setFecha(n); };
   const flechita = { all:"unset", cursor:"pointer", width:22, height:22, borderRadius:6, display:"grid", placeItems:"center", color:C.textSub, fontSize:14 };
@@ -10658,7 +10658,7 @@ function CarreraDelDia({ stores, primera, ventas, ventasItems, ventasAbonos, ven
           const propia = t.id===primera;
           return (
             <div key={t.id} title={`${nombreTiendaCorto(t)}: ${fmtCOP(r.vendido)}${r.meta>0?` de ${fmtCOP(r.meta)}`:""} · ${r.nVentas} ${r.nVentas===1?"venta":"ventas"}${r.nVentas?` · ticket ${fmtCOP(r.ticket)}`:""}${r.abonosFlex>0?` · abonos Flexipago ${fmtCOP(r.abonosFlex)}`:""}`}
-              style={{ display:"grid", gridTemplateColumns:isMobile?`16px minmax(0,1fr) 40px`:`16px 120px minmax(0,1fr) 46px ${anchoValor} 34px`, gridTemplateRows:isMobile?"auto auto":"auto", columnGap:10, rowGap:2, alignItems:"center", minHeight:24, paddingTop:isMobile?3:0, paddingBottom:isMobile?3:0, padding:"0 6px", borderRadius:7, background:propia?hexToRgba(col,0.08):"transparent" }}>
+              style={{ display:"grid", gridTemplateColumns:isMobile?`16px minmax(0,1fr) 40px`:`16px 120px minmax(0,1fr) 46px ${anchoValor} 34px`, gridTemplateRows:isMobile?"auto auto":"auto", columnGap:10, rowGap:2, alignItems:"center", minHeight:24, fontFamily:font.mono, fontSize:12, paddingTop:isMobile?3:0, paddingBottom:isMobile?3:0, padding:"0 6px", borderRadius:7, background:propia?hexToRgba(col,0.08):"transparent" }}>
               <span style={{ fontFamily:font.body, fontSize:11, fontWeight:800, color:i===0 && r.vendido>0 ? C.goldDark : C.textMuted, textAlign:"center" }}>{i+1}</span>
               <span style={{ display:"inline-flex", alignItems:"center", gap:6, minWidth:0 }}><PuntoTienda color={col} size={7}/><span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:propia?800:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreTiendaCorto(t)}</span>{isMobile && <span style={{ marginLeft:"auto", fontFamily:font.mono, fontSize:11.5, color:C.text, whiteSpace:"nowrap" }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ color:C.textMuted }}> / {fmtCOP(r.meta)}</span>}</span>}</span>
               <span style={{ position:"relative", height:6, ...(isMobile ? { gridColumn:"2 / 3", gridRow:"2" } : {}), borderRadius:99, background:C.surfaceHover, overflow:"hidden" }}>
@@ -17257,7 +17257,8 @@ export default function App() {
       <CampanaVentas user={user} stores={stores} tiendaIds={esCuentaTienda(user) ? [user.tienda_id] : tiendasVenta(stores).map(t=>t.id)} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ops={puedeOper(user, "operaciones.ver") ? (opEstado==="listo" ? opExternas : opCampana) : []} onIrAOrden={irAOrdenDesdeAviso}/>
     </FlexiAvisosContext.Provider>
   );
-  // Ventana de Registrar venta como "nube" que sale del + (22 nov 2026): en computador baja desde
+  // Ventana de Registrar venta como "nube" que sale del + (22 nov 2026), con vidrio esmerilado
+  // ("liquid glass", en prueba en staging): en computador baja desde
   // el + con una colita que lo señala; en celular sube desde el + de la barra de abajo.
   const vw = typeof window!=="undefined" ? window.innerWidth : 1200, vh = typeof window!=="undefined" ? window.innerHeight : 800;
   const anchoVent = isMobile ? vw-16 : Math.min(1180, vw-32);
@@ -17270,14 +17271,14 @@ export default function App() {
   const altoMovil = Math.max(320, vh - abajoMovil - (isMobile ? 18 : 24));
   const modalRegistrar = registrarMontado && createPortal(
     <FlexiAvisosContext.Provider value={flexiAvisosCtx}>
-      <div onClick={()=>setRegistrarAbierto(false)} style={{ display:registrarAbierto?"block":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.32)", overflowY:haciaArriba?"hidden":"auto" }}>
+      <div onClick={()=>setRegistrarAbierto(false)} style={{ display:registrarAbierto?"block":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.14)", overflowY:haciaArriba?"hidden":"auto" }}>
         <style>{`@keyframes ozenNube{from{transform:scale(.35);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
-        <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, height:altoMovil, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), background:C.dark, borderRadius:20, boxShadow:"0 30px 80px -20px rgba(26,59,82,0.55), 0 0 0 1px rgba(26,59,82,0.08)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: haciaArriba ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
+        <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, height:altoMovil, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), background:"linear-gradient(160deg, rgba(255,255,255,0.62) 0%, rgba(246,240,235,0.48) 55%, rgba(255,255,255,0.40) 100%)", backdropFilter:"blur(26px) saturate(170%)", WebkitBackdropFilter:"blur(26px) saturate(170%)", border:"1px solid rgba(255,255,255,0.7)", borderRadius:22, boxShadow:"inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(255,255,255,0.25), 0 30px 80px -18px rgba(26,59,82,0.45)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: haciaArriba ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
           {/* Colita de la nube, apuntando al + (curva suave, del mismo color de la ventana) */}
           <svg width="40" height="16" viewBox="0 0 40 16" aria-hidden="true" style={{ position:"absolute", left:colaX-20, ...(haciaArriba ? { bottom:-15 } : { top:-15, transform:"scaleY(-1)" }), overflow:"visible", filter:"drop-shadow(0 3px 3px rgba(26,59,82,0.12))" }}>
-            <path d="M0 0 C12 0 15 12 20 16 C25 12 28 0 40 0 Z" fill={haciaArriba ? C.dark : "#fff"}/>
+            <path d="M0 0 C12 0 15 12 20 16 C25 12 28 0 40 0 Z" fill={haciaArriba ? "rgba(250,246,242,0.78)" : "rgba(255,255,255,0.85)"}/>
           </svg>
-          <div style={{ position:"relative", display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", gap:10, padding:isMobile?"10px 12px":"12px 20px", background:"#fff", borderBottom:`1px solid ${C.border}`, borderRadius:"20px 20px 0 0", flexShrink:0 }}>
+          <div style={{ position:"relative", display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", gap:10, padding:isMobile?"10px 12px":"12px 20px", background:"linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0.35))", borderBottom:"1px solid rgba(255,255,255,0.55)", borderRadius:"22px 22px 0 0", flexShrink:0 }}>
             <span style={{ display:"inline-flex", alignItems:"center", gap:10, minWidth:0 }}>
               <span style={{ width:32, height:32, borderRadius:"50%", background:C.gold, color:"#fff", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="plus" s={17} sw={2.6}/></span>
               {!isMobile && <b style={{ fontFamily:font.body, fontSize:17, color:C.text, whiteSpace:"nowrap" }}>Registrar venta</b>}
