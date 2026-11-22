@@ -10293,8 +10293,8 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   const caja = (zona, titulo, ayuda, hijos) => {
     const z = CONS_ZONAS[zona];
     return (
-      <div style={{ position:"relative", border:`1px solid ${C.border}`, borderRadius:14, padding:"12px 12px 14px", background:"#fff", minWidth:0, overflow:"hidden" }}>
-        <div style={{ position:"absolute", left:0, top:0, right:0, height:3, background:z.color, opacity:0.85 }}/>
+      <div style={{ position:"relative", border:`1px solid ${C.border}`, borderRadius:14, padding:"12px 12px 14px", background:"#fff", minWidth:0 }}>
+        <div style={{ position:"absolute", left:-1, top:-1, right:-1, height:4, background:z.color, opacity:0.85, borderRadius:"14px 14px 0 0" }}/>
         <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:10 }}>
           <span style={{ width:30, height:30, borderRadius:9, background:hexToRgba(z.color,0.1), color:z.color, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n={z.ic} s={16} sw={2}/></span>
           <span style={{ minWidth:0 }}>
@@ -10445,15 +10445,16 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
             </div>
             <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Elige una consulta del menú o ármala con las cajas de abajo</div>
           </div>
-          <div style={{ marginLeft:isMobile?0:"auto", flex:isMobile?"1 1 100%":"0 1 400px", position:"relative" }}>
-            <span style={{ position:"absolute", left:12, top:"50%", transform:"translateY(-50%)", color:"#fff", pointerEvents:"none" }}><Icon n="search" s={16} sw={2.2}/></span>
+          <div style={{ marginLeft:isMobile?0:"auto", flex:isMobile?"1 1 100%":"0 1 400px", display:"flex", alignItems:"center", gap:4, height:42, padding:"0 4px 0 12px", borderRadius:12, background:C.gold, color:"#fff", boxSizing:"border-box", minWidth:0 }}>
+            <Icon n="search" s={16} sw={2.2}/>
             <select value={comun} onChange={e=>elegirComun(e.target.value)} aria-label="Consultas comunes"
-              style={{ width:"100%", height:42, borderRadius:12, border:"none", padding:"0 12px 0 36px", fontFamily:font.body, fontSize:13.5, fontWeight:700, color:"#fff", background:C.gold, cursor:"pointer", appearance:"auto" }}>
+              style={{ flex:1, minWidth:0, height:"100%", border:"none", outline:"none", padding:"0 6px", fontFamily:font.body, fontSize:13.5, fontWeight:700, color:"#fff", background:"transparent", cursor:"pointer", appearance:"none", WebkitAppearance:"none", MozAppearance:"none", textOverflow:"ellipsis" }}>
               <option value="" style={{ color:C.text, background:"#fff" }}>Consultas listas…</option>
-              {masUsadas.length>0 && <optgroup label="Las que más usas" style={{ color:C.text, background:"#fff" }}>{masUsadas.map(u=><option key={u.id} value={u.id}>{nombreDeCfg(u.cfg)}</option>)}</optgroup>}
-              {CONS_GRUPOS_MENU.map(g=><optgroup key={g} label={g} style={{ color:C.text, background:"#fff" }}>{CONS_COMUNES.filter(c=>c.grupo===g).map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}</optgroup>)}
-              {guardadas.length>0 && <optgroup label="Guardadas en este equipo" style={{ color:C.text, background:"#fff" }}>{guardadas.map(g=><option key={g.id} value={g.id}>★ {g.nombre}</option>)}</optgroup>}
+              {masUsadas.length>0 && <optgroup label="Las que más usas" style={{ color:C.text, background:"#fff" }}>{masUsadas.map(u=><option style={{ color:C.text, background:"#fff" }} key={u.id} value={u.id}>{nombreDeCfg(u.cfg)}</option>)}</optgroup>}
+              {CONS_GRUPOS_MENU.map(g=><optgroup key={g} label={g} style={{ color:C.text, background:"#fff" }}>{CONS_COMUNES.filter(c=>c.grupo===g).map(c=><option style={{ color:C.text, background:"#fff" }} key={c.id} value={c.id}>{c.nombre}</option>)}</optgroup>)}
+              {guardadas.length>0 && <optgroup label="Guardadas en este equipo" style={{ color:C.text, background:"#fff" }}>{guardadas.map(g=><option style={{ color:C.text, background:"#fff" }} key={g.id} value={g.id}>★ {g.nombre}</option>)}</optgroup>}
             </select>
+            <span style={{ pointerEvents:"none", paddingRight:8, display:"inline-flex" }}><Icon n="down" s={14} sw={2.4}/></span>
           </div>
         </div>
 
