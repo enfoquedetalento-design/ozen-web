@@ -10629,7 +10629,7 @@ function CarreraDelDia({ stores, primera, ventas, ventasItems, ventasAbonos, ven
   return (
     <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:isMobile?"10px 12px":"10px 16px 12px", marginBottom:16 }}>
       <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-        <span style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.13em", textTransform:"uppercase", color:C.textMuted, fontWeight:800 }}>Carrera del día</span>
+        <span style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.13em", textTransform:"uppercase", color:C.textMuted, fontWeight:800 }}>{esHoy ? "Meta de hoy" : "Meta del día"}</span>
         <span style={{ display:"inline-flex", alignItems:"center", gap:2, marginLeft:4, padding:"1px 4px", borderRadius:8, background:C.surfaceAlt, border:`1px solid ${C.border}` }}>
           <button onClick={()=>mover(-1)} aria-label="Día anterior" style={flechita}>‹</button>
           <label style={{ position:"relative", fontFamily:font.body, fontSize:12, fontWeight:700, color:C.text, padding:"0 4px", cursor:"pointer" }}>

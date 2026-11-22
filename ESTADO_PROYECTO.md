@@ -1183,7 +1183,7 @@ ahora es una tabla dinámica sencilla:
   %, puntos), sin cuadrícula, encabezado y columnas de nombres fijos. Se puede reusar para otros
   Excel de la app.
 
-## Ventas — navegación nueva (22 nov 2026, en `staging`, falta probar)
+## Ventas — navegación nueva (22 nov 2026; probado en `staging`, publicado en `main` el 22 nov 2026)
 
 Pedido de Santiago: el módulo más intuitivo.
 - **Barra:** Métricas · ( + ) · Lista de ventas (`ADMIN_TABS_VENTAS`; "mas" no es pantalla). En
@@ -1217,7 +1217,8 @@ Pedido de Santiago: el módulo más intuitivo.
     elegida en Métricas) va resaltada.
   - **Carrera compacta (22 nov):** franja delgada (una línea fina por tienda, barra de 6 px, día
     pequeño "‹ Hoy ›" que abre calendario, total a la derecha). El detalle (ventas, ticket, abonos)
-    sale al pasar el mouse.
+    sale al pasar el mouse. Título en pantalla: "Meta de hoy" ("Meta del día" al ver otro día); en el
+    código sigue llamándose `CarreraDelDia`.
   - **Cuentas de tienda en computador:** pestañas en una barra flotante abajo y centrada
     (`DockTienda`), + en el medio; "Nadie en turno" pasa a la barra de arriba (`extraDerecha`). La
     ventana de Registrar sube desde el + cuando el + está abajo (`haciaArriba`).
