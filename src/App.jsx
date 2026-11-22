@@ -1059,8 +1059,18 @@ const permisosTurnos = (user) => {
   const t = { editar:puede(user, "turnos.editar"), publicar:puede(user, "turnos.publicar"), asesores:puede(user, "turnos.asesores"), tiendas:puede(user, "turnos.tiendas"), especiales:puede(user, "turnos.especiales"), horarios:puede(user, "turnos.horarios"), mallaActivos:puede(user, "turnos.malla_activos") };
   return { ...t, administrar: t.asesores || t.tiendas || t.especiales || t.horarios, algo: Object.values(t).some(Boolean) };
 };
+// El + (Registrar venta) siempre en el centro: sus vecinos son las pestañas de Ventas y lo demás
+// (Turnos, Operaciones…) se reparte por fuera, una a cada lado (22 nov 2026).
+const centrarMas = (tabs) => {
+  const i = tabs.findIndex(t=>t.id==="mas"); if(i<0) return tabs;
+  const izq = tabs.slice(0, i), der = tabs.slice(i+1);
+  const extras = [...izq.slice(0, Math.max(0, izq.length-1)), ...der.slice(1)];
+  const L = izq.slice(-1), R = der.slice(0,1);
+  extras.forEach((t,k)=>{ if(k%2===0) L.unshift(t); else R.push(t); });
+  return [...L, tabs[i], ...R];
+};
 const tabsPara = (user, area, liderOper="") => !puedeUsarAreas(user)
-  ? (esCuentaTienda(user) ? [...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : []), ...(puedeOper(user, "operaciones.ver") ? [{ id:"op_externas", icon:"🧰", label:"Operaciones" }] : [])] : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
+  ? (esCuentaTienda(user) ? centrarMas([...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : []), ...(puedeOper(user, "operaciones.ver") ? [{ id:"op_externas", icon:"🧰", label:"Operaciones" }] : [])]) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
   : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>(t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) && (t.id!=="op_producto" || puedeOper(user, "operaciones.producto.ver", liderOper))) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
@@ -1255,13 +1265,15 @@ const BotonRefrescar = ({ onRefresh, refreshing }) => (
 
 function BarraSuperior({ user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   return (
-    <div style={{ height:62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", padding:"0 24px", gap:26, flexShrink:0, position:"relative", zIndex:20 }}>
-      <MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios}/>
-      {eligeModulo(user) && <SelectorArea user={user} area={area} onChooseArea={onChooseArea}/>}
-      <div style={{ flex:1 }}/>
-      {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija}/>}
-      <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
-      <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones} onAbrirFirmas={onAbrirFirmas}/>
+    <div style={{ height:62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", padding:"0 24px", gap:20, flexShrink:0, position:"relative", zIndex:20 }}>
+      {/* 22 nov 2026: los módulos van centrados (marca a la izquierda, cuenta a la derecha). */}
+      <div style={{ display:"flex", alignItems:"center", minWidth:0 }}><MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios}/></div>
+      <div style={{ display:"flex", justifyContent:"center" }}>{eligeModulo(user) && <SelectorArea user={user} area={area} onChooseArea={onChooseArea}/>}</div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:14, minWidth:0 }}>
+        {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija}/>}
+        <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
+        <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones} onAbrirFirmas={onAbrirFirmas}/>
+      </div>
       {NAVIDAD && <GuirnaldaBarra/>}
     </div>
   );
@@ -1279,16 +1291,19 @@ function BarraPestanas({ tabs, tab, setTab, derecha }) {
     return () => window.removeEventListener("resize", medir);
   }, [tab, tabs.length]);
   return (
-    <div style={{ height:50, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"stretch", padding:"0 24px", gap:30, flexShrink:0, position:"relative" }}>
+    <div style={{ height:50, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"stretch", padding:"0 24px", gap:20, flexShrink:0 }}>
+      <div/>
+      <div style={{ display:"flex", alignItems:"stretch", gap:30, position:"relative" }}>
       {tabs.map(t=>{ const on=t.id===tab; if(t.id==="mas") return (
-        <button key="mas" onClick={()=>setTab("mas")} title="Registrar venta" aria-label="Registrar venta" className="ozen-boton-mas" style={{ alignSelf:"center", width:40, height:40, borderRadius:"50%", border:"none", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 6px 16px -6px rgba(26,59,82,0.55)", flexShrink:0 }}><Icon n="plus" s={20} sw={2.6}/></button>
+        <button key="mas" onClick={(e)=>setTab("mas", e.currentTarget.getBoundingClientRect())} title="Registrar venta" aria-label="Registrar venta" className="ozen-boton-mas" style={{ alignSelf:"center", width:40, height:40, borderRadius:"50%", border:"none", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 6px 16px -6px rgba(26,59,82,0.55)", flexShrink:0 }}><Icon n="plus" s={20} sw={2.6}/></button>
       ); return (
         <button key={t.id} ref={el=>{ refs.current[t.id]=el; }} onClick={()=>setTab(t.id)} className="ozen-tab-btn" style={{ display:"flex", alignItems:"center", gap:8, border:"none", background:"none", padding:0, cursor:"pointer", fontFamily:font.body, fontSize:14, fontWeight:on?600:400, color:on?C.goldDark:C.textMuted, transition:"color .2s ease", whiteSpace:"nowrap" }}>
           <Icon n={TAB_ICON[t.id]||"right"} s={16}/>{t.label}
         </button>
       ); })}
       {linea && <span className="ozen-tab-linea" style={{ position:"absolute", bottom:0, height:2.5, borderRadius:2, background:C.gold, left:linea.left, width:linea.width }}/>}
-      {derecha && <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:10 }}>{derecha}</div>}
+      </div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:10 }}>{derecha}</div>
     </div>
   );
 }
@@ -1319,7 +1334,7 @@ function BottomNav({ tab, setTab, user, area, liderOper }) {
     <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:"#fff", padding:"0 10px", paddingBottom:"max(12px, calc(env(safe-area-inset-bottom, 0px) + 4px))", flexShrink:0 }}>
       {tabs.map(t => { const active=tab===t.id; if(t.id==="mas") return (
         <div key="mas" style={{ flex:1, display:"flex", justifyContent:"center" }}>
-          <button onClick={()=>setTab("mas")} aria-label="Registrar venta" style={{ marginTop:-18, width:58, height:58, borderRadius:"50%", border:"4px solid #fff", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 8px 20px -6px rgba(26,59,82,0.6)" }}><Icon n="plus" s={26} sw={2.6}/></button>
+          <button onClick={(e)=>setTab("mas", e.currentTarget.getBoundingClientRect())} aria-label="Registrar venta" style={{ marginTop:-18, width:58, height:58, borderRadius:"50%", border:"4px solid #fff", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 8px 20px -6px rgba(26,59,82,0.6)" }}><Icon n="plus" s={26} sw={2.6}/></button>
         </div>
       ); return (
         <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:1, padding:"10px 2px 6px", background:"none", border:"none", display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer", color:active?C.goldDark:C.textMuted, position:"relative" }}>
@@ -8643,7 +8658,6 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, opAvis
         </div>
       )}
 
-      {!enVentana && <>
       {/* Ventas de hoy como TABLA (Propuesta A): hora, asesor, tipo, medios, factura y total. Al
           tocar una fila se despliega debajo la tarjeta completa, con todas sus acciones. */}
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, margin:"28px 0 12px", flexWrap:"wrap" }}>
@@ -8651,7 +8665,6 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, opAvis
         {onVerLista && <button onClick={onVerLista} style={{ background:"none", border:"none", color:C.gold, fontFamily:font.body, fontSize:13.5, fontWeight:600, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6, padding:0 }}>Ver todas en Lista de ventas<Icon n="right" s={15}/></button>}
       </div>
       <TablaVentas filas={filasHoy} stores={stores} isMobile={isMobile} vacio="Sin ventas registradas hoy en esta tienda."/>
-      </>}
     </div>
     </>
   );
@@ -10566,77 +10579,85 @@ function SelectorVistaMetricas({ vista, onElegir, puedeConsultas, puedeCaja }) {
   );
 }
 
-// Lo de HOY de una tienda (para "Hoy" en Métricas y las tarjetas para elegir tienda). Vendido,
+// Lo de UN DÍA de una tienda (para la carrera del día y las tarjetas para elegir tienda). Vendido,
 // meta y falta son los de la burbuja de siempre (calcularMetaHoyTienda: productos + Flexipagos que
-// se completan hoy + notas crédito, sin servicios).
-const resumenHoyTienda = (tiendaId, ventas, ventasItems, ventasAbonos, ventasAjustes, metas) => {
-  const { meta, vendido, falta } = calcularMetaHoyTienda(tiendaId, todayStr, ventas, ventasItems, ventasAbonos, ventasAjustes, metas);
-  const facturas = ventas.filter(v=>v.tienda_id===tiendaId && v.fecha===todayStr && !v.es_flexipago);
-  const cierres = calcularCierresFlexipago(ventas, ventasItems, ventasAbonos).filter(c=>c.tiendaId===tiendaId && c.fechaCierre===todayStr);
+// se completan ese día + notas crédito, sin servicios).
+const resumenDiaTienda = (tiendaId, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, cierresTodos) => {
+  const { meta, vendido, falta } = calcularMetaHoyTienda(tiendaId, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas);
+  const facturas = ventas.filter(v=>v.tienda_id===tiendaId && v.fecha===fecha && !v.es_flexipago);
+  const cierres = (cierresTodos||[]).filter(c=>c.tiendaId===tiendaId && c.fechaCierre===fecha);
   const nVentas = facturas.filter(v=>(ventasItems||[]).some(i=>i.venta_id===v.id && i.tipo==="producto")).length + cierres.length;
-  const idsTienda = new Set(ventas.filter(v=>v.tienda_id===tiendaId && v.es_flexipago).map(v=>v.id));
-  const abonosFlex = (ventasAbonos||[]).filter(a=>a.fecha===todayStr && idsTienda.has(a.venta_id) && !flexiEsTraslado(a)).reduce((s,a)=>s+Number(a.valor||0),0);
-  const ultimas = ventas.filter(v=>v.tienda_id===tiendaId && v.fecha===todayStr).sort((a,b)=>String(b.created_at||"").localeCompare(String(a.created_at||""))).slice(0,3);
-  return { meta, vendido, falta, nVentas, ticket: nVentas ? vendido/nVentas : 0, abonosFlex, ultimas, pct: meta>0 ? vendido/meta*100 : null };
+  const idsFlex = new Set(ventas.filter(v=>v.tienda_id===tiendaId && v.es_flexipago).map(v=>v.id));
+  const abonosFlex = (ventasAbonos||[]).filter(a=>a.fecha===fecha && idsFlex.has(a.venta_id) && !flexiEsTraslado(a)).reduce((s,a)=>s+Number(a.valor||0),0);
+  return { meta, vendido, falta, nVentas, ticket: nVentas ? vendido/nVentas : 0, abonosFlex, pct: meta>0 ? vendido/meta*100 : null };
 };
 
-// "Hoy" en Métricas: una tarjeta por tienda (la de la cuenta de tienda, o la elegida, va primera y
-// más grande). Reemplaza la burbuja de progreso de hoy.
-function HoyVentas({ stores, primera, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile, onVerLista }) {
+// "Carrera del día" en Métricas (22 nov 2026, pedido de Santiago): un solo cuadro con todas las
+// tiendas como en una carrera (ordenadas por % de cumplimiento de la meta del día), y la fecha se
+// puede cambiar para ver cómo fue cualquier día pasado. Reemplaza la burbuja de progreso de hoy.
+function CarreraDelDia({ stores, primera, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, isMobile, onVerLista }) {
+  const [fecha, setFecha] = useState(todayStr);
+  const cierresTodos = useMemo(()=>calcularCierresFlexipago(ventas, ventasItems, ventasAbonos), [ventas, ventasItems, ventasAbonos]);
   const tiendas = tiendasVenta(stores).filter(t=>!esTiendaOficina(t));
-  const orden = primera ? [...tiendas.filter(t=>t.id===primera), ...tiendas.filter(t=>t.id!==primera)] : tiendas;
-  const tarjeta = (t, grande) => {
-    const r = resumenHoyTienda(t.id, ventas, ventasItems, ventasAbonos, ventasAjustes, metas);
-    const col = colorTienda(t);
-    const pct = r.pct===null ? null : Math.round(r.pct);
-    const colPct = pct===null ? C.textMuted : pct>=100 ? C.green : pct>=70 ? C.amber : C.red;
-    return (
-      <Card key={t.id} p={grande?"16px 18px":"14px 16px"} style={{ borderTop:`3px solid ${col}`, minWidth:0 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
-          <PuntoTienda color={col} size={9}/>
-          <b style={{ fontFamily:font.body, fontSize:grande?16:14.5, color:C.text }}>{nombreTiendaCorto(t)}</b>
-          <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>hoy</span>
-        </div>
-        <div style={{ display:"flex", alignItems:"baseline", gap:8, flexWrap:"wrap" }}>
-          <span style={{ fontFamily:font.mono, fontSize:grande?26:21, fontWeight:700, color:C.text }}>{fmtCOP(r.vendido)}</span>
-          {r.meta>0 && <span style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>de {fmtCOP(r.meta)}</span>}
-          {pct!==null && <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:grande?18:15, fontWeight:800, color:colPct }}>{pct} %</span>}
-        </div>
-        <div style={{ height:8, borderRadius:99, background:C.surfaceHover, overflow:"hidden", margin:"8px 0 10px" }}>
-          <div style={{ height:"100%", width:`${Math.min(100, Math.max(0, r.pct||0))}%`, background:pct!==null && pct>=100 ? C.green : col, borderRadius:99, transition:"width .5s ease" }}/>
-        </div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(3, minmax(0,1fr))", gap:8, fontFamily:font.body }}>
-          {[
-            [r.meta>0 ? (r.falta>0 ? "Falta" : "Pasó la meta por") : "Meta del día", r.meta>0 ? fmtCOP(Math.abs(r.meta-r.vendido)) : "sin meta", r.meta>0 && r.falta<=0 ? C.green : C.text],
-            ["Ventas · ticket", `${r.nVentas} · ${r.nVentas ? fmtCOP(r.ticket) : "—"}`, C.text],
-            ["Abonos Flexipago", fmtCOP(r.abonosFlex), C.text],
-          ].map(([l,v,c])=>(
-            <div key={l} style={{ minWidth:0 }}>
-              <div style={{ fontSize:10, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:700 }}>{l}</div>
-              <div style={{ fontFamily:font.mono, fontSize:12.5, fontWeight:700, color:c, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{v}</div>
-            </div>
-          ))}
-        </div>
-        <div style={{ borderTop:`1px solid ${C.border}`, marginTop:10, paddingTop:8 }}>
-          {r.ultimas.length ? r.ultimas.map(v=>(
-            <div key={v.id} style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:12, color:C.textSub, padding:"2px 0" }}>
-              <span style={{ fontFamily:font.mono, color:C.textMuted, minWidth:38 }}>{horaCol(v.created_at)}</span>
-              <span style={{ flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{v.vendedor_nombre||"—"}{v.es_flexipago?" · Flexipago":""}</span>
-              <span style={{ fontFamily:font.mono, fontWeight:700, color:C.text }}>{fmtCOP(v.es_flexipago ? (ventasAbonos||[]).filter(a=>a.venta_id===v.id && a.fecha===todayStr && !flexiEsTraslado(a)).reduce((s,a)=>s+Number(a.valor||0),0) : Number(v.valor_original ?? v.total ?? 0))}</span>
-            </div>
-          )) : <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Todavía no hay ventas hoy.</div>}
-          {onVerLista && <button onClick={()=>onVerLista(t.id)} style={{ all:"unset", cursor:"pointer", marginTop:6, display:"inline-flex", alignItems:"center", gap:4, fontFamily:font.body, fontSize:12, fontWeight:700, color:C.gold }}>Ver todas las de hoy <Icon n="right" s={12} sw={2.2}/></button>}
-        </div>
-      </Card>
-    );
-  };
+  const filas = tiendas.map(t=>({ t, r:resumenDiaTienda(t.id, fecha, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, cierresTodos) }))
+    .sort((a,b)=> (b.r.pct??-1)-(a.r.pct??-1) || b.r.vendido-a.r.vendido);
+  const total = filas.reduce((s,f)=>({ vendido:s.vendido+f.r.vendido, meta:s.meta+f.r.meta, n:s.n+f.r.nVentas, ab:s.ab+f.r.abonosFlex }), { vendido:0, meta:0, n:0, ab:0 });
+  const esHoy = fecha===todayStr;
+  const mover = (d) => { const n = consSumarDias(fecha, d); if(n<=todayStr) setFecha(n); };
+  const btnDia = { width:32, height:32, borderRadius:9, border:`1px solid ${C.border}`, background:"#fff", color:C.text, cursor:"pointer", display:"grid", placeItems:"center", fontSize:16 };
+  const medalla = ["🥇","🥈","🥉"];
   return (
-    <div style={{ marginBottom:16 }}>
-      <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, margin:"0 0 8px 2px" }}>Hoy · {fechaLargaDia(todayStr)}</div>
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":`repeat(${Math.min(orden.length,4)}, minmax(0,1fr))`, gap:10 }}>
-        {orden.map((t,i)=>tarjeta(t, !!primera && i===0))}
+    <Card style={{ marginBottom:16 }} p={isMobile?"14px":"18px 22px"}>
+      <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:14 }}>
+        <span style={{ width:34, height:34, borderRadius:10, background:C.gold, color:"#fff", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="flag" s={17} sw={2}/></span>
+        <div style={{ minWidth:0 }}>
+          <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>Carrera del día</div>
+          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>{fechaLargaDia(fecha)}{esHoy?" · hoy":""}</div>
+        </div>
+        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:6 }}>
+          <button onClick={()=>mover(-1)} aria-label="Día anterior" style={btnDia}>‹</button>
+          <input type="date" value={fecha} max={todayStr} onChange={e=>e.target.value && setFecha(e.target.value<=todayStr?e.target.value:todayStr)} style={{ height:32, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 8px", fontFamily:font.body, fontSize:13, color:C.text, background:"#fff" }}/>
+          <button onClick={()=>mover(1)} aria-label="Día siguiente" disabled={esHoy} style={{ ...btnDia, opacity:esHoy?0.35:1, cursor:esHoy?"default":"pointer" }}>›</button>
+          {!esHoy && <button onClick={()=>setFecha(todayStr)} style={{ ...btnDia, width:"auto", padding:"0 12px", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:C.gold }}>Hoy</button>}
+        </div>
       </div>
-    </div>
+
+      <div style={{ display:"flex", flexDirection:"column", gap:isMobile?14:10 }}>
+        {filas.map(({t, r}, i)=>{
+          const col = colorTienda(t);
+          const pct = r.pct===null ? null : Math.round(r.pct);
+          const colPct = pct===null ? C.textMuted : pct>=100 ? C.green : pct>=70 ? C.amber : C.red;
+          const propia = t.id===primera;
+          return (
+            <div key={t.id} style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"190px minmax(0,1fr) 210px", alignItems:"center", gap:isMobile?6:14, padding:propia?"8px 10px":"2px 10px", borderRadius:12, background:propia?hexToRgba(col,0.07):"transparent", border:propia?`1px solid ${hexToRgba(col,0.3)}`:"1px solid transparent" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}>
+                <span style={{ width:22, textAlign:"center", fontSize:pct!==null && i<3 && r.vendido>0 ? 17 : 12, color:C.textMuted, fontWeight:700 }}>{pct!==null && i<3 && r.vendido>0 ? medalla[i] : i+1}</span>
+                <PuntoTienda color={col} size={9}/>
+                <b style={{ fontFamily:font.body, fontSize:14, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreTiendaCorto(t)}</b>
+                {isMobile && pct!==null && <span style={{ marginLeft:"auto", fontFamily:font.body, fontSize:15, fontWeight:800, color:colPct }}>{pct} %</span>}
+              </div>
+              <div style={{ position:"relative", height:isMobile?14:18, borderRadius:99, background:C.surfaceHover, overflow:"hidden" }}>
+                <div style={{ height:"100%", width:`${Math.min(100, Math.max(0, r.pct||0))}%`, background:pct!==null && pct>=100 ? C.green : col, borderRadius:99, transition:"width .6s ease" }}/>
+                {!isMobile && pct!==null && <span style={{ position:"absolute", right:8, top:"50%", transform:"translateY(-50%)", fontFamily:font.body, fontSize:11.5, fontWeight:800, color:pct>=92?"#fff":colPct }}>{pct} %</span>}
+              </div>
+              <div style={{ display:"flex", flexDirection:isMobile?"row":"column", alignItems:isMobile?"center":"flex-end", justifyContent:"space-between", gap:isMobile?8:1, fontFamily:font.body }}>
+                <span style={{ fontFamily:font.mono, fontSize:14, fontWeight:700, color:C.text }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ fontSize:11.5, fontWeight:500, color:C.textMuted }}> / {fmtCOP(r.meta)}</span>}</span>
+                <span style={{ fontSize:11.5, color:C.textMuted, whiteSpace:"nowrap" }}>
+                  {r.meta>0 ? (r.falta>0 ? <>Falta <b style={{ color:C.text }}>{fmtCOP(r.falta)}</b></> : <b style={{ color:C.green }}>¡Meta cumplida!</b>) : "Sin meta"} · {r.nVentas} {r.nVentas===1?"venta":"ventas"}{r.abonosFlex>0?` · abonos ${fmtCOP(r.abonosFlex)}`:""}
+                  {onVerLista && <button onClick={()=>onVerLista(t.id, fecha)} title="Ver las ventas de ese día" style={{ all:"unset", cursor:"pointer", marginLeft:6, color:C.gold, fontWeight:700 }}>Ver ›</button>}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ display:"flex", flexWrap:"wrap", gap:"6px 18px", borderTop:`1px solid ${C.border}`, marginTop:14, paddingTop:10, fontFamily:font.body, fontSize:12.5, color:C.textSub }}>
+        <span>Todas: <b style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(total.vendido)}</b>{total.meta>0 && <> de <b style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(total.meta)}</b> · <b style={{ color:total.vendido>=total.meta?C.green:C.text }}>{Math.round(total.vendido/total.meta*100)} %</b></>}</span>
+        <span>{total.n} {total.n===1?"venta":"ventas"}{total.n?` · ticket ${fmtCOP(total.vendido/total.n)}`:""}</span>
+        {total.ab>0 && <span>Abonos de Flexipago: <b style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(total.ab)}</b></span>}
+      </div>
+    </Card>
   );
 }
 
@@ -11163,8 +11184,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     <div>
       <PageHeader title="Métricas" subtitle={tiendaSel ? `${stores[tiendaSel]?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`}/>
       {selectorVistaMet}
-      {/* "Hoy" (22 nov 2026): reemplaza la burbuja de progreso de hoy. */}
-      <HoyVentas stores={stores} primera={esCuentaTienda(user) ? user.tienda_id : tiendaSel} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile} onVerListaHoy={onVerListaHoy} onVerLista={onVerListaHoy}/>
+      {/* "Carrera del día" (22 nov 2026): reemplaza la burbuja de progreso de hoy; la fecha se puede cambiar. */}
+      <CarreraDelDia stores={stores} primera={esCuentaTienda(user) ? user.tienda_id : tiendaSel} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile} onVerLista={onVerListaHoy}/>
 
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12, flexWrap:"wrap" }}>
@@ -11175,7 +11196,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
           </div>
           {esMesActual && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{diasRestantes} días restantes del mes</div>}
         </div>
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"center" }}>
           {tiendasOrdenadas.map(t=>(
             <button key={t.id} onClick={()=>setTiendaSel(t.id)} style={{ display:"inline-flex", alignItems:"center", gap:7, padding:"6px 12px", borderRadius:20, border:`1px solid ${tiendaSel===t.id?colorTienda(t):C.border}`, background:tiendaSel===t.id?hexToRgba(colorTienda(t),0.1):"#fff", color:tiendaSel===t.id?C.goldDark:C.textMuted, fontWeight:tiendaSel===t.id?600:400, fontFamily:font.body, fontSize:12, cursor:"pointer" }}><PuntoTienda color={colorTienda(t)} size={7}/>{nombreTiendaCorto(t)}</button>
           ))}
@@ -16630,7 +16651,8 @@ export default function App() {
   // así lo que se llevaba escrito no se pierde si se cierra sin guardar.
   const [registrarAbierto,setRegistrarAbierto]=useState(false);
   const [registrarMontado,setRegistrarMontado]=useState(false);
-  const abrirRegistrar = () => { setRegistrarMontado(true); setRegistrarAbierto(true); };
+  const [registrarOrigen,setRegistrarOrigen]=useState(null); // dónde está el + en pantalla
+  const abrirRegistrar = (rect) => { setRegistrarOrigen(rect ? { left:rect.left, top:rect.top, width:rect.width, height:rect.height, bottom:rect.bottom } : null); setRegistrarMontado(true); setRegistrarAbierto(true); };
   const [opCampana,setOpCampana]=useState([]);
   const opCampanaRef = useRef(0);
   useEffect(()=>{
@@ -17031,9 +17053,15 @@ export default function App() {
   const puedeCajaMet = puede(user, "caja.ver") && puede(user, "ventas.metricas.ver");
   const vistaMetActual = tab==="caja" ? "caja" : vistaMet;
   const elegirVistaMet = (v) => { if(v==="caja") setTab("caja"); else { setVistaMet(v); setTab("metricas"); } };
-  const conSelectorMet = (contenido) => <>{puede(user, "ventas.metricas.ver") && <SelectorVistaMetricas vista={vistaMetActual} onElegir={elegirVistaMet} puedeConsultas={puede(user, "ventas.metricas.consultas")} puedeCaja={puedeCajaMet}/>}{contenido}</>;
+  const conSelectorMet = (contenido) => <>
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:0 }}>
+      {puede(user, "ventas.metricas.ver") && <SelectorVistaMetricas vista={vistaMetActual} onElegir={elegirVistaMet} puedeConsultas={puede(user, "ventas.metricas.consultas")} puedeCaja={puedeCajaMet}/>}
+      {tab==="caja" && tiendaActiva && !esCuentaTienda(user) && <div style={{ marginBottom:16 }}><SelectorTienda stores={stores} tiendaId={tiendaActiva} setTiendaId={setTiendaActiva}/></div>}
+    </div>
+    {contenido}
+  </>;
   const elegirTiendaPantalla = (titulo) => <ElegirTiendaTarjetas stores={stores} onElegir={setTiendaActiva} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} titulo={titulo} isMobile={isMobile}/>;
-  const verListaHoy = (tiendaId) => { setListaPedido({ tienda:tiendaId, dia:todayStr, t:Date.now() }); setTab("lista"); };
+  const verListaHoy = (tiendaId, dia=todayStr) => { setListaPedido({ tienda:tiendaId, dia, t:Date.now() }); setTab("lista"); };
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
   // El líder de Operaciones (operaciones_config): decide si se ve la pestaña Producto.
   const liderOper = opConfig.find(c=>c.clave==="lider_usuario_id")?.valor || "";
@@ -17208,28 +17236,41 @@ export default function App() {
   const tabsVisibles = tabsPara(user, area, liderOper);
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
   const mostrarTienda = esAreaVentas && tab==="caja";
-  const setTabNav = (id) => id==="mas" ? abrirRegistrar() : setTab(id);
+  const setTabNav = (id, rect) => id==="mas" ? abrirRegistrar(rect) : setTab(id);
+  // Ventana de Registrar venta como "nube" que sale del + (22 nov 2026): en computador baja desde
+  // el + con una colita que lo señala; en celular sube desde el + de la barra de abajo.
+  const vw = typeof window!=="undefined" ? window.innerWidth : 1200, vh = typeof window!=="undefined" ? window.innerHeight : 800;
+  const anchoVent = isMobile ? vw-16 : Math.min(1180, vw-32);
+  const origenX = registrarOrigen ? registrarOrigen.left + registrarOrigen.width/2 : vw/2;
+  const izqVent = isMobile ? 8 : Math.max(16, Math.min(vw-anchoVent-16, origenX-anchoVent/2));
+  const colaX = Math.max(30, Math.min(anchoVent-30, origenX-izqVent));
+  const arribaVent = registrarOrigen ? registrarOrigen.bottom + 14 : 28;
+  const abajoMovil = registrarOrigen ? Math.max(70, vh - registrarOrigen.top + 12) : 80;
+  const altoMovil = Math.max(320, vh - abajoMovil - 18);
   const modalRegistrar = registrarMontado && createPortal(
     <FlexiAvisosContext.Provider value={flexiAvisosCtx}>
-      <div onClick={()=>setRegistrarAbierto(false)} style={{ display:registrarAbierto?"flex":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.45)", alignItems:isMobile?"flex-end":"flex-start", justifyContent:"center", padding:isMobile?0:"26px 16px 40px", overflowY:isMobile?"hidden":"auto" }}>
-        <style>{`@keyframes ozenSubeVentana{from{transform:translateY(${isMobile?"100%":"24px"});opacity:${isMobile?1:0}}to{transform:none;opacity:1}}`}</style>
-        <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:1180, background:C.dark, borderRadius:isMobile?"20px 20px 0 0":20, boxShadow:"0 30px 80px -20px rgba(26,59,82,0.55)", animation:"ozenSubeVentana .28s ease-out", ...(isMobile ? { height:"94vh", display:"flex", flexDirection:"column" } : {}) }}>
-          <div style={{ display:"flex", alignItems:"center", gap:10, padding:isMobile?"12px 14px":"14px 20px", background:"#fff", borderBottom:`1px solid ${C.border}`, borderRadius:isMobile?"20px 20px 0 0":"20px 20px 0 0", flexShrink:0 }}>
-            <span style={{ width:34, height:34, borderRadius:"50%", background:C.gold, color:"#fff", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="plus" s={18} sw={2.6}/></span>
-            <b style={{ fontFamily:font.body, fontSize:isMobile?16:18, color:C.text }}>Registrar venta</b>
-            <span style={{ flex:1 }}/>
-            {!esCuentaTienda(user) && tiendaActiva && <SelectorTienda stores={stores} tiendaId={tiendaActiva} setTiendaId={setTiendaActiva} compact={isMobile}/>}
-            <button onClick={()=>setRegistrarAbierto(false)} aria-label="Cerrar" title="Cerrar (lo que llevas escrito se guarda)" style={{ width:36, height:36, borderRadius:10, border:`1px solid ${C.border}`, background:"#fff", color:C.text, display:"grid", placeItems:"center", cursor:"pointer", flexShrink:0 }}><Icon n="x" s={16} sw={2.4}/></button>
+      <div onClick={()=>setRegistrarAbierto(false)} style={{ display:registrarAbierto?"block":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.32)", overflowY:isMobile?"hidden":"auto" }}>
+        <style>{`@keyframes ozenNube{from{transform:scale(.35);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
+        <div onClick={e=>e.stopPropagation()} style={{ position:isMobile?"fixed":"absolute", left:izqVent, width:anchoVent, ...(isMobile ? { bottom:abajoMovil, height:altoMovil, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), background:C.dark, borderRadius:20, boxShadow:"0 30px 80px -20px rgba(26,59,82,0.55), 0 0 0 1px rgba(26,59,82,0.08)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: isMobile ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
+          {/* Colita de la nube, apuntando al + */}
+          <span style={{ position:"absolute", left:colaX-11, ...(isMobile ? { bottom:-11, background:C.dark } : { top:-11, background:"#fff" }), width:22, height:22, transform:"rotate(45deg)", borderRadius:4, boxShadow: isMobile ? "4px 4px 8px -4px rgba(26,59,82,0.25)" : "-2px -2px 6px -3px rgba(26,59,82,0.2)" }}/>
+          <div style={{ position:"relative", display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", gap:10, padding:isMobile?"10px 12px":"12px 20px", background:"#fff", borderBottom:`1px solid ${C.border}`, borderRadius:"20px 20px 0 0", flexShrink:0 }}>
+            <span style={{ display:"inline-flex", alignItems:"center", gap:10, minWidth:0 }}>
+              <span style={{ width:32, height:32, borderRadius:"50%", background:C.gold, color:"#fff", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="plus" s={17} sw={2.6}/></span>
+              {!isMobile && <b style={{ fontFamily:font.body, fontSize:17, color:C.text, whiteSpace:"nowrap" }}>Registrar venta</b>}
+            </span>
+            <span style={{ display:"flex", justifyContent:"center" }}>{tiendaActiva && <SelectorTienda stores={stores} tiendaId={tiendaActiva} setTiendaId={esCuentaTienda(user) ? null : setTiendaActiva} fija={esCuentaTienda(user)} compact={isMobile}/>}</span>
+            <span style={{ display:"flex", justifyContent:"flex-end" }}><button onClick={()=>setRegistrarAbierto(false)} aria-label="Cerrar" title="Cerrar (lo que llevas escrito se guarda)" style={{ width:36, height:36, borderRadius:10, border:`1px solid ${C.border}`, background:"#fff", color:C.text, display:"grid", placeItems:"center", cursor:"pointer" }}><Icon n="x" s={16} sw={2.4}/></button></span>
           </div>
-          <div style={{ padding:isMobile?"14px":"20px 24px 26px", ...(isMobile ? { flex:1, overflowY:"auto" } : {}) }}>
-            {tiendaActiva ? <VentasRegistrarScreen enVentana ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} opAvisos={opEstado==="listo" ? opExternas : opCampana} onIrAOrden={(tipo,id)=>{ setRegistrarAbierto(false); setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); }} tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/> : elegirTiendaPantalla("¿En qué tienda vas a registrar la venta?")}
+          <div style={{ position:"relative", padding:isMobile?"14px":"20px 24px 26px", ...(isMobile ? { flex:1, overflowY:"auto" } : {}) }}>
+            {tiendaActiva ? <VentasRegistrarScreen enVentana onVerLista={()=>{ setRegistrarAbierto(false); verListaHoy(tiendaActiva); }} ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} opAvisos={opEstado==="listo" ? opExternas : opCampana} onIrAOrden={(tipo,id)=>{ setRegistrarAbierto(false); setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); }} tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/> : elegirTiendaPantalla("¿En qué tienda vas a registrar la venta?")}
           </div>
         </div>
       </div>
     </FlexiAvisosContext.Provider>, document.body);
   const tabNav = tab==="caja" && puede(user, "ventas.metricas.ver") ? "metricas" : tab;
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
-  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
+  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda:false, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
   const panel = <FlexiAvisosContext.Provider value={flexiAvisosCtx}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></FlexiAvisosContext.Provider>;
 
   if(isMobile) return (

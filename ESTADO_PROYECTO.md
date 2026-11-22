@@ -1203,6 +1203,18 @@ Pedido de Santiago: el módulo más intuitivo.
   hoy" → Lista con esa tienda y Fecha: hoy (`listaPedido`).
 - **Sin tienda elegida:** en vez de pantalla vacía, `ElegirTiendaTarjetas` (las tiendas como tarjetas
   con lo vendido hoy). La última tienda elegida se recuerda en el equipo (`ozen-tienda-elegida`).
+- **Ajustes del 22 nov (tarde):**
+  - Barra de arriba y pestañas **centradas** (en TODOS los módulos: `BarraSuperior` y `BarraPestanas`
+    en rejilla de 3 columnas). Con más pestañas (cuenta de tienda), `centrarMas` deja el + en el centro
+    y reparte lo demás a los lados: Turnos · Métricas · + · Lista · Operaciones.
+  - La ventana de Registrar sale **del +** como una nube (colita que lo señala; en celular sube desde el
+    + de abajo). "Ventas de hoy" volvió dentro de la ventana. Selector de tienda centrado en la ventana.
+  - Caja: el selector de tienda pasó de la barra de arriba al centro de la página, debajo de
+    Resumen · Consultas · Caja (`propsBarra.mostrarTienda` en false; la franja de color sigue).
+  - "Hoy" por tarjetas se cambió por **`CarreraDelDia`**: un solo cuadro con las tiendas como carrera
+    (ordenadas por % de la meta del día, medallas), fecha cambiable (‹ fecha › y "Hoy") para ver días
+    pasados, total de todas y "Ver ›" a la Lista con esa tienda y ese día. La tienda de la cuenta (o la
+    elegida en Métricas) va resaltada.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
