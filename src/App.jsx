@@ -968,7 +968,8 @@ const esBotonMas = (id) => id==="mas" || id==="marcar" || id==="junta_mas";
 // áreas · Rol de Monitor, en ese orden (pedido de Santiago). "junta_mas" no es pantalla: abre la
 // ventana en burbuja para agregar una tarea o un acuerdo. Indicadores y Acuerdos ya no son pestañas:
 // viven dentro de Seguimiento (indicadores arriba; abajo el selector Tareas · Acuerdos).
-const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento" },{ id:"junta_mas",icon:"➕",label:"Agregar tarea o acuerdo" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" }];
+// Rol de Monitor (22 nov 2026) ya no es pestaña: es la tercera opción dentro de Perfiles y áreas.
+const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento" },{ id:"junta_mas",icon:"➕",label:"Agregar tarea o acuerdo" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" }];
 // ¿Puede crear tareas de la Junta? Solo el Monitor de turno (o master): mismo permiso de siempre.
 const juntaPuedeCrearTarea = (user, lideres) => puede(user, "junta.tareas.gestionar", { monitor:esMonitorActual(user, lideres||[]) });
 // Pestañas de La Junta: todas piden "ver La Junta" (como antes); el + solo sale a quien puede crear
@@ -4755,17 +4756,23 @@ function ReportsScreen({ records, users, stores, isMobile, turnosHorarios, turno
 }
 
 // ── SCREEN: Junta Admin — Equipo y perfiles ──────────────────────────────────
-function JuntaEquipoTab({ lideres, setLideres, areas, setAreas, liderAreas, setLiderAreas, isMobile }) {
-  const [vista, setVista] = useState("lideres");
+// Tercera opción "Rol de Monitor" (22 nov 2026): muestra JuntaGuionTab tal cual (antes era pestaña).
+// Pide el mismo permiso que tenía esa pestaña (junta.ver). `vistaInicial` = "monitor" cuando se llega
+// por el id viejo "guion".
+function JuntaEquipoTab({ lideres, setLideres, areas, setAreas, liderAreas, setLiderAreas, isMobile, monitor, verMonitor, vistaInicial }) {
+  const [vista, setVista] = useState(vistaInicial==="monitor" && verMonitor ? "monitor" : "lideres");
   return (
     <div>
       <PageHeader title="Perfiles y áreas" subtitle="Los liderazgos que componen la Junta Admin y las áreas de trabajo que cubren" />
       <div style={{ display:"flex", gap:8, marginBottom:16 }}>
         <Btn onClick={()=>setVista("lideres")} variant={vista==="lideres"?"primary":"ghost"} sm>👤 Por líder</Btn>
         <Btn onClick={()=>setVista("areas")} variant={vista==="areas"?"primary":"ghost"} sm>🗂️ Por área</Btn>
+        {verMonitor && <Btn onClick={()=>setVista("monitor")} variant={vista==="monitor"?"primary":"ghost"} sm>📖 Rol de Monitor</Btn>}
       </div>
       <div key={vista} className="ozen-pane-anim-tab">
-        {vista==="lideres"
+        {vista==="monitor" && verMonitor
+          ? <JuntaGuionTab monitor={monitor} isMobile={isMobile}/>
+          : vista==="lideres"
           ? <JuntaVistaPorLider lideres={lideres} setLideres={setLideres} areas={areas} setAreas={setAreas} liderAreas={liderAreas} setLiderAreas={setLiderAreas} isMobile={isMobile}/>
           : <JuntaVistaPorArea areas={areas} setAreas={setAreas} lideres={lideres} liderAreas={liderAreas}/>}
       </div>
@@ -17427,10 +17434,10 @@ export default function App() {
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
       if(area==="junta"){
-        if(tab==="equipo")       return <JuntaEquipoEditarContext.Provider value={puede(user, "junta.equipo.editar")}><JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} areas={juntaAreas} setAreas={setJuntaAreas} liderAreas={juntaLiderAreas} setLiderAreas={setJuntaLiderAreas} isMobile={isMobile}/></JuntaEquipoEditarContext.Provider>;
+        // "guion" (Rol de Monitor) ya no es pestaña: abre Perfiles y áreas con esa opción elegida.
+        if(tab==="equipo" || tab==="guion") return <JuntaEquipoEditarContext.Provider value={puede(user, "junta.equipo.editar")}><JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} areas={juntaAreas} setAreas={setJuntaAreas} liderAreas={juntaLiderAreas} setLiderAreas={setJuntaLiderAreas} isMobile={isMobile} monitor={getMonitorActual(juntaLideres)} verMonitor={puede(user, "junta.ver")} vistaInicial={tab==="guion"?"monitor":undefined}/></JuntaEquipoEditarContext.Provider>;
         // Indicadores y Acuerdos ya no son pestañas (22 nov 2026): viven dentro de Seguimiento.
         if(tab==="seguimiento" || tab==="indicadores" || tab==="acuerdos") return <JuntaSeguimientoScreen user={user} lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos} acuerdos={juntaAcuerdos} congelados={juntaIndicadoresCongelados} setCongelados={setJuntaIndicadoresCongelados} isMobile={isMobile}/>;
-        if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
       } else if(area==="ventas"){
         if(tab==="registrar" && puede(user, "ventas.registrar.ver")) return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} opAvisos={opEstado==="listo" ? opExternas : opCampana} onIrAOrden={(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); }} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/>;
         if(tab==="lista" && puede(user, "ventas.lista.ver")) return <VentasListaScreen key={listaPedido?.t||"lista"} pedido={listaPedido} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
@@ -17646,6 +17653,7 @@ export default function App() {
       </div>
     </VentanaNube>, document.body);
   const tabNav = (area==="junta" && (tab==="indicadores" || tab==="acuerdos")) ? "seguimiento"
+    : (area==="junta" && tab==="guion") ? "equipo"
     : tab==="caja" && puede(user, "ventas.metricas.ver") ? "metricas"
     : (esAsistenciaAdmin && VISTAS_TURNOS_ASISTENCIA.some(([id])=>id===tab)) ? "turnos" : tab;
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);

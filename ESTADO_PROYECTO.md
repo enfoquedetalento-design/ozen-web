@@ -1311,6 +1311,11 @@ Pedido de Santiago: la misma navegación de Ventas y Asistencia.
     sigue mirando todas las tareas vivas, sin importar el mes. Acuerdos: todos, del más reciente al
     más viejo (`JuntaAcuerdosLista`), no se acotan al mes.
   - El botón "Nueva tarea" del encabezado se quitó (lo reemplaza el +).
+- **Rol de Monitor dentro de Perfiles y áreas (22 nov 2026):** ya no es pestaña; la barra queda
+  Seguimiento · + · Perfiles y áreas. Es la tercera opción junto a "Por líder" y "Por área"
+  (`JuntaEquipoTab`, props `monitor`, `verMonitor`, `vistaInicial`) y muestra `JuntaGuionTab` tal cual.
+  Mismo permiso de antes (`junta.ver`). Si algo llega con el id viejo `guion`, abre Perfiles y áreas
+  con Rol de Monitor elegido.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
