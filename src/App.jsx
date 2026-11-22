@@ -953,9 +953,10 @@ function CameraModal({ eventLabel, onCapture, onCancel }) {
 // una pantalla: abre Marcar asistencia como ventana en burbuja (igual que el + de Ventas). Resumen
 // (antes "Panel"), Informes y Mi Historial viven dentro de Turnos, con el selector de arriba.
 const ADMIN_TABS_ASISTENCIA = [{ id:"turnos",icon:"📅",label:"Turnos" },{ id:"marcar",icon:"📍",label:"Marcar asistencia" },{ id:"records",icon:"📋",label:"Registros" }];
-// Vistas dentro de Turnos (Malla · Resumen · Informes · Mi Historial). Cada una es una pestaña
+// Vistas dentro de Turnos (Malla · Informes · Mi Historial). Lo de hoy (antes Panel/Resumen) es
+// el cuadro "Asistencia de hoy" dentro de la Malla. Cada una es una pestaña
 // "escondida": la barra ilumina Turnos. Cada vista sale solo si la persona tiene su permiso.
-const VISTAS_TURNOS_ASISTENCIA = [["turnos","Malla","cal"],["dashboard","Resumen","grid"],["reports","Informes","chart"],["mi_historial","Mi Historial","history"]];
+const VISTAS_TURNOS_ASISTENCIA = [["turnos","Malla","cal"],["reports","Informes","chart"],["mi_historial","Mi Historial","history"]];
 // Botones redondos "+" de la barra: "mas" = Registrar venta (Ventas), "marcar" = Marcar asistencia.
 const esBotonMas = (id) => id==="mas" || id==="marcar";
 // Las pestañas "Asesores" y "Tiendas" ya no van sueltas — ahora viven dentro de Turnos ▸
@@ -1448,15 +1449,17 @@ function BottomNav({ tab, setTab, user, area, liderOper }) {
   );
 }
 
-// ── SCREEN: Resumen de asistencia (antes "Panel") ──────────────────────────────
-// 22 nov 2026 (pedido de Santiago): versión corta del Panel, dentro de Turnos ▸ Resumen. Lo esencial
-// de HOY: quién está, quién llegó tarde, quién falta y quién aún no llega.
+// ── Asistencia de hoy (cuadro en Turnos ▸ Malla) ───────────────────────────────
+// Lo esencial de HOY: quién está, quién llegó tarde, quién falta y quién aún no llega.
 // - Tarde: el MISMO cálculo de puntualidad de Registros (calcPuntualidad contra el turno publicado
 //   de ese día si lo hay; si no, contra lo que marcó la persona; 5 min de gracia).
 // - Falta: tiene turno publicado hoy (turnos_asignaciones, con tienda), no ha marcado NADA hoy y ya
 //   pasó su hora de entrada (entrada_custom del día o la del horario vigente de su turno). Antes de
 //   esa hora sale en "Aún no llegan". Si su turno no tiene horario definido, nunca sale como falta.
 // No guarda nada ni cambia cómo se evalúa ninguna jornada: solo lee.
+// Excusa de una llegada tarde (22 nov 2026, Santiago): solo deja de contar si está APROBADA. Una excusa
+// no aprobada (o sin decidir) sigue siendo una tardanza sin excusa válida.
+const excusaAprobada = (r) => !!r?.excusa_tarde && r.excusa_estado==="aprobada";
 const minutosDeHHMM = (hhmm) => { if(!hhmm) return null; const [h,m]=hhmm.split(":").map(Number); return h*60+m; };
 const resumenAsistenciaDia = (fecha, ahoraMin, records, users, turnosHorarios, turnosAsignaciones) => {
   const delDia = records.filter(r=>r.date===fecha);
@@ -1472,7 +1475,7 @@ const resumenAsistenciaDia = (fecha, ahoraMin, records, users, turnosHorarios, t
     const shiftReal = asig?.tienda_id ? (asig.shift||r.shift) : r.shift;   // igual que Registros
     const storeReal = asig?.tienda_id || r.store;
     const punt = calcPuntualidad(r.time, shiftReal, fecha, storeReal, turnosHorarios, asig?.entrada_custom);
-    return { id:r.user_id, nombre:nombreDe(r.user_id, r.user_name), store:r.store, entrada:r.time, punt, cerro:cerro(r.user_id), almuerzo:enAlmuerzo(r.user_id) };
+    return { id:r.user_id, nombre:nombreDe(r.user_id, r.user_name), store:r.store, entrada:r.time, punt, excusa:excusaAprobada(r), cerro:cerro(r.user_id), almuerzo:enAlmuerzo(r.user_id) };
   });
   const sinMarcar = [];
   (turnosAsignaciones||[]).filter(a=>a.fecha===fecha && a.tienda_id).forEach(a=>{
@@ -1484,67 +1487,56 @@ const resumenAsistenciaDia = (fecha, ahoraMin, records, users, turnosHorarios, t
   const porNombre = (a,b)=>a.nombre.localeCompare(b.nombre);
   return {
     enTurno: conEntrada.filter(p=>!p.cerro).sort(porNombre),
-    tarde: conEntrada.filter(p=>p.punt && !p.punt.puntual).sort((a,b)=>b.punt.diff-a.punt.diff),
+    tarde: conEntrada.filter(p=>p.punt && !p.punt.puntual && !p.excusa).sort((a,b)=>b.punt.diff-a.punt.diff),   // con excusa aprobada no cuenta
     faltan: sinMarcar.filter(p=>p.falta).sort((a,b)=>a.esperada-b.esperada),
     aunNo: sinMarcar.filter(p=>!p.falta).sort((a,b)=>(a.esperada??9999)-(b.esperada??9999)),
   };
 };
 const hhmmDeMinutos = (m) => `${String(Math.floor(m/60)).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`;
 
-const FilaResumenAsis = ({ nombre, sub, derecha, ultima }) => (
-  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, padding:"8px 0", borderBottom:ultima?"none":`1px solid ${C.border}` }}>
-    <div style={{ minWidth:0 }}>
-      <div style={{ fontFamily:font.body, fontSize:13, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombre}</div>
-      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{sub}</div>
+// Cuadro "Asistencia de hoy" (22 nov 2026, pedido de Santiago): reemplaza la vista Resumen. Va en
+// Turnos ▸ Malla, justo después de "Turnos y horarios", solo para quien tiene asistencia.panel.
+// Cuatro columnas: Faltan · Llegaron tarde · En turno · Aún no llegan (reglas en resumenAsistenciaDia).
+const ColumnaAsisHoy = ({ titulo, color, items, vacio }) => (
+  <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderTop:`3px solid ${color}`, borderRadius:12, padding:"10px 12px", minWidth:0 }}>
+    <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:6 }}>
+      <span style={{ fontFamily:font.mono, fontSize:22, fontWeight:700, color: items.length ? color : C.textMuted, lineHeight:1 }}>{items.length}</span>
+      <span style={{ fontFamily:font.body, fontSize:12, fontWeight:700, color:C.text }}>{titulo}</span>
     </div>
-    <div style={{ flexShrink:0 }}>{derecha}</div>
+    {items.length===0 ? <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>{vacio}</div> :
+      <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+        {items.map(it=>(
+          <div key={it.key} style={{ display:"flex", justifyContent:"space-between", gap:6, fontFamily:font.body, fontSize:12 }}>
+            <span style={{ color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }} title={it.titulo}>{it.nombre}</span>
+            <span style={{ color:it.colorDato||C.textMuted, fontFamily:font.mono, fontSize:11, whiteSpace:"nowrap", flexShrink:0 }}>{it.dato}</span>
+          </div>
+        ))}
+      </div>}
   </div>
 );
-const ListaResumenAsis = ({ titulo, vacio, items }) => (
-  <Card style={{ marginBottom:12 }}>
-    <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, marginBottom:8 }}>{titulo}</div>
-    {items.length ? items : <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, padding:"6px 0" }}>{vacio}</div>}
-  </Card>
-);
-function ResumenAsistenciaScreen({ records, stores, users, turnosHorarios, turnosAsignaciones, isMobile }) {
+
+function AsistenciaHoyCuadro({ records, stores, users, turnosHorarios, turnosAsignaciones }) {
+  const isMobile = useIsMobile();
   // La hora avanza sola (cada minuto) para que alguien pase de "Aún no llega" a "Falta" sin recargar.
   const [ahora,setAhora]=useState(()=>toColombiaDate());
   useEffect(()=>{ const t=setInterval(()=>setAhora(toColombiaDate()), 60000); return ()=>clearInterval(t); },[]);
   const ahoraMin = ahora.getHours()*60+ahora.getMinutes();
   const { enTurno, tarde, faltan, aunNo } = resumenAsistenciaDia(todayStr, ahoraMin, records, users||[], turnosHorarios, turnosAsignaciones);
   const tienda = (id) => nombreTiendaCorto(stores[id]);
+  const nom = (p) => isMobile ? primerNombre(p.nombre) : p.nombre;
   return (
-    <div>
-      <PageHeader title="Resumen de hoy" subtitle={`${new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} · a las ${fmtHora12(hhmmDeMinutos(ahoraMin))}`}/>
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)", gap:10, marginBottom:16 }}>
-        <StatCard label="En turno ahora"  value={enTurno.length} icon="🟢" color={enTurno.length>0?C.blue:C.textMuted}/>
-        <StatCard label="Llegaron tarde"  value={tarde.length}   icon="⏰" color={tarde.length>0?C.amber:C.textMuted}/>
-        <StatCard label="Faltan"          value={faltan.length}  icon="⚠️" color={faltan.length>0?C.red:C.textMuted}/>
-        <StatCard label="Aún no llegan"   value={aunNo.length}   icon="🕒" color={C.textMuted}/>
+    <SeccionTurnos titulo="Asistencia de hoy" nota={`a las ${fmtHora12(hhmmDeMinutos(ahoraMin))}`}>
+      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, minmax(0,1fr))", gap:10 }}>
+        <ColumnaAsisHoy titulo="Faltan" color={C.red} vacio="Nadie pendiente después de su hora."
+          items={faltan.map(p=>({ key:p.id, nombre:nom(p), titulo:`${p.nombre} · ${tienda(p.store)} · debía entrar ${fmtHora12(hhmmDeMinutos(p.esperada))}`, dato:`${ahoraMin-p.esperada} min`, colorDato:C.red }))}/>
+        <ColumnaAsisHoy titulo="Llegaron tarde" color={C.amber} vacio="Nadie ha llegado tarde."
+          items={tarde.map(p=>({ key:p.id, nombre:nom(p), titulo:`${p.nombre} · ${tienda(p.store)} · entró ${fmtHora12(p.entrada)}`, dato:`+${p.punt.diff} min`, colorDato:C.amber }))}/>
+        <ColumnaAsisHoy titulo="En turno" color={C.green} vacio="Nadie en turno ahora."
+          items={enTurno.map(p=>({ key:p.id, nombre:nom(p), titulo:`${p.nombre} · ${tienda(p.store)} · entrada ${fmtHora12(p.entrada)}`, dato:p.almuerzo ? "almuerzo" : tienda(p.store) }))}/>
+        <ColumnaAsisHoy titulo="Aún no llegan" color={C.blue} vacio="Nadie más con turno hoy."
+          items={aunNo.map(p=>({ key:p.id, nombre:nom(p), titulo:`${p.nombre} · ${tienda(p.store)}`, dato:p.esperada!==null && p.esperada!==undefined ? fmtHora12(hhmmDeMinutos(p.esperada)) : "sin horario" }))}/>
       </div>
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:12, alignItems:"start" }}>
-        <div>
-          <ListaResumenAsis titulo="⚠️ Faltan" vacio="Nadie con turno hoy está pendiente de llegar después de su hora." items={faltan.map((p,i)=>(
-            <FilaResumenAsis key={p.id} ultima={i===faltan.length-1} nombre={p.nombre} sub={`${tienda(p.store)}${p.shift?` · ${p.shift}`:""} · debía entrar ${fmtHora12(hhmmDeMinutos(p.esperada))}`}
-              derecha={<Badge color={C.red} sm>{`${ahoraMin-p.esperada} min`}</Badge>}/>
-          ))}/>
-          <ListaResumenAsis titulo="⏰ Llegaron tarde" vacio="Nadie ha llegado tarde hoy." items={tarde.map((p,i)=>(
-            <FilaResumenAsis key={p.id} ultima={i===tarde.length-1} nombre={p.nombre} sub={`${tienda(p.store)} · entró ${fmtHora12(p.entrada)}`}
-              derecha={<Badge color={C.red} sm>{`Tarde ${p.punt.diff} min`}</Badge>}/>
-          ))}/>
-        </div>
-        <div>
-          <ListaResumenAsis titulo="🟢 En turno ahora" vacio="Nadie está en turno en este momento." items={enTurno.map((p,i)=>(
-            <FilaResumenAsis key={p.id} ultima={i===enTurno.length-1} nombre={p.nombre} sub={`${tienda(p.store)} · entrada ${fmtHora12(p.entrada)}`}
-              derecha={p.almuerzo ? <Badge color={C.amber} sm>Almuerzo</Badge> : p.punt && !p.punt.puntual ? <Badge color={C.red} sm>{`+${p.punt.diff} min`}</Badge> : null}/>
-          ))}/>
-          <ListaResumenAsis titulo="🕒 Aún no llegan" vacio="No hay más personas con turno pendientes por llegar hoy." items={aunNo.map((p,i)=>(
-            <FilaResumenAsis key={p.id} ultima={i===aunNo.length-1} nombre={p.nombre} sub={`${tienda(p.store)}${p.shift?` · ${p.shift}`:""}`}
-              derecha={<span style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted }}>{p.esperada!==null && p.esperada!==undefined ? `entra ${fmtHora12(hhmmDeMinutos(p.esperada))}` : "sin horario"}</span>}/>
-          ))}/>
-        </div>
-      </div>
-    </div>
+    </SeccionTurnos>
   );
 }
 
@@ -1562,6 +1554,18 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
   // porque es Santiago corrigiendo un caso puntual que ya sabe que es real.
   const isMaster = puede(user, "asistencia.registros.corregir");   // Permisos, Fase 3 (el nombre se quedó de cuando era solo master)
   const [editingKey,setEditingKey]=useState(null),[editValue,setEditValue]=useState("");
+  // Excusa de una llegada tarde (22 nov 2026): se guarda en la fila de "entrada" (registros.excusa_tarde
+  // = motivo, registros.excusa_estado = "aprobada" | "no_aprobada"; ver sql/registros_excusa_tarde.sql).
+  // Solo con excusa APROBADA la tardanza deja de contar en Informes y en "Asistencia de hoy".
+  // Sin window.prompt (en algunos navegadores no sale): se escribe en un cuadrito dentro de la jornada.
+  const [excusaEdit,setExcusaEdit]=useState(null); // { key, valor }
+  // estado: "aprobada" | "no_aprobada" | null (quitar la excusa).
+  const guardarExcusa=async(j, estado)=>{
+    const texto=(excusaEdit?.valor||"").trim();
+    if(estado && !texto){ alert("Escribe el motivo de la excusa."); return; }
+    const{data,error}=await supabase.from("registros").update(estado ? { excusa_tarde:texto, excusa_estado:estado } : { excusa_tarde:null, excusa_estado:null }).eq("id",j.entrada.id).select().single();
+    if(data){ onRecordUpdated(data); setExcusaEdit(null); } else if(error) alert(`No se pudo guardar la excusa: ${error.message}`);
+  };
   const guardarHora=async(j,eventKey,existingId)=>{
     if(!editValue) return;
     if(existingId){
@@ -1702,9 +1706,23 @@ function RecordsScreen({ records, stores, users, isMobile, turnosHorarios, turno
               <div style={{ marginBottom:10 }}>
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:4 }}>
                   <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>{j.userName}</div>
-                  {punt && (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual</Badge> : <Badge color={C.red} sm>🔴 Tarde {punt.diff} min</Badge>)}
+                  {punt && (punt.puntual ? <Badge color={C.green} sm>🟢 Puntual</Badge> : excusaAprobada(j.entrada)
+                    ? <Badge color={C.textMuted} sm title={`Excusa aprobada: ${j.entrada.excusa_tarde}`}>🟡 Tarde {punt.diff} min · excusa aprobada</Badge>
+                    : j.entrada?.excusa_tarde
+                    ? <Badge color={C.red} sm title={`Excusa NO aprobada: ${j.entrada.excusa_tarde}`}>🔴 Tarde {punt.diff} min · excusa no aprobada</Badge>
+                    : <Badge color={C.red} sm>🔴 Tarde {punt.diff} min</Badge>)}
+                  {punt && !punt.puntual && isMaster && j.entrada && <button onClick={()=>setExcusaEdit({ key:j.key, valor:j.entrada.excusa_tarde||"" })} title={j.entrada.excusa_tarde?`Excusa: ${j.entrada.excusa_tarde} (clic para cambiar la decisión o quitarla)`:"Registrar una excusa y decidir si se aprueba (solo aprobada deja de contar)"} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:6, padding:"2px 8px", fontFamily:font.body, fontSize:11, color:C.textSub, cursor:"pointer", whiteSpace:"nowrap" }}>{j.entrada.excusa_tarde?"Excusa":"Excusar"}</button>}
                 </div>
                 <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{stores[j.store]?.name} · {j.shift} · {j.date}{rango?` - ${rango}`:""}</div>
+                {excusaEdit?.key===j.key && (
+                  <div style={{ display:"flex", gap:6, alignItems:"center", marginTop:8, flexWrap:"wrap" }}>
+                    <input autoFocus value={excusaEdit.valor} onChange={e=>setExcusaEdit({ key:j.key, valor:e.target.value })} onKeyDown={e=>{ if(e.key==="Escape") setExcusaEdit(null); }} placeholder="Motivo de la excusa" style={{ flex:1, minWidth:180, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"6px 9px", fontFamily:font.body, fontSize:12, color:C.text, outline:"none" }}/>
+                    <Btn onClick={()=>guardarExcusa(j, "aprobada")} sm>✓ Aprobar</Btn>
+                    <Btn onClick={()=>guardarExcusa(j, "no_aprobada")} variant="danger" sm>✕ No aprobar</Btn>
+                    {j.entrada.excusa_tarde && <Btn onClick={()=>guardarExcusa(j, null)} variant="ghost" sm>Quitar excusa</Btn>}
+                    <Btn onClick={()=>setExcusaEdit(null)} variant="ghost" sm>Cancelar</Btn>
+                  </div>
+                )}
               </div>
               <div style={{ display:"flex", gap:6 }}>
                 <EventBlock label="Entrada"       eventKey="entrada"        jornada={j} registro={j.entrada}        omitido={j["entrada_omitido"]}        color={C.green} />
@@ -3291,7 +3309,13 @@ const BloqueTurno = ({ turno, horario, alto=30, tenue, marcado, style }) => {
 function TurnosHoy({ advisors, asigMap, stores, turnosGlobales, turnosHorarios, isMobile }) {
   const cols = [[addDiasFecha(todayStr,-1),"Ayer"],[todayStr,"Hoy"],[addDiasFecha(todayStr,1),"Mañana"]];
   const filas = advisors.filter(a=>cols.some(([f])=>asigMap.has(`${a.id}|${f}`)));
-  if(filas.length===0) return null;
+  // Siempre visible y de primero (22 nov 2026, Santiago): si nadie tiene turno publicado esos días,
+  // se dice — antes el cuadro desaparecía sin explicación.
+  if(filas.length===0) return (
+    <SeccionTurnos titulo="Hoy en las tiendas" nota="ayer, hoy y mañana">
+      <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 16px", fontFamily:font.body, fontSize:13, color:C.textMuted }}>No hay turnos publicados para ayer, hoy ni mañana.</div>
+    </SeccionTurnos>
+  );
   const trabajaHoy = (a) => !!asigMap.get(`${a.id}|${todayStr}`)?.tienda_id;
   const orden = [...filas.filter(trabajaHoy), ...filas.filter(a=>!trabajaHoy(a))];
   return (
@@ -3723,7 +3747,7 @@ function GestionAsesoresActivosTurnos({ users, setUsers }) {
 }
 
 // ── SCREEN: Turnos · Ver (esta es la que ven también los asesores, como "Turnos") ──
-function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asignaciones, anio, mes }) {
+function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asignaciones, anio, mes, cuadroAsistencia }) {
   const isMobile = useIsMobile();
   const [resaltado,setResaltado]=useState(null);
   const dias = fechasDelMesTurnos(anio, mes);
@@ -3735,6 +3759,7 @@ function TurnosVerScreen({ users, stores, turnosGlobales, turnosHorarios, asigna
     <div>
       <TurnosHoy advisors={activos} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} isMobile={isMobile}/>
       <TurnosLeyenda stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} resaltado={resaltado} onResaltar={setResaltado}/>
+      {cuadroAsistencia}
       <SeccionTurnos titulo={`Malla de ${MESES_LARGO[mes]}`} nota={advisors.length ? `${advisors.length} persona${advisors.length===1?"":"s"}` : null}>
         {advisors.length===0 ? <div style={{fontFamily:font.body,fontSize:13,color:C.textMuted}}>{`No hay turnos publicados en ${MESES_LARGO[mes]} ${anio}.`}</div> :
           <TurnosRejilla dias={dias} advisors={advisors} asigMap={asigMap} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} editable={false} resaltado={resaltado}/>}
@@ -4022,7 +4047,8 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
 }
 
 // ── SCREEN: Turnos (contenedor con sub-pestañas Ver / Editar / Administrar) ────
-function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, turnosHorarios, setTurnosHorarios, puedeGestionar, permisos, onSubChange, userName }) {
+// `cuadroAsistencia` (opcional): el cuadro "Asistencia de hoy", que va después de Turnos y horarios.
+function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setTurnosGlobales, asignaciones, setAsignaciones, turnosHorarios, setTurnosHorarios, puedeGestionar, permisos, onSubChange, userName, cuadroAsistencia }) {
   const pt = permisos || {};   // sin permisos (tienda, asesor): solo ver
   const [sub,setSub]=useState("ver");
   const isMobile = useIsMobile();
@@ -4074,7 +4100,7 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
       </div>
       {sub==="ver" && publicado && isMobile && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, margin:"-10px 0 14px" }}>Publicado el {fechaPub}{publicado.publicado_por ? ` · por ${primerNombre(publicado.publicado_por)}` : ""}</div>}
       <div key={sub} className="ozen-pane-anim-tab">
-        {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} anio={anio} mes={mes}/>}
+        {sub==="ver"         && <TurnosVerScreen users={users} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} anio={anio} mes={mes} cuadroAsistencia={cuadroAsistencia}/>}
         {sub==="editar"      && pt.editar && <TurnosEditarScreen permisos={pt} key={mesKey} users={users} setUsers={setUsers} stores={stores} turnosGlobales={turnosGlobales} turnosHorarios={turnosHorarios} asignaciones={asignaciones} setAsignaciones={setAsignaciones} userName={userName} anio={anio} mes={mes}/>}
         {sub==="administrar" && pt.administrar && <TurnosAdminScreen permisos={pt} users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios}/>}
       </div>
@@ -4082,7 +4108,6 @@ function TurnosScreen({ users, setUsers, stores, setStores, turnosGlobales, setT
   );
 }
 
-// ── SCREEN: Mi Asistencia (para cuentas de líder/admin) — agrupa Marcar + Mi Historial ──
 // ── SCREEN: CheckIn ───────────────────────────────────────────────────────────
 // `enVentana` (22 nov 2026): se muestra dentro de la burbuja del + de Asistencia — sin título grande
 // (la burbuja ya lo tiene), y la cámara y los avisos se pintan encima de todo (portal al body),
@@ -4422,166 +4447,318 @@ function HistoryScreen({ user, records, stores, onRecordUpdated, turnosHorarios,
   );
 }
 
-// ── SCREEN: Reports ───────────────────────────────────────────────────────────
-function ReportsScreen({ records, users, stores, isMobile }) {
-  const now = toColombiaDate();
-  const [mes, setMes]   = useState(now.getMonth());
-  const [anio, setAnio] = useState(now.getFullYear());
-  const meses = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-  const prefix = `${anio}-${String(mes+1).padStart(2,"0")}`;
-  const recsMes = records.filter(r=>r.date.startsWith(prefix));
-  const advisors = users.filter(u=>u.role==="advisor"&&u.active);
+// ── SCREEN: Informes de Asistencia (rediseño 22 nov 2026, pedido de Santiago) ──────────────────
+// Dos informes del MES CALENDARIO (la nómina de OZEN es mensual y se paga el 1.º):
+//  · Nómina del mes: novedades por persona.   · Tiendas: apertura y cobertura de cada tienda.
+// Solo leen datos; no cambian cómo se evalúa ninguna jornada. Reglas (todas sobre lo PUBLICADO en
+// turnos_asignaciones y los horarios vigentes de turnos_horarios):
+//  - Tarde: el mismo cálculo de Registros (calcPuntualidad, 5 min de gracia). Si la entrada tiene
+//    excusa APROBADA (excusaAprobada) NO cuenta (se muestra aparte). Una excusa no aprobada sigue
+//    contando como tarde sin excusa válida.
+//  - Reincidente: 3 o más llegadas tarde sin excusa aprobada en el mes (decisión de Santiago, 22 nov 2026).
+//  - Ausencia: día con turno publicado (con tienda) sin NINGÚN registro, ya pasado.
+//  - Almuerzo largo: más de 60 min + 5 de margen. Salió antes / después: salida real contra la
+//    esperada (salida_custom o horario vigente), con más de 5 min de diferencia.
+//  - Nocturnas: tiempo trabajado después de las 7:00 p. m. Dom./festivo: domingos y festivos de
+//    Colombia (festivosColombia) trabajados. Horas: entrada→salida menos el almuerzo (si el fin de almuerzo
+//    quedó N/R se descuentan 60 min); si no marcó salida, ese día no suma horas.
+//  - Tiendas: abre = la primera hora de entrada esperada del día en esa tienda; abrió = primera
+//    entrada real ahí. "Sin nadie" / "1 sola persona" = minutos entre la apertura y el cierre
+//    esperados con 0 / 1 persona presente (entrada→almuerzo, fin de almuerzo→salida; si no marcó
+//    salida se toma su salida esperada).
+// Son conteos para revisar; la liquidación y las sanciones las decide Gestión Humana.
+const REINCIDENCIA_TARDES = 3;
+const MARGEN_INFORME_MIN = 5;
+const INICIO_NOCHE_MIN = 19*60;
+const getExpectedSalida = (shift, date, store, turnosHorarios, salidaCustom) => {
+  if (salidaCustom) return minutosDeHHMM(salidaCustom);
+  const fila = filaHorarioVigente(familiaDeTurno(shift), store, turnosHorarios, date);
+  if (!fila) return null;
+  const dow = new Date(date + "T12:00:00").getDay();
+  const hhmm = (dow===5 || dow===6) ? fila.salida_vs : fila.salida_lj;
+  return hhmm ? minutosDeHHMM(hhmm) : null;
+};
+const esDomingoOFestivo = (fecha) => new Date(fecha+"T12:00:00").getDay()===0 || festivosColombia(+fecha.slice(0,4)).has(fecha);
+const diasDelMesHasta = (prefix, hasta) => {
+  const [y,m] = prefix.split("-").map(Number); const n = new Date(y, m, 0).getDate(); const out = [];
+  for(let d=1; d<=n; d++){ const f = `${prefix}-${String(d).padStart(2,"0")}`; if(f<=hasta) out.push(f); }
+  return out;
+};
+const entradaEsperadaAsig = (a, fecha, turnosHorarios) => a.entrada_custom ? minutosDeHHMM(a.entrada_custom) : getExpectedEntry(a.shift, fecha, a.tienda_id, turnosHorarios);
+const fmtHM = (min) => { if(!min || min<=0) return "—"; const h=Math.floor(min/60), m=min%60; return h ? `${h}h ${String(m).padStart(2,"0")}m` : `${m} min`; };
+const sumaMin = (arr) => arr.reduce((s,x)=>s+(x.min||0),0);
 
-  const toHM = (min) => min<=0?"—":`${Math.floor(min/60)}h ${String(min%60).padStart(2,"0")}m`;
-
-  const calcHorasAsesor = (userId) => {
-    const dias=[...new Set(recsMes.filter(r=>r.user_id===userId&&r.event==="entrada").map(r=>r.date))];
-    let brutas=0,almuerzo=0;
-    dias.forEach(d=>{
-      const rDia=recsMes.filter(r=>r.user_id===userId&&r.date===d);
-      const entrada=rDia.find(r=>r.event==="entrada")?.time, salida=rDia.find(r=>r.event==="salida")?.time;
-      const iniA=rDia.find(r=>r.event==="inicio_almuerzo")?.time, finA=rDia.find(r=>r.event==="fin_almuerzo")?.time;
-      if(entrada&&salida){ const[eh,em]=entrada.split(":").map(Number),[sh,sm]=salida.split(":").map(Number); brutas+=(sh*60+sm)-(eh*60+em); }
-      if(iniA&&finA){ const[ih,im]=iniA.split(":").map(Number),[fh,fm]=finA.split(":").map(Number); almuerzo+=(fh*60+fm)-(ih*60+im); }
+const novedadesNominaMes = (prefix, hoy, ahoraMin, records, users, asignaciones, turnosHorarios) => {
+  const recs = records.filter(r=>r.date && r.date.startsWith(prefix) && r.date<=hoy);
+  const asigs = (asignaciones||[]).filter(a=>a.fecha && a.fecha.startsWith(prefix));
+  const asigMap = new Map(asigs.map(a=>[`${a.asesor_id}|${a.fecha}`,a]));
+  const recsPor = new Map();
+  recs.forEach(r=>{ const k=`${r.user_id}|${r.date}`; if(!recsPor.has(k)) recsPor.set(k,[]); recsPor.get(k).push(r); });
+  const ids = new Set([...asigs.filter(a=>a.tienda_id).map(a=>a.asesor_id), ...recs.filter(r=>r.event==="entrada").map(r=>r.user_id)]);
+  const dias = diasDelMesHasta(prefix, hoy);
+  return [...ids].map(id=>{
+    const u = users.find(x=>x.id===id);
+    const p = { id, nombre:u?.name || recs.find(r=>r.user_id===id)?.user_name || "—", programados:0, trabajados:0, ausencias:[], tardes:[], tardesExcusa:[], almuerzos:[], salidasAntes:[], despues:[], minNoche:0, domFest:[], minTrabajados:0, nr:[], sinSalida:[] };
+    dias.forEach(f=>{
+      const asig = asigMap.get(`${id}|${f}`), rs = recsPor.get(`${id}|${f}`) || [];
+      if(asig?.tienda_id){
+        const esp = entradaEsperadaAsig(asig, f, turnosHorarios);
+        const yaPaso = f<hoy || (esp!==null && esp!==undefined && ahoraMin>esp);
+        if(yaPaso || rs.length) p.programados++;
+        if(yaPaso && rs.length===0) p.ausencias.push({ fecha:f, tienda:asig.tienda_id });
+      }
+      rs.filter(r=>r.event==="omitido").forEach(r=>p.nr.push({ fecha:f, evento:r.time }));
+      const ent = rs.filter(r=>r.event==="entrada").sort((a,b)=>a.time.localeCompare(b.time))[0];
+      if(!ent) return;
+      p.trabajados++;
+      const shiftReal = asig?.tienda_id ? (asig.shift||ent.shift) : ent.shift;   // igual que Registros
+      const storeReal = asig?.tienda_id || ent.store;
+      const punt = calcPuntualidad(ent.time, shiftReal, f, storeReal, turnosHorarios, asig?.entrada_custom);
+      if(punt && !punt.puntual) (excusaAprobada(ent) ? p.tardesExcusa : p.tardes).push({ fecha:f, min:punt.diff, excusa:ent.excusa_tarde||null, aprobada:excusaAprobada(ent) });
+      const ini = rs.find(r=>r.event==="inicio_almuerzo")?.time, fin = rs.find(r=>r.event==="fin_almuerzo")?.time;
+      const desv = calcDesvioAlmuerzo(ini, fin);
+      if(desv!==null && desv>MARGEN_INFORME_MIN) p.almuerzos.push({ fecha:f, min:desv });
+      const sal = rs.find(r=>r.event==="salida")?.time;
+      if(!sal){
+        if(esDomingoOFestivo(f)) p.domFest.push({ fecha:f, min:0 });
+        if(f<hoy && !rs.some(r=>r.event==="omitido" && r.time==="salida")) p.sinSalida.push({ fecha:f });
+        return;
+      }
+      const e = minutosDeHHMM(ent.time), s = minutosDeHHMM(sal);
+      // Almuerzo real; si marcó inicio pero el fin quedó N/R, se descuentan los 60 min permitidos.
+      const alm = (ini && fin) ? Math.max(0, minutosDeHHMM(fin)-minutosDeHHMM(ini)) : ini ? DURACION_ALMUERZO_MIN : 0;
+      const trab = Math.max(0, s-e-alm);
+      p.minTrabajados += trab;
+      p.minNoche += Math.max(0, s - Math.max(e, INICIO_NOCHE_MIN));
+      if(esDomingoOFestivo(f)) p.domFest.push({ fecha:f, min:trab });
+      const salEsp = getExpectedSalida(shiftReal, f, storeReal, turnosHorarios, asig?.salida_custom);
+      if(salEsp!==null && salEsp!==undefined){
+        if(salEsp - s > MARGEN_INFORME_MIN) p.salidasAntes.push({ fecha:f, min:salEsp-s });
+        else if(s - salEsp > MARGEN_INFORME_MIN) p.despues.push({ fecha:f, min:s-salEsp });
+      }
     });
-    return { brutas:toHM(brutas), almuerzo:toHM(almuerzo), netas:toHM(brutas-almuerzo) };
-  };
+    p.reincidente = p.tardes.length >= REINCIDENCIA_TARDES;
+    return p;
+  }).filter(p=>p.programados>0 || p.trabajados>0)
+    .sort((a,b)=> (b.reincidente-a.reincidente) || (b.ausencias.length-a.ausencias.length) || (b.tardes.length-a.tardes.length) || a.nombre.localeCompare(b.nombre));
+};
 
-  const porAsesor = advisors.map(u=>{
-    const recs=recsMes.filter(r=>r.user_id===u.id);
-    const dias=new Set(recs.filter(r=>r.event==="entrada").map(r=>r.date));
-    const completas=[...dias].filter(d=>{ const ev=recs.filter(r=>r.date===d&&r.event!=="omitido").map(r=>r.event); return ORDEN.every(e=>ev.includes(e)); });
-    const incompletas=[...dias].filter(d=>recs.some(r=>r.date===d&&r.event==="omitido"));
-    const entradas=recs.filter(r=>r.event==="entrada").sort((a,b)=>b.date.localeCompare(a.date));
-    const horas=calcHorasAsesor(u.id);
-    return { id:u.id, nombre:u.name, dias:dias.size, completas:completas.length, incompletas:incompletas.length, ultimoDia:entradas[0]?.date||null, ...horas };
-  }).sort((a,b)=>b.dias-a.dias);
-
-  let totalNetasMin=0,totalAlmuerzoMin=0,jornadasConHoras=0,jornadasConAlmuerzo=0,totalDias=0;
-  porAsesor.forEach(a=>{
-    totalDias+=a.dias;
-    const dias=[...new Set(recsMes.filter(r=>r.user_id===a.id&&r.event==="entrada").map(r=>r.date))];
-    dias.forEach(d=>{
-      const rDia=recsMes.filter(r=>r.user_id===a.id&&r.date===d);
-      const entrada=rDia.find(r=>r.event==="entrada")?.time,salida=rDia.find(r=>r.event==="salida")?.time;
-      const iniA=rDia.find(r=>r.event==="inicio_almuerzo")?.time,finA=rDia.find(r=>r.event==="fin_almuerzo")?.time;
-      let b=0,al=0;
-      if(entrada&&salida){ const[eh,em]=entrada.split(":").map(Number),[sh,sm]=salida.split(":").map(Number); b=(sh*60+sm)-(eh*60+em); }
-      if(iniA&&finA){ const[ih,im]=iniA.split(":").map(Number),[fh,fm]=finA.split(":").map(Number); al=(fh*60+fm)-(ih*60+im); totalAlmuerzoMin+=al; jornadasConAlmuerzo++; }
-      if(b>0){ totalNetasMin+=b-al; jornadasConHoras++; }
+const coberturaTiendasMes = (prefix, hoy, ahoraMin, records, asignaciones, turnosHorarios) => {
+  const recs = records.filter(r=>r.date && r.date.startsWith(prefix) && r.date<=hoy);
+  const asigs = (asignaciones||[]).filter(a=>a.fecha && a.fecha.startsWith(prefix) && a.tienda_id);
+  const porTienda = {};
+  diasDelMesHasta(prefix, hoy).forEach(f=>{
+    const asigsDia = asigs.filter(a=>a.fecha===f);
+    [...new Set(asigsDia.map(a=>a.tienda_id))].forEach(t=>{
+      const asigT = asigsDia.filter(a=>a.tienda_id===t);
+      const ents = asigT.map(a=>entradaEsperadaAsig(a, f, turnosHorarios)).filter(x=>x!==null && x!==undefined);
+      const sals = asigT.map(a=>getExpectedSalida(a.shift, f, t, turnosHorarios, a.salida_custom)).filter(x=>x!==null && x!==undefined);
+      if(!ents.length || !sals.length) return;
+      const abre = Math.min(...ents), cierra = Math.max(...sals);
+      if(f===hoy && ahoraMin<=abre) return;                       // hoy todavía no le tocaba abrir
+      const hasta = f<hoy ? cierra : Math.min(cierra, ahoraMin);
+      const recsT = recs.filter(r=>r.date===f && r.store===t);
+      const entradasT = recsT.filter(r=>r.event==="entrada").map(r=>minutosDeHHMM(r.time));
+      const abrio = entradasT.length ? Math.min(...entradasT) : null;
+      // Presencia minuto a minuto entre la apertura y el cierre esperados.
+      const cuenta = new Array(Math.max(0, hasta-abre)).fill(0);
+      const sumar = (a,b) => { for(let m=Math.max(a,abre); m<Math.min(b,hasta); m++) cuenta[m-abre]++; };
+      [...new Set(recsT.map(r=>r.user_id))].forEach(uid=>{
+        const rs = recsT.filter(r=>r.user_id===uid);
+        const ent = rs.filter(r=>r.event==="entrada").map(r=>minutosDeHHMM(r.time)).sort((a,b)=>a-b)[0];
+        if(ent===undefined) return;
+        const asigP = asigT.find(a=>a.asesor_id===uid);
+        const salR = rs.find(r=>r.event==="salida")?.time;
+        const salEspP = asigP ? getExpectedSalida(asigP.shift, f, t, turnosHorarios, asigP.salida_custom) : null;
+        const sal = salR ? minutosDeHHMM(salR) : (f<hoy ? (salEspP ?? cierra) : ahoraMin);
+        const ini = rs.find(r=>r.event==="inicio_almuerzo")?.time, fin = rs.find(r=>r.event==="fin_almuerzo")?.time;
+        if(ini){
+          const i = minutosDeHHMM(ini);
+          const fi = fin ? minutosDeHHMM(fin) : (f<hoy || ahoraMin>i+DURACION_ALMUERZO_MIN ? i+DURACION_ALMUERZO_MIN : ahoraMin);
+          sumar(ent, i); sumar(fi, sal);
+        } else sumar(ent, sal);
+      });
+      const sinNadie = cuenta.filter(c=>c===0).length, unaSola = cuenta.filter(c=>c===1).length;
+      const faltas = asigT.filter(a=>{ const esp=entradaEsperadaAsig(a, f, turnosHorarios); return (f<hoy || (esp!==null && esp!==undefined && ahoraMin>esp)) && !recs.some(r=>r.date===f && r.user_id===a.asesor_id); }).map(a=>a.asesor_id);
+      const tardeAbrir = abrio===null ? null : abrio-abre;
+      if(!porTienda[t]) porTienda[t] = [];
+      porTienda[t].push({ fecha:f, abre, cierra, abrio, tardeAbrir, sinNadie, unaSola, faltas });
     });
   });
-  const promNetasHM    = toHM(jornadasConHoras>0?Math.round(totalNetasMin/jornadasConHoras):0);
-  const promAlmuerzoHM = toHM(jornadasConAlmuerzo>0?Math.round(totalAlmuerzoMin/jornadasConAlmuerzo):0);
+  return porTienda;
+};
 
-  const jornadasIncompletas=[];
-  recsMes.filter(r=>r.event==="omitido").forEach(r=>{ if(!jornadasIncompletas.find(j=>j.userId===r.user_id&&j.date===r.date&&j.evento===r.time)) jornadasIncompletas.push({userId:r.user_id,nombre:r.user_name,date:r.date,evento:r.time,tienda:stores[r.store]?.name}); });
-  jornadasIncompletas.sort((a,b)=>b.date.localeCompare(a.date));
+const SelectorMesInforme = ({ anio, mes, setAnioMes }) => {
+  const mover = (d) => { const x = new Date(anio, mes+d, 1); setAnioMes(x.getFullYear(), x.getMonth()); };
+  const b = { width:32, height:32, borderRadius:9, border:`1px solid ${C.border}`, background:"#fff", cursor:"pointer", color:C.text, fontSize:15, display:"grid", placeItems:"center" };
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+      <button aria-label="Mes anterior" onClick={()=>mover(-1)} style={b}>‹</button>
+      <div style={{ fontFamily:font.body, fontSize:18, fontWeight:700, color:C.text, minWidth:150, textAlign:"center" }}>{MESES_LARGO[mes]} {anio}</div>
+      <button aria-label="Mes siguiente" onClick={()=>mover(1)} style={b}>›</button>
+    </div>
+  );
+};
 
-  const exportCSV = () => {
-    const BOM = "\uFEFF";
-    const sep = ";";
-    const rows = [];
-    rows.push([`INFORME DE ASISTENCIA - ${meses[mes].toUpperCase()} ${anio}`]);
-    rows.push([]);
-    rows.push(["RESUMEN GENERAL"]);
-    rows.push(["Días trabajados total", totalDias]);
-    rows.push(["Promedio horas netas por jornada", promNetasHM]);
-    rows.push(["Promedio tiempo de almuerzo", promAlmuerzoHM]);
-    rows.push([]);
-    rows.push(["DETALLE POR ASESOR"]);
-    rows.push(["Asesor","Días trabajados","Jornadas completas","Jornadas incompletas","Horas brutas","Horas almuerzo","Horas netas","Último día"]);
-    porAsesor.forEach(a=>rows.push([a.nombre,a.dias,a.completas,a.incompletas,a.brutas,a.almuerzo,a.netas,a.ultimoDia||"—"]));
-    rows.push([]);
-    rows.push(["JORNADAS INCOMPLETAS"]);
-    rows.push(["Asesor","Tienda","Fecha","Evento no registrado"]);
-    jornadasIncompletas.forEach(j=>rows.push([j.nombre,j.tienda||"—",j.date,EVENT_LABELS[j.evento]||j.evento]));
-    const csv = BOM + rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(sep)).join("\n");
-    const blob = new Blob([csv],{type:"text/csv;charset=utf-8;"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href=url; a.download=`informe-${prefix}.csv`; a.click();
-    URL.revokeObjectURL(url);
+function ReportsScreen({ records, users, stores, isMobile, turnosHorarios, turnosAsignaciones }) {
+  const hoyCO = toColombiaDate();
+  const [anio,setAnio]=useState(hoyCO.getFullYear()), [mes,setMes]=useState(hoyCO.getMonth());
+  const [vista,setVista]=useState("nomina");
+  const [abierto,setAbierto]=useState(null);
+  const prefix = `${anio}-${String(mes+1).padStart(2,"0")}`;
+  const ahoraMin = hoyCO.getHours()*60 + hoyCO.getMinutes();
+  const futuro = prefix > todayStr.slice(0,7);
+  const personas = useMemo(()=> futuro ? [] : novedadesNominaMes(prefix, todayStr, ahoraMin, records, users||[], turnosAsignaciones, turnosHorarios), [prefix, records, users, turnosAsignaciones, turnosHorarios]); // eslint-disable-line react-hooks/exhaustive-deps
+  const tiendas = useMemo(()=> futuro ? {} : coberturaTiendasMes(prefix, todayStr, ahoraMin, records, turnosAsignaciones, turnosHorarios), [prefix, records, turnosAsignaciones, turnosHorarios]); // eslint-disable-line react-hooks/exhaustive-deps
+  const enCurso = prefix === todayStr.slice(0,7);
+  const fechaCorta = (f) => new Date(f+"T12:00:00").toLocaleDateString("es-CO",{ weekday:"short", day:"numeric" });
+  const tienda = (id) => nombreTiendaCorto(stores[id]);
+  const nReinc = personas.filter(p=>p.reincidente).length;
+  const totAus = personas.reduce((s,p)=>s+p.ausencias.length,0), totTar = personas.reduce((s,p)=>s+p.tardes.length,0);
+
+  const exportar = () => {
+    const sep=";", filas=[];
+    filas.push([`NOVEDADES DE NÓMINA - ${MESES_LARGO[mes].toUpperCase()} ${anio}${enCurso?` (corte al ${todayStr})`:""}`]);
+    filas.push([]);
+    filas.push(["Persona","Reincidente","Días programados","Días trabajados","Ausencias","Llegadas tarde","Min. tarde","Tarde con excusa aprobada","Almuerzos largos","Min. almuerzo de más","Salidas antes","Min. salidas antes","Min. después de su salida","Horas nocturnas (7pm+)","Días dom./festivo","Horas dom./festivo","Horas trabajadas","No registrados (N/R)","Días sin salida"]);
+    personas.forEach(p=>filas.push([p.nombre, p.reincidente?"SÍ":"", p.programados, p.trabajados, p.ausencias.length, p.tardes.length, sumaMin(p.tardes), p.tardesExcusa.length, p.almuerzos.length, sumaMin(p.almuerzos), p.salidasAntes.length, sumaMin(p.salidasAntes), sumaMin(p.despues), (p.minNoche/60).toFixed(2), p.domFest.length, (sumaMin(p.domFest)/60).toFixed(2), (p.minTrabajados/60).toFixed(2), p.nr.length, p.sinSalida.length]));
+    filas.push([]);
+    filas.push(["DETALLE"]);
+    filas.push(["Persona","Fecha","Novedad","Minutos","Nota"]);
+    personas.forEach(p=>{
+      p.ausencias.forEach(x=>filas.push([p.nombre,x.fecha,"Ausencia","",tienda(x.tienda)]));
+      p.tardes.forEach(x=>filas.push([p.nombre,x.fecha,"Llegada tarde",x.min,x.excusa?`Excusa NO aprobada: ${x.excusa}`:""]));
+      p.tardesExcusa.forEach(x=>filas.push([p.nombre,x.fecha,"Llegada tarde con excusa aprobada (no cuenta)",x.min,x.excusa||""]));
+      p.almuerzos.forEach(x=>filas.push([p.nombre,x.fecha,"Almuerzo largo",x.min,""]));
+      p.salidasAntes.forEach(x=>filas.push([p.nombre,x.fecha,"Salió antes",x.min,""]));
+      p.despues.forEach(x=>filas.push([p.nombre,x.fecha,"Después de su salida",x.min,""]));
+      p.domFest.forEach(x=>filas.push([p.nombre,x.fecha,"Domingo o festivo",x.min||"","" ]));
+      p.nr.forEach(x=>filas.push([p.nombre,x.fecha,"No registrado","",EVENT_LABELS[x.evento]||x.evento]));
+      p.sinSalida.forEach(x=>filas.push([p.nombre,x.fecha,"Sin salida","",""]));
+    });
+    const csv = "﻿" + filas.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(sep)).join("\n");
+    const url = URL.createObjectURL(new Blob([csv],{ type:"text/csv;charset=utf-8;" }));
+    const a = document.createElement("a"); a.href=url; a.download=`novedades-nomina-${prefix}.csv`; a.click(); URL.revokeObjectURL(url);
   };
 
-  const thStyle={padding:"10px 14px",textAlign:"left",fontFamily:font.body,fontSize:11,color:C.textMuted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:`1px solid ${C.border}`};
-  const tdStyle={padding:"11px 14px",fontFamily:font.body,fontSize:13,borderBottom:`1px solid ${C.border}`};
+  const th = { padding:"9px 10px", textAlign:"left", fontFamily:font.body, fontSize:10.5, color:C.textMuted, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em", whiteSpace:"nowrap", borderBottom:`1px solid ${C.border}` };
+  const td = { padding:"9px 10px", fontFamily:font.mono, fontSize:12.5, color:C.text, borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap" };
+  const num = (n, color) => n ? <span style={{ color, fontWeight:700 }}>{n}</span> : <span style={{ color:C.textMuted }}>—</span>;
+  const det = (titulo, items, color, fmt) => items.length===0 ? null : (
+    <div style={{ minWidth:180 }}>
+      <div style={{ fontFamily:font.body, fontSize:11, fontWeight:700, color, marginBottom:4 }}>{titulo} ({items.length})</div>
+      {items.map((x,i)=><div key={i} style={{ fontFamily:font.body, fontSize:12, color:C.textSub }}>{fechaCorta(x.fecha)} · {fmt(x)}</div>)}
+    </div>
+  );
 
   return (
     <div>
-      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20,gap:10,flexWrap:"wrap"}}>
-        <div><h1 style={{margin:0,fontFamily:font.body,fontSize:20,fontWeight:700,color:C.text}}>Informes</h1><div style={{fontFamily:font.body,fontSize:12,color:C.textMuted,marginTop:3}}>Análisis de asistencia del equipo</div></div>
-        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <select value={mes} onChange={e=>setMes(Number(e.target.value))} style={{background:C.surfaceAlt,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 12px",color:C.text,fontSize:13,fontFamily:font.body,outline:"none"}}>
-            {meses.map((m,i)=><option key={i} value={i}>{m}</option>)}
-          </select>
-          <select value={anio} onChange={e=>setAnio(Number(e.target.value))} style={{background:C.surfaceAlt,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 12px",color:C.text,fontSize:13,fontFamily:font.body,outline:"none"}}>
-            {[2025,2026,2027].map(y=><option key={y} value={y}>{y}</option>)}
-          </select>
-          <Btn onClick={exportCSV} variant="ghost" sm>⬇ Exportar Excel</Btn>
-        </div>
-      </div>
-
-      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr",gap:10,marginBottom:20}}>
-        <StatCard label="Promedio horas netas por jornada" value={promNetasHM}    icon="⏱" color={C.green}/>
-        <StatCard label="Promedio tiempo de almuerzo"      value={promAlmuerzoHM} icon="🍽" color={C.amber}/>
-      </div>
-
-      <Card p="0" style={{marginBottom:16}}>
-        <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.border}`,fontFamily:font.body,fontSize:13,fontWeight:600,color:C.text}}>Resumen por asesor — {meses[mes]} {anio}</div>
-        {isMobile?(
-          <div>
-            {porAsesor.map((a,i)=>(
-              <div key={a.id} style={{padding:"12px 16px",borderBottom:i<porAsesor.length-1?`1px solid ${C.border}`:"none"}}>
-                <div style={{fontFamily:font.body,fontSize:13,color:C.text,fontWeight:600,marginBottom:6}}>{a.nombre}</div>
-                <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:4}}>
-                  <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted}}>Días: <span style={{color:C.text,fontFamily:font.mono}}>{a.dias}</span></div>
-                  <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted}}>Completas: <Badge color={a.completas>0?C.green:C.textMuted} sm>{a.completas}</Badge></div>
-                  <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted}}>Incompletas: <Badge color={a.incompletas>0?C.red:C.textMuted} sm>{a.incompletas}</Badge></div>
-                </div>
-                <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-                  <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted}}>Horas netas: <span style={{color:C.green,fontFamily:font.mono,fontWeight:600}}>{a.netas}</span></div>
-                  <div style={{fontFamily:font.body,fontSize:11,color:C.textMuted}}>Almuerzo: <span style={{color:C.amber,fontFamily:font.mono}}>{a.almuerzo}</span></div>
-                </div>
-                {a.ultimoDia&&<div style={{fontFamily:font.mono,fontSize:11,color:C.textMuted,marginTop:4}}>Último día: {a.ultimoDia}</div>}
-              </div>
-            ))}
-            {porAsesor.length===0&&<div style={{padding:20,textAlign:"center",color:C.textMuted,fontFamily:font.body,fontSize:13}}>Sin registros para este mes.</div>}
-          </div>
-        ):(
-          <table style={{width:"100%",borderCollapse:"collapse"}}>
-            <thead><tr>{["Asesor","Días","Completas","Incompletas","Horas brutas","Almuerzo","Horas netas","Último día"].map(h=><th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-            <tbody>
-              {porAsesor.map((a,i)=>(
-                <tr key={a.id} style={{background:i%2===0?"transparent":`${C.surfaceAlt}44`}}>
-                  <td style={{...tdStyle,color:C.text,fontWeight:500}}>{a.nombre}</td>
-                  <td style={{...tdStyle,color:C.text,fontFamily:font.mono}}>{a.dias}</td>
-                  <td style={tdStyle}><Badge color={a.completas>0?C.green:C.textMuted} sm>{a.completas}</Badge></td>
-                  <td style={tdStyle}><Badge color={a.incompletas>0?C.red:C.textMuted} sm>{a.incompletas}</Badge></td>
-                  <td style={{...tdStyle,fontFamily:font.mono,fontSize:12,color:C.textMuted}}>{a.brutas}</td>
-                  <td style={{...tdStyle,fontFamily:font.mono,fontSize:12,color:C.amber}}>{a.almuerzo}</td>
-                  <td style={{...tdStyle,fontFamily:font.mono,fontSize:13,color:C.green,fontWeight:600}}>{a.netas}</td>
-                  <td style={{...tdStyle,color:C.textMuted,fontFamily:font.mono,fontSize:12}}>{a.ultimoDia||"—"}</td>
-                </tr>
-              ))}
-              {porAsesor.length===0&&<tr><td colSpan={8} style={{...tdStyle,textAlign:"center",color:C.textMuted}}>Sin registros para este mes.</td></tr>}
-            </tbody>
-          </table>
-        )}
-      </Card>
-
-      <Card p="0">
-        <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.border}`,fontFamily:font.body,fontSize:13,fontWeight:600,color:C.text}}>Detalle jornadas incompletas</div>
-        <div style={{maxHeight:300,overflowY:"auto"}}>
-          {jornadasIncompletas.length===0&&<div style={{padding:"20px",textAlign:"center",color:C.textMuted,fontFamily:font.body,fontSize:12}}>Sin jornadas incompletas este mes. ✅</div>}
-          {jornadasIncompletas.map((j,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:`1px solid ${C.border}`,background:`${C.red}06`}}>
-              <div style={{flex:1}}><div style={{fontFamily:font.body,fontSize:12,color:C.text,fontWeight:500}}>{j.nombre}</div><div style={{fontFamily:font.body,fontSize:11,color:C.textMuted}}>{j.tienda} · {j.date}</div></div>
-              <Badge color={C.red} sm>{EVENT_LABELS[j.evento]||j.evento}</Badge>
-            </div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap", marginBottom:14 }}>
+        <SelectorMesInforme anio={anio} mes={mes} setAnioMes={(y,m)=>{ setAnio(y); setMes(m); setAbierto(null); }}/>
+        <div style={{ display:"inline-flex", gap:2, padding:3, borderRadius:10, background:C.surfaceAlt, border:`1px solid ${C.border}` }}>
+          {[["nomina","Nómina del mes"],["tiendas","Tiendas"]].map(([k,l])=>(
+            <button key={k} onClick={()=>setVista(k)} style={{ height:30, padding:"0 14px", borderRadius:8, border:"none", cursor:"pointer", background:vista===k?"#fff":"transparent", boxShadow:vista===k?"0 1px 4px rgba(20,40,60,0.14)":"none", fontFamily:font.body, fontSize:12.5, fontWeight:700, color:vista===k?C.text:C.textMuted }}>{l}</button>
           ))}
         </div>
-      </Card>
+        {vista==="nomina" && <Btn onClick={exportar} variant="ghost" sm disabled={!personas.length}>⬇ Exportar a Excel</Btn>}
+      </div>
+      {enCurso && <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:12 }}>Mes en curso: cuenta hasta hoy. Para nómina, descárgalo el último día del mes.</div>}
+      {futuro && <Card><div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>Este mes todavía no empieza.</div></Card>}
+
+      {!futuro && vista==="nomina" && <>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+          <StatCard label="Personas" value={personas.length} icon="👥" color={C.blue}/>
+          <StatCard label={`Reincidentes (${REINCIDENCIA_TARDES}+ tardes sin excusa aprobada)`} value={nReinc} icon="🔁" color={nReinc?C.red:C.textMuted}/>
+          <StatCard label="Ausencias" value={totAus} icon="⚠️" color={totAus?C.red:C.textMuted}/>
+          <StatCard label="Llegadas tarde" value={totTar} icon="⏰" color={totTar?C.amber:C.textMuted}/>
+        </div>
+        <Card p="0">
+          <div className="ozen-sin-barra" style={{ overflowX:"auto" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead><tr>{["Persona","Días","Ausencias","Tarde","Almuerzo +60","Salió antes","Después de salida","Nocturnas","Dom./fest.","Horas","N/R"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {personas.map(p=>{ const ab = abierto===p.id; return (
+                  <Fragment key={p.id}>
+                    <tr onClick={()=>setAbierto(ab?null:p.id)} style={{ cursor:"pointer", background:ab?C.surfaceAlt:"transparent" }}>
+                      <td style={{ ...td, fontFamily:font.body, fontWeight:600 }}>{ab?"▾ ":"▸ "}{p.nombre}{p.reincidente && <span style={{ marginLeft:8 }}><Badge color={C.red} sm>Reincidente</Badge></span>}</td>
+                      <td style={td} title="trabajados / programados">{p.trabajados}<span style={{ color:C.textMuted }}>/{p.programados}</span></td>
+                      <td style={td}>{num(p.ausencias.length, C.red)}</td>
+                      <td style={td}>{num(p.tardes.length, C.amber)}{p.tardes.length>0 && <span style={{ color:C.textMuted }}> · {fmtHM(sumaMin(p.tardes))}</span>}{p.tardesExcusa.length>0 && <span style={{ color:C.textMuted }} title="Con excusa aprobada (no cuentan)"> +{p.tardesExcusa.length}✓</span>}</td>
+                      <td style={td}>{num(p.almuerzos.length, C.amber)}{p.almuerzos.length>0 && <span style={{ color:C.textMuted }}> · {fmtHM(sumaMin(p.almuerzos))}</span>}</td>
+                      <td style={td}>{num(p.salidasAntes.length, C.amber)}{p.salidasAntes.length>0 && <span style={{ color:C.textMuted }}> · {fmtHM(sumaMin(p.salidasAntes))}</span>}</td>
+                      <td style={td}>{fmtHM(sumaMin(p.despues))}</td>
+                      <td style={td}>{fmtHM(p.minNoche)}</td>
+                      <td style={td}>{p.domFest.length ? `${p.domFest.length} · ${fmtHM(sumaMin(p.domFest))}` : "—"}</td>
+                      <td style={{ ...td, fontWeight:700 }}>{fmtHM(p.minTrabajados)}</td>
+                      <td style={td}>{num(p.nr.length + p.sinSalida.length, C.red)}</td>
+                    </tr>
+                    {ab && <tr><td colSpan={11} style={{ padding:"12px 14px", borderBottom:`1px solid ${C.border}`, background:C.surfaceAlt }}>
+                      <div style={{ display:"flex", gap:22, flexWrap:"wrap" }}>
+                        {det("Ausencias", p.ausencias, C.red, x=>tienda(x.tienda))}
+                        {det("Llegadas tarde", p.tardes, C.amber, x=>`${x.min} min${x.excusa?" · excusa no aprobada":""}`)}
+                        {det("Tarde con excusa aprobada (no cuenta)", p.tardesExcusa, C.textMuted, x=>`${x.min} min · ${x.excusa}`)}
+                        {det("Almuerzos largos", p.almuerzos, C.amber, x=>`+${x.min} min`)}
+                        {det("Salió antes", p.salidasAntes, C.amber, x=>`${x.min} min antes`)}
+                        {det("Después de su salida", p.despues, C.blue, x=>`${x.min} min`)}
+                        {det("Domingos y festivos", p.domFest, C.blue, x=>x.min?fmtHM(x.min):"sin salida")}
+                        {det("No registrados (N/R)", p.nr, C.red, x=>EVENT_LABELS[x.evento]||x.evento)}
+                        {det("Sin salida", p.sinSalida, C.red, ()=>"no marcó salida")}
+                        {!(p.ausencias.length+p.tardes.length+p.tardesExcusa.length+p.almuerzos.length+p.salidasAntes.length+p.despues.length+p.domFest.length+p.nr.length+p.sinSalida.length) && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.green }}>✓ Sin novedades este mes.</div>}
+                      </div>
+                    </td></tr>}
+                  </Fragment>
+                ); })}
+                {personas.length===0 && <tr><td colSpan={11} style={{ ...td, fontFamily:font.body, color:C.textMuted, textAlign:"center", padding:24 }}>Sin turnos ni registros este mes.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+        <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:10, lineHeight:1.5 }}>
+          Tarde = más de 5 min después de su hora (igual que Registros); solo dejan de contar las que tienen excusa aprobada. Reincidente = {REINCIDENCIA_TARDES} o más tardes sin excusa aprobada en el mes. Ausencia = tenía turno publicado y no marcó nada. Nocturnas = después de las 7:00 p. m. Las horas solo cuentan días con salida marcada. Son conteos para revisar: la liquidación la decides tú.
+        </div>
+      </>}
+
+      {!futuro && vista==="tiendas" && <>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(2, minmax(0,1fr))", gap:12 }}>
+          {Object.keys(tiendas).sort((a,b)=>tienda(a).localeCompare(tienda(b))).map(t=>{
+            const ds = tiendas[t];
+            const tarde = ds.filter(d=>d.tardeAbrir!==null && d.tardeAbrir>MARGEN_INFORME_MIN), sinAbrir = ds.filter(d=>d.abrio===null);
+            const promTarde = tarde.length ? Math.round(tarde.reduce((s,d)=>s+d.tardeAbrir,0)/tarde.length) : 0;
+            const sinNadie = ds.reduce((s,d)=>s+d.sinNadie,0), unaSola = ds.reduce((s,d)=>s+d.unaSola,0), faltas = ds.reduce((s,d)=>s+d.faltas.length,0);
+            const problemas = ds.filter(d=>d.abrio===null || (d.tardeAbrir>MARGEN_INFORME_MIN) || d.sinNadie>MARGEN_INFORME_MIN || d.faltas.length).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+            const dato = (l, v, color) => <div><div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color }}>{v}</div><div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{l}</div></div>;
+            return (
+              <Card key={t} style={{ borderTop:`3px solid ${colorTienda(stores[t])}` }}>
+                <div style={{ fontFamily:font.body, fontSize:15, fontWeight:700, color:C.text, marginBottom:12 }}>{tienda(t)} <span style={{ fontSize:12, fontWeight:400, color:C.textMuted }}>· {ds.length} días</span></div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:12 }}>
+                  {dato("Abrió tarde", `${tarde.length}`, tarde.length?C.amber:C.textMuted)}
+                  {dato("Promedio de retraso", promTarde?`${promTarde} min`:"—", promTarde?C.amber:C.textMuted)}
+                  {dato("Sin marcar apertura", `${sinAbrir.length}`, sinAbrir.length?C.red:C.textMuted)}
+                  {dato("Tiempo sin nadie", fmtHM(sinNadie), sinNadie?C.red:C.textMuted)}
+                  {dato("Con 1 sola persona", fmtHM(unaSola), C.text)}
+                  {dato("Faltas", `${faltas}`, faltas?C.red:C.textMuted)}
+                </div>
+                {problemas.length>0 && <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:8, display:"flex", flexDirection:"column", gap:3 }}>
+                  {problemas.slice(0,10).map(d=>(
+                    <div key={d.fecha} style={{ fontFamily:font.body, fontSize:12, color:C.textSub }}>
+                      <b style={{ color:C.text }}>{fechaCorta(d.fecha)}</b>{" · "}
+                      {d.abrio===null ? <span style={{ color:C.red }}>nadie marcó entrada (debía abrir {fmtHora12(hhmmDeMinutos(d.abre))})</span>
+                        : d.tardeAbrir>MARGEN_INFORME_MIN ? <span>abrió {fmtHora12(hhmmDeMinutos(d.abrio))} (debía {fmtHora12(hhmmDeMinutos(d.abre))})</span> : <span>abrió a tiempo</span>}
+                      {d.abrio!==null && d.sinNadie>MARGEN_INFORME_MIN && <span style={{ color:C.red }}> · {fmtHM(d.sinNadie)} sin nadie</span>}
+                      {d.faltas.length>0 && <span style={{ color:C.red }}> · {d.faltas.length} falta{d.faltas.length>1?"s":""}</span>}
+                    </div>
+                  ))}
+                  {problemas.length>10 && <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>y {problemas.length-10} días más…</div>}
+                </div>}
+              </Card>
+            );
+          })}
+          {Object.keys(tiendas).length===0 && <Card><div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>No hay turnos publicados con horario este mes.</div></Card>}
+        </div>
+        <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:10, lineHeight:1.5 }}>
+          Debía abrir = la primera hora de entrada de quienes tenían turno ahí ese día. Abrió = la primera entrada marcada en esa tienda. "Sin nadie" y "1 sola persona" cuentan el tiempo entre la apertura y el cierre esperados (sin contar almuerzos); si alguien no marcó salida se toma su hora de salida esperada.
+        </div>
+      </>}
     </div>
   );
 }
@@ -17213,13 +17390,13 @@ export default function App() {
         if(tab==="progreso")     return <CapacitacionProgresoScreen users={users} {...propsCapacitacion}/>;
         if(tab==="cursos_admin" && puedeEditarCapacitacion(user)) return <CapacitacionAdminScreen {...propsCapacitacion}/>;
       } else {
-        // Asistencia (22 nov 2026): Turnos lleva arriba el selector Malla · Resumen · Informes ·
-        // Mi Historial (como Métricas en Ventas); Registros es su propia pestaña.
-        if(tab==="dashboard" && puede(user, "asistencia.panel")) return conSelectorTurnos(<ResumenAsistenciaScreen records={records} stores={stores} users={users} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones} isMobile={isMobile}/>);
+        // Asistencia (22 nov 2026): Turnos lleva arriba el selector Malla · Informes · Mi Historial
+        // (como Métricas en Ventas); Registros es su propia pestaña.
         if(tab==="records" && puede(user, "asistencia.registros.ver")) return <RecordsScreen records={records} stores={stores} users={users} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones} user={user} onRecordDeleted={onRecordDeletedAdmin} onRecordUpdated={onRecordUpdatedAdmin}/>;
-        if(tab==="turnos" && puede(user, "turnos.ver")) return conSelectorTurnos(<TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={permisosTurnos(user).algo} permisos={permisosTurnos(user)} onSubChange={setTurnosSub} userName={user.name}/>);
+        if(tab==="turnos" && puede(user, "turnos.ver")) return conSelectorTurnos(<TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={permisosTurnos(user).algo} permisos={permisosTurnos(user)} onSubChange={setTurnosSub} userName={user.name}
+          cuadroAsistencia={puede(user, "asistencia.panel") ? <AsistenciaHoyCuadro records={records} stores={stores} users={users} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/> : null}/>);
         if(tab==="mi_historial" && puede(user, "asistencia.historial")) return conSelectorTurnos(<HistoryScreen user={user} records={records} stores={stores} onRecordUpdated={onRecordUpdatedAdmin} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>);
-        if(tab==="reports" && puede(user, "asistencia.informes")) return conSelectorTurnos(<ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile}/>);
+        if(tab==="reports" && puede(user, "asistencia.informes")) return conSelectorTurnos(<ReportsScreen records={records} users={users} stores={stores} isMobile={isMobile} turnosHorarios={turnosHorarios} turnosAsignaciones={turnosAsignaciones}/>);
       }
     } else if(esCuentaTienda(user)){
       if(tab==="registrar") return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} opAvisos={opEstado==="listo" ? opExternas : opCampana} onIrAOrden={(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); }} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/>;

@@ -1243,20 +1243,40 @@ Pedido de Santiago: la misma navegación de Ventas.
   Desaparecen las pestañas Panel, Marcar Asistencia e Informes.
 - **Asesores:** Turnos · ( + ) · Mi Historial (`ADVISOR_TABS`). Entran por Turnos.
 - **Cuentas de tienda:** sin cambios (no entran a Asistencia; su Turnos sigue siendo solo la malla).
-- **Turnos** abre por defecto (`inicioAsistencia`) y arriba lleva el selector Malla · Resumen ·
-  Informes · Mi Historial (`VISTAS_TURNOS_ASISTENCIA`, `SelectorVistas`, `conSelectorTurnos`). Cada
-  opción sale solo con su permiso (turnos.ver, asistencia.panel, asistencia.informes,
-  asistencia.historial). Las vistas son pestañas "escondidas" (`dashboard`, `reports`,
-  `mi_historial`); la barra ilumina Turnos.
+- **Turnos** abre por defecto (`inicioAsistencia`) y arriba lleva el selector Malla · Informes ·
+  Mi Historial (`VISTAS_TURNOS_ASISTENCIA`, `SelectorVistas`, `conSelectorTurnos`). Cada opción sale
+  solo con su permiso (turnos.ver, asistencia.informes, asistencia.historial). Las vistas son
+  pestañas "escondidas" (`reports`, `mi_historial`); la barra ilumina Turnos.
 - **+ = ventana en burbuja** para marcar (`modalMarcar` con `CheckInScreen enVentana`). La nube es
   ahora un componente compartido, `VentanaNube`, que también usa Registrar venta (mismo dibujo y
   animación). La de Marcar se desmonta al cerrarse (apaga la cámara); la cámara y los avisos de
   CheckIn se pintan encima de todo (portal) cuando va en la burbuja. Sale si tiene asistencia.marcar.
-- **Resumen** (`ResumenAsistenciaScreen`, reemplaza `DashboardScreen`): En turno ahora, Llegaron
-  tarde, Faltan, Aún no llegan. Tarde = mismo cálculo de Registros (`calcPuntualidad` contra el turno
-  publicado del día). Falta = turno publicado hoy con tienda, nada marcado hoy y ya pasó su hora de
-  entrada (`entrada_custom` o horario vigente); antes de esa hora sale en "Aún no llegan"; sin horario
-  definido nunca es falta. Solo lee; no cambia cómo se evalúa ninguna jornada.
+- **Ajuste (22 nov, tarde):** se quitó la vista Resumen (y el Panel). En la Malla el orden es: Hoy en
+  las tiendas (ayer · hoy · mañana, ahora SIEMPRE visible: si no hay turnos publicados esos días lo
+  dice) · Turnos y horarios · **Asistencia de hoy** (`AsistenciaHoyCuadro`, solo con
+  asistencia.panel) · Malla · Alertas. El cuadro tiene Faltan · Llegaron tarde · En turno · Aún no
+  llegan (`resumenAsistenciaDia`). Tarde = mismo cálculo de Registros (`calcPuntualidad` contra el
+  turno publicado del día). Falta = turno publicado hoy con tienda, nada marcado hoy y ya pasó su
+  hora de entrada (`entrada_custom` o horario vigente); antes de esa hora sale en "Aún no llegan";
+  sin horario definido nunca es falta. Solo lee; no cambia cómo se evalúa ninguna jornada.
+- **Informes rediseñados (22 nov, en `staging`):** `ReportsScreen` nuevo, por MES CALENDARIO (la
+  nómina de OZEN es mensual y se paga el 1.º). Dos vistas:
+  - **Nómina del mes** (`novedadesNominaMes`): por persona — días trabajados/programados, ausencias,
+    llegadas tarde (n.º y minutos; las que tienen excusa no cuentan), almuerzos de más de 60+5 min,
+    salidas antes y tiempo después de su salida (±5 min contra la salida esperada), horas después de
+    las 7 p. m., domingos/festivos (`festivosColombia`), horas trabajadas, N/R y días sin salida.
+    **Reincidente = 3 o más tardes sin excusa en el mes** (decisión de Santiago, `REINCIDENCIA_TARDES`).
+    Exporta a Excel (CSV) con resumen y detalle. Son conteos para revisar; la liquidación la decide GH.
+  - **Tiendas** (`coberturaTiendasMes`): por tienda y día — hora en que debía abrir (primera entrada
+    esperada) vs. primera entrada real, días sin apertura marcada, tiempo sin nadie y con 1 sola
+    persona entre apertura y cierre esperados, faltas.
+- **Excusa de llegada tarde (con aprobación):** columnas `registros.excusa_tarde` (motivo) y
+  `registros.excusa_estado` ('aprobada' | 'no_aprobada') — `sql/registros_excusa_tarde.sql`, correr en
+  staging y en producción. En Registros, botón "Excusar" junto al "Tarde": se escribe el motivo y se
+  elige ✓ Aprobar / ✕ No aprobar (o Quitar excusa); solo con `asistencia.registros.corregir`.
+  **Solo la excusa APROBADA hace que la tardanza no cuente** (`excusaAprobada`) en Informes,
+  reincidencia y "Asistencia de hoy"; una no aprobada sigue contando como tarde sin excusa válida
+  (decisión de Santiago, 22 nov 2026).
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
