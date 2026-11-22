@@ -1278,6 +1278,33 @@ Pedido de Santiago: la misma navegación de Ventas.
   reincidencia y "Asistencia de hoy"; una no aprobada sigue contando como tarde sin excusa válida
   (decisión de Santiago, 22 nov 2026).
 
+## La Junta — navegación nueva (22 nov 2026; en `staging`, falta que Santiago lo pruebe)
+
+Pedido de Santiago: la misma navegación de Ventas y Asistencia.
+- **Barra:** Seguimiento · ( + ) · Perfiles y áreas · Rol de Monitor (`ADMIN_TABS_JUNTA`, en ese
+  orden a propósito; NO pasa por `centrarMas`, que movería Rol de Monitor a la izquierda). El + tiene
+  id `"junta_mas"` (`esBotonMas` reconoce mas, marcar y junta_mas). Salen las pestañas Indicadores y
+  Acuerdos y decisiones (si alguien llega a esos ids, se muestra Seguimiento y la barra ilumina Seguimiento).
+- **Permisos:** todas las pestañas siguen pidiendo `junta.ver`. El + sale solo a quien puede crear
+  tareas (`junta.tareas.gestionar` "si es Monitor", `juntaPuedeCrearTarea`) o acuerdos
+  (`junta.acuerdos.crear`) — `tabsJunta`. `tabsPara` y `BottomNav` reciben ahora `juntaLideres`.
+- **+ = ventana en burbuja** (`VentanaNube`, `modalJuntaNueva` en `App`): arriba el selector
+  Tarea · Acuerdo (solo las opciones que la persona puede crear; con una sola, sale su título). Usa los
+  formularios de siempre, sacados tal cual: `JuntaNuevaTareaForm` y `JuntaNuevoAcuerdoForm`. Al
+  guardar se cierra. Se desmonta al cerrar.
+- **Seguimiento = pantalla principal:** título "Seguimiento", Monitor actual y un solo selector
+  ‹ mes › (desde agosto 2026 hasta el mes calendario en curso) para indicadores y lista.
+  - Arriba `JuntaIndicadoresCompacto`: franja Sesiones · Cumplimiento · A tiempo + % de cada líder
+    (siempre visibles). "Ver detalle" despliega `JuntaIndicadoresTab embebido` (rankings, botón
+    "Congelar este mes ahora" e historial; clic en un mes del historial lo elige arriba). Mismos
+    cálculos: foto fija si el mes está congelado; si no, `statsDelMes`/`statsPorLiderDelMes`.
+  - Abajo el selector Tareas · Acuerdos. Tareas: lista seguida, sin encabezados por semana; se quitó
+    el filtro Semana 1-4 (solo cambiaba lo visible, nunca los indicadores). Siguen los filtros
+    Activas/Todas/Cumplidas/Vencidas, por líder y el orden (más vieja primero o por líder). "Activas"
+    sigue mirando todas las tareas vivas, sin importar el mes. Acuerdos: todos, del más reciente al
+    más viejo (`JuntaAcuerdosLista`), no se acotan al mes.
+  - El botón "Nueva tarea" del encabezado se quitó (lo reemplaza el +).
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
