@@ -1172,6 +1172,10 @@ ahora es una tabla dinámica sencilla:
   (caja Filtros) y "Empezar de cero". **"Las que más usas"** (por equipo, `ozen-consultas-uso` en
   localStorage): una consulta cuenta si queda 20 s en pantalla, máximo una vez al día; sube al menú
   al usarse en 3 días distintos de los últimos 30 (máx. 5); lo que no se usa en 60 días se borra.
+- **Diseño (21 nov):** cada caja con su color (`CONS_ZONAS`: Filas azul, Columnas Sombra, Valores
+  verde, Filtros ámbar), ícono y fichas teñidas con ícono por campo/valor; menú "Consultas listas"
+  destacado; Periodo y Comparar en dos franjas. Selector de gráfico: Tabla de primera y solo los
+  gráficos que aplican (los demás no se muestran).
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 

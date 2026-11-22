@@ -8666,7 +8666,7 @@ const lvChipEstilo = (on) => ({ display:"inline-flex", alignItems:"center", gap:
 const LvNum = ({ n }) => n>0 ? <span style={{ background:C.goldDark, color:C.tinta, borderRadius:99, fontSize:11, padding:"1px 7px", lineHeight:"16px" }}>{n}</span> : null;
 
 // Ficha con listita desplegable (se cierra tocando afuera o con Esc).
-function LvFicha({ label, n, icono, children, ancho=250 }) {
+function LvFicha({ label, n, icono, children, ancho=250, estilo }) {
   const [abierta, setAbierta] = useState(false);
   const [aDerecha, setADerecha] = useState(false);
   const ref = useRef(null);
@@ -8683,7 +8683,7 @@ function LvFicha({ label, n, icono, children, ancho=250 }) {
   }, [abierta]);
   return (
     <span ref={ref} style={{ position:"relative", display:"inline-flex" }}>
-      <button onClick={abrir} style={lvChipEstilo(n>0 || abierta)}>{icono}{label}<LvNum n={n}/><Icon n="down" s={12} sw={2.2} style={{ opacity:0.6, transform:abierta?"rotate(180deg)":"none", transition:"transform .2s" }}/></button>
+      <button onClick={abrir} style={{ ...lvChipEstilo(n>0 || abierta), ...(estilo||{}) }}>{icono}{label}<LvNum n={n}/><Icon n="down" s={12} sw={2.2} style={{ opacity:0.6, transform:abierta?"rotate(180deg)":"none", transition:"transform .2s" }}/></button>
       {abierta && (
         <div style={{ position:"absolute", top:"calc(100% + 6px)", ...(aDerecha ? { right:0 } : { left:0 }), zIndex:30, width:ancho, maxWidth:"calc(100vw - 16px)", maxHeight:380, overflowY:"auto", background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, boxShadow:"0 14px 40px rgba(26,59,82,0.16)", padding:12 }}>
           {children}
@@ -9590,7 +9590,7 @@ const ConsDelta = ({ act, prev, inverso, sufijo }) => {
 const CONS_GRAFICOS = [
   { v:"barras", l:"Barras" }, { v:"columnas", l:"Columnas" }, { v:"barras100", l:"Barras 100 %" },
   { v:"linea", l:"Línea" }, { v:"area", l:"Área" }, { v:"dona", l:"Dona" },
-  { v:"mapa", l:"Mapa de calor" }, { v:"podio", l:"Podio" }, { v:"tabla", l:"Solo tabla" },
+  { v:"mapa", l:"Mapa de calor" }, { v:"podio", l:"Podio" }, { v:"tabla", l:"Tabla" },
 ];
 const ConsIconoGrafico = ({ v }) => {
   const b = C.gold;
@@ -9629,6 +9629,10 @@ const CONS_VALORES = [
   { value:"meta", label:"Meta" },
   { value:"cumpl", label:"Cumplimiento %" },
 ];
+const CONS_ICONO_CAMPO = { tienda:"store", asesor:"user", dia:"cal", semana:"cal", mes:"cal", dow:"cal", hora:"clock", tipo:"tag", medio:"card" };
+const CONS_ICONO_VALOR = { sin:"cash", ingreso:"wallet", servicios:"wrench", count:"list", ticket:"receipt", descuento:"tag", meta:"target", cumpl:"trophy" };
+// Color de cada caja de la tabla dinámica (para distinguirlas de un vistazo).
+const CONS_ZONAS = { filas:{ color:C.gold, ic:"list" }, columnas:{ color:C.goldDark, ic:"grid" }, valores:{ color:C.green, ic:"chart" }, filtros:{ color:C.amber, ic:"target" } };
 const CONS_CAMPOS_FILTRO = ["tienda","asesor","tipo","medio","dow"];
 const CONS_CAMPOS_META = ["tienda","asesor","dia","semana","mes","dow"];
 const CONS_COMPARAR2 = [
@@ -10039,7 +10043,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
 
   const selectorGrafico = (
     <div className="ozen-sin-barra" style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:2, margin:"6px 0 14px" }}>
-      {CONS_GRAFICOS.map(g=>{ const ok = disponible[g.v]; const on = grafica===g.v; return (
+      {[...CONS_GRAFICOS.filter(g=>g.v==="tabla"), ...CONS_GRAFICOS.filter(g=>g.v!=="tabla" && disponible[g.v])].map(g=>{ const ok = true; const on = grafica===g.v; return (
         <button key={g.v} disabled={!ok} title={ok ? g.l : `${g.l}: no aplica para esta pregunta`} onClick={()=>setGraficaForzadaVista(g.v===graficaAuto?"":g.v)}
           style={{ flex:"0 0 auto", display:"flex", flexDirection:"column", alignItems:"center", gap:4, width:isMobile?76:84, padding:"8px 4px 6px", borderRadius:12, border:on?`1.5px solid ${C.gold}`:`1px solid ${C.border}`, background:on?"rgba(38,93,127,0.07)":"#fff", cursor:ok?"pointer":"not-allowed", opacity:ok?1:0.32, fontFamily:font.body, fontSize:11, fontWeight:on?700:600, color:on?C.goldDark:C.textSub }}>
           <ConsIconoGrafico v={g.v}/>{g.l}
@@ -10179,26 +10183,43 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   const toggleFiltro = (campo, v) => setCfg(prev=>{ const act = prev.filtros[campo]||[]; return { ...prev, filtros:{ ...prev.filtros, [campo]: act.includes(v) ? act.filter(x=>x!==v) : [...act, v] } }; });
   const quitarFiltro = (campo) => setCfg(prev=>{ const f = { ...prev.filtros }; delete f[campo]; return { ...prev, filtros:f }; });
 
-  const ficha = (contenido, onQuitar, extra) => (
-    <span style={{ display:"inline-flex", alignItems:"center", gap:4, height:30, padding:"0 4px 0 10px", borderRadius:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, fontFamily:font.body, fontSize:12.5, fontWeight:600, color:C.text, maxWidth:"100%" }}>
-      <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{contenido}</span>
-      {extra}
-      {onQuitar && <button aria-label="Quitar" onClick={onQuitar} style={{ all:"unset", cursor:"pointer", width:20, height:20, borderRadius:6, display:"grid", placeItems:"center", color:C.textMuted }}><Icon n="x" s={11} sw={2.4}/></button>}
-    </span>
-  );
-  const flecha = (txt, onClick, label) => <button aria-label={label} onClick={onClick} style={{ all:"unset", cursor:"pointer", width:18, height:20, display:"grid", placeItems:"center", color:C.textMuted, fontSize:11 }}>{txt}</button>;
-  const agregar = (label, opciones, onElegir) => opciones.length>0 && (
-    <LvFicha label={label} n={0} ancho={230}>
-      {opciones.map(o=><LvOpcion key={o.value} on={false} onClick={()=>onElegir(o.value)}>{o.label}</LvOpcion>)}
+  // Ficha de un campo dentro de su caja: tinte del color de la caja, ícono, y quitar / mover.
+  const ficha = (contenido, onQuitar, extra, zona, icono, num) => {
+    const col = CONS_ZONAS[zona]?.color || C.gold;
+    return (
+      <span style={{ display:"inline-flex", alignItems:"center", gap:6, height:32, padding:"0 4px 0 8px", borderRadius:9, background:hexToRgba(col,0.08), border:`1px solid ${hexToRgba(col,0.28)}`, fontFamily:font.body, fontSize:12.5, fontWeight:700, color:col, maxWidth:"100%" }}>
+        {num!==undefined && <span style={{ minWidth:18, height:18, borderRadius:6, background:col, color:"#fff", fontSize:10.5, display:"grid", placeItems:"center" }}>{num}</span>}
+        {icono && <Icon n={icono} s={14} sw={2}/>}
+        <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:C.text }}>{contenido}</span>
+        {extra}
+        {onQuitar && <button aria-label="Quitar" onClick={onQuitar} style={{ all:"unset", cursor:"pointer", width:22, height:22, borderRadius:6, display:"grid", placeItems:"center", color:C.textMuted }}><Icon n="x" s={11} sw={2.4}/></button>}
+      </span>
+    );
+  };
+  const flecha = (txt, onClick, label) => <button aria-label={label} title={label} onClick={onClick} style={{ all:"unset", cursor:"pointer", width:16, height:22, display:"grid", placeItems:"center", color:C.textMuted, fontSize:9.5 }}>{txt}</button>;
+  const agregar = (label, opciones, onElegir, zona) => opciones.length>0 && (
+    <LvFicha label={label} n={0} ancho={240} estilo={{ height:32, border:`1.5px dashed ${hexToRgba(CONS_ZONAS[zona]?.color||C.gold,0.45)}`, background:"transparent", color:CONS_ZONAS[zona]?.color||C.gold, fontWeight:700 }}>
+      {opciones.map(o=><LvOpcion key={o.value} on={false} onClick={()=>onElegir(o.value)}>{o.icono && <Icon n={o.icono} s={14}/>}{o.label}</LvOpcion>)}
     </LvFicha>
   );
-  const caja = (titulo, ayuda, hijos) => (
-    <div style={{ border:`1px solid ${C.border}`, borderRadius:12, padding:"10px 12px", background:"#fff", minWidth:0 }}>
-      <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:700 }}>{titulo}</div>
-      <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, margin:"2px 0 8px" }}>{ayuda}</div>
-      <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-start", gap:6 }}>{hijos}</div>
-    </div>
-  );
+  const caja = (zona, titulo, ayuda, hijos) => {
+    const z = CONS_ZONAS[zona];
+    return (
+      <div style={{ position:"relative", border:`1px solid ${C.border}`, borderRadius:14, padding:"12px 12px 14px", background:"#fff", minWidth:0, overflow:"hidden" }}>
+        <div style={{ position:"absolute", left:0, top:0, right:0, height:3, background:z.color, opacity:0.85 }}/>
+        <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:10 }}>
+          <span style={{ width:30, height:30, borderRadius:9, background:hexToRgba(z.color,0.1), color:z.color, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n={z.ic} s={16} sw={2}/></span>
+          <span style={{ minWidth:0 }}>
+            <span style={{ display:"block", fontFamily:font.body, fontSize:13.5, fontWeight:700, color:C.text }}>{titulo}</span>
+            <span style={{ display:"block", fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>{ayuda}</span>
+          </span>
+        </div>
+        <div style={{ display:"flex", flexWrap:"wrap", alignItems:"center", gap:6 }}>{hijos}</div>
+      </div>
+    );
+  };
+  const selBarra = { height:34, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 8px", fontFamily:font.body, fontSize:13, fontWeight:600, background:"#fff", color:C.text };
+  const pildoraRango = { padding:"4px 10px", borderRadius:99, background:hexToRgba(C.gold,0.08), color:C.gold, fontWeight:700, fontSize:12 };
   const inputFecha = (valorF, onChange) => <input type="date" value={valorF} max={hoyS} onChange={e=>onChange(e.target.value)} style={{ height:34, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 6px", fontFamily:font.body, fontSize:13.5, color:C.text, background:"#fff" }}/>;
 
   // ── Descargar a Excel (CSV con ; que Excel abre directo) ──
@@ -10306,56 +10327,69 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
     <div>
       <Card style={{ marginBottom:16, overflow:"visible" }} p={isMobile?"14px":"18px 22px"}>
         <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", marginBottom:14 }}>
-          <div style={{ width:34, height:34, borderRadius:10, background:C.surfaceHover, color:C.gold, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="search" s={18}/></div>
-          <div style={{ fontFamily:font.body, fontSize:16.5, fontWeight:700, color:C.text }}>Consultas</div>
-          {consFirma(cfg)!==consFirma(CONS_CFG_INICIAL) && <button onClick={()=>{ setCfg(CONS_CFG_INICIAL); setComun(""); setCerrados({}); }} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:12.5, color:C.gold, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3 }}>Empezar de cero</button>}
-          <select value={comun} onChange={e=>elegirComun(e.target.value)} aria-label="Consultas comunes"
-            style={{ marginLeft:isMobile?0:"auto", flex:isMobile?"1 1 100%":"0 1 380px", height:38, borderRadius:10, border:`1.5px solid ${C.gold}`, padding:"0 10px", fontFamily:font.body, fontSize:13.5, fontWeight:600, color:C.text, background:"#fff" }}>
-            <option value="">Consultas comunes… (elige una y se arma sola)</option>
-            {masUsadas.length>0 && <optgroup label="Las que más usas">{masUsadas.map(u=><option key={u.id} value={u.id}>{nombreDeCfg(u.cfg)}</option>)}</optgroup>}
-            {CONS_GRUPOS_MENU.map(g=><optgroup key={g} label={g}>{CONS_COMUNES.filter(c=>c.grupo===g).map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}</optgroup>)}
-            {guardadas.length>0 && <optgroup label="Guardadas en este equipo">{guardadas.map(g=><option key={g.id} value={g.id}>★ {g.nombre}</option>)}</optgroup>}
-          </select>
+          <div style={{ width:40, height:40, borderRadius:12, background:C.gold, color:"#fff", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="grid" s={20} sw={2}/></div>
+          <div style={{ minWidth:0 }}>
+            <div style={{ display:"flex", alignItems:"baseline", gap:12, flexWrap:"wrap" }}>
+              <span style={{ fontFamily:font.body, fontSize:17, fontWeight:700, color:C.text }}>Consultas</span>
+              {consFirma(cfg)!==consFirma(CONS_CFG_INICIAL) && <button onClick={()=>{ setCfg(CONS_CFG_INICIAL); setComun(""); setCerrados({}); }} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:12.5, color:C.gold, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3 }}>Empezar de cero</button>}
+            </div>
+            <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Elige una consulta del menú o ármala con las cajas de abajo</div>
+          </div>
+          <div style={{ marginLeft:isMobile?0:"auto", flex:isMobile?"1 1 100%":"0 1 400px", position:"relative" }}>
+            <span style={{ position:"absolute", left:12, top:"50%", transform:"translateY(-50%)", color:"#fff", pointerEvents:"none" }}><Icon n="search" s={16} sw={2.2}/></span>
+            <select value={comun} onChange={e=>elegirComun(e.target.value)} aria-label="Consultas comunes"
+              style={{ width:"100%", height:42, borderRadius:12, border:"none", padding:"0 12px 0 36px", fontFamily:font.body, fontSize:13.5, fontWeight:700, color:"#fff", background:C.gold, cursor:"pointer", appearance:"auto" }}>
+              <option value="" style={{ color:C.text, background:"#fff" }}>Consultas listas…</option>
+              {masUsadas.length>0 && <optgroup label="Las que más usas" style={{ color:C.text, background:"#fff" }}>{masUsadas.map(u=><option key={u.id} value={u.id}>{nombreDeCfg(u.cfg)}</option>)}</optgroup>}
+              {CONS_GRUPOS_MENU.map(g=><optgroup key={g} label={g} style={{ color:C.text, background:"#fff" }}>{CONS_COMUNES.filter(c=>c.grupo===g).map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}</optgroup>)}
+              {guardadas.length>0 && <optgroup label="Guardadas en este equipo" style={{ color:C.text, background:"#fff" }}>{guardadas.map(g=><option key={g.id} value={g.id}>★ {g.nombre}</option>)}</optgroup>}
+            </select>
+          </div>
         </div>
 
-        <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center", marginBottom:12, fontFamily:font.body, fontSize:13, color:C.textSub }}>
-          <span style={{ fontWeight:700, color:C.text }}><Icon n="cal" s={13}/> Periodo</span>
-          <select value={cfg.periodo} onChange={e=>{ const p = e.target.value; cambiar(p==="custom" && !cfg.desde ? { periodo:p, desde:rango[0], hasta:rango[1] } : { periodo:p }); }} style={{ height:34, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 8px", fontFamily:font.body, fontSize:13, background:"#fff", color:C.text }}>
-            {CONS_PERIODOS.map(p=><option key={p.value} value={p.value}>{p.value==="custom" ? "Elegir fechas…" : p.label}</option>)}
-          </select>
-          {cfg.periodo==="custom" ? <>{inputFecha(cfg.desde, v=>cambiar({ desde:v }))} a {inputFecha(cfg.hasta, v=>cambiar({ hasta:v }))}</> : <span style={{ color:C.textMuted }}>{consTextoRango(rango)}</span>}
-          <span style={{ fontWeight:700, color:C.text, marginLeft:isMobile?0:12 }}>Comparar con</span>
-          <select value={cfg.comparar} onChange={e=>cambiar({ comparar:e.target.value })} style={{ height:34, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 8px", fontFamily:font.body, fontSize:13, background:"#fff", color:C.text }}>
-            {CONS_COMPARAR2.map(c=><option key={c.value||"nada"} value={c.value}>{c.label}</option>)}
-          </select>
-          {cfg.comparar==="custom" ? <>{inputFecha(cfg.cdesde, v=>cambiar({ cdesde:v }))} a {inputFecha(cfg.chasta, v=>cambiar({ chasta:v }))}</> : (rangoPrev && <span style={{ color:C.textMuted }}>{consTextoRango(rangoPrev)}</span>)}
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, marginBottom:12 }}>
+          {[
+            { t:"Periodo", ic:"cal", sel:(
+              <select value={cfg.periodo} onChange={e=>{ const p = e.target.value; cambiar(p==="custom" && !cfg.desde ? { periodo:p, desde:rango[0], hasta:rango[1] } : { periodo:p }); }} style={selBarra}>
+                {CONS_PERIODOS.map(p=><option key={p.value} value={p.value}>{p.value==="custom" ? "Elegir fechas…" : p.label}</option>)}
+              </select>), extra: cfg.periodo==="custom" ? <>{inputFecha(cfg.desde, v=>cambiar({ desde:v }))}<span>a</span>{inputFecha(cfg.hasta, v=>cambiar({ hasta:v }))}</> : <span style={pildoraRango}>{consTextoRango(rango)}</span> },
+            { t:"Comparar con", ic:"history", sel:(
+              <select value={cfg.comparar} onChange={e=>cambiar({ comparar:e.target.value })} style={selBarra}>
+                {CONS_COMPARAR2.map(c=><option key={c.value||"nada"} value={c.value}>{c.label}</option>)}
+              </select>), extra: cfg.comparar==="custom" ? <>{inputFecha(cfg.cdesde, v=>cambiar({ cdesde:v }))}<span>a</span>{inputFecha(cfg.chasta, v=>cambiar({ chasta:v }))}</> : (rangoPrev ? <span style={pildoraRango}>{consTextoRango(rangoPrev)}</span> : null) },
+          ].map(b=>(
+            <div key={b.t} style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", padding:"9px 12px", borderRadius:12, background:C.surfaceAlt, border:`1px solid ${C.border}`, fontFamily:font.body, fontSize:13, color:C.textSub }}>
+              <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontWeight:700, color:C.text }}><span style={{ color:C.gold }}><Icon n={b.ic} s={15} sw={2}/></span>{b.t}</span>
+              {b.sel}{b.extra}
+            </div>
+          ))}
         </div>
 
-        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, minmax(0,1fr))", gap:10 }}>
-          {caja("Filas", "Uno dentro del otro", <>
-            {cfg.filas.map((g,i)=><Fragment key={g}>{ficha(`${i+1}. ${campoLbl(g)}`, ()=>quitarFila(i), <>{i>0 && flecha("▲", ()=>moverFila(i,-1), "Subir")}{i<cfg.filas.length-1 && flecha("▼", ()=>moverFila(i,1), "Bajar")}</>)}</Fragment>)}
-            {agregar("+ Agregar", camposLibres(), v=>cambiar({ filas:[...cfg.filas, v] }))}
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(4, minmax(0,1fr))", gap:10 }}>
+          {caja("filas", "Filas", "Uno dentro del otro", <>
+            {cfg.filas.map((g,i)=><Fragment key={g}>{ficha(campoLbl(g), ()=>quitarFila(i), <span style={{ display:"inline-flex", flexDirection:"column", lineHeight:0.9 }}>{i>0 && flecha("▲", ()=>moverFila(i,-1), "Subir")}{i<cfg.filas.length-1 && flecha("▼", ()=>moverFila(i,1), "Bajar")}</span>, "filas", CONS_ICONO_CAMPO[g], i+1)}</Fragment>)}
+            {agregar("Agregar", camposLibres().map(o=>({ ...o, icono:CONS_ICONO_CAMPO[o.value] })), v=>cambiar({ filas:[...cfg.filas, v] }), "filas")}
           </>)}
-          {caja("Columnas", "Un campo (opcional)", <>
-            {cfg.col && ficha(campoLbl(cfg.col), ()=>cambiar({ col:"" }))}
-            {!cfg.col && agregar("+ Agregar", camposLibres(), v=>cambiar({ col:v }))}
+          {caja("columnas", "Columnas", "Un campo, opcional", <>
+            {cfg.col && ficha(campoLbl(cfg.col), ()=>cambiar({ col:"" }), null, "columnas", CONS_ICONO_CAMPO[cfg.col])}
+            {!cfg.col && agregar("Agregar", camposLibres().map(o=>({ ...o, icono:CONS_ICONO_CAMPO[o.value] })), v=>cambiar({ col:v }), "columnas")}
           </>)}
-          {caja("Valores", "Qué se suma o calcula", <>
-            {cfg.valores.map((v,i)=><Fragment key={v}>{ficha(valorLbl(v), cfg.valores.length>1 ? ()=>cambiar({ valores:cfg.valores.filter(x=>x!==v) }) : null, i>0 ? flecha("▲", ()=>cambiar({ valores:[v, ...cfg.valores.filter(x=>x!==v)] }), "Poner de primero") : null)}</Fragment>)}
-            {agregar("+ Agregar", CONS_VALORES.filter(v=>!cfg.valores.includes(v.value)), v=>cambiar({ valores:[...cfg.valores, v] }))}
+          {caja("valores", "Valores", "Qué se suma o calcula", <>
+            {cfg.valores.map((v,i)=><Fragment key={v}>{ficha(valorLbl(v), cfg.valores.length>1 ? ()=>cambiar({ valores:cfg.valores.filter(x=>x!==v) }) : null, i>0 ? flecha("▲", ()=>cambiar({ valores:[v, ...cfg.valores.filter(x=>x!==v)] }), "Poner de primero (es el que usa el gráfico)") : null, "valores", CONS_ICONO_VALOR[v])}</Fragment>)}
+            {agregar("Agregar", CONS_VALORES.filter(v=>!cfg.valores.includes(v.value)).map(o=>({ ...o, icono:CONS_ICONO_VALOR[o.value] })), v=>cambiar({ valores:[...cfg.valores, v] }), "valores")}
           </>)}
-          {caja("Filtros", "Solo lo que cumpla", <>
+          {caja("filtros", "Filtros", "Solo lo que cumpla", <>
             {Object.entries(cfg.filtros).map(([campo, vals])=>(
-              <span key={campo} style={{ display:"inline-flex", alignItems:"center", gap:2 }}>
-                <LvFicha label={`${campoLbl(campo)}${vals.length?`: ${vals.length===1 ? (opcionesFiltro(campo).find(o=>o.value===vals[0])?.label||vals[0]) : vals.length}`:": todos"}`} n={0} ancho={240}>
+              <span key={campo} style={{ display:"inline-flex", alignItems:"center", gap:2, borderRadius:9, background:hexToRgba(C.amber,0.08), border:`1px solid ${hexToRgba(C.amber,0.28)}`, padding:"0 2px 0 0" }}>
+                <LvFicha label={`${campoLbl(campo)}${vals.length?`: ${vals.length===1 ? (opcionesFiltro(campo).find(o=>o.value===vals[0])?.label||vals[0]) : vals.length}`:": todos"}`} n={0} ancho={240} icono={<Icon n={CONS_ICONO_CAMPO[campo]} s={14} sw={2}/>} estilo={{ height:30, border:"none", background:"transparent", color:C.text, fontWeight:700 }}>
                   {opcionesFiltro(campo).map(o=><LvOpcion key={o.value} on={vals.includes(o.value)} onClick={()=>toggleFiltro(campo, o.value)}>{o.color && <PuntoTienda color={o.color} size={8}/>}{o.label}</LvOpcion>)}
                 </LvFicha>
-                <button aria-label="Quitar filtro" onClick={()=>quitarFiltro(campo)} style={{ all:"unset", cursor:"pointer", width:20, height:20, display:"grid", placeItems:"center", color:C.textMuted }}><Icon n="x" s={11} sw={2.4}/></button>
+                <button aria-label="Quitar filtro" onClick={()=>quitarFiltro(campo)} style={{ all:"unset", cursor:"pointer", width:22, height:22, display:"grid", placeItems:"center", color:C.textMuted }}><Icon n="x" s={11} sw={2.4}/></button>
               </span>
             ))}
-            {agregar("+ Agregar", CONS_GRUPOS.filter(g=>CONS_CAMPOS_FILTRO.includes(g.value) && !cfg.filtros[g.value]), v=>setCfg(prev=>({ ...prev, filtros:{ ...prev.filtros, [v]:[] } })))}
-            {Object.keys(cfg.filtros).length>0 && <button onClick={()=>cambiar({ filtros:{} })} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:12, color:C.gold, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3 }}>Quitar filtros</button>}
-            {(todosDims.includes("asesor")) && <label style={{ display:"inline-flex", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12, color:C.textSub, cursor:"pointer" }}><input type="checkbox" checked={cfg.equipoJunto} onChange={e=>cambiar({ equipoJunto:e.target.checked })}/>Equipo admin junto</label>}
+            {agregar("Agregar", CONS_GRUPOS.filter(g=>CONS_CAMPOS_FILTRO.includes(g.value) && !cfg.filtros[g.value]).map(o=>({ ...o, icono:CONS_ICONO_CAMPO[o.value] })), v=>setCfg(prev=>({ ...prev, filtros:{ ...prev.filtros, [v]:[] } })), "filtros")}
+            {Object.keys(cfg.filtros).length>0 && <button onClick={()=>cambiar({ filtros:{} })} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:12, color:C.amber, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3 }}>Quitar filtros</button>}
+            {(todosDims.includes("asesor")) && <label style={{ display:"flex", width:"100%", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12, color:C.textSub, cursor:"pointer", marginTop:2 }}><input type="checkbox" checked={cfg.equipoJunto} onChange={e=>cambiar({ equipoJunto:e.target.checked })}/>Equipo admin junto</label>}
           </>)}
         </div>
         {usaMeta && !metaUsable && <div style={{ fontFamily:font.body, fontSize:12, color:C.amber, marginTop:10 }}>La meta y el cumplimiento solo se calculan con Tienda, Asesor, Día, Semana, Mes o Día de la semana (sin filtro de Medio de pago).</div>}
