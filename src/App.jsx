@@ -8666,7 +8666,7 @@ const lvChipEstilo = (on) => ({ display:"inline-flex", alignItems:"center", gap:
 const LvNum = ({ n }) => n>0 ? <span style={{ background:C.goldDark, color:C.tinta, borderRadius:99, fontSize:11, padding:"1px 7px", lineHeight:"16px" }}>{n}</span> : null;
 
 // Ficha con listita desplegable (se cierra tocando afuera o con Esc).
-function LvFicha({ label, n, icono, children, ancho=250 }) {
+function LvFicha({ label, n, icono, children, ancho=250, estilo }) {
   const [abierta, setAbierta] = useState(false);
   const [aDerecha, setADerecha] = useState(false);
   const ref = useRef(null);
@@ -8683,7 +8683,7 @@ function LvFicha({ label, n, icono, children, ancho=250 }) {
   }, [abierta]);
   return (
     <span ref={ref} style={{ position:"relative", display:"inline-flex" }}>
-      <button onClick={abrir} style={lvChipEstilo(n>0 || abierta)}>{icono}{label}<LvNum n={n}/><Icon n="down" s={12} sw={2.2} style={{ opacity:0.6, transform:abierta?"rotate(180deg)":"none", transition:"transform .2s" }}/></button>
+      <button onClick={abrir} style={{ ...lvChipEstilo(n>0 || abierta), ...(estilo||{}) }}>{icono}{label}<LvNum n={n}/><Icon n="down" s={12} sw={2.2} style={{ opacity:0.6, transform:abierta?"rotate(180deg)":"none", transition:"transform .2s" }}/></button>
       {abierta && (
         <div style={{ position:"absolute", top:"calc(100% + 6px)", ...(aDerecha ? { right:0 } : { left:0 }), zIndex:30, width:ancho, maxWidth:"calc(100vw - 16px)", maxHeight:380, overflowY:"auto", background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, boxShadow:"0 14px 40px rgba(26,59,82,0.16)", padding:12 }}>
           {children}
@@ -9401,14 +9401,6 @@ const tdMet = { padding:"11px 10px", borderBottom:`1px solid ${C.border}` };
 const CONS_DIAS_SEMANA = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
 const CONS_DIAS_CORTO = ["L","M","M","J","V","S","D"];
 const CONS_PALETA = ["#265D7F","#C9822B","#3fa15e","#9b59b6","#e0433e","#3d7ee0","#8a6d5a","#16a085","#d35400","#7f8c8d"];
-const CONS_MEDIDAS = [
-  { value:"sin", label:"Ventas sin servicios", corto:"Ventas sin servicios" },
-  { value:"ingreso", label:"Ingreso total", corto:"Ingreso total" },
-  { value:"servicios", label:"Servicios", corto:"Servicios" },
-  { value:"count", label:"# de ventas", corto:"# de ventas" },
-  { value:"ticket", label:"Ticket promedio", corto:"Ticket promedio" },
-  { value:"descuento", label:"Descuentos dados", corto:"Descuentos" },
-];
 const CONS_GRUPOS = [
   { value:"asesor", label:"Asesor" },
   { value:"tienda", label:"Tienda" },
@@ -9432,12 +9424,6 @@ const CONS_PERIODOS = [
   { value:"anio", label:"Este año" },
   { value:"custom", label:"Personalizado" },
 ];
-const CONS_COMPARAR = [
-  { value:"anterior", label:"Periodo anterior" },
-  { value:"mes", label:"Mes pasado" },
-  { value:"anio", label:"Año pasado" },
-  { value:"", label:"Nada" },
-];
 const CONS_TIPOS = [
   { value:"producto", label:"Venta" },
   { value:"arreglo", label:"Arreglo" },
@@ -9446,13 +9432,6 @@ const CONS_TIPOS = [
   { value:"flexipago", label:"Flexipago" },
 ];
 const CONS_MEDIOS = [...VENTAS_MEDIOS_PAGO.map(m=>({ value:m.value, label:m.value==="tarjeta"?"Tarjeta":m.label })), { value:"nota", label:"Nota crédito" }];
-const CONS_PRESETS = [
-  { id:"p1", nombre:"Ventas por asesor y tienda · este mes", corto:"Asesor y tienda", q:{ medida:"sin", g1:"asesor", g2:"tienda", periodo:"mes", comparar:"mes" } },
-  { id:"p2", nombre:"¿A qué hora se vende más?", corto:"¿A qué hora?", q:{ medida:"sin", g1:"hora", g2:"", periodo:"30", comparar:"" } },
-  { id:"p3", nombre:"Día de la semana por tienda", corto:"Día de la semana", q:{ medida:"sin", g1:"tienda", g2:"dow", periodo:"90", comparar:"" } },
-  { id:"p4", nombre:"Medios de pago vs mes pasado", corto:"Medios de pago", q:{ medida:"ingreso", g1:"medio", g2:"", periodo:"mes", comparar:"mes" } },
-];
-const CONS_Q_INICIAL = { medida:"sin", g1:"asesor", g2:"", periodo:"mes", desde:"", hasta:"", comparar:"mes", tiendas:[], asesor:"", tipos:[], medios:[], equipoJunto:true };
 const CONS_LS = "ozen-consultas-guardadas";
 
 const consFecha = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -9595,23 +9574,6 @@ const construirHechosVentas = (ventas, ventasItems, ventasAbonos, ventasAjustes)
 
 // Selector "palabra en azul" de la frase — un <select> nativo vestido (en celular abre la ruedita
 // del sistema, que es lo más cómodo con el dedo).
-const ConsPick = ({ value, onChange, options, nota, punto, grande=true, ariaLabel }) => {
-  const sel = options.find(o=>o.value===value);
-  return (
-    <span style={{ position:"relative", display:"inline-flex", alignItems:"center", gap:6, height:grande?38:32, padding:grande?"0 30px 0 12px":"0 26px 0 10px", borderRadius:10, border:"1.5px solid rgba(38,93,127,0.35)", background:"#fff", color:C.goldDark, fontFamily:font.body, fontWeight:700, fontSize:grande?15.5:13, verticalAlign:"middle", margin:"3px 3px", whiteSpace:"nowrap", maxWidth:"100%" }}>
-      {punto && <span style={{ width:8, height:8, borderRadius:"50%", background:punto, flexShrink:0 }}/>}
-      <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{sel?.label ?? "—"}</span>
-      {nota && <small style={{ fontSize:11, color:C.textMuted, fontWeight:400 }}>{nota}</small>}
-      <span style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", color:C.gold, pointerEvents:"none" }}><Icon n="down" s={13} sw={2.2}/></span>
-      <select aria-label={ariaLabel} value={value} onChange={e=>onChange(e.target.value)} style={{ position:"absolute", inset:0, opacity:0, cursor:"pointer", width:"100%", height:"100%", fontSize:16 }}>
-        {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-    </span>
-  );
-};
-const ConsChip = ({ on, onClick, children, color }) => (
-  <button onClick={onClick} style={{ display:"inline-flex", alignItems:"center", gap:6, height:30, padding:"0 11px", borderRadius:8, border:`1px solid ${on?(color||C.gold):C.border}`, background:on?hexToRgba(color||C.gold,0.1):C.surfaceAlt, color:on?C.goldDark:C.textMuted, fontWeight:on?600:400, fontFamily:font.body, fontSize:12.5, cursor:"pointer", whiteSpace:"nowrap" }}>{children}</button>
-);
 const ConsDelta = ({ act, prev, inverso, sufijo }) => {
   if(prev===null || prev===undefined) return null;
   if(!prev){ return act ? <span style={{ color:C.textMuted, fontWeight:600 }}>nuevo{sufijo?` ${sufijo}`:""}</span> : <span style={{ color:C.textMuted }}>—</span>; }
@@ -9624,13 +9586,11 @@ const ConsDelta = ({ act, prev, inverso, sufijo }) => {
 // ── Consultas: menú en casillas (pedido de Santiago: la frase se veía desordenada) ──────────────
 // Barra tipo buscador con casillas fijas: Qué ver · Agrupado por · Cuándo · Dónde · Comparar con ·
 // Filtros. Cada casilla abre su listita (no la rueda del sistema). En celular se apilan.
-const CONS_ICONO_MEDIDA = { sin:"💰", ingreso:"🧾", servicios:"🛠️", count:"#️⃣", ticket:"🎟️", descuento:"🏷️" };
-const CONS_ICONO_GRUPO = { asesor:"👤", tienda:"🏬", dia:"📅", semana:"🗓️", mes:"📆", dow:"📊", hora:"🕐", tipo:"🏷️", medio:"💳" };
 // Tipos de gráfico del selector (los que no aplican a la pregunta se ven apagados).
 const CONS_GRAFICOS = [
   { v:"barras", l:"Barras" }, { v:"columnas", l:"Columnas" }, { v:"barras100", l:"Barras 100 %" },
   { v:"linea", l:"Línea" }, { v:"area", l:"Área" }, { v:"dona", l:"Dona" },
-  { v:"mapa", l:"Mapa de calor" }, { v:"podio", l:"Podio" }, { v:"tabla", l:"Solo tabla" },
+  { v:"mapa", l:"Mapa de calor" }, { v:"podio", l:"Podio" }, { v:"tabla", l:"Tabla" },
 ];
 const ConsIconoGrafico = ({ v }) => {
   const b = C.gold;
@@ -9646,54 +9606,195 @@ const ConsIconoGrafico = ({ v }) => {
   return svg(<><rect x="2" y="2" width="40" height="26" rx="4" fill="none" stroke={b} strokeWidth="1.5"/><line x1="2" y1="10" x2="42" y2="10" stroke={b}/><line x1="2" y1="19" x2="42" y2="19" stroke={b} opacity=".4"/><line x1="18" y1="2" x2="18" y2="28" stroke={b} opacity=".4"/></>);
 };
 // Casilla de la barra: rótulo pequeño + valor; al tocarla abre su listita debajo.
-function ConsSlot({ k, icono, valor, nota, children, ancho=290, isMobile, radio, alinearDerecha, borde=true }) {
-  const [abierto, setAbierto] = useState(false);
-  const ref = useRef(null);
-  useEffect(()=>{
-    if(!abierto) return;
-    const fuera = (e) => { if(ref.current && !ref.current.contains(e.target)) setAbierto(false); };
-    const esc = (e) => { if(e.key==="Escape") setAbierto(false); };
-    document.addEventListener("mousedown", fuera); document.addEventListener("touchstart", fuera); document.addEventListener("keydown", esc);
-    return ()=>{ document.removeEventListener("mousedown", fuera); document.removeEventListener("touchstart", fuera); document.removeEventListener("keydown", esc); };
-  }, [abierto]);
-  const cerrar = () => setAbierto(false);
-  return (
-    <div ref={ref} style={{ position:"relative", minWidth:0, ...(borde ? (isMobile ? { borderBottom:`1px solid ${C.border}` } : { borderRight:`1px solid ${C.border}` }) : {}) }}>
-      <button onClick={()=>setAbierto(a=>!a)} style={{ all:"unset", boxSizing:"border-box", width:"100%", height:"100%", cursor:"pointer", padding:isMobile?"10px 14px":"12px 16px", background:abierto?C.surfaceHover:"transparent", borderRadius:radio, display:isMobile?"flex":"block", alignItems:"center", gap:10 }}>
-        <div style={{ fontFamily:font.body, fontSize:10, letterSpacing:"0.13em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap", ...(isMobile?{ width:118, flexShrink:0 }:{}) }}><span style={{ fontSize:12, letterSpacing:0 }}>{icono}</span>{k}</div>
-        <div style={{ fontFamily:font.body, fontSize:isMobile?14.5:15, fontWeight:700, color:C.goldDark, marginTop:isMobile?0:5, display:"flex", alignItems:"center", gap:7, minWidth:0, flex:1 }}>
-          <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"inline-flex", alignItems:"center", gap:6 }}>{valor}</span>
-          {nota && <small style={{ fontWeight:400, color:C.textMuted, fontSize:11.5, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{nota}</small>}
-          <span style={{ marginLeft:"auto", color:C.gold, flexShrink:0, display:"inline-flex", transform:abierto?"rotate(180deg)":"none", transition:"transform .2s" }}><Icon n="down" s={13} sw={2.2}/></span>
-        </div>
-      </button>
-      {abierto && (
-        <div style={{ position:"absolute", top:"calc(100% + 6px)", ...(isMobile ? { left:8, right:8 } : alinearDerecha ? { right:0, width:ancho } : { left:0, width:ancho }), zIndex:40, maxHeight:420, overflowY:"auto", background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, boxShadow:"0 18px 44px rgba(26,59,82,0.18)", padding:10 }}>
-          {typeof children==="function" ? children(cerrar) : children}
-        </div>
-      )}
-    </div>
-  );
-}
-const ConsOpcion = ({ on, onClick, icono, children, check }) => (
-  <button onClick={onClick} style={{ all:"unset", boxSizing:"border-box", width:"100%", display:"flex", alignItems:"center", gap:10, padding:"8px 9px", borderRadius:9, cursor:"pointer", background:on?C.surfaceHover:"transparent", fontFamily:font.body, fontSize:13.5, fontWeight:on?700:400, color:C.text }}>
-    {check ? <LvCheck on={on}/> : icono!==undefined && <span style={{ width:28, height:28, borderRadius:8, background:on?"#fff":C.surfaceHover, display:"grid", placeItems:"center", fontSize:14, flexShrink:0 }}>{icono}</span>}
-    <span style={{ display:"inline-flex", alignItems:"center", gap:7, minWidth:0 }}>{children}</span>
-    {on && !check && <span style={{ marginLeft:"auto", color:C.gold }}><Icon n="check" s={14} sw={2.4}/></span>}
-  </button>
-);
-const ConsSec = ({ children, style }) => <div style={{ fontFamily:font.body, fontSize:10, letterSpacing:"0.13em", textTransform:"uppercase", color:C.textMuted, fontWeight:700, margin:"4px 9px 6px", ...style }}>{children}</div>;
+// ── Excel con la marca (21 nov 2026, pedido de Santiago: "somos una marca") ───────────────────────
+// Arma un .xlsx de verdad sin librerías: el .xlsx es un .zip de archivos XML; aquí se escribe ese
+// zip "sin comprimir" (más que suficiente para unos cientos de filas). Estilo OZEN: título, datos de
+// la consulta, encabezado en Sombra con letra blanca, subtotales en crema, total resaltado, números
+// como números (pesos, %, puntos) y la 1.ª fila de encabezado y las columnas de nombres fijas.
+// filas: [{ tipo:"dato"|"grupo"|"total", celdas:[{ v, f }] }] con f = "txt" | "cop" | "int" | "pct" | "pts".
+const ozenZipSinComprimir = (archivos) => {
+  const tabla = new Uint32Array(256);
+  for(let n=0; n<256; n++){ let c = n; for(let k=0; k<8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; tabla[n] = c >>> 0; }
+  const crc32 = (b) => { let c = 0xFFFFFFFF; for(let i=0; i<b.length; i++) c = tabla[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  const enc = new TextEncoder();
+  const partes = []; const central = []; let offset = 0;
+  const u16 = (v) => [v & 0xFF, (v >>> 8) & 0xFF];
+  const u32 = (v) => [v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF];
+  archivos.forEach(({ nombre, texto })=>{
+    const n = enc.encode(nombre), d = enc.encode(texto), crc = crc32(d);
+    const local = new Uint8Array([...u32(0x04034b50), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(33), ...u32(crc), ...u32(d.length), ...u32(d.length), ...u16(n.length), ...u16(0)]);
+    partes.push(local, n, d);
+    central.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(33), ...u32(crc), ...u32(d.length), ...u32(d.length), ...u16(n.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset)]), n);
+    offset += local.length + n.length + d.length;
+  });
+  const tamCentral = central.reduce((s,b)=>s+b.length,0);
+  const fin = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(archivos.length), ...u16(archivos.length), ...u32(tamCentral), ...u32(offset), ...u16(0)]);
+  return new Blob([...partes, ...central, fin], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+};
+const ozenExcel = ({ archivo, hoja="Consulta", titulo="OZEN", lineas=[], encabezados, filas, colsFijas=1, anchos=[] }) => {
+  const esc = (t) => String(t ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const colLetra = (i) => { let s = ""; i++; while(i>0){ const m = (i-1)%26; s = String.fromCharCode(65+m) + s; i = Math.floor((i-1)/26); } return s; };
+  // Estilos (índices de cellXfs): 0 normal · 1 título · 2 subtítulo · 3 encabezado · 4 encabezado izq.
+  // texto/cop/int/pct/pts × dato/grupo/total = 5..19
+  const formatos = ["txt","cop","int","pct","pts"], tipos = ["dato","grupo","total"];
+  const xf = (f, t) => 5 + formatos.indexOf(f)*3 + tipos.indexOf(t);
+  const numFmt = { txt:0, cop:164, int:3, pct:165, pts:166 };
+  const fontDe = { dato:0, grupo:4, total:4 }, fillDe = { dato:0, grupo:3, total:4 }, borderDe = { dato:2, grupo:2, total:3 };
+  const xfs = [
+    `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>`,
+    `<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>`,
+    `<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>`,
+    `<xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>`,
+    `<xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>`,
+  ];
+  formatos.forEach(f=>tipos.forEach(t=>{ xfs.push(`<xf numFmtId="${numFmt[f]}" fontId="${fontDe[t]}" fillId="${fillDe[t]}" borderId="${borderDe[t]}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"${f==="txt"?"":` applyAlignment="1"><alignment horizontal="right"/></xf>`}${f==="txt"?"/>":""}`); }));
+  const estilos = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="3"><numFmt numFmtId="164" formatCode="&quot;$&quot;\\ #,##0"/><numFmt numFmtId="165" formatCode="0.0%"/><numFmt numFmtId="166" formatCode="+0.0&quot; pts&quot;;-0.0&quot; pts&quot;;0.0&quot; pts&quot;"/></numFmts>
+<fonts count="5"><font><sz val="11"/><color rgb="FF1A3B52"/><name val="Calibri"/></font><font><b/><sz val="20"/><color rgb="FF1A3B52"/><name val="Calibri"/></font><font><sz val="10"/><color rgb="FF75604F"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FF1A3B52"/><name val="Calibri"/></font></fonts>
+<fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1A3B52"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF6F0EB"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE5D5CC"/><bgColor indexed="64"/></patternFill></fill></fills>
+<borders count="4"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FF1A3B52"/></left><right style="thin"><color rgb="FF1A3B52"/></right><top style="thin"><color rgb="FF1A3B52"/></top><bottom style="thin"><color rgb="FF1A3B52"/></bottom><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FFE5D5CC"/></bottom><diagonal/></border><border><left/><right/><top style="medium"><color rgb="FF1A3B52"/></top><bottom style="medium"><color rgb="FF1A3B52"/></bottom><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="${xfs.length}">${xfs.join("")}</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+  let r = 0; const filasXml = [];
+  const celdaTxt = (c, ref, s) => `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${esc(c)}</t></is></c>`;
+  const fila = (celdas, alto) => { r++; filasXml.push(`<row r="${r}"${alto?` ht="${alto}" customHeight="1"`:""}>${celdas.join("")}</row>`); };
+  fila([celdaTxt(titulo, `A${r+1}`, 1)], 30);
+  lineas.forEach(l=>fila([celdaTxt(l, `A${r+1}`, 2)]));
+  fila([]);
+  fila(encabezados.map((h,i)=>celdaTxt(h, `${colLetra(i)}${r+1}`, i<colsFijas?4:3)), 34);
+  const filaEncabezado = r;
+  filas.forEach(fl=>{
+    fila(fl.celdas.map((c,i)=>{
+      const ref = `${colLetra(i)}${r+1}`, f = c?.f || "txt", s = xf(f, fl.tipo||"dato");
+      if(c===null || c===undefined || c.v===null || c.v===undefined || c.v==="") return `<c r="${ref}" s="${xf("txt", fl.tipo||"dato")}"/>`;
+      if(f==="txt") return celdaTxt(c.v, ref, s);
+      return `<c r="${ref}" s="${s}"><v>${Number(c.v)}</v></c>`;
+    }));
+  });
+  const cols = encabezados.map((_,i)=>`<col min="${i+1}" max="${i+1}" width="${anchos[i] || (i<colsFijas?24:16)}" customWidth="1"/>`).join("");
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane xSplit="${colsFijas}" ySplit="${filaEncabezado}" topLeftCell="${colLetra(colsFijas)}${filaEncabezado+1}" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>
+<cols>${cols}</cols>
+<sheetData>${filasXml.join("")}</sheetData>
+</worksheet>`;
+  const blob = ozenZipSinComprimir([
+    { nombre:"[Content_Types].xml", texto:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` },
+    { nombre:"_rels/.rels", texto:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+    { nombre:"xl/workbook.xml", texto:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${esc(hoja).slice(0,31)}" sheetId="1" r:id="rId1"/></sheets></workbook>` },
+    { nombre:"xl/_rels/workbook.xml.rels", texto:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+    { nombre:"xl/styles.xml", texto:estilos },
+    { nombre:"xl/worksheets/sheet1.xml", texto:sheet },
+  ]);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = archivo;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 1500);
+};
 
-function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, isMobile }) {
+// ── Consultas tipo tabla dinámica (21 nov 2026, pedido de Santiago y Felipe) ─────────────────────
+// Como la tabla dinámica de Excel pero sencilla: Filas (uno o varios campos, uno dentro del otro,
+// con subtotales), Columnas (un campo), Valores (uno o varios) y Filtros (cualquier campo). Periodo
+// libre y "Comparar con" (incluye otro periodo a elección). Arriba, un menú de consultas comunes
+// que llena todo solo. Tabla primero; los gráficos a un toque (usan el 1.er campo de Filas, las
+// Columnas y el 1.er Valor).
+// Meta / Cumplimiento (decisión de Santiago, opción "c"): la meta de un periodo sale de las metas
+// DIARIAS de cada tienda. Tienda: su meta del mes repartida según sus metas por día (si no tiene
+// metas por día, por igual entre los días). Asesor: su meta del mes en cada tienda (días en esa
+// tienda / 30 × meta personal de la tienda, igual que en Métricas) repartida con esa misma curva
+// diaria. Un mes completo da exactamente la meta de Métricas. Cumplimiento = ventas sin servicios ÷
+// meta. Solo aplica con campos Tienda, Asesor, Día, Semana, Mes o Día de la semana (no Hora, Tipo ni
+// Medio de pago, que no tienen meta).
+const CONS_VALORES = [
+  { value:"sin", label:"Ventas sin servicios" },
+  { value:"ingreso", label:"Ingreso total" },
+  { value:"servicios", label:"Servicios" },
+  { value:"count", label:"N.º de ventas" },
+  { value:"ticket", label:"Ticket promedio" },
+  { value:"descuento", label:"Descuentos" },
+  { value:"meta", label:"Meta" },
+  { value:"cumpl", label:"Cumplimiento %" },
+];
+const CONS_ICONO_CAMPO = { tienda:"store", asesor:"user", dia:"cal", semana:"cal", mes:"cal", dow:"cal", hora:"clock", tipo:"tag", medio:"card" };
+const CONS_ICONO_VALOR = { sin:"cash", ingreso:"wallet", servicios:"wrench", count:"list", ticket:"receipt", descuento:"tag", meta:"target", cumpl:"trophy" };
+// Color de cada caja de la tabla dinámica (para distinguirlas de un vistazo).
+const CONS_ZONAS = { filas:{ color:C.gold, ic:"list" }, columnas:{ color:C.goldDark, ic:"grid" }, valores:{ color:C.green, ic:"chart" }, filtros:{ color:C.amber, ic:"target" } };
+const CONS_CAMPOS_FILTRO = ["tienda","asesor","tipo","medio","dow"];
+const CONS_CAMPOS_META = ["tienda","asesor","dia","semana","mes","dow"];
+const CONS_COMPARAR2 = [
+  { value:"", label:"Nada" },
+  { value:"anterior", label:"Periodo anterior" },
+  { value:"mes", label:"Mismo periodo del mes pasado" },
+  { value:"anio", label:"Mismo periodo del año pasado" },
+  { value:"custom", label:"Otro periodo…" },
+];
+const CONS_CFG_INICIAL = { filas:["tienda"], col:"", valores:["sin"], filtros:{}, periodo:"mes", desde:"", hasta:"", comparar:"", cdesde:"", chasta:"", equipoJunto:true };
+// Menú de consultas comunes, por tema (21 nov 2026: "aterrizado a la realidad" de la operación).
+const CONS_COMUNES = [
+  { id:"m1", grupo:"Metas y cumplimiento", nombre:"Cumplimiento por tienda, este mes", cfg:{ filas:["tienda"], valores:["sin","meta","cumpl"], periodo:"mes", comparar:"mes" } },
+  { id:"m2", grupo:"Metas y cumplimiento", nombre:"Cumplimiento por asesor, este mes", cfg:{ filas:["asesor"], valores:["sin","meta","cumpl"], periodo:"mes", comparar:"mes" } },
+  { id:"m3", grupo:"Metas y cumplimiento", nombre:"Cumplimiento de asesores: un periodo contra otro", cfg:{ filas:["asesor"], valores:["sin","meta","cumpl"], periodo:"custom", comparar:"custom" } },
+  { id:"m4", grupo:"Metas y cumplimiento", nombre:"Cumplimiento por tienda, semana a semana", cfg:{ filas:["semana"], col:"tienda", valores:["cumpl"], periodo:"mes" } },
+  { id:"v1", grupo:"Ventas", nombre:"Ventas por asesor y tienda, este mes", cfg:{ filas:["asesor"], col:"tienda", valores:["sin"], periodo:"mes", comparar:"mes" } },
+  { id:"v2", grupo:"Ventas", nombre:"Ventas por tienda, día a día, este mes", cfg:{ filas:["dia"], col:"tienda", valores:["sin"], periodo:"mes" } },
+  { id:"v3", grupo:"Ventas", nombre:"Ventas de este mes contra el mes pasado, por tienda", cfg:{ filas:["tienda"], valores:["sin","count","ticket"], periodo:"mes", comparar:"mes" } },
+  { id:"v4", grupo:"Ventas", nombre:"Ventas de este mes contra el mismo mes del año pasado", cfg:{ filas:["tienda"], valores:["sin"], periodo:"mes", comparar:"anio" } },
+  { id:"v5", grupo:"Ventas", nombre:"Ticket promedio y N.º de ventas por asesor, este mes", cfg:{ filas:["asesor"], valores:["ticket","count","sin"], periodo:"mes" } },
+  { id:"d1", grupo:"Días y horas", nombre:"¿Qué día de la semana se vende más? (3 meses, por tienda)", cfg:{ filas:["dow"], col:"tienda", valores:["sin"], periodo:"90" } },
+  { id:"d2", grupo:"Días y horas", nombre:"¿A qué hora se vende más? (30 días)", cfg:{ filas:["hora"], valores:["sin","count"], periodo:"30" } },
+  { id:"c1", grupo:"Caja y medios de pago", nombre:"Medios de pago por tienda, este mes", cfg:{ filas:["tienda"], col:"medio", valores:["ingreso"], periodo:"mes" } },
+  { id:"c2", grupo:"Caja y medios de pago", nombre:"Medios de pago por tienda, día a día", cfg:{ filas:["dia","tienda"], col:"medio", valores:["ingreso"], periodo:"mes" } },
+  { id:"c3", grupo:"Caja y medios de pago", nombre:"Descuentos dados por asesor, este mes", cfg:{ filas:["asesor"], valores:["descuento","sin"], periodo:"mes" } },
+  { id:"s1", grupo:"Servicios y Flexipagos", nombre:"Arreglos, marcación y grabado por tienda, este mes", cfg:{ filas:["tipo"], col:"tienda", valores:["servicios","count"], periodo:"mes", filtros:{ tipo:["arreglo","marcacion","grabado"] } } },
+  { id:"s2", grupo:"Servicios y Flexipagos", nombre:"Flexipagos completados por tienda y asesor, este mes", cfg:{ filas:["tienda","asesor"], valores:["sin"], periodo:"mes", filtros:{ tipo:["flexipago"] } } },
+];
+const CONS_GRUPOS_MENU = ["Metas y cumplimiento","Ventas","Días y horas","Caja y medios de pago","Servicios y Flexipagos"];
+// "Las que más usas" (por equipo): una consulta cuenta como usada si queda en pantalla 20 s, una vez
+// por día como mucho; sube al menú cuando se usó en 3 días distintos de los últimos 30. Así una
+// consulta de un solo día no se cuela, y lo que se deja de usar sale solo.
+const CONS_USO_LS = "ozen-consultas-uso";
+const CONS_USO_DIAS_MIN = 3, CONS_USO_VENTANA = 30, CONS_USO_SEGUNDOS = 20, CONS_USO_MAX = 5;
+const consFirma = (c) => JSON.stringify({ filas:c.filas, col:c.col||"", valores:c.valores, filtros:Object.keys(c.filtros||{}).sort().map(k=>[k, [...(c.filtros[k]||[])].sort()]), periodo:c.periodo, comparar:c.comparar||"", eq:c.equipoJunto!==false });
+// Consultas guardadas con el formato anterior (medida, g1, g2, tiendas, asesor, tipos, medios).
+const consCfgDesdeViejo = (q) => {
+  if(!q || q.filas) return { ...CONS_CFG_INICIAL, ...(q||{}) };
+  const filtros = {};
+  if(q.tiendas?.length) filtros.tienda = q.tiendas;
+  if(q.asesor) filtros.asesor = [q.asesor];
+  if(q.tipos?.length) filtros.tipo = q.tipos;
+  if(q.medios?.length) filtros.medio = q.medios;
+  return { ...CONS_CFG_INICIAL, filas:[q.g1||"tienda"], col:q.g2||"", valores:[q.medida||"sin"], filtros, periodo:q.periodo||"mes", desde:q.desde||"", hasta:q.hasta||"", comparar:q.comparar||"", equipoJunto:q.equipoJunto!==false };
+};
+
+function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ventasAjustes, metas, metasAsesor, isMobile }) {
   const hoyS = todayStr;
-  const [q, setQ] = useState(CONS_Q_INICIAL);
-  const [activa, setActiva] = useState("");
-  const [masFiltros, setMasFiltros] = useState(false);
+  const [cfg, setCfg] = useState(CONS_CFG_INICIAL);
+  const [comun, setComun] = useState("");
   const [guardadas, setGuardadas] = useState(()=>{ try { return JSON.parse(localStorage.getItem(CONS_LS)||"[]"); } catch { return []; } });
-  const [nombrando, setNombrando] = useState(null); // texto del nombre al guardar
-  const [graficaForzada, setGraficaForzada] = useState(""); // "", "barras", "columnas", "mapa"
-  const set = (k, v) => { setQ(prev=>({ ...prev, [k]:v })); setActiva(""); };
-  const toggleLista = (k, v) => { setQ(prev=>({ ...prev, [k]: prev[k].includes(v) ? prev[k].filter(x=>x!==v) : [...prev[k], v] })); setActiva(""); };
+  const [nombrando, setNombrando] = useState(null);
+  const [graficaForzada, setGraficaForzada] = useState(()=>{ try { return localStorage.getItem("ozen-consultas-vista")||"tabla"; } catch { return "tabla"; } });
+  const [cerrados, setCerrados] = useState({}); // grupos de filas plegados
+  const [uso, setUso] = useState(()=>{ try { return JSON.parse(localStorage.getItem(CONS_USO_LS)||"{}"); } catch { return {}; } });
+  useEffect(()=>{
+    const t = setTimeout(()=>{
+      const firma = consFirma(cfg);
+      setUso(prev=>{
+        const reg = prev[firma] || { dias:[] };
+        if(reg.dias.includes(todayStr)) return prev;
+        const limite = consSumarDias(todayStr, -60);
+        const nuevo = { ...prev, [firma]:{ cfg, dias:[...reg.dias.filter(d=>d>=limite), todayStr] } };
+        // No dejar crecer la lista: se borran las que no se usan hace más de 60 días.
+        Object.keys(nuevo).forEach(k=>{ if(!nuevo[k].dias.some(d=>d>=limite)) delete nuevo[k]; });
+        try { localStorage.setItem(CONS_USO_LS, JSON.stringify(nuevo)); } catch { /* sin almacenamiento */ }
+        return nuevo;
+      });
+    }, CONS_USO_SEGUNDOS*1000);
+    return ()=>clearTimeout(t);
+  }, [cfg]);
+  const cambiar = (cambios) => { setCfg(prev=>({ ...prev, ...cambios })); setComun(""); };
+  const elegirVista = (v) => { setGraficaForzada(v); try { localStorage.setItem("ozen-consultas-vista", v); } catch { /* sin almacenamiento */ } };
   const persistir = (lista) => { setGuardadas(lista); try { localStorage.setItem(CONS_LS, JSON.stringify(lista)); } catch { /* sin almacenamiento: queda solo en esta sesión */ } };
 
   const hechos = useMemo(()=>construirHechosVentas(ventas, ventasItems, ventasAbonos, ventasAjustes), [ventas, ventasItems, ventasAbonos, ventasAjustes]);
@@ -9702,31 +9803,39 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   const asesoresOpc = users.filter(esVendedorPosible).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   const enEquipoAdmin = (u) => u && ROLES_ADMIN_VENDEDOR.includes(u.role) && !FUERA_DE_EQUIPO_ADMIN.includes(primerNombreNorm(u.name));
 
-  const rango = consRango(q, hoyS);
-  const rangoPrev = consRangoComparar(q, rango);
+  // ── Periodo y comparación ──
+  const rango = consRango(cfg, hoyS);
+  const rangoPrev = !cfg.comparar ? null
+    : cfg.comparar==="custom" ? (cfg.cdesde||cfg.chasta ? (()=>{ const a = cfg.cdesde||cfg.chasta, b = cfg.chasta||cfg.cdesde; return a<=b ? [a,b] : [b,a]; })() : null)
+    : consRangoComparar(cfg, rango);
+  const compLbl = cfg.comparar==="custom" && rangoPrev ? consTextoRango(rangoPrev) : cfg.comparar==="mes" ? "mes pasado" : cfg.comparar==="anio" ? "año pasado" : "periodo anterior";
 
+  const filasDims = cfg.filas.filter(Boolean);
+  const todosDims = [...filasDims, ...(cfg.col?[cfg.col]:[])];
+  const filtroDe = (campo) => cfg.filtros[campo] || [];
   const pasaFiltros = (h) => {
-    if(q.tiendas.length && !q.tiendas.includes(h.tiendaId)) return false;
-    if(q.asesor && h.vendedorId!==q.asesor) return false;
-    if(q.tipos.length && !q.tipos.includes(h.tipo)) return false;
-    if(q.medios.length && !q.medios.includes(h.medio)) return false;
+    for(const [campo, vals] of Object.entries(cfg.filtros)){
+      if(!vals || !vals.length) continue;
+      const v = campo==="tienda" ? h.tiendaId : campo==="asesor" ? h.vendedorId : campo==="tipo" ? h.tipo : campo==="medio" ? h.medio : campo==="dow" ? String((consParse(h.fecha).getDay()+6)%7) : null;
+      if(!vals.includes(v)) return false;
+    }
     return true;
   };
 
-  // Clave + etiqueta + orden de cada "por".
+  // Clave + etiqueta + orden de cada campo.
   const dim = (g, h) => {
     switch(g){
       case "asesor": {
         const u = userById[h.vendedorId];
-        if(q.equipoJunto && !q.asesor && enEquipoAdmin(u)) return { k:"__equipo__", l:"Equipo admin" };
+        if(cfg.equipoJunto && !filtroDe("asesor").length && enEquipoAdmin(u)) return { k:"__equipo__", l:"Equipo admin" };
         return { k:h.vendedorId||"—", l:u?.name || "Sin asesor" };
       }
-      case "tienda": { const t = stores[h.tiendaId]; return { k:h.tiendaId||"—", l:t?nombreTiendaCorto(t):"—", color:t?colorTienda(t):undefined }; }
+      case "tienda": { const t = stores[h.tiendaId]; const i = tiendas.findIndex(x=>x.id===h.tiendaId); return { k:h.tiendaId||"—", l:t?nombreTiendaCorto(t):"—", color:t?colorTienda(t):undefined, o:String(i<0?99:i).padStart(2,"0") }; }
       case "dia": { const d = consParse(h.fecha); return { k:h.fecha, l:`${CONS_DIAS_SEMANA[(d.getDay()+6)%7].slice(0,3)} ${d.getDate()} ${MESES_NOMBRE[d.getMonth()].slice(0,3).toLowerCase()}`, o:h.fecha }; }
       case "semana": { const l = consLunes(h.fecha); const d = consParse(l); return { k:l, l:`Sem. del ${d.getDate()} ${MESES_NOMBRE[d.getMonth()].slice(0,3).toLowerCase()}`, o:l }; }
       case "mes": { const k = h.fecha.slice(0,7); return { k, l:`${MESES_NOMBRE[Number(k.slice(5))-1]} ${k.slice(0,4)}`, o:k }; }
       case "dow": { const i = (consParse(h.fecha).getDay()+6)%7; return { k:String(i), l:CONS_DIAS_SEMANA[i], o:String(i) }; }
-      case "hora": { if(h.hora===null) return { k:"—", l:"Sin hora", o:"99" }; return { k:String(h.hora), l:`${h.hora}:00`, o:String(h.hora).padStart(2,"0") }; }
+      case "hora": { if(h.hora===null || h.hora===undefined) return { k:"—", l:"Sin hora", o:"99" }; return { k:String(h.hora), l:`${h.hora}:00`, o:String(h.hora).padStart(2,"0") }; }
       case "tipo": { const t = CONS_TIPOS.find(x=>x.value===h.tipo); return { k:h.tipo, l:t?.label||h.tipo, o:String(CONS_TIPOS.indexOf(t)) }; }
       case "medio": { const m = CONS_MEDIOS.find(x=>x.value===h.medio); return { k:h.medio, l:m?.label||h.medio||"—", o:String(CONS_MEDIOS.indexOf(m)) }; }
       default: return { k:"total", l:"Total" };
@@ -9734,149 +9843,138 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   };
   const esTiempo = (g) => ["dia","semana","mes","dow","hora"].includes(g);
 
-  // Acumulador: suma por medida y cuenta facturas distintas.
-  const nuevoAcc = () => ({ sin:0, ingreso:0, servicios:0, descuento:0, ventas:new Set() });
+  // ── Meta (opción "c": metas diarias de cada tienda) ──
+  const metaUsable = todosDims.every(g=>CONS_CAMPOS_META.includes(g)) && !filtroDe("medio").length;
+  const metaPersonal = todosDims.includes("asesor") || filtroDe("asesor").length>0;
+  const metaHechos = (r) => {
+    if(!r || !metaUsable) return [];
+    const out = [];
+    const cache = {};
+    const perfil = (tid, mes) => {
+      const ck = `${tid}|${mes}`; if(cache[ck]) return cache[ck];
+      const [y,m] = mes.split("-").map(Number); const dias = diasDelMes(y, m-1);
+      const reg = (metas||[]).find(x=>x.mes===mes && x.tienda_id===tid && (x.tipo||"total")==="total");
+      const vd = reg?.valores_dia || {};
+      const vals = Array.from({ length:dias }, (_,i)=>Number(vd[i+1]||0));
+      const s = vals.reduce((a,b)=>a+b,0);
+      const frac = vals.map(v=> s>0 ? v/s : 1/dias);
+      return (cache[ck] = { frac, total:Number(reg?.valor||0) });
+    };
+    const metaMesPersonal = (tid, mes) => Number((metas||[]).find(x=>x.mes===mes && x.tienda_id===tid && (x.tipo||"total")==="personal")?.valor||0);
+    for(let f = r[0]; f<=r[1]; f = consSumarDias(f,1)){
+      const mes = f.slice(0,7), dn = Number(f.slice(8,10));
+      if(!metaPersonal){
+        tiendas.forEach(t=>{ if(esTiendaOficina(t)) return; const p = perfil(t.id, mes); const mt = p.total * (p.frac[dn-1]||0); if(mt>0) out.push({ fecha:f, tiendaId:t.id, vendedorId:null, meta:mt }); });
+      } else {
+        (metasAsesor||[]).filter(ma=>ma.mes===mes).forEach(ma=>{
+          tiendas.forEach(t=>{
+            if(esTiendaOficina(t)) return;
+            const dt = Number((ma.dias_tienda||{})[t.id]||0); if(dt<=0) return;
+            const mesAsesor = (dt/DIAS_META) * metaMesPersonal(t.id, mes);
+            const mt = mesAsesor * (perfil(t.id, mes).frac[dn-1]||0);
+            if(mt>0) out.push({ fecha:f, tiendaId:t.id, vendedorId:ma.vendedor_id, meta:mt });
+          });
+        });
+      }
+    }
+    return out;
+  };
+
+  // ── Acumuladores ──
+  const nuevoAcc = () => ({ sin:0, ingreso:0, servicios:0, descuento:0, meta:0, ventas:new Set() });
   const sumar = (acc, h) => { acc.sin+=h.sin; acc.ingreso+=h.ingreso; acc.servicios+=h.servicios; acc.descuento+=h.descuento; if(h.cuenta) acc.ventas.add(h.ventaId); };
-  const valor = (acc, medida=q.medida) => {
+  const valor = (acc, medida=cfg.valores[0]) => {
     if(!acc) return 0;
     if(medida==="count") return acc.ventas.size;
     if(medida==="ticket") return acc.ventas.size ? acc.sin/acc.ventas.size : 0;
-    return acc[medida];
+    if(medida==="cumpl") return acc.meta>0 ? acc.sin/acc.meta*100 : 0;
+    return acc[medida] || 0;
   };
+  const fmtMedida = (n, medida=cfg.valores[0]) => medida==="count" ? Math.round(n).toLocaleString("es-CO") : medida==="cumpl" ? `${(Math.round(n*10)/10).toLocaleString("es-CO",{ minimumFractionDigits:1, maximumFractionDigits:1 })} %` : fmtCOP(n);
+  const sinMeta = (acc, medida) => (medida==="meta"||medida==="cumpl") && (!metaUsable || !acc || !(acc.meta>0));
 
+  // Árbol de filas (con subtotales por nivel) + columnas + celdas.
   const calcular = (r) => {
     if(!r) return null;
     const [a,b] = r;
-    const total = nuevoAcc(); const filas = {}; const cols = {}; const celdas = {};
-    hechos.forEach(h=>{
-      if(h.fecha<a || h.fecha>b || !pasaFiltros(h)) return;
-      sumar(total, h);
-      const d1 = dim(q.g1, h);
-      if(!filas[d1.k]) filas[d1.k] = { ...d1, acc:nuevoAcc() };
-      sumar(filas[d1.k].acc, h);
-      if(q.g2){
-        const d2 = dim(q.g2, h);
-        if(!cols[d2.k]) cols[d2.k] = { ...d2, acc:nuevoAcc() };
-        sumar(cols[d2.k].acc, h);
-        const ck = `${d1.k}|${d2.k}`;
-        if(!celdas[ck]) celdas[ck] = nuevoAcc();
-        sumar(celdas[ck], h);
-      }
-    });
-    return { total, filas, cols, celdas };
+    const total = nuevoAcc(); const nodos = {}; const cols = {}; const celdas = {};
+    const meter = (h, conMeta) => {
+      const ruta = filasDims.map(g=>dim(g,h));
+      const dc = cfg.col ? dim(cfg.col,h) : null;
+      const add = (acc) => conMeta ? (acc.meta += h.meta) : sumar(acc, h);
+      add(total);
+      let clave = "";
+      ruta.forEach((d,nivel)=>{
+        clave = clave ? `${clave}§${d.k}` : d.k;
+        if(!nodos[clave]) nodos[clave] = { ...d, clave, nivel, padre: nivel ? clave.slice(0, clave.lastIndexOf("§")) : "", acc:nuevoAcc() };
+        add(nodos[clave].acc);
+        if(dc){ const ck = `${clave}|${dc.k}`; if(!celdas[ck]) celdas[ck] = nuevoAcc(); add(celdas[ck]); }
+      });
+      if(dc){ if(!cols[dc.k]) cols[dc.k] = { ...dc, acc:nuevoAcc() }; add(cols[dc.k].acc); }
+    };
+    hechos.forEach(h=>{ if(h.fecha<a || h.fecha>b || !pasaFiltros(h)) return; meter(h, false); });
+    metaHechos(r).forEach(m=>{ if(!pasaFiltros({ ...m, tipo:"producto", medio:"" })) return; meter(m, true); });
+    return { total, nodos, cols, celdas };
   };
   const res = calcular(rango);
-  const prev = calcular(rangoPrev);
-  // Con qué grupo del periodo anterior se compara cada fila. En día / semana / mes se alinea por
-  // posición dentro del periodo (el 3 de oct con el 3 de sept, la 2.ª semana con la 2.ª semana…),
-  // en lo demás por la misma clave (mismo asesor, misma tienda, misma hora…).
-  const prevKey = (f) => {
-    if(!rangoPrev || f.k==="—") return f.k;
-    if(q.g1==="dia") return consSumarDias(rangoPrev[0], consDiasEntre(rango[0], f.k));
-    if(q.g1==="semana") return consSumarDias(consLunes(rangoPrev[0]), Math.round(consDiasEntre(consLunes(rango[0]), f.k)/7)*7);
-    if(q.g1==="mes"){ const [ya,ma] = rango[0].split("-").map(Number); const [yb,mb] = f.k.split("-").map(Number); return consMoverMes(rangoPrev[0], (yb-ya)*12+(mb-ma)).slice(0,7); }
-    return f.k;
+  const prevRes = calcular(rangoPrev);
+  const prev = prevRes;
+
+  // Orden de los hijos de cada nivel: tiempo en orden de calendario (día de la semana y hora
+  // completos), tienda en su orden, lo demás de mayor a menor según el 1.er valor.
+  const ordenar = (lista, g) => {
+    if(esTiempo(g) || g==="tienda" || g==="tipo" || g==="medio") return [...lista].sort((x,y)=>String(x.o??"").localeCompare(String(y.o??"")));
+    return [...lista].sort((x,y)=>valor(y.acc)-valor(x.acc));
   };
-  const prevAcc = (f) => prev ? prev.filas[prevKey(f)]?.acc : null;
-
-  // Filas: en los "por" de tiempo van en orden de calendario (y el día de la semana / hora
-  // completos aunque estén en cero, para que se vea el hueco); en los demás, de mayor a menor.
-  let filas = Object.values(res.filas);
-  if(q.g1==="dow"){ filas = CONS_DIAS_SEMANA.map((l,i)=>res.filas[String(i)] || { k:String(i), l, o:String(i), acc:nuevoAcc() }); }
-  else if(q.g1==="hora" && filas.length){
-    const hs = filas.filter(f=>f.k!=="—").map(f=>Number(f.k));
-    const min = Math.min(...hs), max = Math.max(...hs);
-    const completas = []; for(let x=min; x<=max; x++) completas.push(res.filas[String(x)] || { k:String(x), l:`${x}:00`, o:String(x).padStart(2,"0"), acc:nuevoAcc() });
-    filas = [...completas, ...(res.filas["—"]?[res.filas["—"]]:[])];
-  }
-  else if(q.g1==="tienda"){ filas = [...filas].sort((a,b)=>valor(b.acc)-valor(a.acc)); }
-  else if(esTiempo(q.g1)) filas = [...filas].sort((a,b)=>String(a.o).localeCompare(String(b.o)));
-  else filas = [...filas].sort((a,b)=>valor(b.acc)-valor(a.acc));
+  const hijos = {}; Object.values(res.nodos).forEach(n=>{ (hijos[n.padre] = hijos[n.padre] || []).push(n); });
+  const nivel0 = ordenar(hijos[""]||[], filasDims[0]);
+  const filasPlanas = [];
+  const recorrer = (lista, nivel) => lista.forEach(n=>{ filasPlanas.push(n); if(nivel<filasDims.length-1 && !cerrados[n.clave]) recorrer(ordenar(hijos[n.clave]||[], filasDims[nivel+1]), nivel+1); });
+  recorrer(nivel0, 0);
   let cols = Object.values(res.cols);
-  if(q.g2==="dow") cols = CONS_DIAS_SEMANA.map((l,i)=>res.cols[String(i)] || { k:String(i), l, o:String(i), acc:nuevoAcc() });
-  else if(esTiempo(q.g2)) cols = cols.sort((a,b)=>String(a.o).localeCompare(String(b.o)));
-  else if(q.g2==="tienda") cols = cols.sort((a,b)=>{ const ia = tiendas.findIndex(t=>t.id===a.k), ib = tiendas.findIndex(t=>t.id===b.k); return (ia<0?99:ia)-(ib<0?99:ib); });
-  else cols = cols.sort((a,b)=>valor(b.acc)-valor(a.acc));
+  if(cfg.col==="dow") cols = CONS_DIAS_SEMANA.map((l,i)=>res.cols[String(i)] || { k:String(i), l, o:String(i), acc:nuevoAcc() });
+  else cols = ordenar(cols, cfg.col);
+
+  // Con qué grupo del periodo comparado va cada fila: en día / semana / mes por posición dentro del
+  // periodo; en lo demás por la misma clave.
+  const clavePrevDe = (g, k) => {
+    if(!rangoPrev || k==="—") return k;
+    if(g==="dia") return consSumarDias(rangoPrev[0], consDiasEntre(rango[0], k));
+    if(g==="semana") return consSumarDias(consLunes(rangoPrev[0]), Math.round(consDiasEntre(consLunes(rango[0]), k)/7)*7);
+    if(g==="mes"){ const [ya,ma] = rango[0].split("-").map(Number); const [yb,mb] = k.split("-").map(Number); return consMoverMes(rangoPrev[0], (yb-ya)*12+(mb-ma)).slice(0,7); }
+    return k;
+  };
+  const prevNodo = (n) => {
+    if(!prevRes) return null;
+    const partes = n.clave.split("§");
+    const kp = partes.map((k,i)=>clavePrevDe(filasDims[i], k)).join("§");
+    return prevRes.nodos[kp]?.acc || null;
+  };
+
+  // ── Vista "legado" del 1.er nivel para los gráficos ──
+  const medidaG = cfg.valores[0];
+  const noSumable = medidaG==="ticket" || medidaG==="cumpl";
+  const q = { g1:filasDims[0], g2:cfg.col, medida:medidaG };
+  const filas = nivel0.map(n=>({ ...n, k:n.k }));
+  const prevAcc = (f) => prevNodo(f);
   const colorCol = (c, i) => c.color || CONS_PALETA[i % CONS_PALETA.length];
-
-  const fmtMedida = (n, medida=q.medida) => medida==="count" ? Math.round(n).toLocaleString("es-CO") : fmtCOP(n);
-  const medidaLbl = CONS_MEDIDAS.find(m=>m.value===q.medida)?.label;
-  const grupoLbl = (g) => CONS_GRUPOS.find(x=>x.value===g)?.label.toLowerCase();
-  const tituloResultado = `${medidaLbl} por ${grupoLbl(q.g1)}${q.g2?` y ${grupoLbl(q.g2)}`:""}`;
-  const compLbl = q.comparar==="mes" ? "mes pasado" : q.comparar==="anio" ? "año pasado" : "periodo anterior";
-
-  // Tipo de gráfico: mapa de calor cuando se cruza con día de la semana u hora; columnas para un
-  // "por" de tiempo solo; barras (apiladas si hay segundo grupo) para todo lo demás.
-  // Qué gráficos tienen sentido para esta pregunta (los demás se ven apagados en el selector).
+  const medidaLbl = CONS_VALORES.find(v=>v.value===medidaG)?.label;
   const nGrupos = filas.filter(f=>valor(f.acc)>0).length;
   const disponible = {
     barras:true, columnas:true, tabla:true,
-    barras100: !!q.g2 && q.medida!=="ticket",
+    barras100: !!q.g2 && !noSumable,
     linea: esTiempo(q.g1) && filas.length>=2,
     area: esTiempo(q.g1) && filas.length>=2,
-    dona: !esTiempo(q.g1) && nGrupos>=2 && q.medida!=="ticket",
+    dona: !esTiempo(q.g1) && nGrupos>=2 && !noSumable,
     mapa: !!q.g2,
     podio: !esTiempo(q.g1) && nGrupos>=2,
   };
-  const graficaAuto = q.g2 && (q.g1==="dow"||q.g1==="hora"||q.g2==="dow"||q.g2==="hora") ? "mapa"
-    : (["dia","semana","mes"].includes(q.g1) && !q.g2 && filas.length>=2) ? "linea"
-    : (esTiempo(q.g1) && !q.g2 ? "columnas" : "barras");
-  const grafica = graficaForzada && disponible[graficaForzada] ? graficaForzada : graficaAuto;
-  const apilar = q.g2 && q.medida!=="ticket";
-
-  const aplicar = (nq, id) => { setQ({ ...CONS_Q_INICIAL, ...nq }); setActiva(id); setGraficaForzada(""); };
-  const guardar = () => {
-    const nombre = (nombrando||"").trim(); if(!nombre) return;
-    const id = `g${Date.now()}`;
-    persistir([...guardadas, { id, nombre, q }]); setActiva(id); setNombrando(null);
-  };
-  const borrarGuardada = (id) => { persistir(guardadas.filter(g=>g.id!==id)); if(activa===id) setActiva(""); };
-
-  const descargar = () => {
-    const sep = ";";
-    const esc = (s) => { const t = String(s ?? ""); return /[;"\n]/.test(t) ? `"${t.replace(/"/g,'""')}"` : t; };
-    const num = (n) => q.medida==="count" ? String(Math.round(n)) : String(Math.round(n));
-    const enc = [CONS_GRUPOS.find(x=>x.value===q.g1)?.label, ...(q.g2?cols.map(c=>c.l):[]), "Total", ...(prev?[`Total ${compLbl}`,"Variación %"]:[])];
-    const lineas = [`${tituloResultado} · ${consTextoRango(rango)}`, enc.map(esc).join(sep)];
-    filas.forEach(f=>{
-      const t = valor(f.acc), p = prev ? valor(prevAcc(f)) : null;
-      lineas.push([f.l, ...(q.g2?cols.map(c=>{ const ce = res.celdas[`${f.k}|${c.k}`]; return ce?num(valor(ce)):""; }):[]), num(t), ...(prev?[num(p), p?String(Math.round((t-p)/Math.abs(p)*1000)/10).replace(".",","):""]:[])].map(esc).join(sep));
-    });
-    const T = valor(res.total), P = prev ? valor(prev.total) : null;
-    lineas.push(["Total", ...(q.g2?cols.map(c=>num(valor(c.acc))):[]), num(T), ...(prev?[num(P), P?String(Math.round((T-P)/Math.abs(P)*1000)/10).replace(".",","):""]:[])].map(esc).join(sep));
-    const blob = new Blob(["﻿"+lineas.join("\r\n")], { type:"text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `consulta-${tituloResultado.toLowerCase().replace(/[^a-z0-9áéíóúñ]+/gi,"-")}-${rango[0]}_${rango[1]}.csv`;
-    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 1000);
-  };
-
-  // ── KPIs ──
-  const kpiMedidas = [q.medida, ...["sin","count","ticket","descuento"].filter(m=>m!==q.medida)].slice(0,4);
-  const kpiTxt = (m) => CONS_MEDIDAS.find(x=>x.value===m)?.label;
-
-  // ── Piezas de UI ──
-  const tiendaFiltroTxt = q.tiendas.length===0 ? "Todas las tiendas" : q.tiendas.length===1 ? nombreTiendaCorto(stores[q.tiendas[0]]) : `${q.tiendas.length} tiendas`;
-  const filtrosActivos = [q.asesor?1:0, q.tipos.length?1:0, q.medios.length?1:0].reduce((a,b)=>a+b,0);
-
+  const graficaAuto = "tabla";
+  const grafica = graficaForzada && disponible[graficaForzada] ? graficaForzada : "tabla";
+  const setGraficaForzadaVista = (v) => elegirVista(v||"tabla");
+  const apilar = q.g2 && !noSumable;
   const maxFila = Math.max(1, ...filas.map(f=>valor(f.acc)), ...(prev ? filas.map(f=>valor(prevAcc(f))) : []));
-  const sinDatos = filas.length===0 || filas.every(f=>valor(f.acc)===0);
-
-  const atajo = (id, nombre, nq, borrable) => (
-    <span key={id} style={{ display:"inline-flex", alignItems:"center", height:32, borderRadius:99, border:`1px solid ${activa===id?C.goldDark:C.border}`, background:activa===id?C.goldDark:"#fff", color:activa===id?C.tinta:C.textSub, fontFamily:font.body, fontSize:12.5, fontWeight:600, whiteSpace:"nowrap", flex:"0 0 auto" }}>
-      <button onClick={()=>aplicar(nq, id)} style={{ all:"unset", cursor:"pointer", padding:borrable?"0 6px 0 12px":"0 12px", display:"inline-flex", alignItems:"center", gap:6, height:"100%" }}>★ {nombre}</button>
-      {borrable && <button aria-label={`Borrar ${nombre}`} onClick={()=>borrarGuardada(id)} style={{ all:"unset", cursor:"pointer", padding:"0 10px 0 4px", opacity:0.6, display:"inline-flex", alignItems:"center", height:"100%" }}><Icon n="x" s={12} sw={2.2}/></button>}
-    </span>
-  );
-
-  // ── Filtros activos y frase de la pregunta ──
-  const pillsFiltro = [
-    ...(q.asesor ? [{ k:"asesor", t:`Asesor: ${userById[q.asesor]?.name||"—"}`, quitar:()=>set("asesor","") }] : []),
-    ...(q.tipos.length ? [{ k:"tipos", t:`Tipo: ${q.tipos.map(t=>CONS_TIPOS.find(x=>x.value===t)?.label).join(", ")}`, quitar:()=>set("tipos",[]) }] : []),
-    ...(q.medios.length ? [{ k:"medios", t:`Medio: ${q.medios.map(t=>CONS_MEDIOS.find(x=>x.value===t)?.label).join(", ")}`, quitar:()=>set("medios",[]) }] : []),
-    ...(q.equipoJunto ? [{ k:"eq", t:"Equipo admin junto", quitar:()=>set("equipoJunto", false) }] : []),
-  ];
-  const fraseConsulta = `${medidaLbl} por ${grupoLbl(q.g1)}${q.g2?` y ${grupoLbl(q.g2)}`:""}, ${consTextoRango(rango)}, ${q.tiendas.length ? q.tiendas.map(id=>nombreTiendaCorto(stores[id])).join(", ") : "todas las tiendas"}${prev?`, vs ${compLbl}`:""}`;
-
+  const sinDatos = res.total.ventas.size===0 && res.total.sin===0 && res.total.ingreso===0 && res.total.meta===0;
   // Paleta de cada grupo / serie (tiendas con su color propio).
   const colorFila = (f, i) => f.color || CONS_PALETA[i % CONS_PALETA.length];
   // Etiqueta corta para ejes de tiempo.
@@ -9887,7 +9985,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   const Linea = (conArea) => {
     const H = isMobile ? 190 : 230, W = 1000;
     const n = filas.length;
-    const multi = !conArea && q.g2 && q.medida!=="ticket";
+    const multi = !conArea && q.g2 && !noSumable;
     const series = multi
       ? cols.slice(0,6).map((c,i)=>({ nombre:c.l, color:colorCol(c,i), vals:filas.map(f=>valor(res.celdas[`${f.k}|${c.k}`])) }))
       : [{ nombre:medidaLbl, color:C.gold, vals:filas.map(f=>valor(f.acc)) }];
@@ -10011,7 +10109,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
               <div style={{ fontFamily:font.body, fontSize:14.5, fontWeight:700, color:C.text, display:"flex", alignItems:"center", gap:6, justifyContent:"center", flex:isMobile?1:"none", textAlign:isMobile?"left":"center" }}>{f.color && <PuntoTienda color={f.color} size={8}/>}{f.l}</div>
               <div style={{ textAlign:isMobile?"right":"center" }}>
                 <div style={{ fontFamily:font.mono, fontSize:isMobile?14:16, fontWeight:700, color:C.goldDark }}>{fmtMedida(v)}</div>
-                {q.medida!=="ticket" && <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>{Math.round(v/total*100)} % del total</div>}
+                {!noSumable && <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>{Math.round(v/total*100)} % del total</div>}
               </div>
             </div>
           ); })}
@@ -10033,8 +10131,8 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
 
   const selectorGrafico = (
     <div className="ozen-sin-barra" style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:2, margin:"6px 0 14px" }}>
-      {CONS_GRAFICOS.map(g=>{ const ok = disponible[g.v]; const on = grafica===g.v; return (
-        <button key={g.v} disabled={!ok} title={ok ? g.l : `${g.l}: no aplica para esta pregunta`} onClick={()=>setGraficaForzada(g.v===graficaAuto?"":g.v)}
+      {[...CONS_GRAFICOS.filter(g=>g.v==="tabla"), ...CONS_GRAFICOS.filter(g=>g.v!=="tabla" && disponible[g.v])].map(g=>{ const ok = true; const on = grafica===g.v; return (
+        <button key={g.v} disabled={!ok} title={ok ? g.l : `${g.l}: no aplica para esta pregunta`} onClick={()=>setGraficaForzadaVista(g.v===graficaAuto?"":g.v)}
           style={{ flex:"0 0 auto", display:"flex", flexDirection:"column", alignItems:"center", gap:4, width:isMobile?76:84, padding:"8px 4px 6px", borderRadius:12, border:on?`1.5px solid ${C.gold}`:`1px solid ${C.border}`, background:on?"rgba(38,93,127,0.07)":"#fff", cursor:ok?"pointer":"not-allowed", opacity:ok?1:0.32, fontFamily:font.body, fontSize:11, fontWeight:on?700:600, color:on?C.goldDark:C.textSub }}>
           <ConsIconoGrafico v={g.v}/>{g.l}
         </button>
@@ -10128,193 +10226,311 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
     );
   };
 
+
   const tdN = { ...tdMet, fontFamily:font.mono, fontSize:12.5, textAlign:"right", whiteSpace:"nowrap", color:C.text };
   const thN = { ...thMet, textAlign:"right" };
+  const campoLbl = (g) => CONS_GRUPOS.find(x=>x.value===g)?.label || g;
+  const valorLbl = (v) => CONS_VALORES.find(x=>x.value===v)?.label || v;
+
+  // ── Consultas comunes y guardadas ──
+  const aplicarCfg = (nc, id) => { setCfg({ ...CONS_CFG_INICIAL, ...nc, filtros:{ ...(nc.filtros||{}) } }); setComun(id); setCerrados({}); };
+  const desdeVentana = consSumarDias(todayStr, -CONS_USO_VENTANA);
+  const nombreDeCfg = (c) => {
+    const f = consFirma(c);
+    const comunIgual = CONS_COMUNES.find(x=>consFirma({ ...CONS_CFG_INICIAL, ...x.cfg })===f); if(comunIgual) return comunIgual.nombre;
+    const guardada = guardadas.find(g=>consFirma(consCfgDesdeViejo(g.cfg||g.q))===f); if(guardada) return `★ ${guardada.nombre}`;
+    const per = CONS_PERIODOS.find(x=>x.value===c.periodo)?.label || "";
+    return `${c.filas.map(campoLbl).join(" › ")}${c.col?` × ${campoLbl(c.col)}`:""} · ${c.valores.map(valorLbl).join(", ")} · ${per}`;
+  };
+  const masUsadas = Object.entries(uso)
+    .map(([firma, r])=>({ id:`u:${firma}`, cfg:r.cfg, n:r.dias.filter(d=>d>=desdeVentana).length, ultimo:r.dias[r.dias.length-1]||"" }))
+    .filter(x=>x.n>=CONS_USO_DIAS_MIN && x.cfg)
+    .sort((a,b)=>b.n-a.n || b.ultimo.localeCompare(a.ultimo))
+    .slice(0, CONS_USO_MAX);
+  const elegirComun = (id) => {
+    if(!id){ setComun(""); return; }
+    if(id.startsWith("u:")){ const u = masUsadas.find(x=>x.id===id); if(u) aplicarCfg(u.cfg, id); return; }
+    const c = CONS_COMUNES.find(x=>x.id===id); if(c){ aplicarCfg(c.cfg, id); return; }
+    const g = guardadas.find(x=>x.id===id); if(g) aplicarCfg(consCfgDesdeViejo(g.cfg||g.q), id);
+  };
+  const guardar = () => {
+    const nombre = (nombrando||"").trim(); if(!nombre) return;
+    const id = `g${Date.now()}`;
+    persistir([...guardadas, { id, nombre, cfg }]); setComun(id); setNombrando(null);
+  };
+  const borrarGuardada = (id) => { persistir(guardadas.filter(g=>g.id!==id)); if(comun===id) setComun(""); };
+
+  // ── Edición de las cajas ──
+  const camposLibres = (excluir=[]) => CONS_GRUPOS.filter(g=>!todosDims.includes(g.value) && !excluir.includes(g.value));
+  const moverFila = (i, d) => setCfg(prev=>{ const f = [...prev.filas]; const j = i+d; if(j<0 || j>=f.length) return prev; [f[i], f[j]] = [f[j], f[i]]; return { ...prev, filas:f }; });
+  const quitarFila = (i) => cambiar({ filas: cfg.filas.filter((_,x)=>x!==i) });
+  const opcionesFiltro = (campo) => campo==="tienda" ? tiendas.map(t=>({ value:t.id, label:nombreTiendaCorto(t), color:colorTienda(t) }))
+    : campo==="asesor" ? asesoresOpc.map(a=>({ value:a.id, label:a.name }))
+    : campo==="tipo" ? CONS_TIPOS : campo==="medio" ? CONS_MEDIOS
+    : campo==="dow" ? CONS_DIAS_SEMANA.map((l,i)=>({ value:String(i), label:l })) : [];
+  const toggleFiltro = (campo, v) => setCfg(prev=>{ const act = prev.filtros[campo]||[]; return { ...prev, filtros:{ ...prev.filtros, [campo]: act.includes(v) ? act.filter(x=>x!==v) : [...act, v] } }; });
+  const quitarFiltro = (campo) => setCfg(prev=>{ const f = { ...prev.filtros }; delete f[campo]; return { ...prev, filtros:f }; });
+
+  // Ficha de un campo dentro de su caja: tinte del color de la caja, ícono, y quitar / mover.
+  const ficha = (contenido, onQuitar, extra, zona, icono, num) => {
+    const col = CONS_ZONAS[zona]?.color || C.gold;
+    return (
+      <span style={{ display:"inline-flex", alignItems:"center", gap:6, height:32, padding:"0 4px 0 8px", borderRadius:9, background:hexToRgba(col,0.08), border:`1px solid ${hexToRgba(col,0.28)}`, fontFamily:font.body, fontSize:12.5, fontWeight:700, color:col, maxWidth:"100%" }}>
+        {num!==undefined && <span style={{ minWidth:18, height:18, borderRadius:6, background:col, color:"#fff", fontSize:10.5, display:"grid", placeItems:"center" }}>{num}</span>}
+        {icono && <Icon n={icono} s={14} sw={2}/>}
+        <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:C.text }}>{contenido}</span>
+        {extra}
+        {onQuitar && <button aria-label="Quitar" onClick={onQuitar} style={{ all:"unset", cursor:"pointer", width:22, height:22, borderRadius:6, display:"grid", placeItems:"center", color:C.textMuted }}><Icon n="x" s={11} sw={2.4}/></button>}
+      </span>
+    );
+  };
+  const flecha = (txt, onClick, label) => <button aria-label={label} title={label} onClick={onClick} style={{ all:"unset", cursor:"pointer", width:16, height:22, display:"grid", placeItems:"center", color:C.textMuted, fontSize:9.5 }}>{txt}</button>;
+  const agregar = (label, opciones, onElegir, zona) => opciones.length>0 && (
+    <LvFicha label={label} n={0} ancho={240} estilo={{ height:32, border:`1.5px dashed ${hexToRgba(CONS_ZONAS[zona]?.color||C.gold,0.45)}`, background:"transparent", color:CONS_ZONAS[zona]?.color||C.gold, fontWeight:700 }}>
+      {opciones.map(o=><LvOpcion key={o.value} on={false} onClick={()=>onElegir(o.value)}>{o.icono && <Icon n={o.icono} s={14}/>}{o.label}</LvOpcion>)}
+    </LvFicha>
+  );
+  const caja = (zona, titulo, ayuda, hijos) => {
+    const z = CONS_ZONAS[zona];
+    return (
+      <div style={{ position:"relative", border:`1px solid ${C.border}`, borderRadius:14, padding:"12px 12px 14px", background:"#fff", minWidth:0, overflow:"hidden" }}>
+        <div style={{ position:"absolute", left:0, top:0, right:0, height:3, background:z.color, opacity:0.85 }}/>
+        <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:10 }}>
+          <span style={{ width:30, height:30, borderRadius:9, background:hexToRgba(z.color,0.1), color:z.color, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n={z.ic} s={16} sw={2}/></span>
+          <span style={{ minWidth:0 }}>
+            <span style={{ display:"block", fontFamily:font.body, fontSize:13.5, fontWeight:700, color:C.text }}>{titulo}</span>
+            <span style={{ display:"block", fontFamily:font.body, fontSize:11.5, color:C.textMuted }}>{ayuda}</span>
+          </span>
+        </div>
+        <div style={{ display:"flex", flexWrap:"wrap", alignItems:"center", gap:6 }}>{hijos}</div>
+      </div>
+    );
+  };
+  const selBarra = { height:34, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 8px", fontFamily:font.body, fontSize:13, fontWeight:600, background:"#fff", color:C.text };
+  const pildoraRango = { padding:"4px 10px", borderRadius:99, background:hexToRgba(C.gold,0.08), color:C.gold, fontWeight:700, fontSize:12 };
+  const inputFecha = (valorF, onChange) => <input type="date" value={valorF} max={hoyS} onChange={e=>onChange(e.target.value)} style={{ height:34, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 6px", fontFamily:font.body, fontSize:13.5, color:C.text, background:"#fff" }}/>;
+
+  // ── Descargar a Excel (.xlsx con el diseño de la marca, ver ozenExcel) ──
+  const descargar = () => {
+    const fmtDe = (m) => m==="count" ? "int" : m==="cumpl" ? "pct" : "cop";
+    const num = (acc, m) => sinMeta(acc, m) ? null : { v: m==="cumpl" ? valor(acc,m)/100 : Math.round(valor(acc, m)), f:fmtDe(m) };
+    const dif = (acc, ant, m) => {
+      if(sinMeta(acc,m) || sinMeta(ant,m)) return null;
+      const a = valor(acc,m), b = ant ? valor(ant,m) : 0;
+      if(m==="cumpl") return ant ? { v:Math.round((a-b)*10)/10, f:"pts" } : null;
+      return b ? { v:(a-b)/Math.abs(b), f:"pct" } : null;
+    };
+    const encab = [...(filasDims.length ? filasDims.map(campoLbl) : [""]), ...(cfg.col ? cols.flatMap(c=>cfg.valores.map(v=>cfg.valores.length>1 ? `${c.l} · ${valorLbl(v)}` : c.l)) : []),
+      ...cfg.valores.flatMap(v=>[cfg.col ? `Total · ${valorLbl(v)}` : valorLbl(v), ...(prev ? [`${valorLbl(v)} · ${compLbl}`, `Dif. ${valorLbl(v)}`] : [])])];
+    const valoresDe = (acc, ant, celdaCol) => [
+      ...(cfg.col ? cols.flatMap(c=>cfg.valores.map(v=>num(celdaCol(c), v))) : []),
+      ...cfg.valores.flatMap(v=>[num(acc, v), ...(prev ? [num(ant, v), dif(acc, ant, v)] : [])]),
+    ];
+    const filasX = [];
+    const rec = (lista, nivel) => lista.forEach(n=>{
+      const tieneHijos = nivel < filasDims.length-1;
+      filasX.push({ tipo: tieneHijos ? "grupo" : "dato", celdas:[...filasDims.map((_,i)=> i===n.nivel ? { v:n.l } : null), ...valoresDe(n.acc, prevNodo(n), c=>res.celdas[`${n.clave}|${c.k}`])] });
+      if(tieneHijos) rec(ordenar(hijos[n.clave]||[], filasDims[nivel+1]), nivel+1);
+    });
+    rec(nivel0, 0);
+    filasX.push({ tipo:"total", celdas:[{ v:"Total" }, ...filasDims.slice(1).map(()=>null), ...valoresDe(res.total, prev?prev.total:null, c=>c.acc)] });
+    const filtrosTxt = Object.entries(cfg.filtros).filter(([,v])=>v.length).map(([campo, vals])=>`${campoLbl(campo)}: ${vals.map(v=>opcionesFiltro(campo).find(o=>o.value===v)?.label||v).join(", ")}`).join(" · ");
+    const ahora = new Date();
+    ozenExcel({
+      archivo:`OZEN consulta ${rango[0]} a ${rango[1]}.xlsx`,
+      hoja:"Consulta",
+      titulo:"OZEN",
+      lineas:[
+        comun && (CONS_COMUNES.find(c=>c.id===comun)?.nombre || guardadas.find(g=>g.id===comun)?.nombre) ? `Consulta: ${CONS_COMUNES.find(c=>c.id===comun)?.nombre || guardadas.find(g=>g.id===comun)?.nombre}` : "Consulta de ventas",
+        `Filas: ${filasDims.map(campoLbl).join(" › ") || "—"}${cfg.col?` · Columnas: ${campoLbl(cfg.col)}`:""} · Valores: ${cfg.valores.map(valorLbl).join(", ")}`,
+        `Periodo: ${consTextoRango(rango)}${prev?` · Comparado con: ${consTextoRango(rangoPrev)}`:""}${filtrosTxt?` · Filtros: ${filtrosTxt}`:""}`,
+        `Generado el ${ahora.toLocaleDateString("es-CO",{ day:"numeric", month:"long", year:"numeric" })} a las ${ahora.toLocaleTimeString("es-CO",{ hour:"2-digit", minute:"2-digit" })}`,
+      ],
+      encabezados:encab,
+      filas:filasX,
+      colsFijas:Math.max(1, filasDims.length),
+    });
+  };
+
+  // Diferencia contra el periodo comparado (en cumplimiento, en puntos).
+  const delta = (act, ant, m) => {
+    if(m==="cumpl"){
+      if(ant===null || ant===undefined) return null;
+      const d = Math.round((act-ant)*10)/10;
+      return <span style={{ color:d===0?C.textMuted:(d>0?C.green:C.red), fontWeight:700, whiteSpace:"nowrap" }}>{d===0?"=":(d>0?"▲":"▼")} {Math.abs(d).toLocaleString("es-CO",{ minimumFractionDigits:1, maximumFractionDigits:1 })} pts</span>;
+    }
+    return <ConsDelta act={act} prev={ant} inverso={m==="descuento"}/>;
+  };
+  const celda = (acc, m, estilo) => {
+    const v = valor(acc, m);
+    const vacio = sinMeta(acc, m) || (!v && m!=="cumpl");
+    return <td style={{ ...tdN, ...estilo, color:vacio?C.textMuted:(m==="cumpl" ? (v>=100?C.green:v>=80?C.amber:C.red) : (estilo?.color||C.text)) }}>{vacio ? "—" : fmtMedida(v, m)}</td>;
+  };
+  const nCols = (cfg.col ? cols.length*cfg.valores.length : 0) + cfg.valores.length*(prev?3:1);
+
+  const tabla = (
+    <div style={{ overflowX:"auto", margin:isMobile?"0 -14px":"0", padding:isMobile?"0 14px":0 }}>
+      <table style={{ width:"100%", borderCollapse:"separate", borderSpacing:0, minWidth:Math.max(isMobile?420:0, 220 + nCols*112) }}>
+        <thead>
+          {cfg.col && cfg.valores.length>1 && (
+            <tr>
+              <th style={{ ...thMet, borderBottom:"none", position:"sticky", left:0, background:C.surface }}/>
+              {cols.map(c=><th key={c.k} colSpan={cfg.valores.length} style={{ ...thN, textAlign:"center", borderBottom:"none" }}>{c.l}</th>)}
+              <th colSpan={cfg.valores.length*(prev?3:1)} style={{ ...thN, textAlign:"center", borderBottom:"none" }}>Total</th>
+            </tr>
+          )}
+          <tr>
+            <th style={{ ...thMet, textAlign:"left", position:"sticky", left:0, background:C.surface }}>{filasDims.map(campoLbl).join(" › ") || "Total"}</th>
+            {cfg.col && cols.flatMap(c=>cfg.valores.map(v=><th key={`${c.k}-${v}`} style={thN}>{cfg.valores.length>1 ? valorLbl(v) : c.l}</th>))}
+            {cfg.valores.map(v=>(
+              <Fragment key={v}>
+                <th style={thN}>{cfg.col && cfg.valores.length===1 ? "Total" : valorLbl(v)}</th>
+                {prev && <th style={thN} title={consTextoRango(rangoPrev)}>{compLbl}</th>}
+                {prev && <th style={thN}>Dif.</th>}
+              </Fragment>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {filasPlanas.map(n=>{
+            const tieneHijos = n.nivel < filasDims.length-1;
+            const ant = prevNodo(n);
+            const negrita = tieneHijos ? 700 : (n.nivel===0 ? 700 : 500);
+            return (
+              <tr key={n.clave} style={{ background:tieneHijos?C.surfaceAlt:"transparent" }}>
+                <td style={{ ...tdMet, fontFamily:font.body, fontSize:13, fontWeight:negrita, color:C.text, whiteSpace:"nowrap", position:"sticky", left:0, background:tieneHijos?C.surfaceAlt:C.surface, paddingLeft:10+n.nivel*18 }}>
+                  <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}>
+                    {tieneHijos && <button onClick={()=>setCerrados(p=>({ ...p, [n.clave]:!p[n.clave] }))} aria-label={cerrados[n.clave]?"Abrir":"Cerrar"} style={{ all:"unset", cursor:"pointer", width:16, color:C.textMuted }}>{cerrados[n.clave]?"▸":"▾"}</button>}
+                    {n.color && <PuntoTienda color={n.color} size={7}/>}{n.l}
+                  </span>
+                </td>
+                {cfg.col && cols.flatMap(c=>cfg.valores.map(v=><Fragment key={`${c.k}-${v}`}>{celda(res.celdas[`${n.clave}|${c.k}`], v, tieneHijos?{ background:C.surfaceAlt }:undefined)}</Fragment>))}
+                {cfg.valores.map(v=>(
+                  <Fragment key={v}>
+                    {celda(n.acc, v, { fontWeight:600, ...(tieneHijos?{ background:C.surfaceAlt }:{}) })}
+                    {prev && celda(ant, v, { color:C.textMuted, ...(tieneHijos?{ background:C.surfaceAlt }:{}) })}
+                    {prev && <td style={{ ...tdN, fontFamily:font.body, fontSize:12, ...(tieneHijos?{ background:C.surfaceAlt }:{}) }}>{sinMeta(n.acc,v)||sinMeta(ant,v) ? "" : delta(valor(n.acc,v), ant?valor(ant,v):(v==="cumpl"?null:0), v)}</td>}
+                  </Fragment>
+                ))}
+              </tr>
+            );
+          })}
+          <tr>
+            <td style={{ ...tdMet, borderBottom:"none", fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, position:"sticky", left:0, background:C.surface }}>Total</td>
+            {cfg.col && cols.flatMap(c=>cfg.valores.map(v=><Fragment key={`${c.k}-${v}`}>{celda(c.acc, v, { borderBottom:"none", fontWeight:600 })}</Fragment>))}
+            {cfg.valores.map(v=>(
+              <Fragment key={v}>
+                {celda(res.total, v, { borderBottom:"none", fontWeight:700 })}
+                {prev && celda(prev.total, v, { borderBottom:"none", color:C.textMuted })}
+                {prev && <td style={{ ...tdN, borderBottom:"none", fontFamily:font.body, fontSize:12 }}>{sinMeta(res.total,v)||sinMeta(prev.total,v) ? "" : delta(valor(res.total,v), valor(prev.total,v), v)}</td>}
+              </Fragment>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const usaMeta = cfg.valores.some(v=>v==="meta"||v==="cumpl");
 
   return (
     <div>
-      {/* Pregunta — barra en casillas */}
       <Card style={{ marginBottom:16, overflow:"visible" }} p={isMobile?"14px":"18px 22px"}>
-        <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:isMobile?"wrap":"nowrap", marginBottom:14 }}>
-          <div style={{ width:34, height:34, borderRadius:10, background:C.surfaceHover, color:C.gold, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="search" s={18}/></div>
-          <div style={{ fontFamily:font.body, fontSize:16.5, fontWeight:700, color:C.text, flexShrink:0 }}>Consultas</div>
-          <div className="ozen-sin-barra" style={{ display:"flex", gap:8, alignItems:"center", marginLeft:isMobile?0:"auto", overflowX:"auto", width:isMobile?"100%":"auto", minWidth:0, paddingBottom:2 }}>
-            {!isMobile && <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, flexShrink:0 }}>Atajos:</span>}
-            {CONS_PRESETS.map(p=>atajo(p.id, p.corto||p.nombre, p.q, false))}
-            {guardadas.map(g=>atajo(g.id, g.nombre, g.q, true))}
+        <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", marginBottom:14 }}>
+          <div style={{ width:40, height:40, borderRadius:12, background:C.gold, color:"#fff", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="grid" s={20} sw={2}/></div>
+          <div style={{ minWidth:0 }}>
+            <div style={{ display:"flex", alignItems:"baseline", gap:12, flexWrap:"wrap" }}>
+              <span style={{ fontFamily:font.body, fontSize:17, fontWeight:700, color:C.text }}>Consultas</span>
+              {consFirma(cfg)!==consFirma(CONS_CFG_INICIAL) && <button onClick={()=>{ setCfg(CONS_CFG_INICIAL); setComun(""); setCerrados({}); }} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:12.5, color:C.gold, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3 }}>Empezar de cero</button>}
+            </div>
+            <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Elige una consulta del menú o ármala con las cajas de abajo</div>
+          </div>
+          <div style={{ marginLeft:isMobile?0:"auto", flex:isMobile?"1 1 100%":"0 1 400px", position:"relative" }}>
+            <span style={{ position:"absolute", left:12, top:"50%", transform:"translateY(-50%)", color:"#fff", pointerEvents:"none" }}><Icon n="search" s={16} sw={2.2}/></span>
+            <select value={comun} onChange={e=>elegirComun(e.target.value)} aria-label="Consultas comunes"
+              style={{ width:"100%", height:42, borderRadius:12, border:"none", padding:"0 12px 0 36px", fontFamily:font.body, fontSize:13.5, fontWeight:700, color:"#fff", background:C.gold, cursor:"pointer", appearance:"auto" }}>
+              <option value="" style={{ color:C.text, background:"#fff" }}>Consultas listas…</option>
+              {masUsadas.length>0 && <optgroup label="Las que más usas" style={{ color:C.text, background:"#fff" }}>{masUsadas.map(u=><option key={u.id} value={u.id}>{nombreDeCfg(u.cfg)}</option>)}</optgroup>}
+              {CONS_GRUPOS_MENU.map(g=><optgroup key={g} label={g} style={{ color:C.text, background:"#fff" }}>{CONS_COMUNES.filter(c=>c.grupo===g).map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}</optgroup>)}
+              {guardadas.length>0 && <optgroup label="Guardadas en este equipo" style={{ color:C.text, background:"#fff" }}>{guardadas.map(g=><option key={g.id} value={g.id}>★ {g.nombre}</option>)}</optgroup>}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, marginBottom:12 }}>
+          {[
+            { t:"Periodo", ic:"cal", sel:(
+              <select value={cfg.periodo} onChange={e=>{ const p = e.target.value; cambiar(p==="custom" && !cfg.desde ? { periodo:p, desde:rango[0], hasta:rango[1] } : { periodo:p }); }} style={selBarra}>
+                {CONS_PERIODOS.map(p=><option key={p.value} value={p.value}>{p.value==="custom" ? "Elegir fechas…" : p.label}</option>)}
+              </select>), extra: cfg.periodo==="custom" ? <>{inputFecha(cfg.desde, v=>cambiar({ desde:v }))}<span>a</span>{inputFecha(cfg.hasta, v=>cambiar({ hasta:v }))}</> : <span style={pildoraRango}>{consTextoRango(rango)}</span> },
+            { t:"Comparar con", ic:"history", sel:(
+              <select value={cfg.comparar} onChange={e=>cambiar({ comparar:e.target.value })} style={selBarra}>
+                {CONS_COMPARAR2.map(c=><option key={c.value||"nada"} value={c.value}>{c.label}</option>)}
+              </select>), extra: cfg.comparar==="custom" ? <>{inputFecha(cfg.cdesde, v=>cambiar({ cdesde:v }))}<span>a</span>{inputFecha(cfg.chasta, v=>cambiar({ chasta:v }))}</> : (rangoPrev ? <span style={pildoraRango}>{consTextoRango(rangoPrev)}</span> : null) },
+          ].map(b=>(
+            <div key={b.t} style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", padding:"9px 12px", borderRadius:12, background:C.surfaceAlt, border:`1px solid ${C.border}`, fontFamily:font.body, fontSize:13, color:C.textSub }}>
+              <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontWeight:700, color:C.text }}><span style={{ color:C.gold }}><Icon n={b.ic} s={15} sw={2}/></span>{b.t}</span>
+              {b.sel}{b.extra}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(4, minmax(0,1fr))", gap:10 }}>
+          {caja("filas", "Filas", "Uno dentro del otro", <>
+            {cfg.filas.map((g,i)=><Fragment key={g}>{ficha(campoLbl(g), ()=>quitarFila(i), <span style={{ display:"inline-flex", flexDirection:"column", lineHeight:0.9 }}>{i>0 && flecha("▲", ()=>moverFila(i,-1), "Subir")}{i<cfg.filas.length-1 && flecha("▼", ()=>moverFila(i,1), "Bajar")}</span>, "filas", CONS_ICONO_CAMPO[g], i+1)}</Fragment>)}
+            {agregar("Agregar", camposLibres().map(o=>({ ...o, icono:CONS_ICONO_CAMPO[o.value] })), v=>cambiar({ filas:[...cfg.filas, v] }), "filas")}
+          </>)}
+          {caja("columnas", "Columnas", "Un campo, opcional", <>
+            {cfg.col && ficha(campoLbl(cfg.col), ()=>cambiar({ col:"" }), null, "columnas", CONS_ICONO_CAMPO[cfg.col])}
+            {!cfg.col && agregar("Agregar", camposLibres().map(o=>({ ...o, icono:CONS_ICONO_CAMPO[o.value] })), v=>cambiar({ col:v }), "columnas")}
+          </>)}
+          {caja("valores", "Valores", "Qué se suma o calcula", <>
+            {cfg.valores.map((v,i)=><Fragment key={v}>{ficha(valorLbl(v), cfg.valores.length>1 ? ()=>cambiar({ valores:cfg.valores.filter(x=>x!==v) }) : null, i>0 ? flecha("▲", ()=>cambiar({ valores:[v, ...cfg.valores.filter(x=>x!==v)] }), "Poner de primero (es el que usa el gráfico)") : null, "valores", CONS_ICONO_VALOR[v])}</Fragment>)}
+            {agregar("Agregar", CONS_VALORES.filter(v=>!cfg.valores.includes(v.value)).map(o=>({ ...o, icono:CONS_ICONO_VALOR[o.value] })), v=>cambiar({ valores:[...cfg.valores, v] }), "valores")}
+          </>)}
+          {caja("filtros", "Filtros", "Solo lo que cumpla", <>
+            {Object.entries(cfg.filtros).map(([campo, vals])=>(
+              <span key={campo} style={{ display:"inline-flex", alignItems:"center", gap:2, borderRadius:9, background:hexToRgba(C.amber,0.08), border:`1px solid ${hexToRgba(C.amber,0.28)}`, padding:"0 2px 0 0" }}>
+                <LvFicha label={`${campoLbl(campo)}${vals.length?`: ${vals.length===1 ? (opcionesFiltro(campo).find(o=>o.value===vals[0])?.label||vals[0]) : vals.length}`:": todos"}`} n={0} ancho={240} icono={<Icon n={CONS_ICONO_CAMPO[campo]} s={14} sw={2}/>} estilo={{ height:30, border:"none", background:"transparent", color:C.text, fontWeight:700 }}>
+                  {opcionesFiltro(campo).map(o=><LvOpcion key={o.value} on={vals.includes(o.value)} onClick={()=>toggleFiltro(campo, o.value)}>{o.color && <PuntoTienda color={o.color} size={8}/>}{o.label}</LvOpcion>)}
+                </LvFicha>
+                <button aria-label="Quitar filtro" onClick={()=>quitarFiltro(campo)} style={{ all:"unset", cursor:"pointer", width:22, height:22, display:"grid", placeItems:"center", color:C.textMuted }}><Icon n="x" s={11} sw={2.4}/></button>
+              </span>
+            ))}
+            {agregar("Agregar", CONS_GRUPOS.filter(g=>CONS_CAMPOS_FILTRO.includes(g.value) && !cfg.filtros[g.value]).map(o=>({ ...o, icono:CONS_ICONO_CAMPO[o.value] })), v=>setCfg(prev=>({ ...prev, filtros:{ ...prev.filtros, [v]:[] } })), "filtros")}
+            {Object.keys(cfg.filtros).length>0 && <button onClick={()=>cambiar({ filtros:{} })} style={{ all:"unset", cursor:"pointer", fontFamily:font.body, fontSize:12, color:C.amber, fontWeight:700, textDecoration:"underline", textUnderlineOffset:3 }}>Quitar filtros</button>}
+            {(todosDims.includes("asesor")) && <label style={{ display:"flex", width:"100%", alignItems:"center", gap:6, fontFamily:font.body, fontSize:12, color:C.textSub, cursor:"pointer", marginTop:2 }}><input type="checkbox" checked={cfg.equipoJunto} onChange={e=>cambiar({ equipoJunto:e.target.checked })}/>Equipo admin junto</label>}
+          </>)}
+        </div>
+        {usaMeta && !metaUsable && <div style={{ fontFamily:font.body, fontSize:12, color:C.amber, marginTop:10 }}>La meta y el cumplimiento solo se calculan con Tienda, Asesor, Día, Semana, Mes o Día de la semana (sin filtro de Medio de pago).</div>}
+      </Card>
+
+      <Card p={isMobile?"14px":"20px 22px"}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:6 }}>
+          <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>{consTextoRango(rango)}{prev?` · comparado con ${consTextoRango(rangoPrev)}`:""}</div>
+          <div style={{ marginLeft:"auto", display:"flex", gap:8, flexWrap:"wrap" }}>
+            {!sinDatos && <Btn sm variant="ghost" onClick={descargar}>⬇ Descargar Excel</Btn>}
             {nombrando===null
-              ? <button onClick={()=>setNombrando("")} style={{ flex:"0 0 auto", height:30, padding:"0 12px", borderRadius:99, border:`1px dashed ${C.gold}`, background:"transparent", color:C.gold, fontFamily:font.body, fontSize:12.5, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>+ Guardar</button>
-              : <span style={{ display:"inline-flex", gap:6, alignItems:"center", flex:"0 0 auto" }}>
-                  <input autoFocus value={nombrando} onChange={e=>setNombrando(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") guardar(); if(e.key==="Escape") setNombrando(null); }} placeholder="Nombre de la consulta" style={{ height:30, padding:"0 12px", borderRadius:99, border:`1px solid ${C.gold}`, fontFamily:font.body, fontSize:13, outline:"none", width:190, color:C.text, background:"#fff" }}/>
+              ? <Btn sm variant="ghost" onClick={()=>setNombrando("")}>★ Guardar consulta</Btn>
+              : <span style={{ display:"inline-flex", gap:6, alignItems:"center" }}>
+                  <input autoFocus value={nombrando} onChange={e=>setNombrando(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") guardar(); if(e.key==="Escape") setNombrando(null); }} placeholder="Nombre de la consulta" style={{ height:32, borderRadius:8, border:`1px solid ${C.border}`, padding:"0 8px", fontFamily:font.body, fontSize:13 }}/>
                   <Btn sm onClick={guardar} disabled={!nombrando.trim()}>Guardar</Btn>
                   <Btn sm variant="ghost" onClick={()=>setNombrando(null)}>Cancelar</Btn>
                 </span>}
+            {guardadas.some(g=>g.id===comun) && <Btn sm variant="ghost" onClick={()=>borrarGuardada(comun)} style={{ color:C.red }}>Borrar guardada</Btn>}
           </div>
         </div>
-
-        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1.35fr 1.35fr 1.3fr 1fr 1fr auto", border:"1.5px solid rgba(38,93,127,0.28)", borderRadius:16, background:"#fff", boxShadow:"0 10px 30px -18px rgba(26,59,82,0.35)" }}>
-          <ConsSlot k="Qué ver" icono="📊" isMobile={isMobile} radio={isMobile?"14px 14px 0 0":"14px 0 0 14px"} valor={medidaLbl}>
-            {(cerrar)=><>
-              <ConsSec>Qué quieres medir</ConsSec>
-              {CONS_MEDIDAS.map(m=><ConsOpcion key={m.value} on={q.medida===m.value} icono={CONS_ICONO_MEDIDA[m.value]} onClick={()=>{ set("medida", m.value); cerrar(); }}>{m.label}</ConsOpcion>)}
-            </>}
-          </ConsSlot>
-          <ConsSlot k="Agrupado por" icono="🧩" isMobile={isMobile} ancho={400} valor={<>{CONS_GRUPOS.find(x=>x.value===q.g1)?.label}</>} nota={q.g2 ? `+ ${CONS_GRUPOS.find(x=>x.value===q.g2)?.label}` : null}>
-            <ConsSec>Agrupar por</ConsSec>
-            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr", gap:2 }}>
-            {CONS_GRUPOS.map(g=><ConsOpcion key={g.value} on={q.g1===g.value} icono={CONS_ICONO_GRUPO[g.value]} onClick={()=>{ setQ(prev=>({ ...prev, g1:g.value, g2:prev.g2===g.value?"":prev.g2 })); setActiva(""); setGraficaForzada(""); }}>{g.label}</ConsOpcion>)}
-            </div>
-            <ConsSec style={{ marginTop:12 }}>Y cruzar con (opcional)</ConsSec>
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap", padding:"0 6px 4px" }}>
-              <ConsChip on={!q.g2} onClick={()=>{ set("g2",""); setGraficaForzada(""); }}>Nada</ConsChip>
-              {CONS_GRUPOS.filter(g=>g.value!==q.g1).map(g=><ConsChip key={g.value} on={q.g2===g.value} onClick={()=>{ set("g2", g.value); setGraficaForzada(""); }}>{g.label}</ConsChip>)}
-            </div>
-          </ConsSlot>
-          <ConsSlot k="Cuándo" icono="📅" isMobile={isMobile} valor={CONS_PERIODOS.find(p=>p.value===q.periodo)?.label} nota={q.periodo!=="hoy" && q.periodo!=="ayer" ? consTextoRango(rango) : null}>
-            {(cerrar)=><>
-              <ConsSec>Periodo</ConsSec>
-              {CONS_PERIODOS.filter(p=>p.value!=="custom").map(p=><ConsOpcion key={p.value} on={q.periodo===p.value} onClick={()=>{ set("periodo", p.value); cerrar(); }}>{p.label}</ConsOpcion>)}
-              <ConsOpcion on={q.periodo==="custom"} onClick={()=>{ if(!q.desde){ setQ(prev=>({ ...prev, periodo:"custom", desde:rango[0], hasta:rango[1] })); setActiva(""); } else set("periodo","custom"); }}>Personalizado…</ConsOpcion>
-              {q.periodo==="custom" && (
-                <div style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 9px", fontFamily:font.body, fontSize:13, color:C.textSub }}>
-                  <input type="date" value={q.desde} max={hoyS} onChange={e=>set("desde",e.target.value)} style={{ height:34, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 6px", fontFamily:font.body, fontSize:13.5, color:C.text, background:"#fff", minWidth:0 }}/>
-                  a
-                  <input type="date" value={q.hasta} max={hoyS} onChange={e=>set("hasta",e.target.value)} style={{ height:34, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 6px", fontFamily:font.body, fontSize:13.5, color:C.text, background:"#fff", minWidth:0 }}/>
-                </div>
-              )}
-            </>}
-          </ConsSlot>
-          <ConsSlot k="Dónde" icono="🏬" isMobile={isMobile} ancho={240} valor={<><span style={{ width:8, height:8, borderRadius:"50%", background:q.tiendas.length===1?colorTienda(stores[q.tiendas[0]]):C.goldDark, flexShrink:0 }}/>{q.tiendas.length===0 ? "Todas" : tiendaFiltroTxt}</>}>
-            <ConsSec>Tiendas</ConsSec>
-            <ConsOpcion check on={q.tiendas.length===0} onClick={()=>set("tiendas",[])}>Todas las tiendas</ConsOpcion>
-            {tiendas.map(t=><ConsOpcion key={t.id} check on={q.tiendas.includes(t.id)} onClick={()=>toggleLista("tiendas", t.id)}><PuntoTienda color={colorTienda(t)} size={8}/>{nombreTiendaCorto(t)}</ConsOpcion>)}
-          </ConsSlot>
-          <ConsSlot k="Comparar con" icono="↔️" isMobile={isMobile} alinearDerecha ancho={240} valor={CONS_COMPARAR.find(c=>c.value===q.comparar)?.label} borde={!isMobile}>
-            {(cerrar)=><>
-              <ConsSec>Comparar con</ConsSec>
-              {CONS_COMPARAR.map(c=><ConsOpcion key={c.value||"nada"} on={q.comparar===c.value} onClick={()=>{ set("comparar", c.value); cerrar(); }}>{c.label}</ConsOpcion>)}
-            </>}
-          </ConsSlot>
-          <button onClick={()=>setMasFiltros(x=>!x)} style={{ border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8, padding:isMobile?"12px":"0 20px", background:masFiltros?C.gold:C.goldDark, color:C.tinta, fontFamily:font.body, fontSize:14, fontWeight:700, borderRadius:isMobile?"0 0 14px 14px":"0 14px 14px 0", whiteSpace:"nowrap" }}>
-            <Icon n="list" s={15}/>Filtros{filtrosActivos>0 && <span style={{ background:C.tinta, color:C.goldDark, borderRadius:99, fontSize:11, padding:"1px 7px" }}>{filtrosActivos}</span>}
-          </button>
-        </div>
-
-        {masFiltros && (
-          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr", gap:16, marginTop:14, padding:"14px 16px", borderRadius:14, background:C.surfaceAlt, border:`1px solid ${C.border}` }}>
-            <div>
-              <div style={{ ...thMet, border:"none", padding:"0 0 8px" }}>Asesor</div>
-              <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
-                <ConsPick grande={false} ariaLabel="Asesor" value={q.asesor} onChange={v=>set("asesor",v)} options={[{ value:"", label:"Todos los asesores" }, ...asesoresOpc.map(a=>({ value:a.id, label:a.name }))]}/>
-                <ConsChip on={q.equipoJunto} onClick={()=>set("equipoJunto", !q.equipoJunto)}>{q.equipoJunto?<Icon n="check" s={13} sw={2.4}/>:null}Equipo admin junto</ConsChip>
-              </div>
-            </div>
-            <div>
-              <div style={{ ...thMet, border:"none", padding:"0 0 8px" }}>Tipo</div>
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                <ConsChip on={q.tipos.length===0} onClick={()=>set("tipos",[])}>Todos</ConsChip>
-                {CONS_TIPOS.map(t=><ConsChip key={t.value} on={q.tipos.includes(t.value)} onClick={()=>toggleLista("tipos", t.value)}>{t.label}</ConsChip>)}
-              </div>
-            </div>
-            <div>
-              <div style={{ ...thMet, border:"none", padding:"0 0 8px" }}>Medio de pago</div>
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                <ConsChip on={q.medios.length===0} onClick={()=>set("medios",[])}>Todos</ConsChip>
-                {CONS_MEDIOS.map(t=><ConsChip key={t.value} on={q.medios.includes(t.value)} onClick={()=>toggleLista("medios", t.value)}>{t.label}</ConsChip>)}
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div style={{ display:"flex", gap:8, alignItems:"center", marginTop:12, flexWrap:"wrap" }}>
-          {pillsFiltro.length>0 && <span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>Filtrando:</span>}
-          {pillsFiltro.map(pf=>(
-            <span key={pf.k} style={{ display:"inline-flex", alignItems:"center", gap:6, height:28, padding:"0 5px 0 11px", borderRadius:9, background:C.surfaceAlt, border:`1px solid ${C.border}`, fontFamily:font.body, fontSize:12.5, color:C.textSub }}>
-              {pf.t}
-              <button aria-label={`Quitar ${pf.t}`} onClick={pf.quitar} style={{ all:"unset", cursor:"pointer", width:18, height:18, borderRadius:"50%", display:"grid", placeItems:"center", color:C.textMuted }}><Icon n="x" s={10} sw={2.6}/></button>
-            </span>
-          ))}
-          <span style={{ marginLeft:isMobile?0:"auto", fontFamily:font.body, fontSize:12.5, color:C.textMuted, lineHeight:1.5 }}>Se lee: <b style={{ color:C.text, fontWeight:700 }}>{fraseConsulta}</b></span>
-        </div>
-      </Card>
-
-      {/* KPIs */}
-      <div className="ozen-sin-barra" style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(4, 200px)":"repeat(4, 1fr)", overflowX:isMobile?"auto":"visible", gap:12, marginBottom:16 }}>
-        {kpiMedidas.map(m=>{
-          const v = valor(res.total, m); const p = prev ? valor(prev.total, m) : null;
-          return (
-            <div key={m} style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 16px" }}>
-              <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.12em", textTransform:"uppercase", color:C.textMuted, fontWeight:600 }}>{kpiTxt(m)}</div>
-              <div style={{ fontFamily:font.mono, fontSize:isMobile?19:22, fontWeight:600, color:C.text, marginTop:8 }}>{fmtMedida(v, m)}</div>
-              {prev && <div style={{ fontFamily:font.body, fontSize:12, marginTop:5 }}><ConsDelta act={v} prev={p} inverso={m==="descuento"} sufijo={`vs ${compLbl}`}/></div>}
-              {prev && <div style={{ fontFamily:font.mono, fontSize:11, color:C.textMuted, marginTop:3 }}>antes {fmtMedida(p, m)}</div>}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Resultado */}
-      <Card p={isMobile?"14px":"20px 22px"}>
-        <div style={{ display:"flex", alignItems:"flex-start", gap:12, flexWrap:"wrap", marginBottom:8 }}>
-          <div style={{ minWidth:0 }}>
-            <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>{tituloResultado}</div>
-            <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{consTextoRango(rango)}{prev?` · comparado con ${consTextoRango(rangoPrev)}`:""}{q.tiendas.length?` · ${q.tiendas.map(id=>nombreTiendaCorto(stores[id])).join(", ")}`:""}</div>
-          </div>
-          {prev && ["barras","columnas","linea","area"].includes(grafica) && !(grafica==="linea" && q.g2 && q.medida!=="ticket") && !isMobile && <div style={{ marginLeft:"auto", fontFamily:font.body, fontSize:12, color:C.textMuted, display:"flex", alignItems:"center", gap:6 }}>{grafica==="barras"?<span style={{ width:22, height:3, borderRadius:2, background:"rgba(26,59,82,0.22)" }}/>:grafica!=="columnas"?<span style={{ width:22, height:0, borderTop:"2px dashed #c9b8aa" }}/>:<span style={{ width:12, height:12, border:"1.5px dashed rgba(26,59,82,0.35)", borderRadius:3 }}/>}{compLbl[0].toUpperCase()+compLbl.slice(1)}</div>}
-        </div>
-        {apilar && grafica==="barras" && (
-          <div style={{ display:"flex", gap:14, flexWrap:"wrap", fontFamily:font.body, fontSize:12, color:C.textSub, margin:"4px 0 14px" }}>
-            {cols.map((c,i)=><span key={c.k} style={{ display:"inline-flex", alignItems:"center", gap:6 }}><span style={{ width:10, height:10, borderRadius:3, background:colorCol(c,i) }}/>{c.l}</span>)}
-          </div>
-        )}
-
-        {!sinDatos && selectorGrafico}
+        {!sinDatos && filasDims.length>0 && selectorGrafico}
         {sinDatos ? (
-          <div style={{ padding:"36px 0", textAlign:"center", fontFamily:font.body, fontSize:14, color:C.textMuted }}>No hay {q.medida==="count"?"ventas":"movimientos"} con esos filtros en {consTextoRango(rango)}.</div>
-        ) : (
-          grafica==="tabla" ? null : <div style={{ margin:"10px 0 18px" }}>
-            {grafica==="mapa" ? Mapa() : grafica==="columnas" ? Columnas() : grafica==="linea" ? Linea(false) : grafica==="area" ? Linea(true) : grafica==="dona" ? Dona() : grafica==="barras100" ? Barras100() : grafica==="podio" ? Podio() : grafica==="tabla" ? null : Barras()}
-          </div>
-        )}
-
-        {!sinDatos && (
-          <div style={{ overflowX:"auto", margin:isMobile?"0 -14px":"0", padding:isMobile?"0 14px":0 }}>
-            <table style={{ width:"100%", borderCollapse:"separate", borderSpacing:0, minWidth:q.g2 ? Math.max(isMobile?520:0, 260+cols.length*120) : undefined }}>
-              <thead>
-                <tr>
-                  <th style={{ ...thMet, textAlign:"left", position:"sticky", left:0, background:C.surface }}>{CONS_GRUPOS.find(x=>x.value===q.g1)?.label}</th>
-                  {q.g2 && cols.map(c=><th key={c.k} style={thN}>{c.l}</th>)}
-                  <th style={thN}>{q.g2?"Total":medidaLbl}</th>
-                  {prev && <th style={thN}>vs {compLbl}</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {filas.map(f=>{
-                  const t = valor(f.acc); const p = prev ? valor(prevAcc(f)) : null;
-                  return (
-                    <tr key={f.k}>
-                      <td style={{ ...tdMet, fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, whiteSpace:"nowrap", position:"sticky", left:0, background:C.surface }}><span style={{ display:"inline-flex", alignItems:"center", gap:6 }}>{f.color && <PuntoTienda color={f.color} size={7}/>}{f.l}</span></td>
-                      {q.g2 && cols.map(c=>{ const ce = res.celdas[`${f.k}|${c.k}`]; const v = valor(ce); return <td key={c.k} style={{ ...tdN, color:v?C.text:C.textMuted }}>{v?fmtMedida(v):"—"}</td>; })}
-                      <td style={{ ...tdN, fontWeight:q.g2?600:400 }}>{fmtMedida(t)}</td>
-                      {prev && <td style={{ ...tdN, fontFamily:font.body, fontSize:12.5 }} title={`${compLbl}: ${fmtMedida(p)}`}><ConsDelta act={t} prev={p} inverso={q.medida==="descuento"}/></td>}
-                    </tr>
-                  );
-                })}
-                <tr>
-                  <td style={{ ...tdMet, borderBottom:"none", fontFamily:font.body, fontSize:13, fontWeight:700, color:C.text, position:"sticky", left:0, background:C.surface }}>Total</td>
-                  {q.g2 && cols.map(c=><td key={c.k} style={{ ...tdN, borderBottom:"none", fontWeight:600 }}>{fmtMedida(valor(c.acc))}</td>)}
-                  <td style={{ ...tdN, borderBottom:"none", fontWeight:700 }}>{fmtMedida(valor(res.total))}</td>
-                  {prev && <td style={{ ...tdN, borderBottom:"none", fontFamily:font.body, fontSize:12.5 }}><ConsDelta act={valor(res.total)} prev={valor(prev.total)} inverso={q.medida==="descuento"}/></td>}
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <div style={{ display:"flex", gap:8, justifyContent:"flex-end", flexWrap:"wrap", marginTop:16 }}>
-          {!sinDatos && <Btn sm variant="ghost" onClick={descargar}>⬇ Descargar Excel</Btn>}
-          {nombrando===null && <Btn sm variant="ghost" onClick={()=>{ setNombrando(""); window.scrollTo({ top:0, behavior:"smooth" }); }}>★ Guardar consulta</Btn>}
-        </div>
+          <div style={{ padding:"36px 0", textAlign:"center", fontFamily:font.body, fontSize:14, color:C.textMuted }}>No hay movimientos con esos filtros en {consTextoRango(rango)}.</div>
+        ) : (<>
+          {grafica!=="tabla" && filasDims.length>0 && (
+            <div style={{ margin:"10px 0 18px" }}>
+              {grafica==="mapa" ? Mapa() : grafica==="columnas" ? Columnas() : grafica==="linea" ? Linea(false) : grafica==="area" ? Linea(true) : grafica==="dona" ? Dona() : grafica==="barras100" ? Barras100() : grafica==="podio" ? Podio() : Barras()}
+            </div>
+          )}
+          {tabla}
+        </>)}
       </Card>
     </div>
   );
@@ -10821,7 +11037,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
     <div>
       <PageHeader title="Métricas" subtitle="Consultas · arma cualquier pregunta sobre las ventas"/>
       {selectorVistaMet}
-      <ConsultasVentas stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} isMobile={isMobile}/>
+      <ConsultasVentas stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} metasAsesor={metasAsesor} isMobile={isMobile}/>
     </div>
   );
 
