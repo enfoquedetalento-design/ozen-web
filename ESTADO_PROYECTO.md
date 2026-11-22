@@ -1144,6 +1144,30 @@ servía para la operación. Ahora (`VentasListaScreen`):
 - Se quitaron: cifras de resumen, burbuja de meta, filtros Tipo / Medio de pago / Más y la hoja de
   filtros del celular (en el celular salen las mismas fichas; la listita se acomoda si no cabe).
 
+## Ventas — Métricas › Consultas como tabla dinámica (21 nov 2026, en `staging`, falta probar)
+
+Pedido de Santiago y Felipe: la frase se quedaba corta (no se podía, p. ej., medios de pago por
+tienda y por día, ni cumplimiento de un asesor del 1 al 16 contra otro periodo). `ConsultasVentas`
+ahora es una tabla dinámica sencilla:
+- **Filas** (uno o varios campos, uno dentro del otro, con subtotales y ▸/▾ para plegar),
+  **Columnas** (un campo), **Valores** (uno o varios: Ventas sin servicios, Ingreso total,
+  Servicios, N.º de ventas, Ticket promedio, Descuentos, Meta, Cumplimiento %) y **Filtros**
+  (Tienda, Asesor, Tipo, Medio de pago, Día de la semana). Campos: los de `CONS_GRUPOS`.
+- Periodo (atajos o fechas) y **Comparar con**: nada, periodo anterior, mes pasado, año pasado u
+  **otro periodo** (fechas). Al comparar, cada valor trae lo del otro periodo y la diferencia
+  (cumplimiento en puntos).
+- **Consultas comunes** (`CONS_COMUNES`) en un menú: arman todo solas. Las guardadas (por equipo,
+  localStorage) salen en el mismo menú; las viejas se convierten con `consCfgDesdeViejo`.
+- **Tabla primero** (Felipe); gráficos a un toque con el 1.er campo de Filas, las Columnas y el
+  1.er Valor; el equipo recuerda la última vista. **Descargar a Excel** (CSV con ;).
+- **Meta (decisión de Santiago, opción c):** metas DIARIAS de cada tienda. Tienda: meta del mes
+  repartida según sus metas por día (si no hay, por igual). Asesor: su meta del mes por tienda
+  (días/30 × meta personal, igual que Métricas) repartida con esa misma curva. Mes completo = meta
+  de Métricas. Cumplimiento = ventas sin servicios ÷ meta. Solo con Tienda, Asesor, Día, Semana,
+  Mes o Día de la semana (no Hora, Tipo ni Medio de pago). Con Asesor en filas/columnas/filtro se usa
+  la meta personal; si no, la de tienda.
+- Se quitaron la frase, los atajos sueltos y los 4 recuadros de cifras.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
