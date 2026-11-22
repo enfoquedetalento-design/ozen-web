@@ -1227,6 +1227,13 @@ Pedido de Santiago: el módulo más intuitivo.
     caben (`justifyContent:"safe center"`); colita de la nube en curva (SVG); **campana de avisos**
     (Flexipagos y órdenes de Operaciones) pasó de Registrar a la barra de arriba, junto al perfil
     (`CampanaVentas`; cuenta de tienda: solo la suya; demás: todas las tiendas, con el nombre).
+  - **Una sola campana para todo (22 nov, decisión de Santiago):** ya no hay campana de Ventas y
+    campana de Operaciones por separado (se quitó `OperCampana`). `CampanaGeneral` va en la barra de
+    arriba, junto al perfil, en **todas** las áreas, y junta lo que la persona puede ver: Flexipagos
+    por recordar (si tiene `ventas.lista.ver`), órdenes de clientes y solicitudes internas atrasadas
+    (si tiene `operaciones.ver`; internas no para cuentas de tienda). Cada aviso lleva a su sitio
+    (Lista de ventas u Operaciones). Datos: si Operaciones no está cargada, consulta liviana de lo
+    abierto (externas e internas, solo columnas de la campana) cada 5 min como máximo.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 

@@ -1348,12 +1348,14 @@ function DockTienda({ tabs, tab, setTab }) {
   );
 }
 
-// Campana de avisos de Ventas (22 nov 2026: pasó de Registrar venta a la barra de arriba, al lado
-// del perfil): Flexipagos por recordarle al cliente (vencidos, por vencer o a mitad de plazo) y
-// órdenes de Operaciones de la(s) tienda(s). Cuenta de tienda: solo la suya; las demás: todas.
-function CampanaVentas({ user, stores, tiendaIds, ventas, ventasItems, ventasAbonos, ops, onIrAOrden, onIrAFlexipago }) {
+// Campana única de avisos (22 nov 2026, decisión de Santiago: "una sola campana para todo"): va en
+// la barra de arriba, junto al perfil, en todas las áreas, y junta lo que la persona puede ver:
+// Flexipagos por recordarle al cliente (si ve la Lista de ventas), órdenes de clientes de
+// Operaciones y solicitudes internas atrasadas (si ve Operaciones; las internas no para cuentas de
+// tienda). Cuenta de tienda: solo lo de su tienda; las demás: todas.
+function CampanaGeneral({ user, stores, tiendaIds, ventas, ventasItems, ventasAbonos, verFlex, ops, sols, onIrAOrden, onIrAFlexipago }) {
   const variasTiendas = tiendaIds.length>1;
-  const flex = tiendaIds.flatMap(tid=>flexipagosPorVencer(tid, ventas, ventasItems, ventasAbonos, todayStr))
+  const flex = !verFlex ? [] : tiendaIds.flatMap(tid=>flexipagosPorVencer(tid, ventas, ventasItems, ventasAbonos, todayStr))
     .sort((a,b)=> a.vencido!==b.vencido ? (a.vencido?-1:1) : (a.diasRestantes60??999)-(b.diasRestantes60??999));
   return (
     <CampanaAvisos titulo="Avisos" grupos={[
@@ -1365,7 +1367,8 @@ function CampanaVentas({ user, stores, tiendaIds, ventas, ventasItems, ventasAbo
         badge:{ color:vencido?C.red:(diasRestantes60!==null && diasRestantes60<=5?C.amber:C.gold), label:vencido ? "⛔ Vencido" : `⏳ Vence en ${diasRestantes60}d` },
         urgente:vencido || (diasRestantes60!==null && diasRestantes60<=5),
       })) },
-      { titulo:"Órdenes de Operaciones", items:operItemsCampana((ops||[]).filter(o=>tiendaIds.includes(o.tienda_id)), stores, onIrAOrden) },
+      { titulo:"Órdenes de clientes", items:operItemsCampana((ops||[]).filter(o=>operVisiblePara(o, user)), stores, onIrAOrden) },
+      { titulo:"Solicitudes internas atrasadas", items:operItemsCampanaInt((sols||[]).filter(x=>operIntVisiblePara(x, user)), stores, onIrAOrden) },
     ]}/>
   );
 }
@@ -15727,13 +15730,6 @@ const operItemsCampanaInt = (sols, stores, onIr) => (sols||[]).filter(operIntAtr
   const d = diasHabilesEntre(operFechaCol(s.estado_desde), todayStr);
   return { key:`int-${s.id}`, titulo:`${operTipoIntLabel(s.tipo)} · ${s.tienda_id==="global" ? "Global" : nombreTiendaCorto(stores[s.tienda_id])}`, sub:(s.descripcion||"").slice(0,90), badge:{ color:C.red, label:`${OPER_ESTADOS_INT[s.estado]?.label||s.estado} · ${d} días háb.` }, urgente:true, onClick:onIr ? ()=>onIr("int", s.id) : undefined };
 });
-// Campana de Operaciones (Externas e Internas muestran la misma).
-const OperCampana = ({ ops, sols, user, stores, onIrA }) => (
-  <CampanaAvisos titulo="Avisos de Operaciones" grupos={[
-    { titulo:"Órdenes de clientes", items:operItemsCampana((ops||[]).filter(op=>operVisiblePara(op, user)), stores, onIrA) },
-    { titulo:"Solicitudes internas atrasadas", items:operItemsCampanaInt((sols||[]).filter(s=>operIntVisiblePara(s, user)), stores, onIrA) },
-  ]}/>
-);
 // Cuando se llega desde la campana: abre esa orden/solicitud y la trae a la vista.
 const useOperFoco = (foco, tipo, onFocoUsado, abrir) => {
   useEffect(()=>{
@@ -16671,16 +16667,24 @@ export default function App() {
   const [registrarOrigen,setRegistrarOrigen]=useState(null); // dónde está el + en pantalla
   const abrirRegistrar = (rect) => { setRegistrarOrigen(rect ? { left:rect.left, top:rect.top, width:rect.width, height:rect.height, bottom:rect.bottom } : null); setRegistrarMontado(true); setRegistrarAbierto(true); };
   const [opCampana,setOpCampana]=useState([]);
+  const [opCampanaInt,setOpCampanaInt]=useState([]);
   const opCampanaRef = useRef(0);
+  // Campana única: lo abierto de Operaciones (solo columnas que usa la campana) en cualquier área,
+  // cada 5 min como máximo; si Operaciones ya está cargada completa, se usa esa y no se consulta.
   useEffect(()=>{
-    if(!user || !(esCuentaTienda(user) || area==="ventas") || !puedeOper(user, "operaciones.ver")) return;
+    if(!user || !puedeOper(user, "operaciones.ver") || opEstado==="listo") return;
     if(!operHayCambiosFuera && Date.now()-opCampanaRef.current < 5*60000) return;
     opCampanaRef.current = Date.now();
     (async()=>{
-      const { data, error } = await supabase.from("operaciones_externas")
-        .select("id,numero,tipo,tienda_id,tienda_origen_id,cliente_nombre,cliente_telefono,etapa,fecha,fecha_estimada_entrega,reprogramada,lista_en")
-        .not("etapa","in","(entregada,cancelada)").limit(1000);
+      const [{ data, error }, ri] = await Promise.all([
+        supabase.from("operaciones_externas")
+          .select("id,numero,tipo,tienda_id,tienda_origen_id,cliente_nombre,cliente_telefono,etapa,fecha,fecha_estimada_entrega,reprogramada,lista_en")
+          .not("etapa","in","(entregada,cancelada)").limit(1000),
+        esCuentaTienda(user) ? Promise.resolve({ data:[] })
+          : supabase.from("operaciones_internas").select("id,tipo,tienda_id,descripcion,estado,estado_desde").in("estado",["nueva","en_gestion"]).limit(1000),
+      ]);
       if(!error && data) setOpCampana(data);
+      if(!ri.error && ri.data) setOpCampanaInt(ri.data);
     })();
   }, [area, registrarAbierto, user?.id]);
   const opCargaRef = useRef(0), opTodoRef = useRef(false);
@@ -16908,7 +16912,7 @@ export default function App() {
   // en un dispositivo compartido donde una cuenta entra justo después de que otra salió, sin esto
   // la nueva sesión arranca viendo los datos que quedaron en memoria de la cuenta anterior.
   const login=(u)=>{permVerComoActivar(false);setVerComo(null);setUser(u);setArea(null);setTab(esCuentaTienda(u)?"metricas":eligeModulo(u)?null:"checkin");(NAVIDAD&&sonidosNavidadActivos()?sonidoNavidadIngreso:sonidoBienvenida)();refreshAll(60000);};
-  const logout=()=>{permVerComoActivar(false);setVerComo(null);setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOrdenACobrar(null);setOpExternas([]);setOpInternas([]);setOpCampana([]);opCampanaRef.current=0;setOpFoco(null);setOpPedido(null);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
+  const logout=()=>{permVerComoActivar(false);setVerComo(null);setUser(null);setArea(null);setTab(null);setMostrarFirmas(false);setOrdenACobrar(null);setOpExternas([]);setOpInternas([]);setOpCampana([]);setOpCampanaInt([]);opCampanaRef.current=0;setOpFoco(null);setOpPedido(null);setOpEstado("sin_cargar");setOpTodoCargado(false);opCargaRef.current=0;opTodoRef.current=false;};
   const entrarVerComo=(u)=>{ if(!puede(usuarioSesion,"cuenta.permisos")) return; permVerComoActivar(true); setVerComo(u); setMostrarUsuarios(false); setArea(null); setTab(esCuentaTienda(u)?"metricas":eligeModulo(u)?null:"checkin"); };
   const salirVerComo=()=>{ permVerComoActivar(false); setVerComo(null); setArea(null); setTab(eligeModulo(usuarioSesion)?null:"checkin"); setMostrarUsuarios(true); };
   const bandaVerComo = verComo ? <BandaVerComo u={verComo} onSalir={salirVerComo}/> : null;
@@ -17257,17 +17261,17 @@ export default function App() {
   const irAOrdenDesdeAviso = (tipo,id)=>{ setRegistrarAbierto(false); setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); };
   // Desde la campana: abre Lista de ventas con ese Flexipago buscado y desplegado.
   const irAFlexipagoDesdeAviso = (v) => { setRegistrarAbierto(false); if(!esCuentaTienda(user)) setArea("ventas"); setListaPedido({ tienda:v.tienda_id, busqueda:v.cliente_documento||v.cliente_nombre||v.numero_factura||"", soloFlex:true, abrir:`v-${v.id}`, t:Date.now() }); setTab("lista"); };
-  const campanaVentas = esAreaVentas && (
+  // Una sola campana para todo (Ventas + Operaciones), igual en todas las áreas.
+  const verOperCampana = !!user && puedeOper(user, "operaciones.ver");
+  const campanaBarra = !!user && (
     <FlexiAvisosContext.Provider value={flexiAvisosCtx}>
-      <CampanaVentas user={user} stores={stores} tiendaIds={esCuentaTienda(user) ? [user.tienda_id] : tiendasVenta(stores).map(t=>t.id)} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ops={puedeOper(user, "operaciones.ver") ? (opEstado==="listo" ? opExternas : opCampana) : []} onIrAOrden={irAOrdenDesdeAviso} onIrAFlexipago={irAFlexipagoDesdeAviso}/>
+      <CampanaGeneral user={user} stores={stores} tiendaIds={esCuentaTienda(user) ? [user.tienda_id] : tiendasVenta(stores).map(t=>t.id)} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos}
+        verFlex={puede(user, "ventas.lista.ver")}
+        ops={verOperCampana ? (opEstado==="listo" ? opExternas : opCampana) : []}
+        sols={verOperCampana && !esCuentaTienda(user) ? (opEstado==="listo" ? opInternas : opCampanaInt) : []}
+        onIrAOrden={irAOrdenDesdeAviso} onIrAFlexipago={irAFlexipagoDesdeAviso}/>
     </FlexiAvisosContext.Provider>
   );
-  // Campana de Operaciones (22 nov 2026): en la barra de arriba, junto al perfil, igual que la de
-  // Ventas. Solo en el área de Operaciones (admins); las cuentas de tienda siempre ven la de Ventas,
-  // que ya trae las órdenes de su tienda.
-  const campanaBarra = esAreaVentas ? campanaVentas
-    : area==="operaciones" ? <OperCampana ops={opExternas} sols={opInternas} user={user} stores={stores} onIrA={propsOperaciones.onIrA}/>
-    : null;
   // Ventana de Registrar venta como "nube" que sale del + (22 nov 2026), con vidrio esmerilado
   // ("liquid glass", en prueba en staging): en computador baja desde
   // el + con una colita que lo señala; en celular sube desde el + de la barra de abajo.
