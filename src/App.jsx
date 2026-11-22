@@ -10625,7 +10625,7 @@ function CarreraDelDia({ stores, primera, ventas, ventasItems, ventasAbonos, ven
   // Los valores se ven SIEMPRE completos: la columna toma el ancho del texto más largo (la fuente
   // de montos es de ancho fijo, así que "ch" = un carácter).
   const textoValor = (r) => `${fmtCOP(r.vendido)}${r.meta>0?` / ${fmtCOP(r.meta)}`:""}`;
-  const anchoValor = `${Math.max(8, ...filas.map(f=>textoValor(f.r).length)) + 1}ch`;
+  const anchoValor = `${Math.max(8, ...filas.map(f=>textoValor(f.r).length))}ch`;
   const esHoy = fecha===todayStr;
   const mover = (d) => { const n = consSumarDias(fecha, d); if(n<=todayStr) setFecha(n); };
   const flechita = { all:"unset", cursor:"pointer", width:22, height:22, borderRadius:6, display:"grid", placeItems:"center", color:C.textSub, fontSize:14 };
@@ -10658,7 +10658,7 @@ function CarreraDelDia({ stores, primera, ventas, ventasItems, ventasAbonos, ven
           const propia = t.id===primera;
           return (
             <div key={t.id} title={`${nombreTiendaCorto(t)}: ${fmtCOP(r.vendido)}${r.meta>0?` de ${fmtCOP(r.meta)}`:""} · ${r.nVentas} ${r.nVentas===1?"venta":"ventas"}${r.nVentas?` · ticket ${fmtCOP(r.ticket)}`:""}${r.abonosFlex>0?` · abonos Flexipago ${fmtCOP(r.abonosFlex)}`:""}`}
-              style={{ display:"grid", gridTemplateColumns:isMobile?`16px minmax(0,1fr) 40px`:`16px 120px minmax(0,1fr) 46px ${anchoValor} 34px`, gridTemplateRows:isMobile?"auto auto":"auto", columnGap:10, rowGap:2, alignItems:"center", minHeight:24, paddingTop:isMobile?3:0, paddingBottom:isMobile?3:0, padding:"0 6px", borderRadius:7, background:propia?hexToRgba(col,0.08):"transparent" }}>
+              style={{ display:"grid", gridTemplateColumns:isMobile?`16px minmax(0,1fr) 40px`:`16px 120px minmax(0,1fr) 46px ${anchoValor} 34px`, gridTemplateRows:isMobile?"auto auto":"auto", columnGap:10, rowGap:2, alignItems:"center", minHeight:24, fontFamily:font.mono, fontSize:12, paddingTop:isMobile?3:0, paddingBottom:isMobile?3:0, padding:"0 6px", borderRadius:7, background:propia?hexToRgba(col,0.08):"transparent" }}>
               <span style={{ fontFamily:font.body, fontSize:11, fontWeight:800, color:i===0 && r.vendido>0 ? C.goldDark : C.textMuted, textAlign:"center" }}>{i+1}</span>
               <span style={{ display:"inline-flex", alignItems:"center", gap:6, minWidth:0 }}><PuntoTienda color={col} size={7}/><span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:propia?800:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreTiendaCorto(t)}</span>{isMobile && <span style={{ marginLeft:"auto", fontFamily:font.mono, fontSize:11.5, color:C.text, whiteSpace:"nowrap" }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ color:C.textMuted }}> / {fmtCOP(r.meta)}</span>}</span>}</span>
               <span style={{ position:"relative", height:6, ...(isMobile ? { gridColumn:"2 / 3", gridRow:"2" } : {}), borderRadius:99, background:C.surfaceHover, overflow:"hidden" }}>
