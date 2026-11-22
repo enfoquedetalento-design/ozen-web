@@ -9606,6 +9606,94 @@ const ConsIconoGrafico = ({ v }) => {
   return svg(<><rect x="2" y="2" width="40" height="26" rx="4" fill="none" stroke={b} strokeWidth="1.5"/><line x1="2" y1="10" x2="42" y2="10" stroke={b}/><line x1="2" y1="19" x2="42" y2="19" stroke={b} opacity=".4"/><line x1="18" y1="2" x2="18" y2="28" stroke={b} opacity=".4"/></>);
 };
 // Casilla de la barra: rótulo pequeño + valor; al tocarla abre su listita debajo.
+// ── Excel con la marca (21 nov 2026, pedido de Santiago: "somos una marca") ───────────────────────
+// Arma un .xlsx de verdad sin librerías: el .xlsx es un .zip de archivos XML; aquí se escribe ese
+// zip "sin comprimir" (más que suficiente para unos cientos de filas). Estilo OZEN: título, datos de
+// la consulta, encabezado en Sombra con letra blanca, subtotales en crema, total resaltado, números
+// como números (pesos, %, puntos) y la 1.ª fila de encabezado y las columnas de nombres fijas.
+// filas: [{ tipo:"dato"|"grupo"|"total", celdas:[{ v, f }] }] con f = "txt" | "cop" | "int" | "pct" | "pts".
+const ozenZipSinComprimir = (archivos) => {
+  const tabla = new Uint32Array(256);
+  for(let n=0; n<256; n++){ let c = n; for(let k=0; k<8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; tabla[n] = c >>> 0; }
+  const crc32 = (b) => { let c = 0xFFFFFFFF; for(let i=0; i<b.length; i++) c = tabla[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  const enc = new TextEncoder();
+  const partes = []; const central = []; let offset = 0;
+  const u16 = (v) => [v & 0xFF, (v >>> 8) & 0xFF];
+  const u32 = (v) => [v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF];
+  archivos.forEach(({ nombre, texto })=>{
+    const n = enc.encode(nombre), d = enc.encode(texto), crc = crc32(d);
+    const local = new Uint8Array([...u32(0x04034b50), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(33), ...u32(crc), ...u32(d.length), ...u32(d.length), ...u16(n.length), ...u16(0)]);
+    partes.push(local, n, d);
+    central.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(33), ...u32(crc), ...u32(d.length), ...u32(d.length), ...u16(n.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset)]), n);
+    offset += local.length + n.length + d.length;
+  });
+  const tamCentral = central.reduce((s,b)=>s+b.length,0);
+  const fin = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(archivos.length), ...u16(archivos.length), ...u32(tamCentral), ...u32(offset), ...u16(0)]);
+  return new Blob([...partes, ...central, fin], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+};
+const ozenExcel = ({ archivo, hoja="Consulta", titulo="OZEN", lineas=[], encabezados, filas, colsFijas=1, anchos=[] }) => {
+  const esc = (t) => String(t ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const colLetra = (i) => { let s = ""; i++; while(i>0){ const m = (i-1)%26; s = String.fromCharCode(65+m) + s; i = Math.floor((i-1)/26); } return s; };
+  // Estilos (índices de cellXfs): 0 normal · 1 título · 2 subtítulo · 3 encabezado · 4 encabezado izq.
+  // texto/cop/int/pct/pts × dato/grupo/total = 5..19
+  const formatos = ["txt","cop","int","pct","pts"], tipos = ["dato","grupo","total"];
+  const xf = (f, t) => 5 + formatos.indexOf(f)*3 + tipos.indexOf(t);
+  const numFmt = { txt:0, cop:164, int:3, pct:165, pts:166 };
+  const fontDe = { dato:0, grupo:4, total:4 }, fillDe = { dato:0, grupo:3, total:4 }, borderDe = { dato:2, grupo:2, total:3 };
+  const xfs = [
+    `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>`,
+    `<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>`,
+    `<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>`,
+    `<xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>`,
+    `<xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>`,
+  ];
+  formatos.forEach(f=>tipos.forEach(t=>{ xfs.push(`<xf numFmtId="${numFmt[f]}" fontId="${fontDe[t]}" fillId="${fillDe[t]}" borderId="${borderDe[t]}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"${f==="txt"?"":` applyAlignment="1"><alignment horizontal="right"/></xf>`}${f==="txt"?"/>":""}`); }));
+  const estilos = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="3"><numFmt numFmtId="164" formatCode="&quot;$&quot;\\ #,##0"/><numFmt numFmtId="165" formatCode="0.0%"/><numFmt numFmtId="166" formatCode="+0.0&quot; pts&quot;;-0.0&quot; pts&quot;;0.0&quot; pts&quot;"/></numFmts>
+<fonts count="5"><font><sz val="11"/><color rgb="FF1A3B52"/><name val="Calibri"/></font><font><b/><sz val="20"/><color rgb="FF1A3B52"/><name val="Calibri"/></font><font><sz val="10"/><color rgb="FF75604F"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FF1A3B52"/><name val="Calibri"/></font></fonts>
+<fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1A3B52"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF6F0EB"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE5D5CC"/><bgColor indexed="64"/></patternFill></fill></fills>
+<borders count="4"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FF1A3B52"/></left><right style="thin"><color rgb="FF1A3B52"/></right><top style="thin"><color rgb="FF1A3B52"/></top><bottom style="thin"><color rgb="FF1A3B52"/></bottom><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FFE5D5CC"/></bottom><diagonal/></border><border><left/><right/><top style="medium"><color rgb="FF1A3B52"/></top><bottom style="medium"><color rgb="FF1A3B52"/></bottom><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="${xfs.length}">${xfs.join("")}</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+  let r = 0; const filasXml = [];
+  const celdaTxt = (c, ref, s) => `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${esc(c)}</t></is></c>`;
+  const fila = (celdas, alto) => { r++; filasXml.push(`<row r="${r}"${alto?` ht="${alto}" customHeight="1"`:""}>${celdas.join("")}</row>`); };
+  fila([celdaTxt(titulo, `A${r+1}`, 1)], 30);
+  lineas.forEach(l=>fila([celdaTxt(l, `A${r+1}`, 2)]));
+  fila([]);
+  fila(encabezados.map((h,i)=>celdaTxt(h, `${colLetra(i)}${r+1}`, i<colsFijas?4:3)), 34);
+  const filaEncabezado = r;
+  filas.forEach(fl=>{
+    fila(fl.celdas.map((c,i)=>{
+      const ref = `${colLetra(i)}${r+1}`, f = c?.f || "txt", s = xf(f, fl.tipo||"dato");
+      if(c===null || c===undefined || c.v===null || c.v===undefined || c.v==="") return `<c r="${ref}" s="${xf("txt", fl.tipo||"dato")}"/>`;
+      if(f==="txt") return celdaTxt(c.v, ref, s);
+      return `<c r="${ref}" s="${s}"><v>${Number(c.v)}</v></c>`;
+    }));
+  });
+  const cols = encabezados.map((_,i)=>`<col min="${i+1}" max="${i+1}" width="${anchos[i] || (i<colsFijas?24:16)}" customWidth="1"/>`).join("");
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane xSplit="${colsFijas}" ySplit="${filaEncabezado}" topLeftCell="${colLetra(colsFijas)}${filaEncabezado+1}" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>
+<cols>${cols}</cols>
+<sheetData>${filasXml.join("")}</sheetData>
+</worksheet>`;
+  const blob = ozenZipSinComprimir([
+    { nombre:"[Content_Types].xml", texto:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` },
+    { nombre:"_rels/.rels", texto:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+    { nombre:"xl/workbook.xml", texto:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${esc(hoja).slice(0,31)}" sheetId="1" r:id="rId1"/></sheets></workbook>` },
+    { nombre:"xl/_rels/workbook.xml.rels", texto:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+    { nombre:"xl/styles.xml", texto:estilos },
+    { nombre:"xl/worksheets/sheet1.xml", texto:sheet },
+  ]);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = archivo;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 1500);
+};
+
 // ── Consultas tipo tabla dinámica (21 nov 2026, pedido de Santiago y Felipe) ─────────────────────
 // Como la tabla dinámica de Excel pero sencilla: Filas (uno o varios campos, uno dentro del otro,
 // con subtotales), Columnas (un campo), Valores (uno o varios) y Filtros (cualquier campo). Periodo
@@ -10222,24 +10310,46 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   const pildoraRango = { padding:"4px 10px", borderRadius:99, background:hexToRgba(C.gold,0.08), color:C.gold, fontWeight:700, fontSize:12 };
   const inputFecha = (valorF, onChange) => <input type="date" value={valorF} max={hoyS} onChange={e=>onChange(e.target.value)} style={{ height:34, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 6px", fontFamily:font.body, fontSize:13.5, color:C.text, background:"#fff" }}/>;
 
-  // ── Descargar a Excel (CSV con ; que Excel abre directo) ──
+  // ── Descargar a Excel (.xlsx con el diseño de la marca, ver ozenExcel) ──
   const descargar = () => {
-    const sep = ";";
-    const esc = (s) => { const t = String(s ?? ""); return /[;"\n]/.test(t) ? `"${t.replace(/"/g,'""')}"` : t; };
-    const num = (acc, m) => sinMeta(acc, m) ? "" : (m==="cumpl" ? String(Math.round(valor(acc,m)*10)/10).replace(".",",") : String(Math.round(valor(acc, m))));
-    const enc = [...filasDims.map(campoLbl), ...(cfg.col ? cols.flatMap(c=>cfg.valores.map(v=>`${c.l} · ${valorLbl(v)}`)) : []), ...cfg.valores.map(v=>`Total ${valorLbl(v)}`), ...(prev ? cfg.valores.map(v=>`${valorLbl(v)} (${compLbl})`) : [])];
-    const lineas = [`Consulta · ${consTextoRango(rango)}${prev?` · comparado con ${consTextoRango(rangoPrev)}`:""}`, enc.map(esc).join(sep)];
-    const todas = []; const rec = (lista, nivel) => lista.forEach(n=>{ todas.push(n); if(nivel<filasDims.length-1) rec(ordenar(hijos[n.clave]||[], filasDims[nivel+1]), nivel+1); });
-    rec(nivel0, 0);
-    todas.forEach(n=>{
-      const etiquetas = filasDims.map((_,i)=> i===n.nivel ? n.l : "");
-      lineas.push([...etiquetas, ...(cfg.col ? cols.flatMap(c=>cfg.valores.map(v=>num(res.celdas[`${n.clave}|${c.k}`], v))) : []), ...cfg.valores.map(v=>num(n.acc, v)), ...(prev ? cfg.valores.map(v=>num(prevNodo(n), v)) : [])].map(esc).join(sep));
+    const fmtDe = (m) => m==="count" ? "int" : m==="cumpl" ? "pct" : "cop";
+    const num = (acc, m) => sinMeta(acc, m) ? null : { v: m==="cumpl" ? valor(acc,m)/100 : Math.round(valor(acc, m)), f:fmtDe(m) };
+    const dif = (acc, ant, m) => {
+      if(sinMeta(acc,m) || sinMeta(ant,m)) return null;
+      const a = valor(acc,m), b = ant ? valor(ant,m) : 0;
+      if(m==="cumpl") return ant ? { v:Math.round((a-b)*10)/10, f:"pts" } : null;
+      return b ? { v:(a-b)/Math.abs(b), f:"pct" } : null;
+    };
+    const encab = [...(filasDims.length ? filasDims.map(campoLbl) : [""]), ...(cfg.col ? cols.flatMap(c=>cfg.valores.map(v=>cfg.valores.length>1 ? `${c.l} · ${valorLbl(v)}` : c.l)) : []),
+      ...cfg.valores.flatMap(v=>[cfg.col ? `Total · ${valorLbl(v)}` : valorLbl(v), ...(prev ? [`${valorLbl(v)} · ${compLbl}`, `Dif. ${valorLbl(v)}`] : [])])];
+    const valoresDe = (acc, ant, celdaCol) => [
+      ...(cfg.col ? cols.flatMap(c=>cfg.valores.map(v=>num(celdaCol(c), v))) : []),
+      ...cfg.valores.flatMap(v=>[num(acc, v), ...(prev ? [num(ant, v), dif(acc, ant, v)] : [])]),
+    ];
+    const filasX = [];
+    const rec = (lista, nivel) => lista.forEach(n=>{
+      const tieneHijos = nivel < filasDims.length-1;
+      filasX.push({ tipo: tieneHijos ? "grupo" : "dato", celdas:[...filasDims.map((_,i)=> i===n.nivel ? { v:n.l } : null), ...valoresDe(n.acc, prevNodo(n), c=>res.celdas[`${n.clave}|${c.k}`])] });
+      if(tieneHijos) rec(ordenar(hijos[n.clave]||[], filasDims[nivel+1]), nivel+1);
     });
-    lineas.push(["Total", ...filasDims.slice(1).map(()=>""), ...(cfg.col ? cols.flatMap(c=>cfg.valores.map(v=>num(c.acc, v))) : []), ...cfg.valores.map(v=>num(res.total, v)), ...(prev ? cfg.valores.map(v=>num(prev.total, v)) : [])].map(esc).join(sep));
-    const blob = new Blob(["﻿"+lineas.join("\r\n")], { type:"text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `consulta-${rango[0]}_${rango[1]}.csv`;
-    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 1000);
+    rec(nivel0, 0);
+    filasX.push({ tipo:"total", celdas:[{ v:"Total" }, ...filasDims.slice(1).map(()=>null), ...valoresDe(res.total, prev?prev.total:null, c=>c.acc)] });
+    const filtrosTxt = Object.entries(cfg.filtros).filter(([,v])=>v.length).map(([campo, vals])=>`${campoLbl(campo)}: ${vals.map(v=>opcionesFiltro(campo).find(o=>o.value===v)?.label||v).join(", ")}`).join(" · ");
+    const ahora = new Date();
+    ozenExcel({
+      archivo:`OZEN consulta ${rango[0]} a ${rango[1]}.xlsx`,
+      hoja:"Consulta",
+      titulo:"OZEN",
+      lineas:[
+        comun && (CONS_COMUNES.find(c=>c.id===comun)?.nombre || guardadas.find(g=>g.id===comun)?.nombre) ? `Consulta: ${CONS_COMUNES.find(c=>c.id===comun)?.nombre || guardadas.find(g=>g.id===comun)?.nombre}` : "Consulta de ventas",
+        `Filas: ${filasDims.map(campoLbl).join(" › ") || "—"}${cfg.col?` · Columnas: ${campoLbl(cfg.col)}`:""} · Valores: ${cfg.valores.map(valorLbl).join(", ")}`,
+        `Periodo: ${consTextoRango(rango)}${prev?` · Comparado con: ${consTextoRango(rangoPrev)}`:""}${filtrosTxt?` · Filtros: ${filtrosTxt}`:""}`,
+        `Generado el ${ahora.toLocaleDateString("es-CO",{ day:"numeric", month:"long", year:"numeric" })} a las ${ahora.toLocaleTimeString("es-CO",{ hour:"2-digit", minute:"2-digit" })}`,
+      ],
+      encabezados:encab,
+      filas:filasX,
+      colsFijas:Math.max(1, filasDims.length),
+    });
   };
 
   // Diferencia contra el periodo comparado (en cumplimiento, en puntos).
@@ -10399,7 +10509,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
         <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:6 }}>
           <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted }}>{consTextoRango(rango)}{prev?` · comparado con ${consTextoRango(rangoPrev)}`:""}</div>
           <div style={{ marginLeft:"auto", display:"flex", gap:8, flexWrap:"wrap" }}>
-            {!sinDatos && <Btn sm variant="ghost" onClick={descargar}>⬇ Descargar a Excel</Btn>}
+            {!sinDatos && <Btn sm variant="ghost" onClick={descargar}>⬇ Descargar Excel</Btn>}
             {nombrando===null
               ? <Btn sm variant="ghost" onClick={()=>setNombrando("")}>★ Guardar consulta</Btn>
               : <span style={{ display:"inline-flex", gap:6, alignItems:"center" }}>

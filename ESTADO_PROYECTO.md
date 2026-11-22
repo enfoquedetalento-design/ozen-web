@@ -1176,6 +1176,12 @@ ahora es una tabla dinámica sencilla:
   verde, Filtros ámbar), ícono y fichas teñidas con ícono por campo/valor; menú "Consultas listas"
   destacado; Periodo y Comparar en dos franjas. Selector de gráfico: Tabla de primera y solo los
   gráficos que aplican (los demás no se muestran).
+- **Excel con la marca (21 nov):** "Descargar Excel" ya no baja un CSV: arma un .xlsx de verdad sin
+  librerías (`ozenExcel` + `ozenZipSinComprimir`, antes de `CONS_VALORES`). Título OZEN, datos de la
+  consulta (filas, columnas, valores, periodo, comparación, filtros, fecha de generación),
+  encabezado Sombra con letra blanca, subtotales en crema, total resaltado, números reales (pesos,
+  %, puntos), sin cuadrícula, encabezado y columnas de nombres fijos. Se puede reusar para otros
+  Excel de la app.
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
