@@ -1227,6 +1227,15 @@ Pedido de Santiago: el módulo más intuitivo.
     caben (`justifyContent:"safe center"`); colita de la nube en curva (SVG); **campana de avisos**
     (Flexipagos y órdenes de Operaciones) pasó de Registrar a la barra de arriba, junto al perfil
     (`CampanaVentas`; cuenta de tienda: solo la suya; demás: todas las tiendas, con el nombre).
+  - **Aplicar Notacrédito, venta normal (22 nov, caso factura 3321 de Jardín Plaza):** lo ya
+    registrado queda bloqueado (valor, medios, fecha; solo se cambia el tipo) y lo que el cliente paga
+    de más va en "Excedente que paga hoy el cliente" (`ncExc`): renglón aparte producto,
+    `es_original:false`, `fecha_item` = hoy (o la fecha real si master/admin finanzas), que entra a
+    Caja y Métricas de ese día. El N.º de Siigo nuevo SIEMPRE queda en `ventas_ajustes`, vinculado
+    a la factura original (sin excedente → `es_cambio_producto`). Antes había que subir el valor del
+    renglón además de agregar el medio; si no, la plata quedaba en el día de la venta y el N.º se
+    perdía. Lista de ventas: el registro de la factura muestra "3321 · 3351" y el de la Notacrédito
+    "3351 · 3321"; el registro del día de la venta ya no muestra los medios del excedente.
   - **Consultas: plata que entró vs. venta del Flexipago (22 nov):** tres medidas nuevas en
     Consultas, sin tocar las demás (ni Métricas, Caja o Lista): **Dinero recibido** (igual a Ingreso
     total, salvo que los abonos de Flexipagos ya cerrados cuentan en el día de cada abono y no el
