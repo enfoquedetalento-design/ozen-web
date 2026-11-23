@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, createContext, useContext, Fragment } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, createContext, useContext, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "./supabase";
 import { activarNotificacionesPush, notificacionesSoportadas, pushActivo, requiereInstalarEnIOS } from "./push";
@@ -1314,35 +1314,6 @@ function BarraSuperior({ extraDerecha, campana, user, area, onChooseArea, stores
   );
 }
 
-// Pestañas del área, con la línea inferior que se DESLIZA hasta la pestaña elegida (en vez de
-// saltar). Se mide la posición real de la pestaña activa y la línea se anima a ese sitio.
-function BarraPestanas({ tabs, tab, setTab, derecha }) {
-  const refs = useRef({});
-  const [linea, setLinea] = useState(null);
-  useLayoutEffect(()=>{
-    const medir = () => { const el = refs.current[tab]; if(el) setLinea({ left:el.offsetLeft, width:el.offsetWidth }); };
-    medir();
-    window.addEventListener("resize", medir);
-    return () => window.removeEventListener("resize", medir);
-  }, [tab, tabs.length]);
-  return (
-    <div style={{ height:50, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"stretch", padding:"0 24px", gap:20, flexShrink:0 }}>
-      <div/>
-      <div style={{ display:"flex", alignItems:"stretch", gap:30, position:"relative" }}>
-      {tabs.map(t=>{ const on=t.id===tab; if(esBotonMas(t.id)) return (
-        <button key={t.id} onClick={(e)=>setTab(t.id, e.currentTarget.getBoundingClientRect())} title={t.label} aria-label={t.label} className="ozen-boton-mas" style={{ alignSelf:"center", width:40, height:40, borderRadius:"50%", border:"none", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 6px 16px -6px rgba(26,59,82,0.55)", flexShrink:0 }}><Icon n="plus" s={20} sw={2.6}/></button>
-      ); return (
-        <button key={t.id} ref={el=>{ refs.current[t.id]=el; }} onClick={()=>setTab(t.id)} className="ozen-tab-btn" style={{ display:"flex", alignItems:"center", gap:8, border:"none", background:"none", padding:0, cursor:"pointer", fontFamily:font.body, fontSize:14, fontWeight:on?600:400, color:on?C.goldDark:C.textMuted, transition:"color .2s ease", whiteSpace:"nowrap" }}>
-          <Icon n={TAB_ICON[t.id]||"right"} s={16}/>{t.label}
-        </button>
-      ); })}
-      {linea && <span className="ozen-tab-linea" style={{ position:"absolute", bottom:0, height:2.5, borderRadius:2, background:C.gold, left:linea.left, width:linea.width }}/>}
-      </div>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:10 }}>{derecha}</div>
-    </div>
-  );
-}
-
 // Franja de 3 px con el color de la tienda activa — dice "dónde estás" en toda el área de Ventas.
 const FranjaTienda = ({ color }) => <div style={{ height:3, background:color, transition:"background-color .35s ease", flexShrink:0 }}/>;
 
@@ -1370,23 +1341,31 @@ function BarraSuperiorMovil({ extra, campana, user, area, onChooseArea, stores, 
 // `origen` = dónde está el + en pantalla (getBoundingClientRect); `centro` = lo que va en el medio
 // de la franja de arriba (ej. selector de tienda). Mostrar/esconder con `abierta` (escondida queda
 // montada, así lo escrito no se pierde — Registrar venta lo usa así).
-function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo, centro, tituloCerrar="Cerrar", children }) {
+// Alto: la ventana se ajusta a lo que contiene (22 nov 2026, pedido de Santiago: "no toda grande");
+// solo si no cabe llega hasta arriba y adentro se desplaza. Ancho en computador: `ancho` (máximo),
+// para formularios angostos; sin él, 1180 px.
+function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo, centro, tituloCerrar="Cerrar", ancho, children }) {
   const vw = typeof window!=="undefined" ? window.innerWidth : 1200, vh = typeof window!=="undefined" ? window.innerHeight : 800;
-  const anchoVent = isMobile ? vw-16 : Math.min(1180, vw-32);
+  const anchoVent = isMobile ? vw-16 : Math.min(ancho||1180, vw-32);
   const origenX = origen ? origen.left + origen.width/2 : vw/2;
   const izqVent = isMobile ? 8 : Math.max(16, Math.min(vw-anchoVent-16, origenX-anchoVent/2));
   const colaX = Math.max(30, Math.min(anchoVent-30, origenX-izqVent));
   const arribaVent = origen ? origen.bottom + 14 : 28;
   const haciaArriba = isMobile || (!!origen && origen.top > vh/2);
   const abajoMovil = origen ? Math.max(70, vh - origen.top + 12) : 80;
-  const altoMovil = Math.max(320, vh - abajoMovil - (isMobile ? 18 : 24));
+  // Arriba la ventana empieza debajo de la hora / la isla del iPhone y del difuminado que iOS 26 pone
+  // un poco más abajo (zona segura × 1.55, igual que la barra de arriba).
+  const topeArriba = `max(${isMobile ? 18 : 24}px, calc(env(safe-area-inset-top, 0px) * 1.55 + 10px))`;
   return (
       <div onClick={onCerrar} style={{ display:abierta?"block":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.14)", overflowY:haciaArriba?"hidden":"auto" }}>
         <style>{`@keyframes ozenNube{from{transform:scale(.35);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
-        <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, height:altoMovil, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), background:"linear-gradient(160deg, rgba(255,255,255,0.62) 0%, rgba(246,240,235,0.48) 55%, rgba(255,255,255,0.40) 100%)", backdropFilter:"blur(26px) saturate(170%)", WebkitBackdropFilter:"blur(26px) saturate(170%)", border:"1px solid rgba(255,255,255,0.7)", borderRadius:22, boxShadow:"inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(255,255,255,0.25), 0 30px 80px -18px rgba(26,59,82,0.45)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: haciaArriba ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
+        <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, maxHeight:`calc(100dvh - ${abajoMovil}px - ${topeArriba})`, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), ...(isMobile
+            // Celular: sin desenfoque en vivo (hacía lento el desplazamiento); fondo casi sólido.
+            ? { background:"linear-gradient(160deg, rgba(255,255,255,0.98) 0%, rgba(248,244,240,0.97) 55%, rgba(255,255,255,0.97) 100%)" }
+            : { background:"linear-gradient(160deg, rgba(255,255,255,0.62) 0%, rgba(246,240,235,0.48) 55%, rgba(255,255,255,0.40) 100%)", backdropFilter:"blur(26px) saturate(170%)", WebkitBackdropFilter:"blur(26px) saturate(170%)" }), border:"1px solid rgba(255,255,255,0.7)", borderRadius:22, boxShadow:"inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(255,255,255,0.25), 0 30px 80px -18px rgba(26,59,82,0.45)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: haciaArriba ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
           {/* Colita de la nube, apuntando al + (curva suave, del mismo color de la ventana) */}
           <svg width="40" height="16" viewBox="0 0 40 16" aria-hidden="true" style={{ position:"absolute", left:colaX-20, ...(haciaArriba ? { bottom:-15 } : { top:-15, transform:"scaleY(-1)" }), overflow:"visible", filter:"drop-shadow(0 3px 3px rgba(26,59,82,0.12))" }}>
-            <path d="M0 0 C12 0 15 12 20 16 C25 12 28 0 40 0 Z" fill={haciaArriba ? "rgba(250,246,242,0.78)" : "rgba(255,255,255,0.85)"}/>
+            <path d="M0 0 C12 0 15 12 20 16 C25 12 28 0 40 0 Z" fill={isMobile ? "#FEFDFC" : haciaArriba ? "rgba(250,246,242,0.78)" : "rgba(255,255,255,0.85)"}/>
           </svg>
           <div style={{ position:"relative", display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", gap:10, padding:isMobile?"10px 12px":"12px 20px", background:"linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0.35))", borderBottom:"1px solid rgba(255,255,255,0.55)", borderRadius:"22px 22px 0 0", flexShrink:0 }}>
             <span style={{ display:"inline-flex", alignItems:"center", gap:10, minWidth:0 }}>
@@ -1396,7 +1375,7 @@ function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo
             <span style={{ display:"flex", justifyContent:"center" }}>{centro}</span>
             <span style={{ display:"flex", justifyContent:"flex-end" }}><button onClick={onCerrar} aria-label="Cerrar" title={tituloCerrar} style={{ width:36, height:36, borderRadius:10, border:`1px solid ${C.border}`, background:"#fff", color:C.text, display:"grid", placeItems:"center", cursor:"pointer" }}><Icon n="x" s={16} sw={2.4}/></button></span>
           </div>
-          <div style={{ position:"relative", padding:isMobile?"14px":"20px 24px 26px", ...(haciaArriba ? { flex:1, overflowY:"auto" } : {}) }}>
+          <div style={{ position:"relative", padding:isMobile?"14px":"20px 24px 26px", ...(haciaArriba ? { flex:"1 1 auto", minHeight:0, overflowY:"auto", overscrollBehavior:"contain", WebkitOverflowScrolling:"touch" } : {}) }}>
             {children}
           </div>
         </div>
@@ -1404,9 +1383,11 @@ function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo
   );
 }
 
-// Cuentas de tienda en computador (22 nov 2026): las pestañas van en una barra flotante abajo y
-// centrada (como en el celular), con el + en el medio. Deja libre la parte de arriba.
-function DockTienda({ tabs, tab, setTab }) {
+// Pestañas del área en computador (22 nov 2026, decisión de Santiago: "las opciones del + abajo y
+// los módulos arriba", en celular y en computador, para todos): barra flotante abajo y centrada,
+// con el + en el medio cuando el área lo tiene. Arriba quedan solo los módulos, la campana y el
+// perfil. (Antes solo las cuentas de tienda la tenían; las demás usaban pestañas arriba.)
+function DockPestanas({ tabs, tab, setTab }) {
   return (
     <div style={{ position:"fixed", left:"50%", bottom:16, transform:"translateX(-50%)", zIndex:60, display:"flex", alignItems:"center", gap:4, padding:"6px 10px", background:"#fff", border:`1px solid ${C.border}`, borderRadius:22, boxShadow:"0 14px 40px -14px rgba(26,59,82,0.35)" }}>
       {tabs.map(t=>{ const on = t.id===tab; if(esBotonMas(t.id)) return (
@@ -11079,7 +11060,7 @@ function ElegirTiendaTarjetas({ stores, onElegir, ventas, ventasItems, ventasAbo
       <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginBottom:14 }}>Toca una tienda para seguir. Puedes cambiarla después arriba.</div>
       <div style={{ display:"flex", flexWrap:"wrap", justifyContent:"center", gap:10, textAlign:"left" }}>
         {tiendas.map(t=>{ const r = calcularMetaHoyTienda(t.id, todayStr, ventas, ventasItems, ventasAbonos, ventasAjustes, metas); const col = colorTienda(t); return (
-          <button key={t.id} onClick={()=>onElegir(t.id)} className="ozen-fila-venta" style={{ all:"unset", boxSizing:"border-box", width:isMobile?"calc(50% - 5px)":190, cursor:"pointer", background:"#fff", border:`1px solid ${C.border}`, borderTop:`4px solid ${col}`, borderRadius:14, padding:"16px 16px 14px", display:"flex", flexDirection:"column", gap:8 }}>
+          <button key={t.id} onClick={()=>onElegir(t.id)} className="ozen-fila-venta" style={{ all:"unset", boxSizing:"border-box", width:isMobile?"min(100%, 320px)":190, cursor:"pointer", background:"#fff", border:`1px solid ${C.border}`, borderTop:`4px solid ${col}`, borderRadius:14, padding:"16px 16px 14px", display:"flex", flexDirection:"column", gap:8 }}>
             <span style={{ display:"inline-flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}><PuntoTienda color={col} size={10}/>{nombreTiendaCorto(t)}</span>
             <span style={{ fontFamily:font.body, fontSize:11, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:700 }}>Vendido hoy</span>
             <span style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ fontSize:12, color:C.textMuted, fontWeight:500 }}> · {Math.round(r.vendido/r.meta*100)} %</span>}</span>
@@ -14877,7 +14858,8 @@ function OperOrdenCliente({ op, stores, onCerrar }) {
           <Btn onClick={onCerrar} variant="ghost" sm style={{ flex:1, background:"#fff" }}>Cerrar</Btn>
         </div>
       </div>
-      {toast && <div style={{ position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:9999, background:C.goldDark, borderRadius:10, padding:"10px 18px", color:C.tinta, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", maxWidth:"calc(100% - 32px)", textAlign:"center" }}>{toast}</div>}
+      {/* 22 nov 2026: el aviso sube a 130 px para quedar por encima de la barra de pestañas de abajo (DockPestanas). */}
+      {toast && <div style={{ position:"fixed", left:"50%", bottom:130, transform:"translateX(-50%)", zIndex:9999, background:C.goldDark, borderRadius:10, padding:"10px 18px", color:C.tinta, fontSize:13, fontFamily:font.body, boxShadow:"0 8px 24px rgba(0,0,0,0.5)", maxWidth:"calc(100% - 32px)", textAlign:"center" }}>{toast}</div>}
     </div>,
     document.body
   );
@@ -17617,7 +17599,7 @@ export default function App() {
   // Tinta. A propósito NO se puede cerrar — se queda hasta que se actualice la página, porque
   // trabajar con una versión vieja puede mostrar datos desactualizados.
   const bannerActualizacion = actualizacionDisponible && (
-    <div className="ozen-aviso-version" role="status" style={{ position:"fixed", left:"50%", bottom:isMobile?84:22, transform:"translateX(-50%)", zIndex:500, width:isMobile?"calc(100% - 24px)":"max-content", maxWidth:isMobile?undefined:"calc(100% - 48px)", boxSizing:"border-box", background:C.goldDark, color:C.tinta, borderRadius:14, padding:"10px 10px 10px 14px", display:"flex", alignItems:"center", gap:12, fontFamily:font.body, lineHeight:1.3, letterSpacing:"0.01em", boxShadow:"0 20px 40px -18px rgba(26,59,82,0.65)" }}>
+    <div className="ozen-aviso-version" role="status" style={{ position:"fixed", left:"50%", bottom:isMobile?84:100, transform:"translateX(-50%)", zIndex:500, width:isMobile?"calc(100% - 24px)":"max-content", maxWidth:isMobile?undefined:"calc(100% - 48px)", boxSizing:"border-box", background:C.goldDark, color:C.tinta, borderRadius:14, padding:"10px 10px 10px 14px", display:"flex", alignItems:"center", gap:12, fontFamily:font.body, lineHeight:1.3, letterSpacing:"0.01em", boxShadow:"0 20px 40px -18px rgba(26,59,82,0.65)" }}>
       <span style={{ width:32, height:32, borderRadius:9, background:"rgba(229,213,204,0.14)", display:"grid", placeItems:"center", flexShrink:0 }}><Icon n="refresh" s={16}/></span>
       <span style={{ minWidth:0, flex:isMobile?1:"0 1 auto" }}>
         <b style={{ display:"block", fontSize:13.5, fontWeight:700, whiteSpace:isMobile?"normal":"nowrap" }}>Hay una versión nueva</b>
@@ -17699,7 +17681,7 @@ export default function App() {
   const juntaTipo = !juntaPuedeTarea ? "acuerdo" : !juntaPuedeAcuerdo ? "tarea" : juntaNuevaTipo;
   const cerrarJuntaNueva = () => setJuntaNuevaAbierta(false);
   const modalJuntaNueva = juntaNuevaAbierta && (juntaPuedeTarea || juntaPuedeAcuerdo) && createPortal(
-    <VentanaNube abierta origen={juntaNuevaOrigen} isMobile={isMobile} onCerrar={cerrarJuntaNueva} icono="plus" titulo={juntaTipo==="tarea" ? "Nueva tarea" : "Nuevo acuerdo"}
+    <VentanaNube abierta origen={juntaNuevaOrigen} isMobile={isMobile} ancho={840} onCerrar={cerrarJuntaNueva} icono="plus" titulo={juntaTipo==="tarea" ? "Nueva tarea" : "Nuevo acuerdo"}
       centro={juntaPuedeTarea && juntaPuedeAcuerdo
         ? <SelectorVistas sinMargen compacto={isMobile} opciones={[["tarea","Tarea","check"],["acuerdo","Acuerdo","lock"]]} vista={juntaTipo} onElegir={setJuntaNuevaTipo}/>
         : <b style={{ fontFamily:font.body, fontSize:14, color:C.text, whiteSpace:"nowrap" }}>{juntaTipo==="tarea" ? "Nueva tarea" : "Nuevo acuerdo"}</b>}>
@@ -17748,13 +17730,11 @@ export default function App() {
         <ConfirmacionGlobal/>
         {bandaVerComo}
         <TopeEstado color="#ffffff"/>
-        <BarraSuperior {...propsBarra} campana={campanaBarra} extraDerecha={esCuentaTienda(user) ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
+        <BarraSuperior {...propsBarra} campana={campanaBarra} extraDerecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
         {NAVIDAD && <MagiaNavidad/>}
-        {esCuentaTienda(user)
-          ? <DockTienda tabs={tabsVisibles} tab={tabNav} setTab={setTabNav}/>
-          : <BarraPestanas tabs={tabsVisibles} tab={tabNav} setTab={setTabNav} derecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>}
+        {(tabsVisibles.length>1 || tabsVisibles.some(t=>esBotonMas(t.id))) && <DockPestanas tabs={tabsVisibles} tab={tabNav} setTab={setTabNav}/>}
         {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
-        <main style={{flex:1,overflowY:"auto",padding:esCuentaTienda(user)?"26px 28px 120px":"26px 28px 40px"}}>{panel}</main>
+        <main style={{flex:1,overflowY:"auto",padding:"26px 28px 120px"}}>{panel}</main>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
