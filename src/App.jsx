@@ -7075,7 +7075,11 @@ const colorDeTipoVenta = (tipo) => tipo==="producto" ? C.gold : tipo==="flexipag
 // props: todo lo que necesita VentaCard para desplegar el detalle.
 const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItems, ventasAbonos, props }) => [
   ...ventasLista.map(v=>{
-    const its = ventasItems.filter(i=>i.venta_id===v.id);
+    // El registro del día de la venta muestra lo de ESE día: los excedentes de Notacrédito
+    // (es_original:false) salen en su propio registro, con su fecha.
+    const its = ventasItems.filter(i=>i.venta_id===v.id && i.es_original!==false);
+    // N.º de Siigo: el de la factura primero y, al lado, los de sus Notacréditos (vinculadas).
+    const numsNc = [...new Set((props?.ajustes||[]).filter(a=>a.venta_id===v.id && !a.es_correccion_error && a.numero_factura && a.numero_factura!==v.numero_factura).map(a=>a.numero_factura))];
     const tipos = [...new Set(its.map(i=>i.tipo))];
     const medios = [...new Set(its.flatMap(i=>(i.pagos||[]).map(p=>p.medio_pago)))].map(medioCortoLabel);
     const original = Number(v.valor_original ?? v.total ?? 0);
@@ -7090,7 +7094,7 @@ const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItem
     const flexCompletoDia = v.es_flexipago && valorFlex>0 && abonadoHastaDia>=flexiValorEnFecha(v, valorFlex, v.fecha);
     return { key:`v-${v.id}`, fecha:v.fecha, orden:`${v.fecha||""} ${v.created_at||""}`, hora:horaCol(v.created_at), tiendaId:v.tienda_id, asesor:v.vendedor_nombre||"—", cliente:v.cliente_nombre||"", documento:v.cliente_documento||"",
       tipo: v.es_flexipago ? (flexCompletoDia ? "Flexipago · completado" : "Flexipago") : tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta", colorTipo:colorDeTipoVenta(tipoPrincipal),
-      medios: v.es_flexipago ? ([...new Set(abonosDia.flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))].map(medioCortoLabel).join(" + ") || "Sin abono") : (medios.join(" + ")||"—"), factura:v.numero_factura||"—",
+      medios: v.es_flexipago ? ([...new Set(abonosDia.flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))].map(medioCortoLabel).join(" + ") || "Sin abono") : (medios.join(" + ")||"—"), factura:[v.numero_factura||"—", ...numsNc].join(" · "),
       total: v.es_flexipago ? (flexCompletoDia ? (valorFlex||original) : abonadoDia) : original,
       detalle: ()=> <VentaCard sinEncabezado venta={v} {...props}/> };
   }),
@@ -7105,7 +7109,7 @@ const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItem
     const its = ventasItems.filter(i=>i.venta_id===ajuste.venta_id && i.es_original===false && i.fecha_item===ajuste.fecha);
     const medios = [...new Set(its.flatMap(i=>(i.pagos||[]).map(p=>p.medio_pago)))].map(medioCortoLabel);
     return { key:`n-${ajuste.id}`, fecha:ajuste.fecha, orden:`${ajuste.fecha||""} ${ajuste.created_at||""}`, hora:horaCol(ajuste.created_at), tiendaId:venta.tienda_id, asesor:venta.vendedor_nombre||"—", cliente:venta.cliente_nombre||"", documento:venta.cliente_documento||"",
-      tipo:"Nota crédito", colorTipo:colorDeTipoVenta("nota"), medios:medios.join(" + ")||"—", factura:ajuste.numero_factura||venta.numero_factura||"—", total:Number(ajuste.diferencia||0), negativo:Number(ajuste.diferencia||0)<0,
+      tipo:"Nota crédito", colorTipo:colorDeTipoVenta("nota"), medios:medios.join(" + ")||"—", factura:[...new Set([ajuste.numero_factura, venta.numero_factura].filter(Boolean))].join(" · ")||"—", total:Number(ajuste.diferencia||0), negativo:Number(ajuste.diferencia||0)<0,
       detalle: ()=> <NotaCreditoCard soloDetalle ajuste={ajuste} venta={venta} ventasItems={ventasItems}/> };
   }),
 ].sort((a,b)=> String(b.orden).localeCompare(String(a.orden)));
@@ -7237,23 +7241,11 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   // Notacrédito aprobada (no confundir con "corregir por error", que sigue siendo libre): el
   // piso es siempre venta.valor_original — el nuevo valor nunca puede quedar por debajo de eso.
   const [ncItems, setNcItems] = useState([]); // venta normal: [{id, tipo, valor, descuento, pagos:[{medio_pago,valor,numero_autorizacion}]}]
+  // Aplicar Notacrédito (venta normal): lo que el cliente paga de más, aparte de lo ya registrado.
+  const [ncExc, setNcExc] = useState({ valor:"", pagos:[] });
   const [ncCliente, setNcCliente] = useState({ tipoDoc:"CC", documento:"", nombre:"", telefono:"" }); // flexipago
   const [ncCodigos, setNcCodigos] = useState([{ codigo:"", valor:"" }]); // flexipago
   const [ncAbonoMedio, setNcAbonoMedio] = useState("efectivo"); // flexipago
-  // Medios de pago por renglón en "Aplicar Notacrédito" (ncItems): igual patrón que editItemPagos
-  // y eaPagos — el excedente necesita quedar con su propio medio de pago para que Caja/efectivo
-  // del día lo vean, si no el dinero queda "invisible" en los reportes que suman `pagos`.
-  const agregarMedioANcItem = (itemIdx, medio) => {
-    setNcItems(prev=>prev.map((it,i)=>{
-      if(i!==itemIdx) return it;
-      const sumaActual = (it.pagos||[]).reduce((s,p)=>s+Number(p.valor||0),0);
-      const sugerido = Math.max(0, Number(it.valor||0)-sumaActual);
-      return { ...it, pagos:[...(it.pagos||[]), { medio_pago:medio, valor: sugerido>0?String(sugerido):"", numero_autorizacion:"" }] };
-    }));
-  };
-  const quitarMedioDeNcItem = (itemIdx, pidx) => setNcItems(prev=>prev.map((it,i)=>i!==itemIdx?it:{...it, pagos:(it.pagos||[]).filter((_,i2)=>i2!==pidx)}));
-  const setNcItemPagoValor = (itemIdx, pidx, v2) => setNcItems(prev=>prev.map((it,i)=>i!==itemIdx?it:{...it, pagos:(it.pagos||[]).map((p,i2)=>i2===pidx?{...p,valor:v2}:p)}));
-  const setNcItemPagoAutorizacion = (itemIdx, pidx, v2) => setNcItems(prev=>prev.map((it,i)=>i!==itemIdx?it:{...it, pagos:(it.pagos||[]).map((p,i2)=>i2===pidx?{...p,numero_autorizacion:v2}:p)}));
   // Fecha real del excedente/ajuste (puede ser distinta a hoy: ej. dinero que entró hace unos
   // días y se está registrando apenas ahora). Solo master/admin_finanzas pueden cambiarla —
   // igual que con abonoFecha — el resto siempre queda con la fecha de hoy.
@@ -7270,12 +7262,30 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   const [modoCambioProducto, setModoCambioProducto] = useState(false);
   const [ccFecha, setCcFecha] = useState(todayStr);
   const [ccNumeroFactura, setCcNumeroFactura] = useState("");
+  // N.º de Siigo de una Notacrédito (22 nov 2026, regla de Santiago): nunca puede ser el mismo de la
+  // factura original ni el de otra Notacrédito de esa misma factura — así el asesor tiene que poner
+  // sí o sí el número NUEVO que le dio Siigo. Se compara sin espacios ni mayúsculas.
+  // excluirAjusteId: al reeditar una Notacrédito, su propio número sí vale.
+  const normNumSiigo = (x) => String(x||"").trim().toLowerCase().replace(/\s+/g,"");
+  const avisoNumeroSiigoRepetido = (numero, excluirAjusteId) => {
+    const n = normNumSiigo(numero); if(!n) return null;
+    let igualA = null;
+    if(normNumSiigo(v.numero_factura)===n) igualA = `el de la factura original (#${v.numero_factura})`;
+    else {
+      const otra = (ajustes||[]).find(a=>a.venta_id===v.id && a.id!==excluirAjusteId && !a.es_correccion_error && normNumSiigo(a.numero_factura)===n);
+      if(otra) igualA = `el de otra Notacrédito de esta factura (del ${otra.fecha})`;
+    }
+    return igualA ? `El N.º ${String(numero).trim()} es igual a ${igualA}. Escribe el número NUEVO que te dio Siigo para esta Notacrédito.` : null;
+  };
   const [ccGuardando, setCcGuardando] = useState(false);
   // El valor es siempre el de la factura (mismo valor, por definición) — no se pregunta, se toma
   // directo de lo ya registrado.
   const guardarCambioProducto = async () => {
     const valorNum = Number(v.valor_original ?? v.total ?? 0);
     if(valorNum<=0 || !ccNumeroFactura.trim()) return;
+    const repetidoCc = avisoNumeroSiigoRepetido(ccNumeroFactura);
+    if(repetidoCc){ setEditErrorMsg(repetidoCc); return; }
+    setEditErrorMsg("");
     setCcGuardando(true);
     const { data, error } = await supabase.from("ventas_ajustes").insert({
       // valor_anterior/valor_nuevo no pueden ser null en la tabla — como es "mismo valor", los dos
@@ -7463,6 +7473,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
     setEditando(true);
     setEditErrorMsg("");
     setAjusteFecha(todayStr);
+    setNcExc({ valor:"", pagos:[] }); setEditNumeroFactura("");
     if(venta.es_flexipago){
       const itemFlex = (d?.items||[]).find(i=>i.tipo==="flexipago");
       setNcCliente({ tipoDoc: venta.cliente_tipo_doc||"CC", documento: venta.cliente_documento||"", nombre: venta.cliente_nombre||"", telefono: venta.cliente_telefono||"" });
@@ -7612,6 +7623,14 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
         setEditErrorMsg("Falta el N.º de factura (Siigo) — es obligatorio para guardar la Notacrédito.");
         return;
       }
+      if(modoNotacredito){
+        // Misma fecha que usa el ajuste más abajo: si ya hay una Notacrédito ese día se está
+        // reeditando, y su propio número sí vale.
+        const fechaAj = editItems.find(i=>!i.esOriginal)?.fecha || todayStr;
+        const existenteAj = (ajustes||[]).find(a=>a.venta_id===venta.id && a.fecha===fechaAj && !a.es_correccion_error);
+        const repetido = avisoNumeroSiigoRepetido(editNumeroFactura, existenteAj?.id);
+        if(repetido){ setEditErrorMsg(repetido); return; }
+      }
       setEditErrorMsg("");
       setGuardando(true);
       const payload = { observacion:editObservacion.trim(), valor_bruto:bruto, descuento_total:desc, total, updated_at:new Date().toISOString() };
@@ -7722,72 +7741,62 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
       return;
     }
 
-    // Venta normal: se edita el tipo y el valor de los renglones ya registrados (no se agregan
-    // renglones nuevos). La suma nueva no puede quedar por debajo del piso.
-    const nuevoBruto = ncItems.reduce((s,i)=>s+Number(i.valor||0),0);
-    const descuentoOriginal = ncItems.reduce((s,i)=>s+Number(i.descuento||0),0);
-    const nuevoTotal = nuevoBruto - descuentoOriginal;
-    if(nuevoTotal < piso){
-      setEditErrorMsg(`El nuevo valor ($${nuevoTotal.toLocaleString("es-CO")}) no puede quedar por debajo de lo ya registrado ($${piso.toLocaleString("es-CO")}).`);
-      return;
-    }
+    // Venta normal (22 nov 2026, rediseño tras el caso de la factura 3321 de Jardín Plaza): lo ya
+    // registrado queda BLOQUEADO (valor, medios y fecha; solo se puede cambiar el tipo). Lo que el
+    // cliente paga de más va en "Excedente que paga hoy el cliente": un renglón aparte (producto,
+    // es_original:false) fechado hoy —o la fecha real si master/admin_finanzas la cambia— que entra a
+    // Caja y Métricas de ese día. El N.º de Siigo nuevo SIEMPRE queda en el registro de Notacrédito
+    // (ventas_ajustes), vinculado a la factura original, aunque no haya excedente (cambio de producto
+    // por el mismo valor → es_cambio_producto). Antes había que subir el valor del renglón Y agregar
+    // el medio: si no se subía el valor, la plata quedaba en el día de la venta y el N.º se perdía.
+    const excValor = Number(ncExc.valor||0);
+    const excPagos = (ncExc.pagos||[]).map(p=>({ medio_pago:p.medio_pago, valor:Number(p.valor||0), numero_autorizacion: VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?(p.numero_autorizacion||"").trim():null })).filter(p=>p.valor>0);
+    if(excValor>0 && Math.abs(excPagos.reduce((t,p)=>t+p.valor,0)-excValor)>=1){ setEditErrorMsg("Los medios de pago del excedente deben sumar exactamente su valor."); return; }
+    if(excValor>0 && excPagos.some(p=>VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && !p.numero_autorizacion)){ setEditErrorMsg("Falta el N.º de autorización del pago con tarjeta."); return; }
     if(!editNumeroFactura.trim()){
-      setEditErrorMsg("Falta el N.º de factura (Siigo) — es obligatorio para aplicar la Notacrédito.");
+      setEditErrorMsg("Falta el N.º de factura (Siigo) de esta Notacrédito — es obligatorio.");
       return;
     }
+    const repetidoNc = avisoNumeroSiigoRepetido(editNumeroFactura);
+    if(repetidoNc){ setEditErrorMsg(repetidoNc); return; }
     setEditErrorMsg("");
     setGuardando(true);
     const valorAnterior = Number(venta.total);
-    // La factura original NUNCA se toca aquí — el N.º nuevo de Siigo que se escribió es el de
-    // ESTA Notacrédito (el excedente), y va aparte en el ajuste/registro espejo, no en la venta.
-    const { data:ventaAct } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), valor_bruto:nuevoBruto, descuento_total:descuentoOriginal, total:nuevoTotal, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
-    // Fecha efectiva del excedente de esta Notacrédito — la misma que se usa para el ajuste de
-    // abajo (hoy, o la fecha real si master/admin_finanzas la cambió).
-    const fechaExcedenteItems = (puedeEditarFechaAjuste && ajusteFecha) || todayStr;
+    const nuevoTotal = valorAnterior + excValor;
+    const fechaExc = (puedeEditarFechaAjuste && ajusteFecha) || todayStr;
+    // La factura original (N.º y fecha) NUNCA se toca; solo su total sube con el excedente.
+    const { data:ventaAct, error:errVenta } = await supabase.from("ventas").update({ observacion:editObservacion.trim(), valor_bruto:Number(venta.valor_bruto ?? valorAnterior)+excValor, total:nuevoTotal, updated_at:new Date().toISOString() }).eq("id",venta.id).select().single();
+    if(errVenta || !ventaAct){ setGuardando(false); setEditErrorMsg(`No se pudo guardar: ${errVenta?.message||"error desconocido"}`); return; }
     const itemsActualizados = [];
-    const itemsNuevosExcedente = [];
     for(const it of ncItems){
-      const pagosGuardarIt = (it.pagos||[]).map(p=>({ medio_pago:p.medio_pago, valor:Number(p.valor||0), numero_autorizacion: VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?(p.numero_autorizacion||"").trim():null }));
-      const valorOriginalItem = Number(it.valorOriginalItem||0);
-      const nuevoValorItem = Number(it.valor||0);
-      const deltaItem = nuevoValorItem - valorOriginalItem;
-      // Si este renglón subió de valor y se le agregaron medios de pago nuevos (el excedente), esa
-      // plata NUEVA se guarda en un renglón aparte fechado HOY — la plata que ya estaba registrada
-      // se queda intacta, con su fecha original. Así Caja distingue cuál efectivo entró hoy y cuál
-      // es de antes (ver efectivoDelDia/efectivoAnteriores en VentasCajaScreen); antes, todo el
-      // pago quedaba mezclado en el mismo renglón y fecha original, así que un excedente cobrado
-      // hoy en efectivo se contaba como si hubiera entrado el día de la venta original.
-      if(deltaItem>0 && it.pagos.length>(it.pagosOriginalCount||0)){
-        const pagosOriginales = pagosGuardarIt.slice(0, it.pagosOriginalCount||0);
-        const pagosExcedente = pagosGuardarIt.slice(it.pagosOriginalCount||0);
-        const { data } = await supabase.from("ventas_items").update({ tipo:it.tipo, valor:valorOriginalItem, pagos:pagosOriginales }).eq("id",it.id).select().single();
-        if(data) itemsActualizados.push(data);
-        const { data:itemNuevo } = await supabase.from("ventas_items").insert({ venta_id:venta.id, tipo:it.tipo, valor:deltaItem, descuento:0, pagos:pagosExcedente, es_original:false, fecha_item:fechaExcedenteItems }).select().single();
-        if(itemNuevo) itemsNuevosExcedente.push(itemNuevo);
-      } else {
-        const { data } = await supabase.from("ventas_items").update({ tipo:it.tipo, valor:nuevoValorItem, pagos:pagosGuardarIt }).eq("id",it.id).select().single();
+      const antes = (d?.items||[]).find(i=>i.id===it.id);
+      if(antes && antes.tipo!==it.tipo){
+        const { data } = await supabase.from("ventas_items").update({ tipo:it.tipo }).eq("id",it.id).select().single();
         if(data) itemsActualizados.push(data);
       }
+    }
+    let itemNuevo = null;
+    if(excValor>0){
+      const { data, error } = await supabase.from("ventas_items").insert({ venta_id:venta.id, tipo:"producto", valor:excValor, descuento:0, pagos:excPagos, es_original:false, fecha_item:fechaExc }).select().single();
+      if(error) setEditErrorMsg(`Ojo: no se pudo guardar el renglón del excedente (${error.message}). Avísale a Santiago.`);
+      itemNuevo = data || null;
     }
     for(const s of aprobadasSinAplicar){
       await supabase.from("ventas_solicitudes_correccion").update({ aplicada_at:new Date().toISOString() }).eq("id",s.id);
     }
-    // El excedente (lo que subió hoy respecto a lo que ya tenía) queda registrado con la fecha de
-    // HOY para Métricas — el valor original se queda contando en su día de venta (no se toca acá,
-    // ver recortePorVenta en VentasMetricasScreen). Así "Ventas de hoy" solo ve lo que entró hoy.
-    if(nuevoTotal !== valorAnterior){
-      const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert({ venta_id:venta.id, fecha:fechaExcedenteItems, valor_anterior:valorAnterior, valor_nuevo:nuevoTotal, diferencia:nuevoTotal-valorAnterior, motivo:editObservacion.trim()||null, aplicado_por:user.name, es_correccion_error:false, numero_factura:editNumeroFactura.trim() }).select().single();
-      if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
-    }
+    const motivoNc = editObservacion.trim() || null;
+    const { data:ajusteNuevo } = await supabase.from("ventas_ajustes").insert(excValor>0
+      ? { venta_id:venta.id, fecha:fechaExc, valor_anterior:valorAnterior, valor_nuevo:nuevoTotal, diferencia:excValor, motivo:motivoNc, aplicado_por:user.name, es_correccion_error:false, numero_factura:editNumeroFactura.trim() }
+      : { venta_id:venta.id, fecha:fechaExc, valor_anterior:valorAnterior, valor_nuevo:valorAnterior, diferencia:0, motivo:motivoNc||"Cambio de producto, mismo valor", aplicado_por:user.name, es_correccion_error:false, es_cambio_producto:true, valor_informativo:valorAnterior, numero_factura:editNumeroFactura.trim() }
+    ).select().single();
     setGuardando(false);
-    if(ventaAct){
-      setVentas(prev=>prev.map(v2=>v2.id===venta.id?ventaAct:v2));
-      setDetalle(prev=>({...prev,
-        items:(prev?.items||[]).map(i=>itemsActualizados.find(x=>x.id===i.id)||i).concat(itemsNuevosExcedente),
-        solicitudes:(prev?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s),
-      }));
-      if(setVentasItems && (itemsActualizados.length || itemsNuevosExcedente.length)) setVentasItems(prev=>[...prev.map(i=>itemsActualizados.find(x=>x.id===i.id)||i), ...itemsNuevosExcedente]);
-    }
+    setVentas(prev=>prev.map(v2=>v2.id===venta.id?ventaAct:v2));
+    setDetalle(prev=>({...prev,
+      items:(prev?.items||[]).map(i=>itemsActualizados.find(x=>x.id===i.id)||i).concat(itemNuevo?[itemNuevo]:[]),
+      solicitudes:(prev?.solicitudes||[]).map(s=>aprobadasSinAplicar.find(a=>a.id===s.id)?{...s,aplicada_at:new Date().toISOString()}:s),
+    }));
+    if(setVentasItems && (itemsActualizados.length || itemNuevo)) setVentasItems(prev=>[...prev.map(i=>itemsActualizados.find(x=>x.id===i.id)||i), ...(itemNuevo?[itemNuevo]:[])]);
+    if(ajusteNuevo) setAjustes(prev=>[...prev, ajusteNuevo]);
     setEditando(false);
   };
 
@@ -8218,84 +8227,79 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
                     );
                   })()}
                 </div>
-              ) : (
+              ) : (() => {
+                // Venta normal: lo ya registrado se ve bloqueado (solo el tipo se puede cambiar) y lo
+                // que el cliente paga de más va en "Excedente que paga hoy" (ver guardarEdicion).
+                const excValorUi = Number(ncExc.valor||0);
+                const sumaExc = (ncExc.pagos||[]).reduce((t,p)=>t+Number(p.valor||0),0);
+                const excCuadra = excValorUi<=0 || Math.abs(excValorUi-sumaExc)<1;
+                const faltaAUTExc = excValorUi>0 && (ncExc.pagos||[]).some(p=>VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && !(p.numero_autorizacion||"").trim());
+                const totalAntes = Number(v.total||0);
+                const agregarMedioExc = (medio) => setNcExc(prev=>{ const falta = Math.max(0, Number(prev.valor||0)-(prev.pagos||[]).reduce((t,p)=>t+Number(p.valor||0),0)); return { ...prev, pagos:[...(prev.pagos||[]), { medio_pago:medio, valor:falta>0?String(falta):"", numero_autorizacion:"" }] }; });
+                const cambiarPagoExc = (pidx, campo, v2) => setNcExc(prev=>({ ...prev, pagos:(prev.pagos||[]).map((p,i2)=>i2===pidx?{ ...p, [campo]:v2 }:p) }));
+                const quitarPagoExc = (pidx) => setNcExc(prev=>({ ...prev, pagos:(prev.pagos||[]).filter((_,i2)=>i2!==pidx) }));
+                return (
                 <div style={{ marginBottom:10 }}>
-                  <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:10 }}>
-                    {ncItems.map((it,idx)=>{
-                      const sumaMediosIt = (it.pagos||[]).reduce((s,p)=>s+Number(p.valor||0),0);
-                      const faltaIt = Number(it.valor||0) - sumaMediosIt;
-                      return (
-                      <div key={it.id} style={{ display:"flex", flexDirection:"column", gap:8, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
-                        <div style={{ display:"flex", gap:8, alignItems:"end", flexWrap:"wrap" }}>
-                          <div style={{ minWidth:140, flex:1 }}><Field label="Tipo" value={it.tipo} onChange={v2=>setNcItems(prev=>prev.map((x,i2)=>i2===idx?{...x,tipo:v2}:x))} options={VENTAS_TIPOS.filter(t=>t.value!=="flexipago")}/></div>
-                          <div style={{ minWidth:120, flex:1 }}><CurrencyField label="Valor" value={it.valor} onChange={v2=>setNcItems(prev=>prev.map((x,i2)=>i2===idx?{...x,valor:v2}:x))}/></div>
-                        </div>
-                        <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Medios de pago</div>
-                        {(it.pagos||[]).length>0 && (
-                          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                            {it.pagos.map((p,pidx)=>{
-                              const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===p.medio_pago);
-                              return (
-                                <div key={pidx} style={{ border:`1px solid ${C.gold}`, borderRadius:8, padding:"9px 10px", background:`${C.gold}0d` }}>
-                                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-                                    <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{m?.label}</span>
-                                    <button onClick={()=>quitarMedioDeNcItem(idx,pidx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
-                                  </div>
-                                  <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?"1fr 1fr":"1fr", gap:10 }}>
-                                    <CurrencyField label="Valor pagado" value={p.valor} onChange={v2=>setNcItemPagoValor(idx,pidx,v2)}/>
-                                    {VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && <Field label="N.º autorización" value={p.numero_autorizacion||""} onChange={v2=>setNcItemPagoAutorizacion(idx,pidx,v2)} placeholder="Ej: 056495"/>}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                        <Field value="" onChange={v2=>{ if(v2) agregarMedioANcItem(idx,v2); }} options={[{value:"",label:"+ Agregar medio de pago"}, ...VENTAS_MEDIOS_PAGO]}/>
-                        <div style={{ fontFamily:font.body, fontSize:12, color:Math.abs(faltaIt)<1?C.green:C.red }}>
-                          {Math.abs(faltaIt)<1 ? "✓ Los medios cuadran con el valor de este renglón" : faltaIt>0 ? `Faltan $${faltaIt.toLocaleString("es-CO")} por asignar` : `Te pasaste por $${Math.abs(faltaIt).toLocaleString("es-CO")}`}
+                  <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Lo que ya estaba registrado · no cambia</div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:12 }}>
+                    {ncItems.map((it,idx)=>(
+                      <div key={it.id} style={{ display:"flex", gap:10, alignItems:"end", flexWrap:"wrap", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" }}>
+                        <div style={{ minWidth:140, flex:1 }}><Field label="Tipo" value={it.tipo} onChange={v2=>setNcItems(prev=>prev.map((x,i2)=>i2===idx?{...x,tipo:v2}:x))} options={VENTAS_TIPOS.filter(t=>t.value!=="flexipago")}/></div>
+                        <div style={{ flex:2, minWidth:180, fontFamily:font.body, fontSize:13, color:C.text, paddingBottom:9 }}>
+                          <b style={{ fontFamily:font.mono }}>{fmtCOP(Number(it.valor||0))}</b>
+                          <span style={{ color:C.textMuted }}> · {(it.pagos||[]).map(p=>`${medioCortoLabel(p.medio_pago)} ${fmtCOP(Number(p.valor||0))}`).join(" + ") || "—"}</span>
                         </div>
                       </div>
-                      );
-                    })}
+                    ))}
+                  </div>
+                  <div style={{ border:`1px solid ${C.gold}`, borderRadius:8, padding:"10px 12px", background:`${C.gold}0d`, marginBottom:12 }}>
+                    <div style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:C.text }}>Excedente que paga hoy el cliente</div>
+                    <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, margin:"2px 0 8px" }}>Lo que paga de más. Queda con fecha de hoy y entra a la Caja de hoy. Si cambió el producto por el mismo valor, déjalo en $0.</div>
+                    <CurrencyField label="Valor del excedente" value={ncExc.valor} onChange={v2=>setNcExc(prev=>({ ...prev, valor:v2 }))}/>
+                    {excValorUi>0 && (
+                      <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:8 }}>
+                        {(ncExc.pagos||[]).map((p,pidx)=>{
+                          const m = VENTAS_MEDIOS_PAGO.find(mm=>mm.value===p.medio_pago);
+                          return (
+                            <div key={pidx} style={{ border:`1px solid ${C.gold}`, borderRadius:8, padding:"9px 10px", background:"#fff" }}>
+                              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                                <span style={{ fontFamily:font.body, fontSize:13, color:C.text, fontWeight:600 }}>{m?.label||p.medio_pago}</span>
+                                <button onClick={()=>quitarPagoExc(pidx)} style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>
+                              </div>
+                              <div style={{ display:"grid", gridTemplateColumns:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?"1fr 1fr":"1fr", gap:10 }}>
+                                <CurrencyField label="Valor pagado" value={p.valor} onChange={v2=>cambiarPagoExc(pidx,"valor",v2)}/>
+                                {VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && <Field label="N.º autorización" value={p.numero_autorizacion||""} onChange={v2=>cambiarPagoExc(pidx,"numero_autorizacion",v2)} placeholder="Ej: 056495"/>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <Field value="" onChange={v2=>{ if(v2) agregarMedioExc(v2); }} options={[{value:"",label:"+ Agregar medio de pago"}, ...VENTAS_MEDIOS_PAGO.filter(mm=>mm.value!=="traslado")]}/>
+                        <div style={{ fontFamily:font.body, fontSize:12, color:excCuadra?C.green:C.red }}>
+                          {excCuadra ? "✓ Los medios cuadran con el excedente" : excValorUi-sumaExc>0 ? `Faltan $${(excValorUi-sumaExc).toLocaleString("es-CO")} por asignar` : `Te pasaste por $${(sumaExc-excValorUi).toLocaleString("es-CO")}`}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <Field label="Observación" value={editObservacion} onChange={setEditObservacion} multiline rows={2}/>
-                  <Field label="N.º de factura (Siigo) — obligatorio *" value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: FE-1234"/>
+                  <Field label={`N.º de Siigo de esta Notacrédito — obligatorio * (queda vinculada a la factura #${v.numero_factura||"—"})`} value={editNumeroFactura} onChange={setEditNumeroFactura} placeholder="Ej: 3351"/>
                   {puedeEditarFechaAjuste && (
                     <Field label="Fecha real de la Notacrédito" type="date" value={ajusteFecha} onChange={setAjusteFecha}/>
                   )}
-                  {(() => {
-                    const nuevoBruto = ncItems.reduce((s,i)=>s+Number(i.valor||0),0);
-                    const descuentoOriginal = ncItems.reduce((s,i)=>s+Number(i.descuento||0),0);
-                    const nuevoTotal = nuevoBruto - descuentoOriginal;
-                    const piso = Number(v.valor_original ?? v.total);
-                    const ok = nuevoTotal>=piso;
-                    const pagosCuadranTodos = ncItems.every(it=>{
-                      const sumaMediosIt = (it.pagos||[]).reduce((s,p)=>s+Number(p.valor||0),0);
-                      return Math.abs(Number(it.valor||0)-sumaMediosIt)<1;
-                    });
-                    const faltaAUTAlgunNcItem = ncItems.some(it=>(it.pagos||[]).some(p=>VENTAS_MEDIOS_TARJETA.includes(p.medio_pago) && !(p.numero_autorizacion||"").trim()));
-                    return (
-                      <>
-                        <div style={{ fontFamily:font.body, fontSize:12, margin:"2px 0 10px", color: ok?C.green:C.red }}>
-                          Nuevo total: <strong>${nuevoTotal.toLocaleString("es-CO")}</strong> {!ok && `— debe ser al menos $${piso.toLocaleString("es-CO")}`}
-                        </div>
-                        {!pagosCuadranTodos && (
-                          <div style={{ fontFamily:font.body, fontSize:12, margin:"-4px 0 10px", color:C.red }}>Los medios de pago de cada renglón deben sumar exactamente su valor.</div>
-                        )}
-                        {editErrorMsg && (
-                          <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.red}18`, border:`1px solid ${C.red}`, color:C.red }}>
-                            {editErrorMsg}
-                          </div>
-                        )}
-                        <div style={{ display:"flex", gap:8 }}>
-                          <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || !ok || !pagosCuadranTodos || faltaAUTAlgunNcItem || !editNumeroFactura.trim()} sm>{guardando?"Guardando...":"Guardar"}</Btn>
-                          <Btn onClick={()=>{ setEditando(false); setEditErrorMsg(""); }} variant="ghost" sm>Cancelar</Btn>
-                        </div>
-                      </>
-                    );
-                  })()}
+                  <div style={{ fontFamily:font.body, fontSize:12, margin:"2px 0 10px", color:C.textSub }}>
+                    Total de la factura: <strong>${(totalAntes+Math.max(0,excValorUi)).toLocaleString("es-CO")}</strong>{excValorUi>0 && <> (${totalAntes.toLocaleString("es-CO")} + excedente ${excValorUi.toLocaleString("es-CO")})</>}
+                  </div>
+                  {editErrorMsg && (
+                    <div style={{ fontFamily:font.body, fontSize:12, margin:"0 0 10px", padding:"8px 10px", borderRadius:7, background:`${C.red}18`, border:`1px solid ${C.red}`, color:C.red }}>
+                      {editErrorMsg}
+                    </div>
+                  )}
+                  <div style={{ display:"flex", gap:8 }}>
+                    <Btn onClick={()=>guardarEdicion(v)} disabled={guardando || !excCuadra || faltaAUTExc || (excValorUi>0 && !(ncExc.pagos||[]).length) || !editNumeroFactura.trim()} sm>{guardando?"Guardando...":"Guardar"}</Btn>
+                    <Btn onClick={()=>{ setEditando(false); setEditErrorMsg(""); }} variant="ghost" sm>Cancelar</Btn>
+                  </div>
                 </div>
-              )}
+                );
+              })()}
 
               {v.es_flexipago && (
                 <>
