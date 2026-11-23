@@ -11002,6 +11002,9 @@ function CarreraDelDia({ stores, primera, ventas, ventasItems, ventasAbonos, ven
   const textoValor = (r) => `${fmtCOP(r.vendido)}${r.meta>0?` / ${fmtCOP(r.meta)}`:""}`;
   const anchoValor = `${Math.max(8, ...filas.map(f=>textoValor(f.r).length))}ch`;
   const esHoy = fecha===todayStr;
+  // Escala compartida (como la burbuja de antes): mínimo 100 %, o lo de quien más se pasó — así una
+  // tienda en 169 % y otra en 144 % no se ven en el mismo punto. Una rayita marca el 100 %.
+  const escalaMax = Math.max(100, ...filas.map(f=>f.r.pct||0));
   const mover = (d) => { const n = consSumarDias(fecha, d); if(n<=todayStr) setFecha(n); };
   const flechita = { all:"unset", cursor:"pointer", width:22, height:22, borderRadius:6, display:"grid", placeItems:"center", color:C.textSub, fontSize:14 };
   const dia = new Date(fecha+"T12:00:00");
@@ -11038,10 +11041,11 @@ function CarreraDelDia({ stores, primera, ventas, ventasItems, ventasAbonos, ven
               <span style={{ display:"inline-flex", alignItems:"center", gap:6, minWidth:0 }}><PuntoTienda color={col} size={7}/><span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:propia?800:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreTiendaCorto(t)}</span>{isMobile && <span style={{ marginLeft:"auto", fontFamily:font.mono, fontSize:11.5, color:C.text, whiteSpace:"nowrap" }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ color:C.textMuted }}> / {fmtCOP(r.meta)}</span>}</span>}</span>
               {NAVIDAD ? (
                 // Navidad: cada barra es una estrella fugaz en el color de la tienda (ver BarraFugaz).
-                <BarraFugaz pct={r.pct} color={col} alto={16} style={{ marginRight:6, ...(isMobile ? { gridColumn:"2 / 3", gridRow:"2" } : {}) }}/>
+                <BarraFugaz pct={r.pct} color={col} alto={16} escala={escalaMax} style={{ marginRight:6, ...(isMobile ? { gridColumn:"2 / 3", gridRow:"2" } : {}) }}/>
               ) : (
               <span style={{ position:"relative", height:6, ...(isMobile ? { gridColumn:"2 / 3", gridRow:"2" } : {}), borderRadius:99, background:C.surfaceHover, overflow:"hidden" }}>
-                <span style={{ position:"absolute", left:0, top:0, bottom:0, width:`${Math.min(100, Math.max(0, r.pct||0))}%`, background:pct!==null && pct>=100 ? C.green : col, borderRadius:99, transition:"width .6s ease" }}/>
+                <span style={{ position:"absolute", left:0, top:0, bottom:0, width:`${Math.min(100, Math.max(0, (r.pct||0)/escalaMax*100))}%`, background:pct!==null && pct>=100 ? C.green : col, borderRadius:99, transition:"width .6s ease" }}/>
+                {escalaMax>100 && <span style={{ position:"absolute", top:0, bottom:0, left:`${100/escalaMax*100}%`, width:1.5, background:"rgba(26,59,82,0.45)" }}/>}
               </span>
               )}
               <span style={{ fontFamily:font.body, fontSize:12, fontWeight:800, color:colPct, textAlign:"right", ...(isMobile ? { gridColumn:"3", gridRow:"1 / 3" } : {}) }}>{pct===null ? "—" : `${pct} %`}</span>
