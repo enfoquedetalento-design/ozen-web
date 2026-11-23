@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { supabase } from "./supabase";
 import { activarNotificacionesPush, notificacionesSoportadas, pushActivo, requiereInstalarEnIOS } from "./push";
 import { sonidoVenta, sonidoEntrada, sonidoSalida, sonidoCierreCaja, sonidoFlexipagoCompletado, sonidoTareaCumplida, sonidoError, sonidoBienvenida, sonidoNavidadVenta, sonidoNavidadEstrella, sonidoNavidadMeta, sonidoNavidadIngreso, sonidoNavidadEntrada, sonidoNavidadSalida } from "./sounds";
-import { NAVIDAD, sonidosNavidadActivos, guardarSonidosNavidad, EstilosNavidad, BrilloEstrellaLogo, DestellosQueCaen, GuirnaldaBarra, ChipCuentaNavidad, GuirnaldaMeta, CelebracionVenta, CelebracionAsistencia, MagiaNavidad, avisarOlaNavidad } from "./navidad";
+import { NAVIDAD, sonidosNavidadActivos, guardarSonidosNavidad, EstilosNavidad, BrilloEstrellaLogo, DestellosQueCaen, GuirnaldaBarra, ChipCuentaNavidad, GuirnaldaMeta, CelebracionVenta, CelebracionAsistencia, MagiaNavidad, avisarOlaNavidad, BarraFugaz } from "./navidad";
 import { PDFDocument } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
@@ -11036,9 +11036,14 @@ function CarreraDelDia({ stores, primera, ventas, ventasItems, ventasAbonos, ven
               style={{ display:"grid", gridTemplateColumns:isMobile?`16px minmax(0,1fr) 40px`:`16px 120px minmax(0,1fr) 46px ${anchoValor} 34px`, gridTemplateRows:isMobile?"auto auto":"auto", columnGap:10, rowGap:2, alignItems:"center", minHeight:24, fontFamily:font.mono, fontSize:12, paddingTop:isMobile?3:0, paddingBottom:isMobile?3:0, padding:"0 6px", borderRadius:7, background:propia?hexToRgba(col,0.08):"transparent" }}>
               <span style={{ fontFamily:font.body, fontSize:11, fontWeight:800, color:i===0 && r.vendido>0 ? C.goldDark : C.textMuted, textAlign:"center" }}>{i+1}</span>
               <span style={{ display:"inline-flex", alignItems:"center", gap:6, minWidth:0 }}><PuntoTienda color={col} size={7}/><span style={{ fontFamily:font.body, fontSize:12.5, fontWeight:propia?800:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreTiendaCorto(t)}</span>{isMobile && <span style={{ marginLeft:"auto", fontFamily:font.mono, fontSize:11.5, color:C.text, whiteSpace:"nowrap" }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ color:C.textMuted }}> / {fmtCOP(r.meta)}</span>}</span>}</span>
+              {NAVIDAD ? (
+                // Navidad: cada barra es una estrella fugaz en el color de la tienda (ver BarraFugaz).
+                <BarraFugaz pct={r.pct} color={col} alto={16} style={{ marginRight:6, ...(isMobile ? { gridColumn:"2 / 3", gridRow:"2" } : {}) }}/>
+              ) : (
               <span style={{ position:"relative", height:6, ...(isMobile ? { gridColumn:"2 / 3", gridRow:"2" } : {}), borderRadius:99, background:C.surfaceHover, overflow:"hidden" }}>
                 <span style={{ position:"absolute", left:0, top:0, bottom:0, width:`${Math.min(100, Math.max(0, r.pct||0))}%`, background:pct!==null && pct>=100 ? C.green : col, borderRadius:99, transition:"width .6s ease" }}/>
               </span>
+              )}
               <span style={{ fontFamily:font.body, fontSize:12, fontWeight:800, color:colPct, textAlign:"right", ...(isMobile ? { gridColumn:"3", gridRow:"1 / 3" } : {}) }}>{pct===null ? "—" : `${pct} %`}</span>
               {!isMobile && <span style={{ fontFamily:font.mono, fontSize:12, color:C.text, textAlign:"right", whiteSpace:"nowrap" }}>{fmtCOP(r.vendido)}{r.meta>0 && <span style={{ color:C.textMuted }}> / {fmtCOP(r.meta)}</span>}</span>}
               {!isMobile && (onVerLista ? <button onClick={()=>onVerLista(t.id, fecha)} title="Ver las ventas de ese día" style={{ all:"unset", cursor:"pointer", color:C.gold, display:"grid", placeItems:"center" }}><Icon n="right" s={13} sw={2.4}/></button> : <span/>)}
