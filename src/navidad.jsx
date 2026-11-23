@@ -38,6 +38,8 @@ export const EstilosNavidad = () => (
     @keyframes ozenNavGira { to { transform:rotate(360deg) } }
     @keyframes ozenNavTitila { from { opacity:.25 } to { opacity:1 } }
     @keyframes ozenNavEnciende { 0%,100% { opacity:.25 } 50% { opacity:1 } }
+    @keyframes ozenNavFugazEstela { from { transform:scaleX(0) } }
+    @keyframes ozenNavFugazVuela { from { left:0 } }
     @keyframes ozenNavCae { from { top:-4%; transform:translateX(0) rotate(0) } to { top:104%; transform:translateX(var(--dx)) rotate(var(--r)) } }
     @media (prefers-reduced-motion: reduce) {
       .ozen-nav-anim, .ozen-nav-anim * { animation:none !important; }
@@ -151,6 +153,22 @@ export const GuirnaldaMeta = ({ pct, alto = 54, color = BASE, esperado = null, c
         </div>
       )}
     </div>
+  );
+};
+
+// Barra de progreso como estrella fugaz (Meta de hoy): la estrella va donde va el avance y deja su
+// estela; todo en el color de la tienda. Al abrir, la estrella "vuela" desde el inicio hasta su
+// lugar. Al 100 % llega al final y titila.
+export const BarraFugaz = ({ pct, color = BASE, alto = 14, style }) => {
+  const p = Math.min(100, Math.max(0, pct || 0)), llena = (pct || 0) >= 100, curva = "cubic-bezier(.2,.8,.3,1)";
+  return (
+    <span className="ozen-nav-anim" style={{ position:"relative", display:"block", height:alto, ...style }}>
+      <span style={{ position:"absolute", left:0, right:0, top:"50%", borderTop:`1.5px dotted ${rgba(color, .3)}` }}/>
+      <span style={{ position:"absolute", left:0, top:"50%", height:4, marginTop:-2, width:`${p}%`, borderRadius:99, transformOrigin:"left center", background:`linear-gradient(90deg, ${rgba(color, 0)} 0%, ${rgba(color, .3)} 50%, ${color} 100%)`, transition:`width .9s ${curva}`, animation:`ozenNavFugazEstela 1.1s ${curva} both` }}/>
+      <span style={{ position:"absolute", top:"50%", left:`${p}%`, width:alto, height:alto, margin:`${-alto/2}px 0 0 ${-alto/2}px`, transition:`left .9s ${curva}`, animation:`ozenNavFugazVuela 1.1s ${curva} both` }}>
+        <EstrellaSvg size={alto} color={color} style={{ display:"block", filter:`drop-shadow(0 0 ${llena?6:4}px ${rgba(color, .75)})`, transform:llena?"scale(1.25)":"none", animation:llena ? "ozenNavTitila .8s ease-in-out infinite alternate" : "ozenNavGira 7s linear infinite" }}/>
+      </span>
+    </span>
   );
 };
 
