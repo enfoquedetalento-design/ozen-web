@@ -305,7 +305,12 @@ const mesDeCierre = (t) => {
 // (reaperturas: fecha_anterior/fecha_nueva/en) para saber si, en el momento exacto de reabrirla, la
 // tarea YA estaba vencida (pasado el domingo de su plazo anterior). Si pasó al menos una vez, la
 // tarea "tuvo una reapertura tardía" — aunque termine cumplida, no fue a tiempo.
-const tuvoReaperturaTardia = (t) => (t.reaperturas||[]).some(r => r.fecha_anterior && r.en && fmt(new Date(r.en)) > domingoDeLaSemana(r.fecha_anterior));
+// Desde el 22 nov 2026 también cuenta la reapertura ANTICIPADA (`anticipada:true` en el historial): una
+// tarea activa (no vencida) a la que el Monitor le corrió el plazo a una fecha más lejana. Aunque luego
+// se cumpla, ya no es "a tiempo" (decisión de Santiago). Las reaperturas viejas no traen esa marca, así
+// que no cambian. MISMA REGLA en scripts/congelar-mes-junta.js y en congelar_mes_junta() de Supabase
+// (sql/junta_reapertura_anticipada.sql) — si se cambia aquí, hay que cambiarla allá.
+const tuvoReaperturaTardia = (t) => (t.reaperturas||[]).some(r => r.anticipada===true || (r.fecha_anterior && r.en && fmt(new Date(r.en)) > domingoDeLaSemana(r.fecha_anterior)));
 // Cumplida "a tiempo" = cumplida Y nunca tuvo que reabrirse después de estar vencida.
 const cumplidaATiempo = (t) => !!t.completado && !tuvoReaperturaTardia(t);
 // Indicadores de un mes: sesiones registradas (martes con al menos una tarea) y % de tareas completadas.
@@ -5255,15 +5260,21 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, ac
   // para poder marcarla en la reunión real. Queda registrado quién la reabrió y cuándo — y a
   // diferencia de antes, se guarda el HISTORIAL completo (no solo la última vez), para poder ver
   // si una tarea se ha ido aplazando varias veces en vez de resolverse.
-  const reabrirVencida = (g, fecha) => {
+  // `anticipada` (22 nov 2026): reabrir una tarea ACTIVA (todavía no vencida) a una fecha más lejana.
+  // Queda marcada en el historial y, aunque luego se cumpla, cuenta "cumplida, no a tiempo".
+  const reabrirVencida = async (g, fecha, anticipada=false) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha||"")) { alert("Elige una fecha."); return; }
     // Se normaliza al martes de esa semana (mismo formato que fecha_estimada siempre ha tenido) —
     // así el nuevo plazo (hasta el domingo de esa semana) queda bien calculado sin importar qué
     // día exacto se haya elegido.
     const nueva = martesDeSemana(fecha);
+    if (anticipada) {
+      if (g[0].fecha_estimada && nueva <= g[0].fecha_estimada) { alert("La nueva fecha tiene que caer en una semana posterior al plazo que ya tiene la tarea."); return; }
+      if (!await confirmar("¿Correr esta tarea a la nueva fecha?\n\nQueda como reabierta: si después se cumple, cuenta como cumplida pero NO a tiempo.")) return;
+    }
     const ahora = new Date().toISOString();
     g.forEach(m => {
-      const historial = [...(m.reaperturas||[]), { fecha_anterior:m.fecha_estimada||null, fecha_nueva:nueva, por:user.name, en:ahora }];
+      const historial = [...(m.reaperturas||[]), { fecha_anterior:m.fecha_estimada||null, fecha_nueva:nueva, por:user.name, en:ahora, ...(anticipada ? { anticipada:true } : {}) }];
       actualizar(m.id, { fecha_estimada:nueva, reabierta_por:user.name, reabierta_en:ahora, reaperturas:historial });
     });
     setReabriendo(null);
@@ -5381,6 +5392,10 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, ac
         {gruposOrdenados.map((g)=>{
           const base = g[0];
           const vencida = esGrupoVencido(g);
+          // Activa = ni vencida ni cumplida: también se puede reabrir (correr el plazo), ver reabrirVencida.
+          const activa = !vencida && !esGrupoCompletado(g);
+          // La nueva fecha tiene que caer en una semana posterior (las semanas van de martes a lunes).
+          const minReabrirActiva = base.fecha_estimada ? sumarDias(base.fecha_estimada, 7) : sumarDias(todayStr, 1);
           const compartida = g.length>1;
           const puedeBorrar = puedeBorrarGrupo(g);
           const completadoGrupo = esGrupoCompletado(g);
@@ -5429,6 +5444,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, ac
                 {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
                 {borradoPedido(g) && <Badge color={C.red} sm title={`${borradoPedido(g).borrado_solicitado_por||"El monitor"} pidió borrarla el ${fmtFechaHora(borradoPedido(g).borrado_solicitado_en)} — falta que master lo apruebe`}>Borrado solicitado</Badge>}
                 {vencida && puedeGestionar && <button onClick={()=>{ if(reabriendo===toggleId){ setReabriendo(null); return; } setReabriendo(toggleId); setFechaReabrir(sumarDias(todayStr, 1)); }} title="La tarea todavía no se ha hecho — darle un nuevo plazo" style={{ background:reabriendo===toggleId?`${C.amber}18`:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir a una nueva fecha</button>}
+                {activa && puedeGestionar && <button onClick={()=>{ if(reabriendo===toggleId){ setReabriendo(null); return; } setReabriendo(toggleId); setFechaReabrir(minReabrirActiva); }} title="Correr el plazo a una semana más adelante — si después se cumple, cuenta como cumplida pero no a tiempo" style={{ background:reabriendo===toggleId?`${C.amber}18`:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir a una nueva fecha</button>}
                 {vencida && puedeGestionar && <button onClick={()=>marcarRealizadaVencida(g)} title="Se hizo, pero no hubo reunión para marcarla — queda cumplida hoy, sin reabrirla" style={{ background:"none", border:`1px solid ${C.green}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Marcar como realizada</button>}
                 {completadoGrupo && base.completado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· marcada por {base.completado_por}</div>}
                 {autorreportadoGrupo && base.autorreportado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· por {base.autorreportado_por}</div>}
@@ -5443,14 +5459,14 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, ac
                   </HoverTooltip>
                 )}
               </div>
-              {vencida && puedeGestionar && reabriendo===toggleId && (
+              {(vencida || activa) && puedeGestionar && reabriendo===toggleId && (
                 <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", padding:"8px 10px", borderRadius:8, background:`${C.amber}10`, border:`1px solid ${C.amber}55` }}>
                   <span style={{ fontFamily:font.body, fontSize:12, color:C.text }}>Nueva fecha:</span>
-                  <input type="date" autoFocus value={fechaReabrir} min={todayStr} onChange={e=>setFechaReabrir(e.target.value)} onFocus={e=>{ try{ e.target.showPicker?.(); }catch{ /* algunos navegadores no lo permiten */ } }} style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:13, fontFamily:font.body }}/>
-                  <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>vence el domingo de esa semana</span>
+                  <input type="date" autoFocus value={fechaReabrir} min={activa ? minReabrirActiva : todayStr} onChange={e=>setFechaReabrir(e.target.value)} onFocus={e=>{ try{ e.target.showPicker?.(); }catch{ /* algunos navegadores no lo permiten */ } }} style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:13, fontFamily:font.body }}/>
+                  <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>vence el domingo de esa semana{activa ? " · contará como no a tiempo" : ""}</span>
                   <span style={{ flex:1 }}/>
                   <button onClick={()=>setReabriendo(null)} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:12, fontFamily:font.body }}>Cancelar</button>
-                  <button onClick={()=>reabrirVencida(g, fechaReabrir)} disabled={!fechaReabrir} style={{ background:C.amber, border:"none", borderRadius:6, color:"#fff", cursor:"pointer", fontSize:12, fontWeight:700, padding:"5px 12px", fontFamily:font.body }}>Reabrir</button>
+                  <button onClick={()=>reabrirVencida(g, fechaReabrir, activa)} disabled={!fechaReabrir} style={{ background:C.amber, border:"none", borderRadius:6, color:"#fff", cursor:"pointer", fontSize:12, fontWeight:700, padding:"5px 12px", fontFamily:font.body }}>Reabrir</button>
                 </div>
               )}
               {/* Línea 2: check + tarea (ancho libre) + ver más al final */}
@@ -9383,7 +9399,7 @@ const calcularCierresFlexipago = (ventas, ventasItems, ventasAbonos) => {
     // Sin separaciones es la misma regla de siempre (primer abono que alcanza el valor). Con
     // separaciones, ver flexiIdxCierre.
     const k = flexiIdxCierre(v, valorNeto, abonos);
-    if(k>=0) cierres.push({ ventaId:v.id, tiendaId:v.tienda_id, vendedorId:v.vendedor_id, valorNeto, fechaCierre:abonos[k].fecha });
+    if(k>=0) cierres.push({ ventaId:v.id, tiendaId:v.tienda_id, vendedorId:v.vendedor_id, valorNeto, fechaCierre:abonos[k].fecha, abonoCierreId:abonos[k].id });
   });
   return cierres;
 };
@@ -9768,6 +9784,11 @@ const tdMet = { padding:"11px 10px", borderBottom:`1px solid ${C.border}` };
 //   · Servicios = lo pagado por arreglo / marcación / grabado.
 //   · Ingreso total = sin servicios + servicios + abonos de flexipagos que siguen abiertos.
 //   · # ventas = facturas creadas (incluye flexipago) en su fecha.
+//   · Dinero recibido = la plata que entró cada día: igual a Ingreso total, salvo que los abonos de
+//     flexipagos YA cerrados cuentan en el día de cada abono (no el valor completo en el cierre).
+//   · Abonos Flexipago (antes de terminar) / Abono final Flexipago: separan los abonos según si
+//     llegaron antes del que terminó de pagarlo o fueron ese (o después). Traslados no cuentan.
+//     Siempre: antes + final = todo lo abonado (sin traslados).
 // Todo se baja primero a "hechos" pequeños (una fila por pedazo de plata con su fecha, hora, tienda,
 // asesor, tipo y medio) y después se agrupa como se pida. Así agregar una medida o un "por" nuevo
 // es una línea, no otra pantalla.
@@ -9931,7 +9952,20 @@ const construirHechosVentas = (ventas, ventasItems, ventasAbonos, ventasAjustes)
     const entradas = Object.entries(porMedio).filter(([,x])=>x>0);
     (entradas.length ? entradas : [["efectivo", tot||1]]).forEach(([medio, x])=>{
       const parte = tot>0 ? x/tot : 1;
-      H.push({ ...base(v, c.fechaCierre, ultimo?.created_at), tipo:"flexipago", medio, sin:c.valorNeto*parte, servicios:0, ingreso:c.valorNeto*parte, descuento:descFlex*parte, cuenta:0 });
+      H.push({ ...base(v, c.fechaCierre, ultimo?.created_at), tipo:"flexipago", medio, sin:c.valorNeto*parte, servicios:0, ingreso:c.valorNeto*parte, descuento:descFlex*parte, cuenta:0, recibido:0 });
+    });
+    // Abonos de los cerrados, cada uno en su día (22 nov 2026): antes del que lo terminó de pagar →
+    // "abonoAntes"; ese y los que vengan después → "abonoFinal". Solo alimentan las medidas nuevas
+    // (no tocan sin / ingreso / servicios).
+    const ordenados = (abonosPorVenta[v.id] || []).slice().sort((a,b)=> new Date(a.created_at||a.fecha) - new Date(b.created_at||b.fecha));
+    const kCierre = ordenados.findIndex(ab=>ab.id===c.abonoCierreId);
+    ordenados.forEach((ab, k)=>{
+      if(!ab.fecha || flexiEsTraslado(ab)) return;
+      const esFinal = kCierre>=0 && k>=kCierre;
+      mediosDeAbono(ab).forEach(p=>{
+        const x = Number(p.valor||0); if(x<=0) return;
+        H.push({ ...base(v, ab.fecha, ab.created_at), tipo:"flexipago", medio:p.medio_pago||"efectivo", sin:0, servicios:0, ingreso:0, descuento:0, cuenta:0, recibido:x, abonoAntes:esFinal?0:x, abonoFinal:esFinal?x:0 });
+      });
     });
   });
   ventasAbonos.forEach(ab=>{
@@ -9939,9 +9973,11 @@ const construirHechosVentas = (ventas, ventasItems, ventasAbonos, ventasAjustes)
     if(!v || !v.es_flexipago || cerrados.has(v.id) || !ab.fecha || flexiEsTraslado(ab)) return;
     mediosDeAbono(ab).forEach(p=>{
       const x = Number(p.valor||0); if(x<=0) return;
-      H.push({ ...base(v, ab.fecha, ab.created_at), tipo:"flexipago", medio:p.medio_pago||"efectivo", sin:0, servicios:0, ingreso:x, descuento:0, cuenta:0 });
+      H.push({ ...base(v, ab.fecha, ab.created_at), tipo:"flexipago", medio:p.medio_pago||"efectivo", sin:0, servicios:0, ingreso:x, descuento:0, cuenta:0, recibido:x, abonoAntes:x, abonoFinal:0 });
     });
   });
+  // Dinero recibido: en todo lo demás es igual a Ingreso total (la plata entra el día de la venta).
+  H.forEach(h=>{ if(h.recibido===undefined) h.recibido = h.ingreso; if(h.abonoAntes===undefined) h.abonoAntes = 0; if(h.abonoFinal===undefined) h.abonoFinal = 0; });
   return H;
 };
 
@@ -10087,11 +10123,14 @@ const CONS_VALORES = [
   { value:"count", label:"N.º de ventas" },
   { value:"ticket", label:"Ticket promedio" },
   { value:"descuento", label:"Descuentos" },
+  { value:"recibido", label:"Dinero recibido" },
+  { value:"abonoAntes", label:"Abonos Flexipago (antes de terminar)" },
+  { value:"abonoFinal", label:"Abono final Flexipago" },
   { value:"meta", label:"Meta" },
   { value:"cumpl", label:"Cumplimiento %" },
 ];
 const CONS_ICONO_CAMPO = { tienda:"store", asesor:"user", dia:"cal", semana:"cal", mes:"cal", dow:"cal", hora:"clock", tipo:"tag", medio:"card" };
-const CONS_ICONO_VALOR = { sin:"cash", ingreso:"wallet", servicios:"wrench", count:"list", ticket:"receipt", descuento:"tag", meta:"target", cumpl:"trophy" };
+const CONS_ICONO_VALOR = { sin:"cash", ingreso:"wallet", servicios:"wrench", count:"list", ticket:"receipt", descuento:"tag", recibido:"cash", abonoAntes:"clock", abonoFinal:"check", meta:"target", cumpl:"trophy" };
 // Color de cada caja de la tabla dinámica (para distinguirlas de un vistazo).
 const CONS_ZONAS = { filas:{ color:C.gold, ic:"list" }, columnas:{ color:C.goldDark, ic:"grid" }, valores:{ color:C.green, ic:"chart" }, filtros:{ color:C.amber, ic:"target" } };
 const CONS_CAMPOS_FILTRO = ["tienda","asesor","tipo","medio","dow"];
@@ -10119,6 +10158,7 @@ const CONS_COMUNES = [
   { id:"d2", grupo:"Días y horas", nombre:"¿A qué hora se vende más? (30 días)", cfg:{ filas:["hora"], valores:["sin","count"], periodo:"30" } },
   { id:"c1", grupo:"Caja y medios de pago", nombre:"Medios de pago por tienda, este mes", cfg:{ filas:["tienda"], col:"medio", valores:["ingreso"], periodo:"mes" } },
   { id:"c2", grupo:"Caja y medios de pago", nombre:"Medios de pago por tienda, día a día", cfg:{ filas:["dia","tienda"], col:"medio", valores:["ingreso"], periodo:"mes" } },
+  { id:"c5", grupo:"Caja y medios de pago", nombre:"Dinero recibido por tienda, día a día", cfg:{ filas:["dia","tienda"], valores:["recibido","abonoAntes","abonoFinal"], periodo:"mes" } },
   { id:"c3", grupo:"Caja y medios de pago", nombre:"Descuentos dados por asesor, este mes", cfg:{ filas:["asesor"], valores:["descuento","sin"], periodo:"mes" } },
   { id:"s1", grupo:"Servicios y Flexipagos", nombre:"Arreglos, marcación y grabado por tienda, este mes", cfg:{ filas:["tipo"], col:"tienda", valores:["servicios","count"], periodo:"mes", filtros:{ tipo:["arreglo","marcacion","grabado"] } } },
   { id:"s2", grupo:"Servicios y Flexipagos", nombre:"Flexipagos completados por tienda y asesor, este mes", cfg:{ filas:["tienda","asesor"], valores:["sin"], periodo:"mes", filtros:{ tipo:["flexipago"] } } },
@@ -10254,8 +10294,8 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   };
 
   // ── Acumuladores ──
-  const nuevoAcc = () => ({ sin:0, ingreso:0, servicios:0, descuento:0, meta:0, ventas:new Set() });
-  const sumar = (acc, h) => { acc.sin+=h.sin; acc.ingreso+=h.ingreso; acc.servicios+=h.servicios; acc.descuento+=h.descuento; if(h.cuenta) acc.ventas.add(h.ventaId); };
+  const nuevoAcc = () => ({ sin:0, ingreso:0, servicios:0, descuento:0, recibido:0, abonoAntes:0, abonoFinal:0, meta:0, ventas:new Set() });
+  const sumar = (acc, h) => { acc.sin+=h.sin; acc.ingreso+=h.ingreso; acc.servicios+=h.servicios; acc.descuento+=h.descuento; acc.recibido+=h.recibido; acc.abonoAntes+=h.abonoAntes; acc.abonoFinal+=h.abonoFinal; if(h.cuenta) acc.ventas.add(h.ventaId); };
   const valor = (acc, medida=cfg.valores[0]) => {
     if(!acc) return 0;
     if(medida==="count") return acc.ventas.size;
@@ -10347,7 +10387,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   const setGraficaForzadaVista = (v) => elegirVista(v||"tabla");
   const apilar = q.g2 && !noSumable;
   const maxFila = Math.max(1, ...filas.map(f=>valor(f.acc)), ...(prev ? filas.map(f=>valor(prevAcc(f))) : []));
-  const sinDatos = res.total.ventas.size===0 && res.total.sin===0 && res.total.ingreso===0 && res.total.meta===0;
+  const sinDatos = res.total.ventas.size===0 && res.total.sin===0 && res.total.ingreso===0 && res.total.recibido===0 && res.total.meta===0;
   // Paleta de cada grupo / serie (tiendas con su color propio).
   const colorFila = (f, i) => f.color || CONS_PALETA[i % CONS_PALETA.length];
   // Etiqueta corta para ejes de tiempo.

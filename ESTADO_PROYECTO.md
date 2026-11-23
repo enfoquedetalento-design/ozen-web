@@ -1227,6 +1227,14 @@ Pedido de Santiago: el módulo más intuitivo.
     caben (`justifyContent:"safe center"`); colita de la nube en curva (SVG); **campana de avisos**
     (Flexipagos y órdenes de Operaciones) pasó de Registrar a la barra de arriba, junto al perfil
     (`CampanaVentas`; cuenta de tienda: solo la suya; demás: todas las tiendas, con el nombre).
+  - **Consultas: plata que entró vs. venta del Flexipago (22 nov):** tres medidas nuevas en
+    Consultas, sin tocar las demás (ni Métricas, Caja o Lista): **Dinero recibido** (igual a Ingreso
+    total, salvo que los abonos de Flexipagos ya cerrados cuentan en el día de cada abono y no el
+    valor completo en el cierre), **Abonos Flexipago (antes de terminar)** y **Abono final
+    Flexipago** (el abono que lo terminó de pagar, y los posteriores). Traslados no cuentan. Siempre:
+    antes + final = todo lo abonado. `calcularCierresFlexipago` ahora también devuelve
+    `abonoCierreId`. Consulta común nueva: "Dinero recibido por tienda, día a día". Verificado con
+    6.000 ventas simuladas: las medidas de siempre dan idéntico.
   - **Pestañas abajo para todos (22 nov, decisión de Santiago):** en celular y en computador,
     arriba van los módulos, la campana y el perfil; abajo, las pestañas del módulo con el + en el
     medio. En computador todos usan la barra flotante de abajo (`DockPestanas`, antes `DockTienda`,
@@ -1316,6 +1324,24 @@ Pedido de Santiago: la misma navegación de Ventas y Asistencia.
   (`JuntaEquipoTab`, props `monitor`, `verMonitor`, `vistaInicial`) y muestra `JuntaGuionTab` tal cual.
   Mismo permiso de antes (`junta.ver`). Si algo llega con el id viejo `guion`, abre Perfiles y áreas
   con Rol de Monitor elegido.
+
+## La Junta — reabrir tareas activas (22 nov 2026; en `staging`, falta probar)
+
+Pedido de Santiago: poder reabrir una tarea que todavía no está vencida, a una fecha más lejana.
+- Solo tareas **activas** (ni vencidas ni cumplidas — "las cumplidas ya se cumplieron"); solo quien
+  gestiona tareas (Monitor de turno / master). Botón "Reabrir a una nueva fecha" (gris) en la tarea.
+- La nueva fecha tiene que caer en una **semana posterior** al plazo actual (mínimo `fecha_estimada`
+  + 7; las semanas van de martes a lunes, así que el lunes siguiente al plazo seguiría siendo la
+  misma semana). Pide confirmación.
+- Queda en el historial `reaperturas` con `anticipada: true`. **Regla nueva:** una reapertura
+  anticipada hace que la tarea, aunque luego se cumpla, cuente **cumplida pero NO a tiempo**
+  (`tuvoReaperturaTardia`). Las reaperturas viejas no tienen la marca: no cambian. Meses congelados
+  no cambian.
+- La misma regla vive en 3 sitios que deben ir iguales: `src/App.jsx`, `scripts/congelar-mes-junta.js`
+  y la función `congelar_mes_junta()` de Supabase (`sql/junta_reapertura_anticipada.sql` — correr en
+  staging y en producción ANTES de subir el código a main).
+- Si la nueva fecha cae en el mes siguiente, la tarea deja de contar en este mes y cuenta en el mes
+  en que se cierre (igual que al reabrir una vencida).
 
 ## Pendiente / roadmap operativo (registro de asistencia)
 
