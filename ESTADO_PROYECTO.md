@@ -1236,6 +1236,10 @@ Pedido de Santiago: el módulo más intuitivo.
     renglón además de agregar el medio; si no, la plata quedaba en el día de la venta y el N.º se
     perdía. Lista de ventas: el registro de la factura muestra "3321 · 3351" y el de la Notacrédito
     "3351 · 3321"; el registro del día de la venta ya no muestra los medios del excedente.
+  - **N.º de Siigo de una Notacrédito nunca repetido (22 nov, regla de Santiago):** en Aplicar
+    Notacrédito, Notacrédito Siigo y Cambio de producto, el N.º nuevo no puede ser igual al de la
+    factura original ni al de otra Notacrédito de esa factura (`avisoNumeroSiigoRepetido`, compara
+    sin espacios ni mayúsculas; al reeditar una Notacrédito, su propio número sí vale).
   - **Consultas: plata que entró vs. venta del Flexipago (22 nov):** tres medidas nuevas en
     Consultas, sin tocar las demás (ni Métricas, Caja o Lista): **Dinero recibido** (igual a Ingreso
     total, salvo que los abonos de Flexipagos ya cerrados cuentan en el día de cada abono y no el

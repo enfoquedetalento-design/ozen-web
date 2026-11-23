@@ -7262,12 +7262,30 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
   const [modoCambioProducto, setModoCambioProducto] = useState(false);
   const [ccFecha, setCcFecha] = useState(todayStr);
   const [ccNumeroFactura, setCcNumeroFactura] = useState("");
+  // N.º de Siigo de una Notacrédito (22 nov 2026, regla de Santiago): nunca puede ser el mismo de la
+  // factura original ni el de otra Notacrédito de esa misma factura — así el asesor tiene que poner
+  // sí o sí el número NUEVO que le dio Siigo. Se compara sin espacios ni mayúsculas.
+  // excluirAjusteId: al reeditar una Notacrédito, su propio número sí vale.
+  const normNumSiigo = (x) => String(x||"").trim().toLowerCase().replace(/\s+/g,"");
+  const avisoNumeroSiigoRepetido = (numero, excluirAjusteId) => {
+    const n = normNumSiigo(numero); if(!n) return null;
+    let igualA = null;
+    if(normNumSiigo(v.numero_factura)===n) igualA = `el de la factura original (#${v.numero_factura})`;
+    else {
+      const otra = (ajustes||[]).find(a=>a.venta_id===v.id && a.id!==excluirAjusteId && !a.es_correccion_error && normNumSiigo(a.numero_factura)===n);
+      if(otra) igualA = `el de otra Notacrédito de esta factura (del ${otra.fecha})`;
+    }
+    return igualA ? `El N.º ${String(numero).trim()} es igual a ${igualA}. Escribe el número NUEVO que te dio Siigo para esta Notacrédito.` : null;
+  };
   const [ccGuardando, setCcGuardando] = useState(false);
   // El valor es siempre el de la factura (mismo valor, por definición) — no se pregunta, se toma
   // directo de lo ya registrado.
   const guardarCambioProducto = async () => {
     const valorNum = Number(v.valor_original ?? v.total ?? 0);
     if(valorNum<=0 || !ccNumeroFactura.trim()) return;
+    const repetidoCc = avisoNumeroSiigoRepetido(ccNumeroFactura);
+    if(repetidoCc){ setEditErrorMsg(repetidoCc); return; }
+    setEditErrorMsg("");
     setCcGuardando(true);
     const { data, error } = await supabase.from("ventas_ajustes").insert({
       // valor_anterior/valor_nuevo no pueden ser null en la tabla — como es "mismo valor", los dos
@@ -7605,6 +7623,14 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
         setEditErrorMsg("Falta el N.º de factura (Siigo) — es obligatorio para guardar la Notacrédito.");
         return;
       }
+      if(modoNotacredito){
+        // Misma fecha que usa el ajuste más abajo: si ya hay una Notacrédito ese día se está
+        // reeditando, y su propio número sí vale.
+        const fechaAj = editItems.find(i=>!i.esOriginal)?.fecha || todayStr;
+        const existenteAj = (ajustes||[]).find(a=>a.venta_id===venta.id && a.fecha===fechaAj && !a.es_correccion_error);
+        const repetido = avisoNumeroSiigoRepetido(editNumeroFactura, existenteAj?.id);
+        if(repetido){ setEditErrorMsg(repetido); return; }
+      }
       setEditErrorMsg("");
       setGuardando(true);
       const payload = { observacion:editObservacion.trim(), valor_bruto:bruto, descuento_total:desc, total, updated_at:new Date().toISOString() };
@@ -7731,6 +7757,8 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
       setEditErrorMsg("Falta el N.º de factura (Siigo) de esta Notacrédito — es obligatorio.");
       return;
     }
+    const repetidoNc = avisoNumeroSiigoRepetido(editNumeroFactura);
+    if(repetidoNc){ setEditErrorMsg(repetidoNc); return; }
     setEditErrorMsg("");
     setGuardando(true);
     const valorAnterior = Number(venta.total);
