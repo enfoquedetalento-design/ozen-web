@@ -1053,6 +1053,296 @@ el líder los tiene por `OPER_ACCIONES_LIDER`).
   a Felipe excepciones "extra" (operaciones.ver + los 4 de Producto). Santiago aprobó Producto en
   práctica el 18 nov 2026 ("todo perfecto") y pidió publicarlo en `main`.
 
+## Ventas — Flexipago: avisar por WhatsApp y recibo (18 nov 2026; probado en `staging`, publicado en `main` el 19 nov 2026)
+
+- **Avisar por WhatsApp:** en cada Flexipago por vencer (30+ días o 5 días o menos) o vencido, en la
+  campana de Registrar venta y en la tarjeta de la venta (`FlexiAvisarWhatsApp`). Abre
+  `wa.me/<número>` con `operNumeroWhatsApp` (10 dígitos → 57) y el mensaje `flexiMensajeWhatsApp`:
+  primer nombre, tienda, N° de factura, saldo pendiente y fecha límite (60 días desde el primer
+  abono; "fue el…" si ya pasó). Sin teléfono → "Sin teléfono para avisar".
+- **Constancia del aviso:** tabla nueva `ventas_flexipago_avisos` (`sql/ventas_flexipago_avisos.sql`,
+  con disparador del pulso; en `FUENTES`; se reparte con `FlexiAvisosContext`). Tabla aparte para
+  que un aviso no haga bajar otra vez toda la tabla `ventas`. Si ya se avisó hoy, en vez del botón
+  sale "✓ Avisado hoy por WhatsApp · <cuenta>"; si hubo uno antes, "Último aviso: <fecha>". Quien
+  solo mira (`useReadOnly`) no ve el botón. Quién avisó = nombre de la cuenta.
+  `CampanaAvisos` ganó un campo opcional `accion` por aviso (no cambia nada para Operaciones).
+- **Recibo del Flexipago:** el botón "🖨️ Imprimir" de la tarjeta pasó a "Recibo para el cliente"
+  (`FlexipagoRecibo`): ventana sobre la página como la orden de Operaciones (Copiar foto con
+  `capturarTarjetaCaja`, Imprimir, Cerrar), con el documento del Flexipago (decisión de Santiago:
+  es el más completo). Imprimir usa `imprimirFlexipago`, el mismo comprobante de la térmica de 80 mm
+  de antes. Cambios en el comprobante: se agregó "Fecha límite de pago" y el saldo ahora descuenta el
+  descuento del renglón Flexipago (antes el impreso no lo restaba y podía mostrar un saldo mayor
+  que la tarjeta). El aviso legal no cambió.
+- **Publicado en la REAL el 19 nov 2026:** SQL corrido en las dos bases; código en `main` (commit 4c09caa).
+- Se le pasó al chat de Operaciones la propuesta de usar el mismo formato (y la impresión de 80 mm)
+  en su orden para el cliente; si lo hace, revisar aquí que los dos recibos queden iguales.
+
+## Ventas — Flexipago: pasar un producto a un Flexipago nuevo (20 nov 2026; probado en `staging`, publicado en `main` el 20 nov 2026)
+
+Caso real: una clienta con varios anillos en un Flexipago decide pagar solo unos y dejar otro en un
+Flexipago nuevo. Botón "↪️ Pasar un producto a un Flexipago nuevo" en la tarjeta del Flexipago
+(abierto, no vencido sin reabrir, un solo renglón Flexipago y 2+ productos con valor; permiso
+`ventas.abono.registrar`). Ventana `FlexiPasarProducto`: se elige el producto, muestra cómo quedan
+los dos y se confirma escribiendo PASAR.
+- **Base:** `sql/ventas_flexipago_pasar_producto.sql` → columna `ventas.flexipago_separaciones`
+  (constancia: fecha, valor, código, quién, venta nueva, traslado) y función
+  `flexipago_pasar_producto` que hace TODO en una transacción (si falla, no cambia nada).
+- **Qué hace:** el original baja renglón, `total`, `valor_bruto` y `valor_original` en el valor del
+  producto. Se crea el nuevo (mismo cliente, tienda y asesor; observación "Producto pasado desde…").
+  Si lo abonado < lo que queda: el original sigue abierto. Si lo abonado ≥ lo que queda: el
+  original se cierra ese día con un abono `medio_pago='traslado'` de −sobrante y el nuevo recibe
+  uno de +sobrante (su plazo de 60 días arranca ese día; sin traslado, con su primer abono).
+- **Regla de cálculo (no tocar sin revisar):** `flexiValorEnFecha` — para fechas ANTERIORES a una
+  separación, el Flexipago vale lo de antes. `flexiIdxCierre` decide el abono que lo completa; sin
+  separaciones es exactamente la regla de siempre (probado con 5.000 Flexipagos al azar: idéntico).
+  Lo usan `calcularCierresFlexipago` (Métricas, metas, Consultas), Caja (`resumenDia`) y la Lista
+  (fila de la venta y grupos de abonos). Los días pasados no cambian.
+- **Traslado = no es plata nueva:** Caja no lo suma al ingreso (cuando el cierre es por traslado, la
+  venta sale como "Flexipago redimido" y se reparte por los medios de sus abonos); efectivo no lo
+  ve (no es efectivo); Métricas ("con servicios") y Consultas no lo cuentan como ingreso.
+  Ejemplo probado: 4 × $300.000 con $1.000.000 abonados → original $900.000 cerrado ese día (Caja:
+  ventas $900.000, ingreso $0) y nuevo $300.000 con $100.000 trasladados; al completarlo con
+  $200.000: ventas $300.000, ingreso $200.000.
+- Un abono de traslado no se puede corregir, y un Flexipago con separación o traslado no se puede
+  eliminar desde la app (el otro quedaría descuadrado).
+- **Para publicar en la REAL:** correr `sql/ventas_flexipago_pasar_producto.sql` antes de subir a `main`.
+- **21 nov 2026 — fecha de la separación (publicado en `main` el 21 nov, commit bbabac6):** quien tiene `ventas.fecha_libre` puede poner en la
+  ventana la fecha en que de verdad pasó (entre el día de la venta y hoy). Motivo: en la real se
+  separó el caso Matteos con fecha de hoy y luego se abonó con fecha atrás (11 nov); como el abono
+  quedó "antes" de la separación, Caja y Métricas no daban el Flexipago por completado. Se arregló
+  con SQL (separación y Flexipago nuevo al 11 nov; recolección del 13 nov a $1.249.000, lo que de
+  verdad se recogió). Orden correcto: primero separar con la fecha real, después el abono.
+
+## Ventas — cuentas de tienda ven todas las tiendas (20 nov 2026; probado en `staging`, publicado en `main` el 20 nov 2026)
+
+- **Lista de ventas:** la cuenta de tienda ya no está amarrada a su tienda: arranca con su tienda
+  marcada en el filtro y puede ver cualquier otra o todas (filtro Tienda y columna Tienda visibles).
+  En una venta de OTRA tienda todo queda en solo ver: en `VentaCard` las acciones preguntan con
+  `puedeAqui` (= `puede` y que la venta sea de su tienda); el WhatsApp del Flexipago también.
+- **Caja:** sigue solo con su tienda (decisión de Santiago).
+- **Métricas:** la cuenta de tienda ve la tabla "Ventas por asesor" (la misma de "Todas las
+  tiendas": venta, meta, IDC, MDA) también en la vista de cada tienda, con lo de la tienda elegida
+  arriba y solo los asesores que vendieron algo ahí en el mes (`tablaVentasAsesor`). No muestra el
+  Top. Para Master y demás roles sigue sin aparecer en la vista de una tienda (pedido anterior).
+
+## Ventas — Lista de ventas: buscador y filtros nuevos (21 nov 2026; probado en `staging`, publicado en `main` el 21 nov 2026)
+
+Pedido de Santiago: el menú anterior (periodos, Tipo, Medio de pago, "Más", cifras de resumen) no
+servía para la operación. Ahora (`VentasListaScreen`):
+- Buscador (igual). Fecha: "Todas las fechas" de entrada; un día (Hoy, Ayer o calendario) o rango.
+  Tienda y Asesor (varias). Un solo botón "Flexipagos": solo Flexipagos, un renglón por cada uno
+  con su estado de HOY y cuánto debe (sin los renglones de abonos por día).
+- Sin filtros de fecha de entrada: todo, de lo más nuevo a lo más viejo (por día, con "Ver más").
+- Cuenta de tienda: arranca con su tienda marcada (decisión de Santiago, para no confundir); para
+  ver otra la elige. "Quitar filtros" vuelve a como arranca.
+- Tarjeta del cliente: si lo escrito (3+ letras o 4+ números de cédula) es de un cliente, arriba sale
+  su ficha (nombre, cédula, teléfono) con sus Flexipagos, estado y saldo. Solo los Flexipagos
+  guardan datos del cliente. Respeta Tienda y Asesor, no la fecha.
+- Tabla (`TablaVentas`, también en Ventas de hoy): ninguna celda se sale de su columna; la píldora
+  de tipo se corta con "…" (texto completo al pasar el mouse). Con "Flexipagos" la píldora dice el
+  estado y lo que debe sale debajo del total.
+- Se quitaron: cifras de resumen, burbuja de meta, filtros Tipo / Medio de pago / Más y la hoja de
+  filtros del celular (en el celular salen las mismas fichas; la listita se acomoda si no cabe).
+
+## Ventas — Métricas › Consultas como tabla dinámica (21 nov 2026; probado en `staging`, publicado en `main` el 21 nov 2026)
+
+Pedido de Santiago y Felipe: la frase se quedaba corta (no se podía, p. ej., medios de pago por
+tienda y por día, ni cumplimiento de un asesor del 1 al 16 contra otro periodo). `ConsultasVentas`
+ahora es una tabla dinámica sencilla:
+- **Filas** (uno o varios campos, uno dentro del otro, con subtotales y ▸/▾ para plegar),
+  **Columnas** (un campo), **Valores** (uno o varios: Ventas sin servicios, Ingreso total,
+  Servicios, N.º de ventas, Ticket promedio, Descuentos, Meta, Cumplimiento %) y **Filtros**
+  (Tienda, Asesor, Tipo, Medio de pago, Día de la semana). Campos: los de `CONS_GRUPOS`.
+- Periodo (atajos o fechas) y **Comparar con**: nada, periodo anterior, mes pasado, año pasado u
+  **otro periodo** (fechas). Al comparar, cada valor trae lo del otro periodo y la diferencia
+  (cumplimiento en puntos).
+- **Consultas comunes** (`CONS_COMUNES`) en un menú: arman todo solas. Las guardadas (por equipo,
+  localStorage) salen en el mismo menú; las viejas se convierten con `consCfgDesdeViejo`.
+- **Tabla primero** (Felipe); gráficos a un toque con el 1.er campo de Filas, las Columnas y el
+  1.er Valor; el equipo recuerda la última vista. **Descargar a Excel** (CSV con ;).
+- **Meta (decisión de Santiago, opción c):** metas DIARIAS de cada tienda. Tienda: meta del mes
+  repartida según sus metas por día (si no hay, por igual). Asesor: su meta del mes por tienda
+  (días/30 × meta personal, igual que Métricas) repartida con esa misma curva. Mes completo = meta
+  de Métricas. Cumplimiento = ventas sin servicios ÷ meta. Solo con Tienda, Asesor, Día, Semana,
+  Mes o Día de la semana (no Hora, Tipo ni Medio de pago). Con Asesor en filas/columnas/filtro se usa
+  la meta personal; si no, la de tienda.
+- Se quitaron la frase, los atajos sueltos y los 4 recuadros de cifras.
+- **Ajustes (21 nov, noche):** menú por temas (`CONS_COMUNES` con `grupo`: Metas y cumplimiento,
+  Ventas, Días y horas, Caja y medios de pago, Servicios y Flexipagos). Botones "Quitar filtros"
+  (caja Filtros) y "Empezar de cero". **"Las que más usas"** (por equipo, `ozen-consultas-uso` en
+  localStorage): una consulta cuenta si queda 20 s en pantalla, máximo una vez al día; sube al menú
+  al usarse en 3 días distintos de los últimos 30 (máx. 5); lo que no se usa en 60 días se borra.
+- **Diseño (21 nov):** cada caja con su color (`CONS_ZONAS`: Filas azul, Columnas Sombra, Valores
+  verde, Filtros ámbar), ícono y fichas teñidas con ícono por campo/valor; menú "Consultas listas"
+  destacado; Periodo y Comparar en dos franjas. Selector de gráfico: Tabla de primera y solo los
+  gráficos que aplican (los demás no se muestran).
+- **Excel con la marca (21 nov):** "Descargar Excel" ya no baja un CSV: arma un .xlsx de verdad sin
+  librerías (`ozenExcel` + `ozenZipSinComprimir`, antes de `CONS_VALORES`). Título OZEN, datos de la
+  consulta (filas, columnas, valores, periodo, comparación, filtros, fecha de generación),
+  encabezado Sombra con letra blanca, subtotales en crema, total resaltado, números reales (pesos,
+  %, puntos), sin cuadrícula, encabezado y columnas de nombres fijos. Se puede reusar para otros
+  Excel de la app.
+
+## Ventas — navegación nueva (22 nov 2026; probado en `staging`, publicado en `main` el 22 nov 2026)
+
+Pedido de Santiago: el módulo más intuitivo.
+- **Barra:** Métricas · ( + ) · Lista de ventas (`ADMIN_TABS_VENTAS`; "mas" no es pantalla). En
+  computador el + es un botón redondo entre las pestañas; en celular, redondo grande y levantado en
+  la barra de abajo. Todos entran por Métricas (también las cuentas de tienda; `login`).
+- **Registrar venta = ventana** encima de todo (`modalRegistrar` en `App`, con
+  `VentasRegistrarScreen enVentana`): sin título grande, sin burbuja y sin "Ventas de hoy". Arriba,
+  selector de tienda (cuentas que no son de tienda) y ✕. Al guardar NO se cierra (para no cortar la
+  celebración y seguir con la siguiente venta). Una vez abierta queda montada (escondida al cerrar):
+  lo escrito no se pierde. "Cobrar" una orden de Operaciones abre esta ventana sin cambiar de módulo.
+- **Caja dentro de Métricas:** `SelectorVistaMetricas` (Resumen · Consultas · Caja) arriba de las tres;
+  Caja sigue siendo la pestaña "caja" (la barra ilumina Métricas). Quien tiene Caja sin Métricas la
+  conserva como pestaña.
+- **"Hoy" en Métricas** (`HoyVentas`, reemplaza la burbuja): tarjeta por tienda (la de la cuenta de
+  tienda o la elegida, primera y más grande) con vendido vs meta del día, %, falta/pasó, N.º de ventas
+  y ticket, abonos de Flexipago de hoy (sin traslados) y las últimas 3 ventas, con "Ver todas las de
+  hoy" → Lista con esa tienda y Fecha: hoy (`listaPedido`).
+- **Sin tienda elegida:** en vez de pantalla vacía, `ElegirTiendaTarjetas` (las tiendas como tarjetas
+  con lo vendido hoy). La última tienda elegida se recuerda en el equipo (`ozen-tienda-elegida`).
+- **Ajustes del 22 nov (tarde):**
+  - Barra de arriba y pestañas **centradas** (en TODOS los módulos: `BarraSuperior` y `BarraPestanas`
+    en rejilla de 3 columnas). Con más pestañas (cuenta de tienda), `centrarMas` deja el + en el centro
+    y reparte lo demás a los lados: Turnos · Métricas · + · Lista · Operaciones.
+  - La ventana de Registrar sale **del +** como una nube (colita que lo señala; en celular sube desde el
+    + de abajo). "Ventas de hoy" volvió dentro de la ventana. Selector de tienda centrado en la ventana.
+  - Caja: el selector de tienda pasó de la barra de arriba al centro de la página, debajo de
+    Resumen · Consultas · Caja (`propsBarra.mostrarTienda` en false; la franja de color sigue).
+  - "Hoy" por tarjetas se cambió por **`CarreraDelDia`**: un solo cuadro con las tiendas como carrera
+    (ordenadas por % de la meta del día, medallas), fecha cambiable (‹ fecha › y "Hoy") para ver días
+    pasados, total de todas y "Ver ›" a la Lista con esa tienda y ese día. La tienda de la cuenta (o la
+    elegida en Métricas) va resaltada.
+  - **Carrera compacta (22 nov):** franja delgada (una línea fina por tienda, barra de 6 px, día
+    pequeño "‹ Hoy ›" que abre calendario, total a la derecha). El detalle (ventas, ticket, abonos)
+    sale al pasar el mouse. Título en pantalla: "Meta de hoy" ("Meta del día" al ver otro día); en el
+    código sigue llamándose `CarreraDelDia`.
+  - **Cuentas de tienda en computador:** pestañas en una barra flotante abajo y centrada
+    (`DockTienda`), + en el medio; "Nadie en turno" pasa a la barra de arriba (`extraDerecha`). La
+    ventana de Registrar sube desde el + cuando el + está abajo (`haciaArriba`).
+  - **Ajustes (22 nov, tarde 2):** el + del celular ya no queda tapado por el contenido (barra de
+    abajo con zIndex); tarjetas para elegir tienda centradas; recuadros de Métricas centrados cuando
+    caben (`justifyContent:"safe center"`); colita de la nube en curva (SVG); **campana de avisos**
+    (Flexipagos y órdenes de Operaciones) pasó de Registrar a la barra de arriba, junto al perfil
+    (`CampanaVentas`; cuenta de tienda: solo la suya; demás: todas las tiendas, con el nombre).
+  - **Consultas: plata que entró vs. venta del Flexipago (22 nov):** tres medidas nuevas en
+    Consultas, sin tocar las demás (ni Métricas, Caja o Lista): **Dinero recibido** (igual a Ingreso
+    total, salvo que los abonos de Flexipagos ya cerrados cuentan en el día de cada abono y no el
+    valor completo en el cierre), **Abonos Flexipago (antes de terminar)** y **Abono final
+    Flexipago** (el abono que lo terminó de pagar, y los posteriores). Traslados no cuentan. Siempre:
+    antes + final = todo lo abonado. `calcularCierresFlexipago` ahora también devuelve
+    `abonoCierreId`. Consulta común nueva: "Dinero recibido por tienda, día a día". Verificado con
+    6.000 ventas simuladas: las medidas de siempre dan idéntico.
+  - **Pestañas abajo para todos (22 nov, decisión de Santiago):** en celular y en computador,
+    arriba van los módulos, la campana y el perfil; abajo, las pestañas del módulo con el + en el
+    medio. En computador todos usan la barra flotante de abajo (`DockPestanas`, antes `DockTienda`,
+    que era solo de las cuentas de tienda); se quitó `BarraPestanas` (pestañas arriba). Si un área
+    tiene una sola pestaña y no tiene +, no sale la barra. "Nadie en turno" va arriba en Ventas. Las
+    pantallas dejan 120 px libres abajo para que la barra no tape lo último. Ningún módulo debe
+    volver a poner pestañas arriba.
+  - **Una sola campana para todo (22 nov, decisión de Santiago):** ya no hay campana de Ventas y
+    campana de Operaciones por separado (se quitó `OperCampana`). `CampanaGeneral` va en la barra de
+    arriba, junto al perfil, en **todas** las áreas, y junta lo que la persona puede ver: Flexipagos
+    por recordar (si tiene `ventas.lista.ver`), órdenes de clientes y solicitudes internas atrasadas
+    (si tiene `operaciones.ver`; internas no para cuentas de tienda). Cada aviso lleva a su sitio
+    (Lista de ventas u Operaciones). Datos: si Operaciones no está cargada, consulta liviana de lo
+    abierto (externas e internas, solo columnas de la campana) cada 5 min como máximo.
+
+## Asistencia — navegación nueva (22 nov 2026; en `staging`, falta que Santiago lo pruebe)
+
+Pedido de Santiago: la misma navegación de Ventas.
+- **Barra (admins):** Turnos · ( + ) · Registros (`ADMIN_TABS_ASISTENCIA`, ordenadas con `centrarMas`).
+  El + tiene id `"marcar"` (el de Ventas sigue siendo `"mas"`; `esBotonMas` reconoce los dos).
+  Desaparecen las pestañas Panel, Marcar Asistencia e Informes.
+- **Asesores:** Turnos · ( + ) · Mi Historial (`ADVISOR_TABS`). Entran por Turnos.
+- **Cuentas de tienda:** sin cambios (no entran a Asistencia; su Turnos sigue siendo solo la malla).
+- **Turnos** abre por defecto (`inicioAsistencia`) y arriba lleva el selector Malla · Informes ·
+  Mi Historial (`VISTAS_TURNOS_ASISTENCIA`, `SelectorVistas`, `conSelectorTurnos`). Cada opción sale
+  solo con su permiso (turnos.ver, asistencia.informes, asistencia.historial). Las vistas son
+  pestañas "escondidas" (`reports`, `mi_historial`); la barra ilumina Turnos.
+- **+ = ventana en burbuja** para marcar (`modalMarcar` con `CheckInScreen enVentana`). La nube es
+  ahora un componente compartido, `VentanaNube`, que también usa Registrar venta (mismo dibujo y
+  animación). La de Marcar se desmonta al cerrarse (apaga la cámara); la cámara y los avisos de
+  CheckIn se pintan encima de todo (portal) cuando va en la burbuja. Sale si tiene asistencia.marcar.
+- **Ajuste (22 nov, tarde):** se quitó la vista Resumen (y el Panel). En la Malla el orden es: Hoy en
+  las tiendas (ayer · hoy · mañana, ahora SIEMPRE visible: si no hay turnos publicados esos días lo
+  dice) · Turnos y horarios · **Asistencia de hoy** (`AsistenciaHoyCuadro`, solo con
+  asistencia.panel) · Malla · Alertas. El cuadro tiene Faltan · Llegaron tarde · En turno · Aún no
+  llegan (`resumenAsistenciaDia`). Tarde = mismo cálculo de Registros (`calcPuntualidad` contra el
+  turno publicado del día). Falta = turno publicado hoy con tienda, nada marcado hoy y ya pasó su
+  hora de entrada (`entrada_custom` o horario vigente); antes de esa hora sale en "Aún no llegan";
+  sin horario definido nunca es falta. Solo lee; no cambia cómo se evalúa ninguna jornada.
+- **Informes rediseñados (22 nov, en `staging`):** `ReportsScreen` nuevo, por MES CALENDARIO (la
+  nómina de OZEN es mensual y se paga el 1.º). Dos vistas:
+  - **Nómina del mes** (`novedadesNominaMes`): por persona — días trabajados/programados, ausencias,
+    llegadas tarde (n.º y minutos; las que tienen excusa no cuentan), almuerzos de más de 60+5 min,
+    salidas antes y tiempo después de su salida (±5 min contra la salida esperada), horas después de
+    las 7 p. m., domingos/festivos (`festivosColombia`), horas trabajadas, N/R y días sin salida.
+    **Reincidente = 3 o más tardes sin excusa en el mes** (decisión de Santiago, `REINCIDENCIA_TARDES`).
+    Exporta a Excel (CSV) con resumen y detalle. Son conteos para revisar; la liquidación la decide GH.
+  - **Tiendas** (`coberturaTiendasMes`): por tienda y día — hora en que debía abrir (primera entrada
+    esperada) vs. primera entrada real, días sin apertura marcada, tiempo sin nadie y con 1 sola
+    persona entre apertura y cierre esperados, faltas.
+- **Excusa de llegada tarde (con aprobación):** columnas `registros.excusa_tarde` (motivo) y
+  `registros.excusa_estado` ('aprobada' | 'no_aprobada') — `sql/registros_excusa_tarde.sql`, correr en
+  staging y en producción. En Registros, botón "Excusar" junto al "Tarde": se escribe el motivo y se
+  elige ✓ Aprobar / ✕ No aprobar (o Quitar excusa); solo con `asistencia.registros.corregir`.
+  **Solo la excusa APROBADA hace que la tardanza no cuente** (`excusaAprobada`) en Informes,
+  reincidencia y "Asistencia de hoy"; una no aprobada sigue contando como tarde sin excusa válida
+  (decisión de Santiago, 22 nov 2026).
+
+## La Junta — navegación nueva (22 nov 2026; en `staging`, falta que Santiago lo pruebe)
+
+Pedido de Santiago: la misma navegación de Ventas y Asistencia.
+- **Barra:** Seguimiento · ( + ) · Perfiles y áreas · Rol de Monitor (`ADMIN_TABS_JUNTA`, en ese
+  orden a propósito; NO pasa por `centrarMas`, que movería Rol de Monitor a la izquierda). El + tiene
+  id `"junta_mas"` (`esBotonMas` reconoce mas, marcar y junta_mas). Salen las pestañas Indicadores y
+  Acuerdos y decisiones (si alguien llega a esos ids, se muestra Seguimiento y la barra ilumina Seguimiento).
+- **Permisos:** todas las pestañas siguen pidiendo `junta.ver`. El + sale solo a quien puede crear
+  tareas (`junta.tareas.gestionar` "si es Monitor", `juntaPuedeCrearTarea`) o acuerdos
+  (`junta.acuerdos.crear`) — `tabsJunta`. `tabsPara` y `BottomNav` reciben ahora `juntaLideres`.
+- **+ = ventana en burbuja** (`VentanaNube`, `modalJuntaNueva` en `App`): arriba el selector
+  Tarea · Acuerdo (solo las opciones que la persona puede crear; con una sola, sale su título). Usa los
+  formularios de siempre, sacados tal cual: `JuntaNuevaTareaForm` y `JuntaNuevoAcuerdoForm`. Al
+  guardar se cierra. Se desmonta al cerrar.
+- **Seguimiento = pantalla principal:** título "Seguimiento", Monitor actual y un solo selector
+  ‹ mes › (desde agosto 2026 hasta el mes calendario en curso) para indicadores y lista.
+  - Arriba `JuntaIndicadoresCompacto`: franja Sesiones · Cumplimiento · A tiempo + % de cada líder
+    (siempre visibles). "Ver detalle" despliega `JuntaIndicadoresTab embebido` (rankings, botón
+    "Congelar este mes ahora" e historial; clic en un mes del historial lo elige arriba). Mismos
+    cálculos: foto fija si el mes está congelado; si no, `statsDelMes`/`statsPorLiderDelMes`.
+  - Abajo el selector Tareas · Acuerdos. Tareas: lista seguida, sin encabezados por semana; se quitó
+    el filtro Semana 1-4 (solo cambiaba lo visible, nunca los indicadores). Siguen los filtros
+    Activas/Todas/Cumplidas/Vencidas, por líder y el orden (más vieja primero o por líder). "Activas"
+    sigue mirando todas las tareas vivas, sin importar el mes. Acuerdos: todos, del más reciente al
+    más viejo (`JuntaAcuerdosLista`), no se acotan al mes.
+  - El botón "Nueva tarea" del encabezado se quitó (lo reemplaza el +).
+- **Rol de Monitor dentro de Perfiles y áreas (22 nov 2026):** ya no es pestaña; la barra queda
+  Seguimiento · + · Perfiles y áreas. Es la tercera opción junto a "Por líder" y "Por área"
+  (`JuntaEquipoTab`, props `monitor`, `verMonitor`, `vistaInicial`) y muestra `JuntaGuionTab` tal cual.
+  Mismo permiso de antes (`junta.ver`). Si algo llega con el id viejo `guion`, abre Perfiles y áreas
+  con Rol de Monitor elegido.
+
+## La Junta — reabrir tareas activas (22 nov 2026; en `staging`, falta probar)
+
+Pedido de Santiago: poder reabrir una tarea que todavía no está vencida, a una fecha más lejana.
+- Solo tareas **activas** (ni vencidas ni cumplidas — "las cumplidas ya se cumplieron"); solo quien
+  gestiona tareas (Monitor de turno / master). Botón "Reabrir a una nueva fecha" (gris) en la tarea.
+- La nueva fecha tiene que caer en una **semana posterior** al plazo actual (mínimo `fecha_estimada`
+  + 7; las semanas van de martes a lunes, así que el lunes siguiente al plazo seguiría siendo la
+  misma semana). Pide confirmación.
+- Queda en el historial `reaperturas` con `anticipada: true`. **Regla nueva:** una reapertura
+  anticipada hace que la tarea, aunque luego se cumpla, cuente **cumplida pero NO a tiempo**
+  (`tuvoReaperturaTardia`). Las reaperturas viejas no tienen la marca: no cambian. Meses congelados
+  no cambian.
+- La misma regla vive en 3 sitios que deben ir iguales: `src/App.jsx`, `scripts/congelar-mes-junta.js`
+  y la función `congelar_mes_junta()` de Supabase (`sql/junta_reapertura_anticipada.sql` — correr en
+  staging y en producción ANTES de subir el código a main).
+- Si la nueva fecha cae en el mes siguiente, la tarea deja de contar en este mes y cuenta en el mes
+  en que se cierre (igual que al reabrir una vencida).
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.

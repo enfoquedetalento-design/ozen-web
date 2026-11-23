@@ -47,7 +47,9 @@ const mesDeCierre = (t, todayStr) => {
 // Reapertura "tardía" = la tarea ya estaba vencida (pasado el domingo de su plazo anterior) en el
 // momento exacto en que se reabrió — igual que en src/App.jsx (tuvoReaperturaTardia). Si pasó al
 // menos una vez, aunque termine cumplida, no cuenta como "a tiempo".
-const tuvoReaperturaTardia = (t) => (t.reaperturas||[]).some(r => r.fecha_anterior && r.en && fmt(new Date(r.en)) > domingoDeLaSemana(r.fecha_anterior));
+// Desde el 22 nov 2026 también cuenta la reapertura ANTICIPADA (`anticipada:true`): una tarea activa a la
+// que se le corrió el plazo. Misma regla que src/App.jsx y congelar_mes_junta() en Supabase.
+const tuvoReaperturaTardia = (t) => (t.reaperturas||[]).some(r => r.anticipada===true || (r.fecha_anterior && r.en && fmt(new Date(r.en)) > domingoDeLaSemana(r.fecha_anterior)));
 const cumplidaATiempo = (t) => !!t.completado && !tuvoReaperturaTardia(t);
 const statsDelMes = (compromisos, anio, mes, todayStr) => {
   const martes = martesDelMes(anio, mes);

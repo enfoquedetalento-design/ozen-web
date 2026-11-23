@@ -305,7 +305,12 @@ const mesDeCierre = (t) => {
 // (reaperturas: fecha_anterior/fecha_nueva/en) para saber si, en el momento exacto de reabrirla, la
 // tarea YA estaba vencida (pasado el domingo de su plazo anterior). Si pasó al menos una vez, la
 // tarea "tuvo una reapertura tardía" — aunque termine cumplida, no fue a tiempo.
-const tuvoReaperturaTardia = (t) => (t.reaperturas||[]).some(r => r.fecha_anterior && r.en && fmt(new Date(r.en)) > domingoDeLaSemana(r.fecha_anterior));
+// Desde el 22 nov 2026 también cuenta la reapertura ANTICIPADA (`anticipada:true` en el historial): una
+// tarea activa (no vencida) a la que el Monitor le corrió el plazo a una fecha más lejana. Aunque luego
+// se cumpla, ya no es "a tiempo" (decisión de Santiago). Las reaperturas viejas no traen esa marca, así
+// que no cambian. MISMA REGLA en scripts/congelar-mes-junta.js y en congelar_mes_junta() de Supabase
+// (sql/junta_reapertura_anticipada.sql) — si se cambia aquí, hay que cambiarla allá.
+const tuvoReaperturaTardia = (t) => (t.reaperturas||[]).some(r => r.anticipada===true || (r.fecha_anterior && r.en && fmt(new Date(r.en)) > domingoDeLaSemana(r.fecha_anterior)));
 // Cumplida "a tiempo" = cumplida Y nunca tuvo que reabrirse después de estar vencida.
 const cumplidaATiempo = (t) => !!t.completado && !tuvoReaperturaTardia(t);
 // Indicadores de un mes: sesiones registradas (martes con al menos una tarea) y % de tareas completadas.
@@ -957,13 +962,24 @@ const ADMIN_TABS_ASISTENCIA = [{ id:"turnos",icon:"📅",label:"Turnos" },{ id:"
 // el cuadro "Asistencia de hoy" dentro de la Malla. Cada una es una pestaña
 // "escondida": la barra ilumina Turnos. Cada vista sale solo si la persona tiene su permiso.
 const VISTAS_TURNOS_ASISTENCIA = [["turnos","Malla","cal"],["reports","Informes","chart"],["mi_historial","Mi Historial","history"]];
-// Botones redondos "+" de la barra: "mas" = Registrar venta (Ventas), "marcar" = Marcar asistencia.
-const esBotonMas = (id) => id==="mas" || id==="marcar";
+// Botones redondos "+" de la barra: "mas" = Registrar venta (Ventas), "marcar" = Marcar asistencia,
+// "junta_mas" = Agregar una tarea o un acuerdo (La Junta).
+const esBotonMas = (id) => id==="mas" || id==="marcar" || id==="junta_mas";
 // Las pestañas "Asesores" y "Tiendas" ya no van sueltas — ahora viven dentro de Turnos ▸
 // Administrar (ver TurnosAdminScreen), junto con los códigos de turno especiales.
 // Usuarios (control total de contraseñas) ya no va en esta lista de pestañas — es solo para
 // master, y se abre aparte con un ícono discreto en el pie del menú (ver Sidebar/MobileHeader).
-const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento semanal" },{ id:"acuerdos",icon:"🔒",label:"Acuerdos y decisiones" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" },{ id:"guion",icon:"📖",label:"Rol de Monitor" },{ id:"indicadores",icon:"📊",label:"Indicadores" }];
+// La Junta (22 nov 2026, navegación nueva como Ventas y Asistencia): Seguimiento · ( + ) · Perfiles y
+// áreas · Rol de Monitor, en ese orden (pedido de Santiago). "junta_mas" no es pantalla: abre la
+// ventana en burbuja para agregar una tarea o un acuerdo. Indicadores y Acuerdos ya no son pestañas:
+// viven dentro de Seguimiento (indicadores arriba; abajo el selector Tareas · Acuerdos).
+// Rol de Monitor (22 nov 2026) ya no es pestaña: es la tercera opción dentro de Perfiles y áreas.
+const ADMIN_TABS_JUNTA      = [{ id:"seguimiento",icon:"✅",label:"Seguimiento" },{ id:"junta_mas",icon:"➕",label:"Agregar tarea o acuerdo" },{ id:"equipo",icon:"👥",label:"Perfiles y áreas" }];
+// ¿Puede crear tareas de la Junta? Solo el Monitor de turno (o master): mismo permiso de siempre.
+const juntaPuedeCrearTarea = (user, lideres) => puede(user, "junta.tareas.gestionar", { monitor:esMonitorActual(user, lideres||[]) });
+// Pestañas de La Junta: todas piden "ver La Junta" (como antes); el + solo sale a quien puede crear
+// tareas o acuerdos.
+const tabsJunta = (user, lideres) => !puede(user, "junta.ver") ? [] : ADMIN_TABS_JUNTA.filter(t => t.id!=="junta_mas" || juntaPuedeCrearTarea(user, lideres) || puede(user, "junta.acuerdos.crear"));
 // Asesor: desde el 8 oct 2026 también elige módulo al entrar (Asistencia o Escuela OZEN), igual que
 // los admins. "Firmar documento" ya no es pestaña ni módulo: es una herramienta del menú de la cuenta.
 // Asesores (22 nov 2026): misma navegación nueva — Turnos · ( + ) · Mi Historial.
@@ -1086,9 +1102,9 @@ const centrarMas = (tabs) => {
   extras.forEach((t,k)=>{ if(k%2===0) L.unshift(t); else R.push(t); });
   return [...L, tabs[i], ...R];
 };
-const tabsPara = (user, area, liderOper="") => !puedeUsarAreas(user)
+const tabsPara = (user, area, liderOper="", juntaLideres=[]) => !puedeUsarAreas(user)
   ? (esCuentaTienda(user) ? centrarMas([...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : []), ...(puedeOper(user, "operaciones.ver") ? [{ id:"op_externas", icon:"🧰", label:"Operaciones" }] : [])]) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
-  : (area==="junta" ? ADMIN_TABS_JUNTA.filter(()=>puede(user, "junta.ver")) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>(t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) && (t.id!=="op_producto" || puedeOper(user, "operaciones.producto.ver", liderOper))) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
+  : (area==="junta" ? tabsJunta(user, juntaLideres) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>(t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) && (t.id!=="op_producto" || puedeOper(user, "operaciones.producto.ver", liderOper))) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -1430,8 +1446,8 @@ function CampanaGeneral({ user, stores, tiendaIds, ventas, ventasItems, ventasAb
   );
 }
 
-function BottomNav({ tab, setTab, user, area, liderOper }) {
-  const tabs = tabsPara(user, area, liderOper);
+function BottomNav({ tab, setTab, user, area, liderOper, juntaLideres }) {
+  const tabs = tabsPara(user, area, liderOper, juntaLideres);
   return (
     <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:"#fff", padding:"0 10px", paddingBottom:"max(12px, calc(env(safe-area-inset-bottom, 0px) + 4px))", flexShrink:0, position:"relative", zIndex:30 }}>
       {tabs.map(t => { const active=tab===t.id; if(esBotonMas(t.id)) return (
@@ -4764,17 +4780,23 @@ function ReportsScreen({ records, users, stores, isMobile, turnosHorarios, turno
 }
 
 // ── SCREEN: Junta Admin — Equipo y perfiles ──────────────────────────────────
-function JuntaEquipoTab({ lideres, setLideres, areas, setAreas, liderAreas, setLiderAreas, isMobile }) {
-  const [vista, setVista] = useState("lideres");
+// Tercera opción "Rol de Monitor" (22 nov 2026): muestra JuntaGuionTab tal cual (antes era pestaña).
+// Pide el mismo permiso que tenía esa pestaña (junta.ver). `vistaInicial` = "monitor" cuando se llega
+// por el id viejo "guion".
+function JuntaEquipoTab({ lideres, setLideres, areas, setAreas, liderAreas, setLiderAreas, isMobile, monitor, verMonitor, vistaInicial }) {
+  const [vista, setVista] = useState(vistaInicial==="monitor" && verMonitor ? "monitor" : "lideres");
   return (
     <div>
       <PageHeader title="Perfiles y áreas" subtitle="Los liderazgos que componen la Junta Admin y las áreas de trabajo que cubren" />
       <div style={{ display:"flex", gap:8, marginBottom:16 }}>
         <Btn onClick={()=>setVista("lideres")} variant={vista==="lideres"?"primary":"ghost"} sm>👤 Por líder</Btn>
         <Btn onClick={()=>setVista("areas")} variant={vista==="areas"?"primary":"ghost"} sm>🗂️ Por área</Btn>
+        {verMonitor && <Btn onClick={()=>setVista("monitor")} variant={vista==="monitor"?"primary":"ghost"} sm>📖 Rol de Monitor</Btn>}
       </div>
       <div key={vista} className="ozen-pane-anim-tab">
-        {vista==="lideres"
+        {vista==="monitor" && verMonitor
+          ? <JuntaGuionTab monitor={monitor} isMobile={isMobile}/>
+          : vista==="lideres"
           ? <JuntaVistaPorLider lideres={lideres} setLideres={setLideres} areas={areas} setAreas={setAreas} liderAreas={liderAreas} setLiderAreas={setLiderAreas} isMobile={isMobile}/>
           : <JuntaVistaPorArea areas={areas} setAreas={setAreas} lideres={lideres} liderAreas={liderAreas}/>}
       </div>
@@ -5011,33 +5033,36 @@ function JuntaVistaPorArea({ areas, setAreas, lideres, liderAreas }) {
 }
 
 // ── SCREEN: Junta Admin — Acuerdos y decisiones (registro permanente) ───────
-function JuntaAcuerdosTab({ user, acuerdos, setAcuerdos }) {
-  const soloLectura = !puede(user, "junta.acuerdos.crear");
-  const [showNuevo, setShowNuevo] = useState(false);
+// El mismo formulario de "Nuevo acuerdo" de siempre; desde el 22 nov 2026 se abre en la ventana en
+// burbuja del + de La Junta (antes vivía en la pestaña "Acuerdos y decisiones").
+function JuntaNuevoAcuerdoForm({ user, setAcuerdos, onGuardado, onCancelar }) {
   const [f, setF] = useState({ fecha: todayStr, texto: "" });
 
   const guardar = async () => {
     if (!f.texto.trim()) return;
     const { data, error } = await supabase.from("junta_acuerdos").insert({ fecha:f.fecha, texto:f.texto.trim(), registrado_por:user.name }).select().single();
-    if (!error && data) { setAcuerdos(prev=>[data, ...prev]); setF({ fecha: todayStr, texto:"" }); setShowNuevo(false); }
+    if (!error && data) { setAcuerdos(prev=>[data, ...prev]); setF({ fecha: todayStr, texto:"" }); onGuardado?.(); }
     else if (error) alert("No se pudo guardar. Revisa que el SQL de esta pestaña ya se haya corrido en Supabase.");
   };
 
-  const ordenados = [...acuerdos].sort((a,b)=> b.fecha.localeCompare(a.fecha) || (b.created_at||"").localeCompare(a.created_at||""));
-
   return (
-    <div>
-      <PageHeader title="Acuerdos y decisiones" subtitle="Registro permanente de la Junta — una vez guardado, no se puede editar ni borrar" action={!soloLectura && <Btn onClick={()=>setShowNuevo(true)} sm>+ Nuevo acuerdo</Btn>} />
-      {!soloLectura && showNuevo && (
         <Card glow style={{ marginBottom:16 }}>
           <div style={{ fontFamily:font.body, fontSize:13, fontWeight:600, color:C.goldLight, marginBottom:6 }}>Nuevo acuerdo</div>
-          <div style={{ background:`${C.amber}10`, border:`1px solid ${C.amber}44`, borderRadius:8, padding:"10px 12px", marginBottom:14, fontFamily:font.body, fontSize:11, color:C.amber }}>⚠️ Revisa bien antes de guardar: una vez guardado, este acuerdo queda fijo — no se podrá editar ni eliminar desde la aplicación.</div>
           <Field label="Fecha del acuerdo" type="date" value={f.fecha} onChange={v=>setF(p=>({...p,fecha:v}))}/>
           <Field label="¿Qué se acordó?" value={f.texto} onChange={v=>setF(p=>({...p,texto:v}))} placeholder='Ej: "A partir de la semana del 4 de agosto, la Junta será a las 8:00am."'/>
-          <div style={{ display:"flex", gap:8 }}><Btn onClick={guardar} full>Guardar acuerdo (definitivo)</Btn><Btn onClick={()=>setShowNuevo(false)} variant="ghost" full>Cancelar</Btn></div>
+          <div style={{ display:"flex", gap:8 }}><Btn onClick={guardar} full>Guardar acuerdo (definitivo)</Btn><Btn onClick={onCancelar} variant="ghost" full>Cancelar</Btn></div>
         </Card>
-      )}
+  );
+}
+
+// Lista de acuerdos ya guardados (la misma de la antigua pestaña "Acuerdos y decisiones"). Desde el
+// 22 nov 2026 va en Seguimiento, con el selector Tareas · Acuerdos. Todos los acuerdos, del más
+// reciente al más viejo (son un registro permanente: no se acotan al mes elegido).
+function JuntaAcuerdosLista({ acuerdos }) {
+  const ordenados = [...acuerdos].sort((a,b)=> b.fecha.localeCompare(a.fecha) || (b.created_at||"").localeCompare(a.created_at||""));
+  return (
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, padding:"0 4px" }}>Registro permanente de la Junta — una vez guardado, no se puede editar ni borrar.</div>
         {ordenados.map(a=>(
           <Card key={a.id} p="0" style={{ overflow:"hidden" }}>
             <div style={{ display:"flex" }}>
@@ -5058,17 +5083,85 @@ function JuntaAcuerdosTab({ user, acuerdos, setAcuerdos }) {
         ))}
         {ordenados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Sin acuerdos registrados todavía.</div>}
       </div>
-    </div>
+  );
+}
+
+// El mismo formulario de "Nueva tarea" de siempre (sacado tal cual de Seguimiento). Desde el 22 nov
+// 2026 se abre en la ventana en burbuja del + de La Junta. Las reglas no cambian: la tarea queda en
+// la semana real de HOY y la semana objetivo sugerida es la siguiente.
+function JuntaNuevaTareaForm({ lideres, setCompromisos, isMobile, onGuardada, onCancelar }) {
+  // La semana objetivo sugerida siempre es "la semana siguiente a hoy" — sin importar qué se esté
+  // viendo/filtrando en pantalla — para que agregar una tarea fuera de la reunión (por ejemplo
+  // días después) no herede una semana equivocada.
+  const [nueva, setNueva] = useState(() => ({ descripcion:"", lider_ids:[], fecha_estimada: sumarDias(martesDeSemana(todayStr),7), comentarios:"" }));
+  const toggleLiderNueva = (id) => setNueva(p => ({...p, lider_ids: p.lider_ids.includes(id) ? p.lider_ids.filter(x=>x!==id) : [...p.lider_ids, id]}));
+  const todosMarcados = lideres.length>0 && nueva.lider_ids.length===lideres.length;
+  const toggleTodosNueva = () => setNueva(p => ({...p, lider_ids: todosMarcados ? [] : lideres.map(l=>l.id)}));
+  // Semanas que se pueden elegir como objetivo al crear una tarea: desde la semana actual hasta
+  // 2 meses adelante (de sobra para cualquier caso real), etiquetadas "Semana N · mes" — por dentro
+  // cada opción sigue siendo el martes de esa semana.
+  const semanasParaSelector = () => {
+    const hoyMartes = martesDeSemana(todayStr);
+    const base = new Date(todayStr+"T12:00:00");
+    const out = [];
+    for (let offset=0; offset<3; offset++) {
+      const d = new Date(base.getFullYear(), base.getMonth()+offset, 1, 12);
+      martesDelMes(d.getFullYear(), d.getMonth()).forEach((mt,i)=>{
+        if (mt>=hoyMartes) out.push({ valor:mt, etiqueta:`Semana ${i+1} · ${new Date(mt+"T12:00:00").toLocaleDateString("es-CO",{month:"short"})}` });
+      });
+    }
+    return out;
+  };
+
+  const crear = async () => {
+    if (!nueva.descripcion.trim() || nueva.lider_ids.length===0) return;
+    // 'semana' (la reunión/sesión a la que pertenece la tarea, para contarla en los indicadores) es
+    // SIEMPRE la semana real de HOY — el martes de la semana en que de verdad se está creando la tarea.
+    const semanaTarea = martesDeSemana(todayStr);
+    const grupoId = nueva.lider_ids.length>1 ? crypto.randomUUID() : null;
+    const filas = nueva.lider_ids.map(lid=>({
+      semana:semanaTarea, descripcion:nueva.descripcion.trim(), lider_id:lid,
+      fecha_estimada:nueva.fecha_estimada||null, comentarios:nueva.comentarios.trim(), completado:false, grupo_id:grupoId,
+    }));
+    const { data, error } = await supabase.from("junta_compromisos").insert(filas).select();
+    if (!error && data) { setCompromisos(prev=>[...data, ...prev]); onGuardada?.(); }
+    else if (error) alert(`No se pudo crear la tarea: ${error.message||"error desconocido"}`);
+  };
+
+  return (
+        <Card style={{ marginBottom:16 }} p="10px">
+          <input value={nueva.descripcion} onChange={e=>setNueva(p=>({...p,descripcion:e.target.value}))} placeholder="¿Qué hay que hacer?" style={{ width:"100%", marginBottom:6, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:4 }}>¿Quién la hace? (una o varias personas)</div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:6 }}>
+            <button onClick={toggleTodosNueva} style={{ padding:"5px 10px", borderRadius:99, border:`1px solid ${todosMarcados?C.gold:C.border}`, background:todosMarcados?C.gold:C.surfaceAlt, color:todosMarcados?"#fff":C.textSub, fontSize:11, fontFamily:font.body, cursor:"pointer", fontWeight:600 }}>Todos</button>
+            {lideres.map(l=>{ const marcado = nueva.lider_ids.includes(l.id); return (
+              <button key={l.id} onClick={()=>toggleLiderNueva(l.id)} style={{ padding:"5px 10px", borderRadius:99, border:`1px solid ${marcado?C.gold:C.border}`, background:marcado?C.gold:C.surfaceAlt, color:marcado?"#fff":C.textSub, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{l.nombre||"(sin nombre)"}</button>
+            );})}
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1.3fr", gap:6, marginBottom:6 }}>
+            <select value={nueva.fecha_estimada} onChange={e=>setNueva(p=>({...p,fecha_estimada:e.target.value}))} style={{ width:"100%", minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}>
+              {semanasParaSelector().map(s=><option key={s.valor} value={s.valor}>{s.etiqueta}</option>)}
+            </select>
+            <input value={nueva.comentarios} onChange={e=>setNueva(p=>({...p,comentarios:e.target.value}))} placeholder="Comentario (opcional)" style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
+          </div>
+          <div style={{ display:"flex", gap:6 }}><Btn onClick={crear} sm disabled={!nueva.descripcion.trim()||nueva.lider_ids.length===0}>Guardar</Btn><Btn onClick={onCancelar} variant="ghost" sm>Cancelar</Btn></div>
+        </Card>
   );
 }
 
 // ── SCREEN: Junta Admin — Seguimiento semanal (checklist) ───────────────────
-function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, isMobile }) {
+// Desde el 22 nov 2026 es la pantalla principal de La Junta: arriba un solo selector de mes, los
+// Indicadores compactos (siempre visibles, para la supervisión) y abajo el selector Tareas ·
+// Acuerdos. Las tareas van en una sola lista seguida (sin agrupar por semana) y ya no hay filtro de
+// Semana 1-4: se mira el mes completo. Crear tareas o acuerdos se hace con el + de la barra.
+function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, acuerdos, congelados, setCongelados, isMobile }) {
   const soloLectura = useReadOnly();
-  // Por defecto se ve todo el mes junto (semanaFiltro=""); si se quiere, se puede acotar a una
-  // sola semana con el segundo selector.
-  const [mesSel, setMesSel] = useState(() => martesDeSemana(todayStr).slice(0,7));
-  const [semanaFiltro, setSemanaFiltro] = useState("");
+  // Mes elegido (uno solo para Indicadores y para la lista). Entre el primero de JUNTA_ROTATION_EPOCH
+  // y el mes calendario en curso.
+  const mesMaximo = todayStr.slice(0,7), mesMinimo = JUNTA_ROTATION_EPOCH.slice(0,7);
+  const [mesSel, setMesSel] = useState(() => { const m = martesDeSemana(todayStr).slice(0,7); return m>mesMaximo ? mesMaximo : m<mesMinimo ? mesMinimo : m; });
+  const [vistaLista, setVistaLista] = useState("tareas"); // 'tareas' | 'acuerdos'
+
   const [filtroLider, setFiltroLider] = useState("");
   // Refresca la pantalla cada tanto para que los 5 minutos de gracia de "desmarcar" se venzan
   // solos en pantalla, sin necesidad de recargar la página.
@@ -5076,8 +5169,6 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   useEffect(() => { const iv = setInterval(() => tick(x => x + 1), 15000); return () => clearInterval(iv); }, []);
   const [vistaEstado, setVistaEstado] = useState("activas"); // 'activas' | 'todas' | 'cumplidas' | 'vencidas'
   const [orden, setOrden] = useState("cronologico"); // 'cronologico' (más vieja primero) | 'lider'
-  const [showNueva, setShowNueva] = useState(false);
-  const [nueva, setNueva] = useState({ descripcion:"", lider_ids:[], fecha_estimada:"", comentarios:"" });
   // La descripción se muestra truncada en una línea con un "ver más" que la deja crecer y
   // hacer wrap en el mismo lugar (sin duplicar el texto en otro bloque aparte).
   const [expandidas, setExpandidas] = useState(new Set());
@@ -5096,14 +5187,9 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   // ── Mes → semanas del mes (martes) ─────────────────────────────────────────────
   const [anioSel, mesNumSel] = mesSel.split("-").map(Number);
   const martesDelMesSel = martesDelMes(anioSel, mesNumSel-1);
-  const cambiarMes = (valorMes) => { setMesSel(valorMes); setSemanaFiltro(""); };
-  // Propuesta A: las semanas se muestran como rango lunes–domingo ("22–28 sep") en fichas.
-  const rangoSemana = (mt) => {
-    const lun = new Date(sumarDias(mt,-1)+"T12:00:00"), dom = new Date(sumarDias(mt,5)+"T12:00:00");
-    const mesCorto = (d) => d.toLocaleDateString("es-CO",{month:"short"}).replace(".","");
-    return lun.getMonth()===dom.getMonth() ? `${lun.getDate()}–${dom.getDate()} ${mesCorto(dom)}` : `${lun.getDate()} ${mesCorto(lun)} – ${dom.getDate()} ${mesCorto(dom)}`;
-  };
-  const semanaDeHoy = martesDeSemana(todayStr);
+  // ‹ mes › — avanza o retrocede un mes calendario, sin salirse del rango.
+  const moverMes = (delta) => { const d = new Date(anioSel, mesNumSel-1+delta, 1, 12); const v = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; if (v>=mesMinimo && v<=mesMaximo) setMesSel(v); };
+  const nombreMesSel = new Date(anioSel, mesNumSel-1, 1, 12).toLocaleDateString("es-CO",{ month:"long", year:"numeric" }).replace(" de ", " ");
 
   // Una tarea ya CERRADA (cumplida o vencida) se ubica por el mes en que de verdad se cerró
   // (mesDeCierre — mismo criterio que ya usan los indicadores), no por el mes en que se asignó
@@ -5116,7 +5202,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
     const cierre = mesDeCierre(c);
     return cierre ? cierre===mesSel : martesDelMesSel.includes(c.semana);
   });
-  const tareasVista = semanaFiltro ? tareasDelMes.filter(c=>c.semana===semanaFiltro) : tareasDelMes;
+  const tareasVista = tareasDelMes;
 
   // ── Agrupa tareas compartidas (mismo grupo_id) en un solo bloque visual ────────
   const agrupar = (lista) => {
@@ -5140,9 +5226,8 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   // sigue viva en el checklist hasta que se marca cumplida o vence, sin importar si su semana quedó
   // del lado del mes anterior por el simple corte de calendario (p. ej. la última semana de agosto,
   // que se revisa ya con el Monitor de septiembre). El selector de mes/semana solo acota el
-  // histórico (Todas/Cumplidas/Vencidas); "Activas" mira TODOS los compromisos, y solo se acota si
-  // el usuario elige explícitamente una semana puntual.
-  const tareasActivasBase = semanaFiltro ? compromisos.filter(c=>c.semana===semanaFiltro) : compromisos;
+  // histórico (Todas/Cumplidas/Vencidas); "Activas" mira TODOS los compromisos.
+  const tareasActivasBase = compromisos;
   const gruposActivosBase = agrupar(tareasActivasBase).filter(g => !filtroLider || g.some(m=>m.lider_id===filtroLider));
   // Una tarea recién marcada como hecha no desaparece de "Activas" de una — se queda ahí, ya con
   // su check verde, mientras dure la gracia de 5 minutos para desmarcar por error (dentroDeGracia,
@@ -5157,47 +5242,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
     ? nombreLider(a[0].lider_id).localeCompare(nombreLider(b[0].lider_id))
     : new Date(a[0].created_at||0) - new Date(b[0].created_at||0));
 
-  // ── Crear tarea (uno o varios líderes a la vez) ────────────────────────────────
-  // La semana objetivo sugerida siempre es "la semana siguiente a hoy" — sin importar qué se esté
-  // viendo/filtrando en pantalla — para que agregar una tarea fuera de la reunión (por ejemplo
-  // días después) no herede una semana equivocada.
-  const abrirNueva = () => { setNueva({ descripcion:"", lider_ids:[], fecha_estimada: sumarDias(martesDeSemana(todayStr),7), comentarios:"" }); setShowNueva(true); };
-  const toggleLiderNueva = (id) => setNueva(p => ({...p, lider_ids: p.lider_ids.includes(id) ? p.lider_ids.filter(x=>x!==id) : [...p.lider_ids, id]}));
-  const todosMarcados = lideres.length>0 && nueva.lider_ids.length===lideres.length;
-  const toggleTodosNueva = () => setNueva(p => ({...p, lider_ids: todosMarcados ? [] : lideres.map(l=>l.id)}));
-  // Semanas que se pueden elegir como objetivo al crear una tarea: desde la semana actual hasta
-  // 2 meses adelante (de sobra para cualquier caso real), etiquetadas "Semana N · mes" igual que
-  // el selector de arriba — por dentro cada opción sigue siendo el martes de esa semana.
-  const semanasParaSelector = () => {
-    const hoyMartes = martesDeSemana(todayStr);
-    const base = new Date(todayStr+"T12:00:00");
-    const out = [];
-    for (let offset=0; offset<3; offset++) {
-      const d = new Date(base.getFullYear(), base.getMonth()+offset, 1, 12);
-      martesDelMes(d.getFullYear(), d.getMonth()).forEach((mt,i)=>{
-        if (mt>=hoyMartes) out.push({ valor:mt, etiqueta:`Semana ${i+1} · ${new Date(mt+"T12:00:00").toLocaleDateString("es-CO",{month:"short"})}` });
-      });
-    }
-    return out;
-  };
-
-  const crear = async () => {
-    if (!nueva.descripcion.trim() || nueva.lider_ids.length===0) return;
-    // 'semana' (la reunión/sesión a la que pertenece la tarea, para agruparla en pantalla y
-    // contarla en los indicadores) es SIEMPRE la semana real de HOY — el martes de la semana en
-    // que de verdad se está creando la tarea. Antes, si se estaba filtrando/viendo otra semana en
-    // pantalla al momento de crearla, la tarea quedaba archivada ahí por error. No depende de qué
-    // se esté viendo en pantalla — eso es solo un filtro de visualización.
-    const semanaTarea = martesDeSemana(todayStr);
-    const grupoId = nueva.lider_ids.length>1 ? crypto.randomUUID() : null;
-    const filas = nueva.lider_ids.map(lid=>({
-      semana:semanaTarea, descripcion:nueva.descripcion.trim(), lider_id:lid,
-      fecha_estimada:nueva.fecha_estimada||null, comentarios:nueva.comentarios.trim(), completado:false, grupo_id:grupoId,
-    }));
-    const { data, error } = await supabase.from("junta_compromisos").insert(filas).select();
-    if (!error && data) { setCompromisos(prev=>[...data, ...prev]); setShowNueva(false); }
-    else if (error) alert(`No se pudo crear la tarea: ${error.message||"error desconocido"}`);
-  };
+  // Crear tareas: ya no se hace aquí sino con el + de la barra (JuntaNuevaTareaForm, 22 nov 2026).
   const actualizar = async (id, patch) => {
     const { data, error } = await supabase.from("junta_compromisos").update(patch).eq("id", id).select().single();
     if (!error && data) setCompromisos(prev=>prev.map(c=>c.id===id?data:c));
@@ -5233,15 +5278,21 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
   // para poder marcarla en la reunión real. Queda registrado quién la reabrió y cuándo — y a
   // diferencia de antes, se guarda el HISTORIAL completo (no solo la última vez), para poder ver
   // si una tarea se ha ido aplazando varias veces en vez de resolverse.
-  const reabrirVencida = (g, fecha) => {
+  // `anticipada` (22 nov 2026): reabrir una tarea ACTIVA (todavía no vencida) a una fecha más lejana.
+  // Queda marcada en el historial y, aunque luego se cumpla, cuenta "cumplida, no a tiempo".
+  const reabrirVencida = async (g, fecha, anticipada=false) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha||"")) { alert("Elige una fecha."); return; }
     // Se normaliza al martes de esa semana (mismo formato que fecha_estimada siempre ha tenido) —
     // así el nuevo plazo (hasta el domingo de esa semana) queda bien calculado sin importar qué
     // día exacto se haya elegido.
     const nueva = martesDeSemana(fecha);
+    if (anticipada) {
+      if (g[0].fecha_estimada && nueva <= g[0].fecha_estimada) { alert("La nueva fecha tiene que caer en una semana posterior al plazo que ya tiene la tarea."); return; }
+      if (!await confirmar("¿Correr esta tarea a la nueva fecha?\n\nQueda como reabierta: si después se cumple, cuenta como cumplida pero NO a tiempo.")) return;
+    }
     const ahora = new Date().toISOString();
     g.forEach(m => {
-      const historial = [...(m.reaperturas||[]), { fecha_anterior:m.fecha_estimada||null, fecha_nueva:nueva, por:user.name, en:ahora }];
+      const historial = [...(m.reaperturas||[]), { fecha_anterior:m.fecha_estimada||null, fecha_nueva:nueva, por:user.name, en:ahora, ...(anticipada ? { anticipada:true } : {}) }];
       actualizar(m.id, { fecha_estimada:nueva, reabierta_por:user.name, reabierta_en:ahora, reaperturas:historial });
     });
     setReabriendo(null);
@@ -5297,7 +5348,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
       {/* Propuesta A — encabezado con el avance y la acción principal (Nueva tarea) a la derecha. */}
       <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12, flexWrap:"wrap", marginBottom:18 }}>
         <div>
-          <h1 style={{ margin:0, fontFamily:font.body, fontSize:isMobile?22:26, fontWeight:700, color:C.text }}>Seguimiento semanal</h1>
+          <h1 style={{ margin:0, fontFamily:font.body, fontSize:isMobile?22:26, fontWeight:700, color:C.text }}>Seguimiento</h1>
           <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, marginTop:4, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
             <span>Checklist de tareas de la Junta</span>
             <span style={{ display:"inline-flex", alignItems:"center", gap:6, borderRadius:99, padding:"3px 10px", background:C.surfaceHover, color:C.goldDark, fontWeight:600, fontSize:12 }}>
@@ -5305,8 +5356,14 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             </span>
           </div>
         </div>
-        {puedeGestionar && <Btn onClick={abrirNueva}><Icon n="plus" s={15}/>Nueva tarea</Btn>}
+        <div style={{ display:"inline-flex", alignItems:"center", gap:4, background:"#fff", border:`1px solid ${C.border}`, borderRadius:99, padding:3 }}>
+          <button onClick={()=>moverMes(-1)} disabled={mesSel<=mesMinimo} aria-label="Mes anterior" style={{ width:30, height:30, borderRadius:"50%", border:"none", background:"none", color:mesSel<=mesMinimo?C.border:C.text, cursor:mesSel<=mesMinimo?"default":"pointer", display:"grid", placeItems:"center" }}><Icon n="right" s={15} style={{ transform:"rotate(180deg)" }}/></button>
+          <span style={{ minWidth:128, textAlign:"center", fontFamily:font.body, fontSize:13.5, fontWeight:600, color:C.text, textTransform:"capitalize" }}>{nombreMesSel}</span>
+          <button onClick={()=>moverMes(1)} disabled={mesSel>=mesMaximo} aria-label="Mes siguiente" style={{ width:30, height:30, borderRadius:"50%", border:"none", background:"none", color:mesSel>=mesMaximo?C.border:C.text, cursor:mesSel>=mesMaximo?"default":"pointer", display:"grid", placeItems:"center" }}><Icon n="right" s={15}/></button>
+        </div>
       </div>
+
+      <JuntaIndicadoresCompacto user={user} lideres={lideres} compromisos={compromisos} congelados={congelados} setCongelados={setCongelados} anio={anioSel} mes={mesNumSel-1} onElegirMes={(a,m)=>setMesSel(`${a}-${String(m+1).padStart(2,"0")}`)} isMobile={isMobile}/>
 
       {pedidosBorrado.length>0 && (
         <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.amber}`, borderRadius:12, padding:"12px 16px", marginBottom:16 }}>
@@ -5324,16 +5381,13 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
         </div>
       )}
 
+      <div style={{ display:"flex", justifyContent:"center", marginTop:4 }}>
+        <SelectorVistas compacto={isMobile} opciones={[["tareas","Tareas","check"],["acuerdos","Acuerdos","lock"]]} vista={vistaLista} onElegir={setVistaLista}/>
+      </div>
+
+      {vistaLista==="acuerdos" ? <JuntaAcuerdosLista acuerdos={acuerdos||[]}/> : (<>
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-          <input type="month" value={mesSel} onChange={e=>cambiarMes(e.target.value)} style={selectStyle}/>
-          {/* Una sola lista desplegable para acotar a una semana (lunes a domingo). */}
-          <select value={semanaFiltro} onChange={e=>setSemanaFiltro(e.target.value)} style={{ ...selectStyle, minWidth:200 }}>
-            <option value="">Todo el mes</option>
-            {martesDelMesSel.map((mt,i)=><option key={mt} value={mt}>Semana {i+1} · {rangoSemana(mt)}{mt===semanaDeHoy?" (esta semana)":""}</option>)}
-          </select>
-        </div>
-        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginTop:8, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
           <select value={filtroLider} onChange={e=>setFiltroLider(e.target.value)} style={selectStyle}>
             <option value="">Todos los líderes</option>
             {lideres.map(l=><option key={l.id} value={l.id}>{l.nombre||"(sin nombre)"}</option>)}
@@ -5352,33 +5406,14 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
         {!puedeGestionar && !soloLectura && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:8 }}>Solo el monitor de turno puede crear tareas nuevas.</div>}
       </Card>
 
-      {puedeGestionar && showNueva && (
-        <Card style={{ marginBottom:16 }} p="10px">
-          <input value={nueva.descripcion} onChange={e=>setNueva(p=>({...p,descripcion:e.target.value}))} placeholder="¿Qué hay que hacer?" style={{ width:"100%", marginBottom:6, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
-          <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:4 }}>¿Quién la hace? (una o varias personas)</div>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:6 }}>
-            <button onClick={toggleTodosNueva} style={{ padding:"5px 10px", borderRadius:99, border:`1px solid ${todosMarcados?C.gold:C.border}`, background:todosMarcados?C.gold:C.surfaceAlt, color:todosMarcados?"#fff":C.textSub, fontSize:11, fontFamily:font.body, cursor:"pointer", fontWeight:600 }}>Todos</button>
-            {lideres.map(l=>{ const marcado = nueva.lider_ids.includes(l.id); return (
-              <button key={l.id} onClick={()=>toggleLiderNueva(l.id)} style={{ padding:"5px 10px", borderRadius:99, border:`1px solid ${marcado?C.gold:C.border}`, background:marcado?C.gold:C.surfaceAlt, color:marcado?"#fff":C.textSub, fontSize:11, fontFamily:font.body, cursor:"pointer" }}>{l.nombre||"(sin nombre)"}</button>
-            );})}
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1.3fr", gap:6, marginBottom:6 }}>
-            <select value={nueva.fecha_estimada} onChange={e=>setNueva(p=>({...p,fecha_estimada:e.target.value}))} style={{ width:"100%", minWidth:0, background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}>
-              {semanasParaSelector().map(s=><option key={s.valor} value={s.valor}>{s.etiqueta}</option>)}
-            </select>
-            <input value={nueva.comentarios} onChange={e=>setNueva(p=>({...p,comentarios:e.target.value}))} placeholder="Comentario (opcional)" style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", color:C.text, fontSize:12, fontFamily:font.body, outline:"none", boxSizing:"border-box" }}/>
-          </div>
-          <div style={{ display:"flex", gap:6 }}><Btn onClick={crear} sm disabled={!nueva.descripcion.trim()||nueva.lider_ids.length===0}>Guardar</Btn><Btn onClick={()=>setShowNueva(false)} variant="ghost" sm>Cancelar</Btn></div>
-        </Card>
-      )}
-
       <div key={vistaEstado} className="ozen-pane-anim-tab" style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        {gruposOrdenados.map((g,gi)=>{
+        {gruposOrdenados.map((g)=>{
           const base = g[0];
-          // Propuesta A: en orden cronológico, las tareas se agrupan por semana con un encabezado.
-          const nuevaSemana = orden==="cronologico" && (gi===0 || gruposOrdenados[gi-1][0].semana!==base.semana);
-          const tareasSemana = nuevaSemana ? gruposOrdenados.filter(x=>x[0].semana===base.semana) : null;
           const vencida = esGrupoVencido(g);
+          // Activa = ni vencida ni cumplida: también se puede reabrir (correr el plazo), ver reabrirVencida.
+          const activa = !vencida && !esGrupoCompletado(g);
+          // La nueva fecha tiene que caer en una semana posterior (las semanas van de martes a lunes).
+          const minReabrirActiva = base.fecha_estimada ? sumarDias(base.fecha_estimada, 7) : sumarDias(todayStr, 1);
           const compartida = g.length>1;
           const puedeBorrar = puedeBorrarGrupo(g);
           const completadoGrupo = esGrupoCompletado(g);
@@ -5417,13 +5452,6 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
             : "Solo el monitor de turno (o el responsable de la tarea) puede marcarla";
           return (
             <Fragment key={toggleId}>
-            {nuevaSemana && (
-              <div style={{ display:"flex", alignItems:"center", gap:10, margin:gi===0?"0 0 4px":"14px 0 4px", padding:"0 4px", fontFamily:font.body, fontSize:13 }}>
-                <b style={{ fontSize:14, color:C.text }}>Semana del {rangoSemana(base.semana)}</b>
-                <span style={{ color:C.textMuted, fontSize:12.5 }}>{base.semana===semanaDeHoy ? "esta semana · vence el domingo" : base.semana<semanaDeHoy ? "cerrada" : "próxima"}</span>
-                <span style={{ marginLeft:"auto", borderRadius:99, padding:"3px 10px", background:C.surfaceHover, fontSize:12, fontWeight:600, color:C.goldDark }}>{tareasSemana.length} {tareasSemana.length===1?"tarea":"tareas"} · {tareasSemana.filter(esGrupoCompletado).length} cumplidas</span>
-              </div>
-            )}
             <div style={{ padding:"12px 16px", background:"#fff", borderRadius:12, border:`1px solid ${C.border}`, borderLeft:`3px solid ${compartida?C.blue:C.border}`, display:"flex", flexDirection:"column", gap:6 }}>
               {/* Línea 1: líder(es), fecha, estado (vencida/cumplida), reabrir */}
               <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
@@ -5434,6 +5462,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
                 {vencida && <Badge color={C.amber} sm>Vencida</Badge>}
                 {borradoPedido(g) && <Badge color={C.red} sm title={`${borradoPedido(g).borrado_solicitado_por||"El monitor"} pidió borrarla el ${fmtFechaHora(borradoPedido(g).borrado_solicitado_en)} — falta que master lo apruebe`}>Borrado solicitado</Badge>}
                 {vencida && puedeGestionar && <button onClick={()=>{ if(reabriendo===toggleId){ setReabriendo(null); return; } setReabriendo(toggleId); setFechaReabrir(sumarDias(todayStr, 1)); }} title="La tarea todavía no se ha hecho — darle un nuevo plazo" style={{ background:reabriendo===toggleId?`${C.amber}18`:"none", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir a una nueva fecha</button>}
+                {activa && puedeGestionar && <button onClick={()=>{ if(reabriendo===toggleId){ setReabriendo(null); return; } setReabriendo(toggleId); setFechaReabrir(minReabrirActiva); }} title="Correr el plazo a una semana más adelante — si después se cumple, cuenta como cumplida pero no a tiempo" style={{ background:reabriendo===toggleId?`${C.amber}18`:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Reabrir a una nueva fecha</button>}
                 {vencida && puedeGestionar && <button onClick={()=>marcarRealizadaVencida(g)} title="Se hizo, pero no hubo reunión para marcarla — queda cumplida hoy, sin reabrirla" style={{ background:"none", border:`1px solid ${C.green}`, borderRadius:5, color:C.green, cursor:"pointer", fontSize:10, padding:"2px 7px", fontFamily:font.body }}>Marcar como realizada</button>}
                 {completadoGrupo && base.completado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· marcada por {base.completado_por}</div>}
                 {autorreportadoGrupo && base.autorreportado_por && <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }}>· por {base.autorreportado_por}</div>}
@@ -5448,14 +5477,14 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
                   </HoverTooltip>
                 )}
               </div>
-              {vencida && puedeGestionar && reabriendo===toggleId && (
+              {(vencida || activa) && puedeGestionar && reabriendo===toggleId && (
                 <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", padding:"8px 10px", borderRadius:8, background:`${C.amber}10`, border:`1px solid ${C.amber}55` }}>
                   <span style={{ fontFamily:font.body, fontSize:12, color:C.text }}>Nueva fecha:</span>
-                  <input type="date" autoFocus value={fechaReabrir} min={todayStr} onChange={e=>setFechaReabrir(e.target.value)} onFocus={e=>{ try{ e.target.showPicker?.(); }catch{ /* algunos navegadores no lo permiten */ } }} style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:13, fontFamily:font.body }}/>
-                  <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>vence el domingo de esa semana</span>
+                  <input type="date" autoFocus value={fechaReabrir} min={activa ? minReabrirActiva : todayStr} onChange={e=>setFechaReabrir(e.target.value)} onFocus={e=>{ try{ e.target.showPicker?.(); }catch{ /* algunos navegadores no lo permiten */ } }} style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:13, fontFamily:font.body }}/>
+                  <span style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>vence el domingo de esa semana{activa ? " · contará como no a tiempo" : ""}</span>
                   <span style={{ flex:1 }}/>
                   <button onClick={()=>setReabriendo(null)} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:12, fontFamily:font.body }}>Cancelar</button>
-                  <button onClick={()=>reabrirVencida(g, fechaReabrir)} disabled={!fechaReabrir} style={{ background:C.amber, border:"none", borderRadius:6, color:"#fff", cursor:"pointer", fontSize:12, fontWeight:700, padding:"5px 12px", fontFamily:font.body }}>Reabrir</button>
+                  <button onClick={()=>reabrirVencida(g, fechaReabrir, activa)} disabled={!fechaReabrir} style={{ background:C.amber, border:"none", borderRadius:6, color:"#fff", cursor:"pointer", fontSize:12, fontWeight:700, padding:"5px 12px", fontFamily:font.body }}>Reabrir</button>
                 </div>
               )}
               {/* Línea 2: check + tarea (ancho libre) + ver más al final */}
@@ -5477,6 +5506,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, is
         })}
         {gruposOrdenados.length===0 && <div style={{ textAlign:"center", padding:40, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>{vistaEstado==="activas" ? "Sin tareas activas." : vistaEstado==="cumplidas" ? "Sin tareas cumplidas todavía." : vistaEstado==="vencidas" ? "Sin tareas vencidas." : "Sin tareas para este período."}</div>}
       </div>
+      </>)}
     </div>
   );
 }
@@ -5493,8 +5523,68 @@ const statsDesdeCongelado = (c) => ({ totalMartes:c.total_martes, sesiones:c.ses
 // que devuelve statsPorLiderDelMes, para que el resto de la pantalla no tenga que distinguir.
 const statsLideresDesdeCongelado = (c) => (c.por_lider || []).map(p => ({ lider:{ id:p.lider_id, nombre:p.nombre }, total:p.total, completadas:p.completadas, completadasATiempo:p.completadasATiempo, totalCerradas:p.totalCerradas, pct:p.pct, pctATiempo:p.pctATiempo }));
 
+// Indicadores compactos (22 nov 2026), arriba de Seguimiento y siempre visibles para la supervisión:
+// una franja con Sesiones · Cumplimiento · A tiempo y el % de cada líder. "Ver detalle" despliega lo
+// demás (rankings, historial por mes y "Congelar este mes ahora"). Mismos cálculos de siempre: si el
+// mes está congelado se usa su foto fija; si no, statsDelMes / statsPorLiderDelMes en vivo.
+function JuntaIndicadoresCompacto({ user, lideres, compromisos, congelados, setCongelados, anio, mes, onElegirMes, isMobile }) {
+  const [detalle, setDetalle] = useState(false);
+  const congelado = congeladoDeMes(congelados, anio, mes);
+  const s = congelado ? statsDesdeCongelado(congelado) : statsDelMes(compromisos, anio, mes);
+  const porLider = congelado ? statsLideresDesdeCongelado(congelado) : statsPorLiderDelMes(compromisos, lideres, anio, mes);
+  const ranking = [...porLider].sort((a,b)=> (b.pct??-1) - (a.pct??-1) || b.total - a.total);
+  const hoy = toColombiaDate();
+  const esMesEnCurso = anio===hoy.getFullYear() && mes===hoy.getMonth();
+  const monitorMes = getMonitorDeMes(lideres, anio, mes);
+  const dato = (etiqueta, valor, color, sub, titulo) => (
+    <div title={titulo} style={{ minWidth:0, padding:isMobile?"2px 4px":"2px 10px", textAlign:isMobile?"center":"left" }}>
+      <div style={{ fontFamily:font.body, fontSize:isMobile?9.5:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{etiqueta}</div>
+      <div style={{ fontFamily:font.mono, fontSize:isMobile?18:21, fontWeight:700, color, lineHeight:1.25 }}>{valor}</div>
+      {!isMobile && sub && <div style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{sub}</div>}
+    </div>
+  );
+  return (
+    <div style={{ marginBottom:16 }}>
+      <Card p={isMobile?"10px":"12px 14px"}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:8, fontFamily:font.body, fontSize:12 }}>
+          <b style={{ color:C.text, fontSize:12.5 }}>Indicadores</b>
+          {esMesEnCurso && <span style={{ color:C.textMuted, fontSize:11 }}>· mes en curso</span>}
+          {congelado && <Badge color={C.textMuted} sm title={`Foto fija guardada el ${fmtFechaHora(congelado.congelado_en)}${congelado.congelado_por?" · "+congelado.congelado_por:""} — no se vuelve a calcular.`}>🔒 Congelado</Badge>}
+          {!esMesEnCurso && <span style={{ color:C.textSub, fontSize:11.5 }}>Monitor: <b style={{ color:C.goldDark }}>{monitorMes ? (monitorMes.nombre || "— sin nombre") : "—"}</b></span>}
+          <button onClick={()=>setDetalle(d=>!d)} style={{ marginLeft:"auto", background:"none", border:"none", color:C.blue, cursor:"pointer", fontFamily:font.body, fontSize:12, fontWeight:600, display:"inline-flex", alignItems:"center", gap:4, padding:0 }}>{detalle ? "Ocultar detalle" : "Ver detalle"}<Icon n={detalle?"up":"down"} s={13}/></button>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:10, padding:isMobile?"6px 2px":"8px 4px" }}>
+          {dato("Sesiones", `${s.sesiones}/${s.totalMartes}`, s.sesiones>=s.totalMartes?C.green:C.amber, "martes con checklist")}
+          {dato("Cumplimiento", s.pct===null?"—":`${s.pct}%`, colorCumplimientoTexto(s.pct), `${s.completadas} de ${s.totalCerradas} cerradas${s.activas>0?` · ${s.activas} activa${s.activas===1?"":"s"}`:""}`)}
+          {dato("A tiempo", s.pctATiempo===null||s.pctATiempo===undefined?"—":`${s.pctATiempo}%`, colorCumplimientoTexto(s.pctATiempo), s.completadasATiempo===undefined?"sin dato en esta foto":`${s.completadasATiempo} sin reabrirse vencidas`, "De lo cerrado, cuánto se cumplió sin haber tenido que reabrirse después de estar vencido.")}
+        </div>
+        {ranking.length>0 && (
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(auto-fill, minmax(190px, 1fr))", gap:6, marginTop:8 }}>
+            {ranking.map(x=>(
+              <div key={x.lider.id} title={`${x.lider.nombre||"— sin nombre"}: ${x.completadas} de ${x.totalCerradas} cerradas cumplidas${x.pctATiempo!==undefined?` · ${x.pctATiempo===null?"—":x.pctATiempo+"%"} a tiempo`:""} · ${x.total} tareas del mes`} style={{ display:"flex", alignItems:"center", gap:6, padding:"5px 9px", border:`1px solid ${C.border}`, borderRadius:8, background:"#fff", minWidth:0 }}>
+                <span style={{ flex:1, minWidth:0, fontFamily:font.body, fontSize:12, fontWeight:600, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{x.lider.nombre || "— sin nombre"}</span>
+                {!isMobile && <span style={{ fontFamily:font.body, fontSize:10.5, color:C.textMuted, whiteSpace:"nowrap" }}>{x.completadas}/{x.totalCerradas}</span>}
+                <span style={{ fontFamily:font.mono, fontSize:12, fontWeight:700, color:colorCumplimientoTexto(x.pct), whiteSpace:"nowrap" }}>{x.pct===null?"—":`${x.pct}%`}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      {detalle && (
+        <div style={{ marginTop:10 }}>
+          <JuntaIndicadoresTab embebido mesFijo={{ anio, mes }} onElegirMes={onElegirMes} user={user} lideres={lideres} compromisos={compromisos} congelados={congelados} setCongelados={setCongelados} isMobile={isMobile}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── SCREEN: Junta Admin — Indicadores (cumplimiento del Monitor) ────────────
-function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongelados, isMobile }) {
+// `embebido` (22 nov 2026): va dentro del "Ver detalle" de los indicadores compactos de Seguimiento.
+// Ahí no lleva título ni selector propio (usa el mes elegido arriba, `mesFijo`), ni los 3 números
+// (ya están en la franja); el historial por mes sirve para saltar a ese mes (`onElegirMes`). Los
+// cálculos son exactamente los mismos.
+function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongelados, isMobile, embebido, mesFijo, onElegirMes }) {
   const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   const [congelando, setCongelando] = useState(false);
   // Guarda a mano la foto fija de un mes ya terminado — pensado como respaldo de la tarea
@@ -5535,7 +5625,8 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
   // anterior desde el selector — selMesIdx es el índice dentro de `meses` (0 = mes en curso, ya
   // que `meses` viene ordenado del más reciente al más antiguo).
   const [selMesIdx, setSelMesIdx] = useState(0);
-  const seleccionado = meses[selMesIdx] || actual;
+  const seleccionado = (embebido && mesFijo) ? mesFijo : (meses[selMesIdx] || actual);
+  const esMesEnCursoSel = !!(seleccionado && actual && seleccionado.anio===actual.anio && seleccionado.mes===actual.mes);
   const monitorSel = seleccionado ? getMonitorDeMes(lideres, seleccionado.anio, seleccionado.mes) : null;
   const congeladoSel = seleccionado ? congeladoDeMes(congelados, seleccionado.anio, seleccionado.mes) : null;
   const statsSel = seleccionado ? (congeladoSel ? statsDesdeCongelado(congeladoSel) : statsDelMes(compromisos, seleccionado.anio, seleccionado.mes)) : null;
@@ -5565,20 +5656,20 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
 
   return (
     <div>
-      <PageHeader title="Indicadores" subtitle="Cumplimiento del Monitor, mes a mes" />
+      {!embebido && <PageHeader title="Indicadores" subtitle="Cumplimiento del Monitor, mes a mes" />}
 
       {!actual ? (
         <Card><div style={{ textAlign:"center", padding:20, color:C.textMuted, fontFamily:font.body, fontSize:13 }}>Aún no hay meses para mostrar.</div></Card>
       ) : (
-        <Card glow style={{ marginBottom:16 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8, marginBottom:14 }}>
+        <Card glow={!embebido} style={{ marginBottom:16 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8, marginBottom:embebido?0:14 }}>
             <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-              <select value={selMesIdx} onChange={e=>setSelMesIdx(Number(e.target.value))} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 9px", color:C.text, fontFamily:font.body, fontSize:12, fontWeight:600, outline:"none", cursor:"pointer" }}>
+              {embebido ? <b style={{ fontFamily:font.body, fontSize:13, color:C.text }}>Detalle de {MESES[seleccionado.mes]} {seleccionado.anio}</b> : <select value={selMesIdx} onChange={e=>setSelMesIdx(Number(e.target.value))} style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 9px", color:C.text, fontFamily:font.body, fontSize:12, fontWeight:600, outline:"none", cursor:"pointer" }}>
                 {meses.map((m,i)=><option key={`${m.anio}-${m.mes}`} value={i}>{MESES[m.mes]} {m.anio}</option>)}
-              </select>
-              {selMesIdx===0 && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>· mes en curso</div>}
+              </select>}
+              {esMesEnCursoSel && <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em" }}>· mes en curso</div>}
               {congeladoSel && <Badge color={C.textMuted} sm title={`Foto fija guardada el ${fmtFechaHora(congeladoSel.congelado_en)}${congeladoSel.congelado_por?" · "+congeladoSel.congelado_por:""} — no se vuelve a calcular.`}>🔒 Congelado</Badge>}
-              {!congeladoSel && selMesIdx>0 && puede(user, "junta.indicadores.congelar") && (mesSelTerminoDeVerdad ? (
+              {!congeladoSel && !esMesEnCursoSel && puede(user, "junta.indicadores.congelar") && (mesSelTerminoDeVerdad ? (
                 <button onClick={()=>congelarMesAhora(seleccionado.anio, seleccionado.mes)} disabled={congelando} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMuted, cursor:"pointer", fontSize:10, padding:"3px 8px", fontFamily:font.body }}>{congelando?"...":"Congelar este mes ahora"}</button>
               ) : (
                 <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted }} title="Su última semana todavía tiene plazo hasta esa fecha — no se puede congelar antes, para no dejar tareas activas sin oportunidad de cerrar.">Se podrá congelar desde el {finRealMesSel}</div>
@@ -5586,7 +5677,7 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
             </div>
             <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub }}>Monitor: <span style={{ color:C.goldLight, fontWeight:700 }}>{monitorSel ? (monitorSel.nombre || "— sin nombre") : "—"}</span></div>
           </div>
-          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr", gap:12 }}>
+          {!embebido && <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr", gap:12 }}>
             <div style={{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 14px" }}>
               <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Sesiones hechas</div>
               <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:statsSel.sesiones>=statsSel.totalMartes?C.green:C.amber }}>{statsSel.sesiones} / {statsSel.totalMartes}</div>
@@ -5603,7 +5694,7 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
               <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:colorCumplimientoTexto(statsSel.pctATiempo) }}>{statsSel.pctATiempo===null||statsSel.pctATiempo===undefined?"—":`${statsSel.pctATiempo}%`}</div>
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:3 }}>{statsSel.completadasATiempo===undefined?"sin dato en esta foto":`${statsSel.completadasATiempo} de ${statsSel.totalCerradas} sin reabrirse vencidas`}</div>
             </div>
-          </div>
+          </div>}
           {statsLideresSel.length>0 && (
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":(hayDatoATiempo?"1fr 1fr 1fr":"1fr 1fr"), gap:12 }}>
               <div>
@@ -5662,8 +5753,9 @@ function JuntaIndicadoresTab({ user, lideres, compromisos, congelados, setCongel
           const monitor = getMonitorDeMes(lideres, anio, mes);
           const congelado = congeladoDeMes(congelados, anio, mes);
           const s = congelado ? statsDesdeCongelado(congelado) : statsDelMes(compromisos, anio, mes);
+          const elegido = embebido && seleccionado && seleccionado.anio===anio && seleccionado.mes===mes;
           return (
-            <div key={`${anio}-${mes}`} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderBottom:idx<meses.length-1?`1px solid ${C.border}`:"none", flexWrap:"wrap" }}>
+            <div key={`${anio}-${mes}`} onClick={embebido && onElegirMes ? ()=>onElegirMes(anio, mes) : undefined} title={embebido && onElegirMes ? "Ver este mes" : undefined} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderBottom:idx<meses.length-1?`1px solid ${C.border}`:"none", flexWrap:"wrap", cursor:embebido && onElegirMes ? "pointer" : "default", background:elegido?C.surfaceHover:"transparent" }}>
               <div style={{ minWidth:120 }}>
                 <div style={{ fontFamily:font.body, fontSize:12, fontWeight:600, color:C.text }}>{MESES[mes]} {anio}{congelado && " 🔒"}</div>
                 <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted }}>{monitor ? (monitor.nombre || "— sin nombre") : "—"}</div>
@@ -9325,7 +9417,7 @@ const calcularCierresFlexipago = (ventas, ventasItems, ventasAbonos) => {
     // Sin separaciones es la misma regla de siempre (primer abono que alcanza el valor). Con
     // separaciones, ver flexiIdxCierre.
     const k = flexiIdxCierre(v, valorNeto, abonos);
-    if(k>=0) cierres.push({ ventaId:v.id, tiendaId:v.tienda_id, vendedorId:v.vendedor_id, valorNeto, fechaCierre:abonos[k].fecha });
+    if(k>=0) cierres.push({ ventaId:v.id, tiendaId:v.tienda_id, vendedorId:v.vendedor_id, valorNeto, fechaCierre:abonos[k].fecha, abonoCierreId:abonos[k].id });
   });
   return cierres;
 };
@@ -9710,6 +9802,11 @@ const tdMet = { padding:"11px 10px", borderBottom:`1px solid ${C.border}` };
 //   · Servicios = lo pagado por arreglo / marcación / grabado.
 //   · Ingreso total = sin servicios + servicios + abonos de flexipagos que siguen abiertos.
 //   · # ventas = facturas creadas (incluye flexipago) en su fecha.
+//   · Dinero recibido = la plata que entró cada día: igual a Ingreso total, salvo que los abonos de
+//     flexipagos YA cerrados cuentan en el día de cada abono (no el valor completo en el cierre).
+//   · Abonos Flexipago (antes de terminar) / Abono final Flexipago: separan los abonos según si
+//     llegaron antes del que terminó de pagarlo o fueron ese (o después). Traslados no cuentan.
+//     Siempre: antes + final = todo lo abonado (sin traslados).
 // Todo se baja primero a "hechos" pequeños (una fila por pedazo de plata con su fecha, hora, tienda,
 // asesor, tipo y medio) y después se agrupa como se pida. Así agregar una medida o un "por" nuevo
 // es una línea, no otra pantalla.
@@ -9873,7 +9970,20 @@ const construirHechosVentas = (ventas, ventasItems, ventasAbonos, ventasAjustes)
     const entradas = Object.entries(porMedio).filter(([,x])=>x>0);
     (entradas.length ? entradas : [["efectivo", tot||1]]).forEach(([medio, x])=>{
       const parte = tot>0 ? x/tot : 1;
-      H.push({ ...base(v, c.fechaCierre, ultimo?.created_at), tipo:"flexipago", medio, sin:c.valorNeto*parte, servicios:0, ingreso:c.valorNeto*parte, descuento:descFlex*parte, cuenta:0 });
+      H.push({ ...base(v, c.fechaCierre, ultimo?.created_at), tipo:"flexipago", medio, sin:c.valorNeto*parte, servicios:0, ingreso:c.valorNeto*parte, descuento:descFlex*parte, cuenta:0, recibido:0 });
+    });
+    // Abonos de los cerrados, cada uno en su día (22 nov 2026): antes del que lo terminó de pagar →
+    // "abonoAntes"; ese y los que vengan después → "abonoFinal". Solo alimentan las medidas nuevas
+    // (no tocan sin / ingreso / servicios).
+    const ordenados = (abonosPorVenta[v.id] || []).slice().sort((a,b)=> new Date(a.created_at||a.fecha) - new Date(b.created_at||b.fecha));
+    const kCierre = ordenados.findIndex(ab=>ab.id===c.abonoCierreId);
+    ordenados.forEach((ab, k)=>{
+      if(!ab.fecha || flexiEsTraslado(ab)) return;
+      const esFinal = kCierre>=0 && k>=kCierre;
+      mediosDeAbono(ab).forEach(p=>{
+        const x = Number(p.valor||0); if(x<=0) return;
+        H.push({ ...base(v, ab.fecha, ab.created_at), tipo:"flexipago", medio:p.medio_pago||"efectivo", sin:0, servicios:0, ingreso:0, descuento:0, cuenta:0, recibido:x, abonoAntes:esFinal?0:x, abonoFinal:esFinal?x:0 });
+      });
     });
   });
   ventasAbonos.forEach(ab=>{
@@ -9881,9 +9991,11 @@ const construirHechosVentas = (ventas, ventasItems, ventasAbonos, ventasAjustes)
     if(!v || !v.es_flexipago || cerrados.has(v.id) || !ab.fecha || flexiEsTraslado(ab)) return;
     mediosDeAbono(ab).forEach(p=>{
       const x = Number(p.valor||0); if(x<=0) return;
-      H.push({ ...base(v, ab.fecha, ab.created_at), tipo:"flexipago", medio:p.medio_pago||"efectivo", sin:0, servicios:0, ingreso:x, descuento:0, cuenta:0 });
+      H.push({ ...base(v, ab.fecha, ab.created_at), tipo:"flexipago", medio:p.medio_pago||"efectivo", sin:0, servicios:0, ingreso:x, descuento:0, cuenta:0, recibido:x, abonoAntes:x, abonoFinal:0 });
     });
   });
+  // Dinero recibido: en todo lo demás es igual a Ingreso total (la plata entra el día de la venta).
+  H.forEach(h=>{ if(h.recibido===undefined) h.recibido = h.ingreso; if(h.abonoAntes===undefined) h.abonoAntes = 0; if(h.abonoFinal===undefined) h.abonoFinal = 0; });
   return H;
 };
 
@@ -10029,11 +10141,14 @@ const CONS_VALORES = [
   { value:"count", label:"N.º de ventas" },
   { value:"ticket", label:"Ticket promedio" },
   { value:"descuento", label:"Descuentos" },
+  { value:"recibido", label:"Dinero recibido" },
+  { value:"abonoAntes", label:"Abonos Flexipago (antes de terminar)" },
+  { value:"abonoFinal", label:"Abono final Flexipago" },
   { value:"meta", label:"Meta" },
   { value:"cumpl", label:"Cumplimiento %" },
 ];
 const CONS_ICONO_CAMPO = { tienda:"store", asesor:"user", dia:"cal", semana:"cal", mes:"cal", dow:"cal", hora:"clock", tipo:"tag", medio:"card" };
-const CONS_ICONO_VALOR = { sin:"cash", ingreso:"wallet", servicios:"wrench", count:"list", ticket:"receipt", descuento:"tag", meta:"target", cumpl:"trophy" };
+const CONS_ICONO_VALOR = { sin:"cash", ingreso:"wallet", servicios:"wrench", count:"list", ticket:"receipt", descuento:"tag", recibido:"cash", abonoAntes:"clock", abonoFinal:"check", meta:"target", cumpl:"trophy" };
 // Color de cada caja de la tabla dinámica (para distinguirlas de un vistazo).
 const CONS_ZONAS = { filas:{ color:C.gold, ic:"list" }, columnas:{ color:C.goldDark, ic:"grid" }, valores:{ color:C.green, ic:"chart" }, filtros:{ color:C.amber, ic:"target" } };
 const CONS_CAMPOS_FILTRO = ["tienda","asesor","tipo","medio","dow"];
@@ -10061,6 +10176,7 @@ const CONS_COMUNES = [
   { id:"d2", grupo:"Días y horas", nombre:"¿A qué hora se vende más? (30 días)", cfg:{ filas:["hora"], valores:["sin","count"], periodo:"30" } },
   { id:"c1", grupo:"Caja y medios de pago", nombre:"Medios de pago por tienda, este mes", cfg:{ filas:["tienda"], col:"medio", valores:["ingreso"], periodo:"mes" } },
   { id:"c2", grupo:"Caja y medios de pago", nombre:"Medios de pago por tienda, día a día", cfg:{ filas:["dia","tienda"], col:"medio", valores:["ingreso"], periodo:"mes" } },
+  { id:"c5", grupo:"Caja y medios de pago", nombre:"Dinero recibido por tienda, día a día", cfg:{ filas:["dia","tienda"], valores:["recibido","abonoAntes","abonoFinal"], periodo:"mes" } },
   { id:"c3", grupo:"Caja y medios de pago", nombre:"Descuentos dados por asesor, este mes", cfg:{ filas:["asesor"], valores:["descuento","sin"], periodo:"mes" } },
   { id:"s1", grupo:"Servicios y Flexipagos", nombre:"Arreglos, marcación y grabado por tienda, este mes", cfg:{ filas:["tipo"], col:"tienda", valores:["servicios","count"], periodo:"mes", filtros:{ tipo:["arreglo","marcacion","grabado"] } } },
   { id:"s2", grupo:"Servicios y Flexipagos", nombre:"Flexipagos completados por tienda y asesor, este mes", cfg:{ filas:["tienda","asesor"], valores:["sin"], periodo:"mes", filtros:{ tipo:["flexipago"] } } },
@@ -10196,8 +10312,8 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   };
 
   // ── Acumuladores ──
-  const nuevoAcc = () => ({ sin:0, ingreso:0, servicios:0, descuento:0, meta:0, ventas:new Set() });
-  const sumar = (acc, h) => { acc.sin+=h.sin; acc.ingreso+=h.ingreso; acc.servicios+=h.servicios; acc.descuento+=h.descuento; if(h.cuenta) acc.ventas.add(h.ventaId); };
+  const nuevoAcc = () => ({ sin:0, ingreso:0, servicios:0, descuento:0, recibido:0, abonoAntes:0, abonoFinal:0, meta:0, ventas:new Set() });
+  const sumar = (acc, h) => { acc.sin+=h.sin; acc.ingreso+=h.ingreso; acc.servicios+=h.servicios; acc.descuento+=h.descuento; acc.recibido+=h.recibido; acc.abonoAntes+=h.abonoAntes; acc.abonoFinal+=h.abonoFinal; if(h.cuenta) acc.ventas.add(h.ventaId); };
   const valor = (acc, medida=cfg.valores[0]) => {
     if(!acc) return 0;
     if(medida==="count") return acc.ventas.size;
@@ -10289,7 +10405,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   const setGraficaForzadaVista = (v) => elegirVista(v||"tabla");
   const apilar = q.g2 && !noSumable;
   const maxFila = Math.max(1, ...filas.map(f=>valor(f.acc)), ...(prev ? filas.map(f=>valor(prevAcc(f))) : []));
-  const sinDatos = res.total.ventas.size===0 && res.total.sin===0 && res.total.ingreso===0 && res.total.meta===0;
+  const sinDatos = res.total.ventas.size===0 && res.total.sin===0 && res.total.ingreso===0 && res.total.recibido===0 && res.total.meta===0;
   // Paleta de cada grupo / serie (tiendas con su color propio).
   const colorFila = (f, i) => f.color || CONS_PALETA[i % CONS_PALETA.length];
   // Etiqueta corta para ejes de tiempo.
@@ -10863,10 +10979,10 @@ function SelectorVistaMetricas({ vista, onElegir, puedeConsultas, puedeCaja }) {
 // Selector de vistas en "píldora" (Resumen · Consultas · Caja en Ventas; Malla · Resumen ·
 // Informes · Mi Historial en Asistencia). `opciones` = [[id, texto, ícono], ...]. Con una sola
 // opción no se muestra. `compacto` (celular): botones más chicos y se puede deslizar de lado.
-function SelectorVistas({ opciones, vista, onElegir, compacto }) {
+function SelectorVistas({ opciones, vista, onElegir, compacto, sinMargen }) {
   if(opciones.length<2) return null;
   return (
-    <div className={compacto?"ozen-sin-barra":undefined} style={{ display:"inline-flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, marginBottom:16, ...(compacto ? { maxWidth:"100%", overflowX:"auto" } : {}) }}>
+    <div className={compacto?"ozen-sin-barra":undefined} style={{ display:"inline-flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, marginBottom:sinMargen?0:16, ...(compacto ? { maxWidth:"100%", overflowX:"auto" } : {}) }}>
       {opciones.map(([k,l,ic])=>(
         <button key={k} onClick={()=>onElegir(k)} style={{ display:"inline-flex", alignItems:"center", gap:7, border:"none", cursor:"pointer", borderRadius:99, padding:compacto?"7px 11px":"8px 16px", fontFamily:font.body, fontSize:compacto?12.5:13, fontWeight:600, background:vista===k?C.goldDark:"transparent", color:vista===k?C.tinta:C.textSub, whiteSpace:"nowrap", flexShrink:0 }}>
           <Icon n={ic} s={14}/>{l}
@@ -16940,6 +17056,11 @@ export default function App() {
   // Marcar asistencia como ventana (22 nov 2026), el + de Asistencia.
   const [marcarAbierto,setMarcarAbierto]=useState(false);
   const [marcarOrigen,setMarcarOrigen]=useState(null);
+  // + de La Junta (22 nov 2026): ventana en burbuja para agregar una tarea o un acuerdo.
+  const [juntaNuevaAbierta,setJuntaNuevaAbierta]=useState(false);
+  const [juntaNuevaOrigen,setJuntaNuevaOrigen]=useState(null);
+  const [juntaNuevaTipo,setJuntaNuevaTipo]=useState("tarea");
+  const abrirJuntaNueva = (rect) => { setJuntaNuevaOrigen(rect ? { left:rect.left, top:rect.top, width:rect.width, height:rect.height, bottom:rect.bottom } : null); setJuntaNuevaAbierta(true); };
   const abrirMarcar = (rect) => { setMarcarOrigen(rect ? { left:rect.left, top:rect.top, width:rect.width, height:rect.height, bottom:rect.bottom } : null); setMarcarAbierto(true); };
   const abrirRegistrar = (rect) => { setRegistrarOrigen(rect ? { left:rect.left, top:rect.top, width:rect.width, height:rect.height, bottom:rect.bottom } : null); setRegistrarMontado(true); setRegistrarAbierto(true); };
   const [opCampana,setOpCampana]=useState([]);
@@ -17370,11 +17491,10 @@ export default function App() {
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
       if(area==="junta"){
-        if(tab==="equipo")       return <JuntaEquipoEditarContext.Provider value={puede(user, "junta.equipo.editar")}><JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} areas={juntaAreas} setAreas={setJuntaAreas} liderAreas={juntaLiderAreas} setLiderAreas={setJuntaLiderAreas} isMobile={isMobile}/></JuntaEquipoEditarContext.Provider>;
-        if(tab==="seguimiento")  return <JuntaSeguimientoScreen user={user} lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos} isMobile={isMobile}/>;
-        if(tab==="indicadores")  return <JuntaIndicadoresTab user={user} lideres={juntaLideres} compromisos={juntaCompromisos} congelados={juntaIndicadoresCongelados} setCongelados={setJuntaIndicadoresCongelados} isMobile={isMobile}/>;
-        if(tab==="guion")        return <JuntaGuionTab monitor={getMonitorActual(juntaLideres)} isMobile={isMobile}/>;
-        if(tab==="acuerdos")     return <JuntaAcuerdosTab user={user} acuerdos={juntaAcuerdos} setAcuerdos={setJuntaAcuerdos}/>;
+        // "guion" (Rol de Monitor) ya no es pestaña: abre Perfiles y áreas con esa opción elegida.
+        if(tab==="equipo" || tab==="guion") return <JuntaEquipoEditarContext.Provider value={puede(user, "junta.equipo.editar")}><JuntaEquipoTab lideres={juntaLideres} setLideres={setJuntaLideres} areas={juntaAreas} setAreas={setJuntaAreas} liderAreas={juntaLiderAreas} setLiderAreas={setJuntaLiderAreas} isMobile={isMobile} monitor={getMonitorActual(juntaLideres)} verMonitor={puede(user, "junta.ver")} vistaInicial={tab==="guion"?"monitor":undefined}/></JuntaEquipoEditarContext.Provider>;
+        // Indicadores y Acuerdos ya no son pestañas (22 nov 2026): viven dentro de Seguimiento.
+        if(tab==="seguimiento" || tab==="indicadores" || tab==="acuerdos") return <JuntaSeguimientoScreen user={user} lideres={juntaLideres} compromisos={juntaCompromisos} setCompromisos={setJuntaCompromisos} acuerdos={juntaAcuerdos} congelados={juntaIndicadoresCongelados} setCongelados={setJuntaIndicadoresCongelados} isMobile={isMobile}/>;
       } else if(area==="ventas"){
         if(tab==="registrar" && puede(user, "ventas.registrar.ver")) return <VentasRegistrarScreen ordenACobrar={ordenACobrar} onOrdenCobrada={ordenCobrada} opAvisos={opEstado==="listo" ? opExternas : opCampana} onIrAOrden={(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); }} tiendaActiva={tiendaActiva} onVerLista={()=>setTab("lista")} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ventasAjustes={ventasAjustes} setVentasAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={!puede(user, "ventas.registrar.guardar")} isMobile={isMobile}/>;
         if(tab==="lista" && puede(user, "ventas.lista.ver")) return <VentasListaScreen key={listaPedido?.t||"lista"} pedido={listaPedido} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={esAdminDeVentas(user)} soloLectura={ventasSoloLectura(user)}/>;
@@ -17536,12 +17656,12 @@ export default function App() {
     </div>
   );
 
-  const tabsVisibles = tabsPara(user, area, liderOper);
+  const tabsVisibles = tabsPara(user, area, liderOper, juntaLideres);
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
   const mostrarTienda = esAreaVentas && tab==="caja";
   // Asistencia de admins: Turnos lleva a la primera vista que la persona puede ver (si no ve la Malla).
   const esAsistenciaAdmin = puedeUsarAreas(user) && area==="asistencia";
-  const setTabNav = (id, rect) => id==="mas" ? abrirRegistrar(rect) : id==="marcar" ? abrirMarcar(rect)
+  const setTabNav = (id, rect) => id==="mas" ? abrirRegistrar(rect) : id==="marcar" ? abrirMarcar(rect) : id==="junta_mas" ? abrirJuntaNueva(rect)
     : (id==="turnos" && esAsistenciaAdmin && !puede(user, "turnos.ver")) ? setTab(inicioAsistencia(user)) : setTab(id);
   const irAOrdenDesdeAviso = (tipo,id)=>{ setRegistrarAbierto(false); setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); };
   // Desde la campana: abre Lista de ventas con ese Flexipago buscado y desplegado.
@@ -17573,7 +17693,25 @@ export default function App() {
       centro={<span style={{ fontFamily:font.body, fontSize:13, color:C.textSub, whiteSpace:"nowrap", textTransform:"capitalize" }}>{toColombiaDate().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})}</span>}>
       <CheckInScreen enVentana user={user} records={records} onRecord={addRecord} onRefresh={refreshUserRecords} onRecordUpdated={onRecordUpdatedAdmin} stores={stores} asignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios}/>
     </VentanaNube>, document.body);
-  const tabNav = tab==="caja" && puede(user, "ventas.metricas.ver") ? "metricas"
+  // Agregar tarea o acuerdo (+ de La Junta): arriba se elige cuál; cada opción sale solo con su permiso.
+  const juntaPuedeTarea = !!user && juntaPuedeCrearTarea(user, juntaLideres);
+  const juntaPuedeAcuerdo = !!user && puede(user, "junta.acuerdos.crear");
+  const juntaTipo = !juntaPuedeTarea ? "acuerdo" : !juntaPuedeAcuerdo ? "tarea" : juntaNuevaTipo;
+  const cerrarJuntaNueva = () => setJuntaNuevaAbierta(false);
+  const modalJuntaNueva = juntaNuevaAbierta && (juntaPuedeTarea || juntaPuedeAcuerdo) && createPortal(
+    <VentanaNube abierta origen={juntaNuevaOrigen} isMobile={isMobile} onCerrar={cerrarJuntaNueva} icono="plus" titulo={juntaTipo==="tarea" ? "Nueva tarea" : "Nuevo acuerdo"}
+      centro={juntaPuedeTarea && juntaPuedeAcuerdo
+        ? <SelectorVistas sinMargen compacto={isMobile} opciones={[["tarea","Tarea","check"],["acuerdo","Acuerdo","lock"]]} vista={juntaTipo} onElegir={setJuntaNuevaTipo}/>
+        : <b style={{ fontFamily:font.body, fontSize:14, color:C.text, whiteSpace:"nowrap" }}>{juntaTipo==="tarea" ? "Nueva tarea" : "Nuevo acuerdo"}</b>}>
+      <div style={{ maxWidth:760, margin:"0 auto" }}>
+        {juntaTipo==="tarea"
+          ? <JuntaNuevaTareaForm lideres={juntaLideres} setCompromisos={setJuntaCompromisos} isMobile={isMobile} onGuardada={cerrarJuntaNueva} onCancelar={cerrarJuntaNueva}/>
+          : <JuntaNuevoAcuerdoForm user={user} setAcuerdos={setJuntaAcuerdos} onGuardado={cerrarJuntaNueva} onCancelar={cerrarJuntaNueva}/>}
+      </div>
+    </VentanaNube>, document.body);
+  const tabNav = (area==="junta" && (tab==="indicadores" || tab==="acuerdos")) ? "seguimiento"
+    : (area==="junta" && tab==="guion") ? "equipo"
+    : tab==="caja" && puede(user, "ventas.metricas.ver") ? "metricas"
     : (esAsistenciaAdmin && VISTAS_TURNOS_ASISTENCIA.some(([id])=>id===tab)) ? "turnos" : tab;
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
   const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda:false, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
@@ -17590,13 +17728,14 @@ export default function App() {
         {NAVIDAD && <MagiaNavidad/>}
         {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
         <main style={{flex:1,overflowY:"auto",padding:16}}>{panel}</main>
-        <BottomNav tab={tabNav} setTab={setTabNav} user={user} area={area} liderOper={liderOper}/>
+        <BottomNav tab={tabNav} setTab={setTabNav} user={user} area={area} liderOper={liderOper} juntaLideres={juntaLideres}/>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
         {modalFirmas}
         {modalRegistrar}
         {modalMarcar}
+        {modalJuntaNueva}
         {bannerActualizacion}
       </div>
     </ReadOnlyContext.Provider>
@@ -17622,6 +17761,7 @@ export default function App() {
         {modalFirmas}
         {modalRegistrar}
         {modalMarcar}
+        {modalJuntaNueva}
         {bannerActualizacion}
       </div>
     </ReadOnlyContext.Provider>
