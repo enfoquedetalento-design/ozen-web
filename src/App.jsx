@@ -1239,14 +1239,122 @@ function SelectorArea({ user, area, onChooseArea, compact, apretado, sinIconos }
   );
 }
 
+// ── Fotos de perfil (nov 2026, pedido de Santiago) ────────────────────────────────────────────
+// Cada persona se toma su foto en «Mi foto» (menú de su cuenta) — solo con la cámara, sin subir de
+// la galería. Se guarda recortada a 320×320 en el espacio `fotos-perfil` y el link en
+// usuarios.foto_url (ver sql/fotos_perfil.sql). Quien no tenga foto sigue con su inicial. Las
+// cuentas de tienda no tienen foto (las usa más de una persona).
+// Mapa id → foto, para lugares que solo conocen el id (ej. líderes de La Junta). App lo actualiza
+// cada vez que cambian los usuarios.
+const FOTOS_USUARIOS = { mapa:{} };
+const fotoDeUsuario = (id) => (id && FOTOS_USUARIOS.mapa[id]) || null;
+const registrarFotosUsuarios = (lista) => { FOTOS_USUARIOS.mapa = Object.fromEntries((lista||[]).filter(u=>u.foto_url).map(u=>[u.id, u.foto_url])); };
+const FotoPersona = ({ persona, nombre, fotoUrl, size=28, radius="50%", fondo=C.tinta, color=C.goldDark, style }) => {
+  const url = fotoUrl || (persona && persona.role!=="tienda" ? (persona.foto_url || fotoDeUsuario(persona.id)) : null);
+  const txt = (nombre || persona?.name || "").replace(/^\s*ozen\s+/i,"").trim();
+  const base = { width:size, height:size, borderRadius:radius, flexShrink:0, display:"inline-grid", placeItems:"center", overflow:"hidden", ...style };
+  if(url) return <span style={{ ...base, background:C.surfaceHover }}><img src={url} alt={txt} loading="lazy" draggable={false} style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}/></span>;
+  return <span aria-hidden="true" style={{ ...base, background:fondo, color, fontFamily:font.body, fontWeight:700, fontSize:Math.round(size*0.42) }}>{(txt[0]||"?").toUpperCase()}</span>;
+};
+// Avisa a App que la foto de alguien cambió (para refrescar la barra de arriba y las listas).
+const avisarFotoCambiada = (id, url) => { try { window.dispatchEvent(new CustomEvent("ozen-foto-cambiada", { detail:{ id, url } })); } catch { /* sin window */ } };
+
+function ModalMiFoto({ user, onCerrar }) {
+  const videoRef = useRef(null), streamRef = useRef(null);
+  const [listo, setListo] = useState(false), [foto, setFoto] = useState(null), [error, setError] = useState(""), [guardando, setGuardando] = useState(false);
+  const fotoActual = user.foto_url || fotoDeUsuario(user.id);
+  const iniciar = useCallback(async () => {
+    setError(""); setListo(false);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video:{ width:720, height:720, facingMode:"user" } });
+      streamRef.current = stream;
+      if(videoRef.current){ videoRef.current.srcObject = stream; videoRef.current.onloadedmetadata = () => { videoRef.current.play(); setListo(true); }; }
+    } catch { setError("No se pudo abrir la cámara. Revisa que la app tenga permiso de usarla."); }
+  }, []);
+  const detener = useCallback(() => { streamRef.current?.getTracks().forEach(t=>t.stop()); streamRef.current = null; }, []);
+  useEffect(() => { iniciar(); return () => detener(); }, [iniciar, detener]);
+  const tomar = () => {
+    const v = videoRef.current; if(!v || !v.videoWidth) return;
+    // Cuadrado del centro, en espejo (igual a como la persona se ve en la pantalla), 320×320.
+    const lado = Math.min(v.videoWidth, v.videoHeight), sx = (v.videoWidth-lado)/2, sy = (v.videoHeight-lado)/2;
+    const c = document.createElement("canvas"); c.width = 320; c.height = 320;
+    const ctx = c.getContext("2d"); ctx.translate(320, 0); ctx.scale(-1, 1); ctx.drawImage(v, sx, sy, lado, lado, 0, 0, 320, 320);
+    setFoto(c.toDataURL("image/jpeg", 0.82)); detener();
+  };
+  const repetir = () => { setFoto(null); iniciar(); };
+  const guardar = async () => {
+    setGuardando(true); setError("");
+    try {
+      const blob = await fetch(foto).then(r=>r.blob());
+      const nombreArchivo = `${user.id}_${Date.now()}.jpg`;
+      const { error:errSubir } = await supabase.storage.from("fotos-perfil").upload(nombreArchivo, blob, { contentType:"image/jpeg", upsert:true });
+      if(errSubir) throw errSubir;
+      const { data:pub } = supabase.storage.from("fotos-perfil").getPublicUrl(nombreArchivo);
+      const url = pub.publicUrl;
+      const { error:errUsr } = await supabase.from("usuarios").update({ foto_url:url }).eq("id", user.id);
+      if(errUsr) throw errUsr;
+      avisarFotoCambiada(user.id, url); onCerrar();
+    } catch(e) {
+      setError(`No se pudo guardar la foto: ${e.message||"error desconocido"}${/bucket|foto_url|not found/i.test(e.message||"") ? " — falta correr sql/fotos_perfil.sql en Supabase." : ""}`);
+    }
+    setGuardando(false);
+  };
+  const quitar = async () => {
+    if(!window.confirm("¿Quitar tu foto? Vuelves a verte con tu inicial.")) return;
+    setGuardando(true);
+    const { error:e } = await supabase.from("usuarios").update({ foto_url:null }).eq("id", user.id);
+    setGuardando(false);
+    if(e){ setError(`No se pudo quitar: ${e.message}`); return; }
+    avisarFotoCambiada(user.id, null); onCerrar();
+  };
+  const T = 240;
+  return createPortal(
+    <div className="ozen-modal-overlay" onClick={guardando?undefined:()=>{ detener(); onCerrar(); }} style={{ position:"fixed", inset:0, background:"rgba(26,59,82,0.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:5000, padding:16 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:22, width:"100%", maxWidth:360, padding:"22px 22px 18px", textAlign:"center", boxShadow:"0 30px 60px -30px rgba(26,59,82,.6)", fontFamily:font.body }}>
+        <div style={{ fontSize:18, fontWeight:700, color:C.text }}>{foto ? "¿Te gusta así?" : fotoActual ? "Cambiar mi foto" : "Mi foto"}</div>
+        <div style={{ fontSize:12.5, color:C.textMuted, marginTop:4 }}>{foto ? "Así te verán en la app." : "Mira a la cámara y centra tu cara en el círculo."}</div>
+        <div style={{ position:"relative", width:T, height:T, margin:"16px auto 14px", borderRadius:"50%", overflow:"hidden", background:C.surfaceHover, boxShadow:`0 0 0 4px #fff, 0 0 0 6px ${C.tinta}` }}>
+          {foto ? <img src={foto} alt="Tu foto" style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}/> : (
+            <>
+              <video ref={videoRef} autoPlay muted playsInline style={{ width:"100%", height:"100%", objectFit:"cover", transform:"scaleX(-1)", display:listo?"block":"none" }}/>
+              {!listo && !error && <div style={{ position:"absolute", inset:0, display:"grid", placeItems:"center", fontSize:13, color:C.textMuted }}>Abriendo cámara…</div>}
+              {error && !listo && <div style={{ position:"absolute", inset:0, display:"grid", placeItems:"center", padding:20, fontSize:12.5, color:C.red }}>📵 {error}</div>}
+            </>
+          )}
+        </div>
+        {error && (listo || foto) && <div style={{ fontSize:12, color:C.red, marginBottom:10 }}>{error}</div>}
+        <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap" }}>
+          {foto ? (
+            <>
+              <Btn onClick={repetir} variant="ghost" disabled={guardando}>↩ Repetir</Btn>
+              <Btn onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "✓ Usar esta foto"}</Btn>
+            </>
+          ) : (
+            <>
+              <Btn onClick={()=>{ detener(); onCerrar(); }} variant="ghost">Cancelar</Btn>
+              <Btn onClick={tomar} disabled={!listo}>📷 Tomar foto</Btn>
+            </>
+          )}
+        </div>
+        {!foto && fotoActual && <button onClick={quitar} disabled={guardando} style={{ all:"unset", cursor:"pointer", marginTop:12, fontSize:12, color:C.textMuted, textDecoration:"underline" }}>Quitar mi foto</button>}
+        <div style={{ fontSize:11, color:C.textMuted, marginTop:12, lineHeight:1.45 }}>Tu foto solo se usa dentro de OZEN para identificarte. La puedes cambiar o quitar cuando quieras.</div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   const [abierto, setAbierto] = useState(false);
   const [sonNavidad, setSonNavidad] = useState(() => sonidosNavidadActivos()); // Navidad: cada quien puede apagar los sonidos de temporada
+  const [miFoto, setMiFoto] = useState(false);
+  const tieneFoto = !esCuentaTienda(user) && !!(user.foto_url || fotoDeUsuario(user.id));
   const cerrarY = (fn) => () => { setAbierto(false); fn(); };
   const nombre = esCuentaTienda(user) ? user.name : user.name.split(" ")[0];
   return (
     <div style={{ position:"relative" }}>
-      <button onClick={()=>setAbierto(a=>!a)} title="Tu cuenta" style={{ width:36, height:36, borderRadius:"50%", background:C.tinta, border:"none", display:"grid", placeItems:"center", fontFamily:font.body, fontSize:14, fontWeight:700, color:C.goldDark, cursor:"pointer" }}>{(esCuentaTienda(user) ? (user.name||"").replace(/^\s*ozen\s+/i,"") : (user.name||""))[0]?.toUpperCase() || "?"}</button>
+      <button onClick={()=>setAbierto(a=>!a)} title="Tu cuenta" style={{ width:36, height:36, borderRadius:"50%", background:C.tinta, border:"none", padding:0, display:"grid", placeItems:"center", fontFamily:font.body, fontSize:14, fontWeight:700, color:C.goldDark, cursor:"pointer", overflow:"hidden" }}>{tieneFoto ? <FotoPersona persona={user} size={36}/> : ((esCuentaTienda(user) ? (user.name||"").replace(/^\s*ozen\s+/i,"") : (user.name||""))[0]?.toUpperCase() || "?")}</button>
+      {miFoto && <ModalMiFoto user={user} onCerrar={()=>setMiFoto(false)}/>}
       <MenuFlotante abierto={abierto} onCerrar={()=>setAbierto(false)} width={250}>
         <div style={{ padding:"10px 12px 12px", borderBottom:`1px solid ${C.border}`, marginBottom:4 }}>
           <div style={{ fontFamily:font.body, fontSize:14, fontWeight:700, color:C.text, textTransform:esCuentaTienda(user)?"uppercase":"none" }}>{nombre}</div>
@@ -1256,6 +1364,7 @@ function MenuCuenta({ user, onLogout, onCambiarPassword, onAbrirAccesoTiendas, o
         {permCondicion(user, "cuenta.acceso_tiendas")===null && <MenuItem ic={<Icon n="store" s={16}/>} onClick={cerrarY(onAbrirAccesoTiendas)}>Acceso tiendas</MenuItem>}
         {puede(user, "asistencia.avisos") && notificacionesSoportadas() && (!pushActivo()||requiereInstalarEnIOS()) && <MenuItem ic={<Icon n="bell" s={16}/>} onClick={cerrarY(onActivarNotificaciones)}>Activar notificaciones</MenuItem>}
         {permCondicion(user, "cuenta.password")===null && <MenuItem ic={<Icon n="key" s={16}/>} onClick={cerrarY(onCambiarPassword)}>Mi contraseña</MenuItem>}
+        {!esCuentaTienda(user) && <MenuItem ic={<FotoPersona persona={user} size={18}/>} onClick={cerrarY(()=>setMiFoto(true))}>{tieneFoto ? "Cambiar mi foto" : "Mi foto"}</MenuItem>}
         {NAVIDAD && <MenuItem ic={<Icon n="bell" s={16}/>} onClick={()=>{ const v=!sonNavidad; setSonNavidad(v); guardarSonidosNavidad(v); if(v) sonidoNavidadIngreso(); }} extra={<span style={{ fontSize:12, fontWeight:700, color:sonNavidad?C.green:C.textMuted }}>{sonNavidad?"Sí":"No"}</span>}>Sonidos de Navidad</MenuItem>}
         <MenuItem ic={<Icon n="logout" s={16}/>} color={C.red} onClick={cerrarY(onLogout)}>Cerrar sesión</MenuItem>
       </MenuFlotante>
@@ -1804,7 +1913,7 @@ function UsersScreen({ users, setUsers }) {
               <div><Field label="Nombre" value={editVal.name} onChange={v=>setEditVal(p=>({...p,name:v}))} /><Field label="Usuario" value={editVal.documento} onChange={v=>setEditVal(p=>({...p,documento:v}))} /><div style={{display:"flex",gap:8}}><Btn onClick={()=>saveEdit(u.id)} variant="success" sm full>Guardar</Btn><Btn onClick={()=>setEditing(null)} variant="ghost" sm full>Cancelar</Btn></div></div>
             ):(
               <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <div style={{width:36,height:36,borderRadius:8,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,fontWeight:700,color:"#fff",flexShrink:0}}>{u.name[0]}</div>
+                <FotoPersona persona={u} size={36} radius={8} fondo={C.gold} color="#fff"/>
                 <div style={{flex:1,minWidth:0}}><div style={{fontFamily:font.body,fontSize:13,color:C.text,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div><div style={{fontFamily:font.mono,fontSize:11,color:C.textMuted}}>{u.documento}</div></div>
                 <Badge color={u.active?C.green:C.red} sm>{u.active?"Activo":"Inactivo"}</Badge>
                 {!soloLectura && <div style={{display:"flex",gap:4,flexShrink:0}}>
@@ -1879,7 +1988,7 @@ function UsuariosScreen({ users, setUsers, stores }) {
               </div>
             ):(
               <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                <div style={{width:36,height:36,borderRadius:8,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,fontWeight:700,color:"#fff",flexShrink:0}}>{u.name[0]}</div>
+                <FotoPersona persona={u} size={36} radius={8} fondo={C.gold} color="#fff"/>
                 <div style={{flex:1,minWidth:120}}><div style={{fontFamily:font.body,fontSize:13,color:C.text,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div><div style={{fontFamily:font.mono,fontSize:11,color:C.textMuted}}>{u.documento}</div></div>
                 <Badge color={ROLE_COLOR[u.role]||C.textMuted} sm title={ROLE_PERMISOS[u.role]}>{ROLE_LABEL[u.role]||u.role}</Badge>
                 {u.role==="tienda" && <Badge color={C.textMuted} sm>{stores[u.tienda_id]?.name || "Sin tienda asignada"}</Badge>}
@@ -2900,7 +3009,7 @@ function TiendasAccesoScreen({ users, setUsers, stores }) {
               </div>
             ):(
               <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                <div style={{width:36,height:36,borderRadius:8,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font.body,fontWeight:700,color:"#fff",flexShrink:0}}>{u.name[0]}</div>
+                <FotoPersona persona={u} size={36} radius={8} fondo={C.gold} color="#fff"/>
                 <div style={{flex:1,minWidth:120}}><div style={{fontFamily:font.body,fontSize:13,color:C.text,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div><div style={{fontFamily:font.mono,fontSize:11,color:C.textMuted}}>{u.documento}</div></div>
                 <Badge color={C.textMuted} sm>{stores[u.tienda_id]?.name || "Sin tienda asignada"}</Badge>
                 <Badge color={u.active?C.green:C.red} sm>{u.active?"Activo":"Inactivo"}</Badge>
@@ -3339,7 +3448,7 @@ function TurnosHoy({ advisors, asigMap, stores, turnosGlobales, turnosHorarios, 
           <tbody>
             {orden.map(a=>(
               <tr key={a.id}>
-                <td style={{ padding:"0 6px", fontFamily:font.body, fontSize:isMobile?12.5:13, fontWeight:700, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{isMobile ? primerNombre(a.name) : a.name.split(" ").slice(0,2).join(" ")}</td>
+                <td style={{ padding:"0 6px", fontFamily:font.body, fontSize:isMobile?12.5:13, fontWeight:700, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}><span style={{ display:"inline-flex", alignItems:"center", gap:7, maxWidth:"100%" }}><FotoPersona persona={a} size={isMobile?20:24}/><span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{isMobile ? primerNombre(a.name) : a.name.split(" ").slice(0,2).join(" ")}</span></span></td>
                 {cols.map(([f])=>{ const asig=asigMap.get(`${a.id}|${f}`); const turno=resolverTurno(asig, stores, turnosGlobales); return (
                   <td key={f} style={{ padding:0 }}><BloqueTurno turno={turno} horario={isMobile?null:horarioDelDia(asig, f, turnosHorarios)?.replace(" (especial)"," ⏱")} tenue={f!==todayStr} marcado={f===todayStr}/></td>
                 ); })}
@@ -4878,9 +4987,11 @@ function JuntaVistaPorLider({ lideres, setLideres, areas, setAreas, liderAreas, 
         return (
         <Card key={l.id} style={{ marginBottom:14 }}>
           <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14, flexWrap:"wrap" }}>
+            {fotoDeUsuario(l.usuario_id) ? <FotoPersona fotoUrl={fotoDeUsuario(l.usuario_id)} nombre={l.nombre} size={42} radius={10}/> : (
             <div style={{ width:42, height:42, borderRadius:10, background:C.surfaceAlt, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:font.body, fontSize:16, fontWeight:700, color:C.textSub, flexShrink:0 }}>
               {l.nombre ? l.nombre[0].toUpperCase() : "?"}
             </div>
+            )}
             <div style={{ flex:1, minWidth:140 }}>
               <div style={{ fontFamily:font.body, fontSize:16, fontWeight:700, color:C.text }}>{l.nombre || "— sin nombre asignado"}</div>
               <div style={{ fontFamily:font.body, fontSize:11, color:C.textMuted, marginTop:2 }}>Líder {i+1} en la rotación</div>
@@ -5445,7 +5556,7 @@ function JuntaSeguimientoScreen({ user, lideres, compromisos, setCompromisos, ac
             <div style={{ padding:"12px 16px", background:"#fff", borderRadius:12, border:`1px solid ${C.border}`, borderLeft:`3px solid ${compartida?C.blue:C.border}`, display:"flex", flexDirection:"column", gap:6 }}>
               {/* Línea 1: líder(es), fecha, estado (vencida/cumplida), reabrir */}
               <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
-                <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:11.5, color:C.goldDark, fontWeight:600, background:C.surfaceHover, borderRadius:99, padding:"2px 9px" }}><Icon n="user" s={12}/>{nombresLideres}</div>
+                <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontFamily:font.body, fontSize:11.5, color:C.goldDark, fontWeight:600, background:C.surfaceHover, borderRadius:99, padding:"2px 9px" }}>{g.length===1 && fotoDeUsuario(lideres.find(l=>l.id===g[0].lider_id)?.usuario_id) ? <FotoPersona fotoUrl={fotoDeUsuario(lideres.find(l=>l.id===g[0].lider_id)?.usuario_id)} size={16} style={{ marginLeft:-5 }}/> : <Icon n="user" s={12}/>}{nombresLideres}</div>
                 {base.fecha_estimada && <div style={{ display:"inline-flex", alignItems:"center", gap:4, fontFamily:font.mono, fontSize:10.5, color:vencida?C.amber:C.textMuted }}><Icon n="cal" s={12}/>{base.fecha_estimada}</div>}
                 {completadoGrupo && <Badge color={C.green} sm>Cumplida</Badge>}
                 {autorreportadoGrupo && <Badge color={C.blue} sm title="Marcada por su responsable, falta que el monitor la confirme">Autorreportada</Badge>}
@@ -6134,7 +6245,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
         <MarcaOzen user={{ role:"" }} onAbrirUsuarios={()=>{}} compact={isMobile}/>
         <div style={{ flex:1 }}/>
         <span style={{ fontSize:13, color:C.textSub, display:isMobile?"none":"inline" }}>{user.name}</span>
-        <span style={{ width:34, height:34, borderRadius:"50%", background:C.tinta, color:C.goldDark, display:"grid", placeItems:"center", fontWeight:700, fontSize:14 }}>{user.name[0]}</span>
+        <FotoPersona persona={user} size={34}/>
         <Btn onClick={onLogout} variant="ghost" sm><Icon n="logout" s={14}/>Salir</Btn>
       </div>
       <div style={{ flex:1, display:"flex", alignItems:isMobile?"flex-start":"center", justifyContent:"center", padding:isMobile?"26px 16px 40px":"40px 24px 60px" }}>
@@ -11429,7 +11540,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
                 <tbody>
                   {filas.map(d=>(
                     <tr key={d.asesor.id}>
-                      <td style={tdMet}><b>{d.asesor.name}</b><div style={{ height:5, width:isMobile?110:150, background:C.surfaceHover, borderRadius:9, marginTop:6 }}><div style={{ height:"100%", width:`${d.sinServicios/maxVenta*100}%`, background:C.gold, borderRadius:9 }}/></div></td>
+                      <td style={tdMet}><span style={{ display:"inline-flex", alignItems:"center", gap:8 }}><FotoPersona persona={d.asesor} size={24}/><b>{d.asesor.name}</b></span><div style={{ height:5, width:isMobile?110:150, background:C.surfaceHover, borderRadius:9, marginTop:6 }}><div style={{ height:"100%", width:`${d.sinServicios/maxVenta*100}%`, background:C.gold, borderRadius:9 }}/></div></td>
                       <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:d.sinServicios>0?C.text:C.textMuted }}>{fmtCOP(d.sinServicios)}</td>
                       <td style={{ ...tdMet, textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{d.meta>0?fmtCOP(d.meta):"—"}</td>
                       <td style={{ ...tdMet, textAlign:"right" }}><EstadoIDC idc={d.idc} conValor/></td>
@@ -11747,7 +11858,7 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
               const numero = idx<3
                 ? <span style={{ width:26, textAlign:"center", flexShrink:0, fontSize:20, lineHeight:1 }}>{medalla(idx)}</span>
                 : <span style={{ width:26, height:26, borderRadius:"50%", display:"grid", placeItems:"center", flexShrink:0, fontFamily:font.body, fontSize:12.5, fontWeight:700, background:C.surfaceHover, color:C.textSub }}>{idx+1}</span>;
-              const nombre = <span style={{ display:"flex", alignItems:"center", gap:6, minWidth:0, fontFamily:font.body, fontSize:14, fontWeight:idx<3?700:600, color:C.text }}>{d.esEquipo && <Icon n="users" s={15} style={{ color:C.gold }}/>}<span style={{ minWidth:0 }}><span style={{ display:"block", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.asesor.name}</span>{d.esEquipo && <span style={{ display:"block", fontSize:11, fontWeight:400, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.miembros.map(m=>m.asesor.name.split(" ")[0]).join(", ")}</span>}</span>{info}</span>;
+              const nombre = <span style={{ display:"flex", alignItems:"center", gap:6, minWidth:0, fontFamily:font.body, fontSize:14, fontWeight:idx<3?700:600, color:C.text }}>{d.esEquipo ? <Icon n="users" s={15} style={{ color:C.gold }}/> : <FotoPersona persona={d.asesor} size={idx<3?30:26}/>}<span style={{ minWidth:0 }}><span style={{ display:"block", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.asesor.name}</span>{d.esEquipo && <span style={{ display:"block", fontSize:11, fontWeight:400, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.miembros.map(m=>m.asesor.name.split(" ")[0]).join(", ")}</span>}</span>{info}</span>;
               const pct = <span style={{ fontFamily:font.mono, fontSize:15, fontWeight:700, color:C.text, textAlign:"right" }}>{d.idc}%</span>;
               const plata = <span style={{ fontFamily:font.mono, fontSize:12, color:C.textMuted, whiteSpace:"nowrap" }}><span style={{ color:C.text }}>{fmtCOP(d.sinServicios)}</span> / {fmtCOP(d.meta)}</span>;
               const borde = idx<rankingTodasTiendas.length-1 ? `1px solid ${C.border}` : "none";
@@ -17021,6 +17132,17 @@ export default function App() {
   // elegida; quien de verdad inició sesión sigue en `usuarioSesion`.
   const [verComo,setVerComo]=useState(null);
   const user = verComo || usuarioSesion;
+  // Fotos de perfil: mapa id → foto para los lugares que solo conocen el id, y cuando alguien cambia
+  // su foto (ModalMiFoto) se refresca de una vez en la barra de arriba y en las listas.
+  useMemo(()=>registrarFotosUsuarios(users), [users]);
+  useEffect(()=>{
+    const alCambiar = (e) => { const { id, url } = e.detail||{}; if(!id) return;
+      setUsers(prev=>prev.map(u=>u.id===id ? { ...u, foto_url:url } : u));
+      setUser(u=>u && u.id===id ? { ...u, foto_url:url } : u);
+      setVerComo(v=>v && v.id===id ? { ...v, foto_url:url } : v); };
+    window.addEventListener("ozen-foto-cambiada", alCambiar);
+    return () => window.removeEventListener("ozen-foto-cambiada", alCambiar);
+  }, []);
   // Para que el panel principal sepa si el cambio que se acaba de hacer fue de MÓDULO (área) o solo
   // de PESTAÑA dentro del mismo módulo — cada uno usa una animación distinta (ver globalAnimStyles).
   const prevAreaRef = useRef(area);
