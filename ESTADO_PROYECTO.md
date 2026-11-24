@@ -1236,6 +1236,12 @@ Pedido de Santiago: el módulo más intuitivo.
     renglón además de agregar el medio; si no, la plata quedaba en el día de la venta y el N.º se
     perdía. Lista de ventas: el registro de la factura muestra "3321 · 3351" y el de la Notacrédito
     "3351 · 3321"; el registro del día de la venta ya no muestra los medios del excedente.
+  - **Lista conectada con Métricas y barra de arriba sin montarse (24 nov):** Lista de ventas lleva
+    arriba el selector Lista · Consultas · Caja (`conSelectorLista`; Consultas y Caja llevan a
+    Métricas, según permisos). En computador, `BarraSuperior` usa columnas
+    `minmax(max-content, 1fr)` para que los lados nunca se monten sobre los módulos; si la ventana es
+    angosta, los módulos van con nombre corto y más juntos (`apretado`, <1360 px con "en turno"),
+    sin íconos (<1060 px), y "en turno / en almuerzo" queda solo con el número (`compacto`).
   - **N.º de Siigo de una Notacrédito nunca repetido (22 nov, regla de Santiago):** en Aplicar
     Notacrédito, Notacrédito Siigo y Cambio de producto, el N.º nuevo no puede ser igual al de la
     factura original ni al de otra Notacrédito de esa factura (`avisoNumeroSiigoRepetido`, compara
