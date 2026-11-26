@@ -1103,7 +1103,9 @@ const centrarMas = (tabs) => {
   return [...L, tabs[i], ...R];
 };
 const tabsPara = (user, area, liderOper="", juntaLideres=[]) => !puedeUsarAreas(user)
-  ? (esCuentaTienda(user) ? centrarMas([...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : []), ...(puedeOper(user, "operaciones.ver") ? [{ id:"op_externas", icon:"🧰", label:"Operaciones" }] : [])]) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
+  // Cuenta de tienda (26 nov 2026): elige arriba entre Ventas y Operaciones como las demás cuentas;
+  // en Ventas el dock trae sus pestañas (+ Turnos) y en Operaciones solo su pestaña.
+  ? (esCuentaTienda(user) ? (area==="operaciones" ? [{ id:"op_externas", icon:"🧰", label:"Operaciones" }] : centrarMas([...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : [])])) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
   : (area==="junta" ? tabsJunta(user, juntaLideres) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>(t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) && (t.id!=="op_producto" || puedeOper(user, "operaciones.producto.ver", liderOper))) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
@@ -1130,7 +1132,7 @@ const AREAS_NAV = [
   // áreas es una fila de botones: ahí se muestra el nombre corto.
   { id:"capacitacion", label:"Escuela OZEN", corto:"Escuela", ic:"book" },
 ];
-const areasPara = (user) => AREAS_NAV.filter(a => user.role==="advisor" ? (a.id==="asistencia" || a.id==="capacitacion") : ((a.id!=="ventas" || puedeUsarVentasArea(user)) && (a.id!=="operaciones" || puedeOper(user, "operaciones.ver"))));
+const areasPara = (user) => AREAS_NAV.filter(a => user.role==="tienda" ? (a.id==="ventas" || (a.id==="operaciones" && puedeOper(user, "operaciones.ver"))) : user.role==="advisor" ? (a.id==="asistencia" || a.id==="capacitacion") : ((a.id!=="ventas" || puedeUsarVentasArea(user)) && (a.id!=="operaciones" || puedeOper(user, "operaciones.ver"))));
 // "OZEN Unicentro" → "Unicentro": en la barra y en las etiquetas el prefijo de marca sobra.
 const nombreTiendaCorto = (s) => (s?.name || "").replace(/^OZEN\s+/i, "") || "—";
 const colorTienda = (s) => s?.color || "#6b7280";
@@ -1449,7 +1451,7 @@ function BarraSuperior({ franja, extraDerecha, campana, user, area, onChooseArea
     <div style={{ height:60, margin:"12px 20px 0", display:"grid", gridTemplateColumns:"minmax(max-content, 1fr) auto minmax(max-content, 1fr)", alignItems:"center", padding:"0", pointerEvents:"none", gap:apretado?12:20, flexShrink:0, position:"relative", zIndex:20 }}>
       {/* 22 nov 2026: los módulos van centrados (marca a la izquierda, cuenta a la derecha). */}
       <div style={{ display:"flex", alignItems:"center" }}><span style={{ ...ISLA, display:"inline-flex", alignItems:"center", padding:"10px 18px" }}><MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios}/></span></div>
-      <div style={{ display:"flex", justifyContent:"center", position:"relative" }}>{eligeModulo(user) ? <SelectorArea user={user} area={area} onChooseArea={onChooseArea} apretado={apretado} sinIconos={sinIconos}/> : esCuentaTienda(user) && <IslaTienda user={user} stores={stores}/>}
+      <div style={{ display:"flex", justifyContent:"center", position:"relative" }}>{(eligeModulo(user) || (esCuentaTienda(user) && areasPara(user).length>1)) ? <SelectorArea user={user} area={area} onChooseArea={onChooseArea} apretado={apretado} sinIconos={sinIconos}/> : esCuentaTienda(user) && <IslaTienda user={user} stores={stores}/>}
         {franja && <span aria-hidden="true" style={{ position:"absolute", left:"18%", right:"18%", bottom:-7, height:3, borderRadius:3, background:franja, transition:"background-color .35s ease" }}/>}</div>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end" }}><div style={{ display:"flex", alignItems:"center", gap:apretado?8:12, ...ISLA, padding:"5px 5px 5px 8px" }}>
         {extra}
@@ -1480,8 +1482,8 @@ function BarraSuperiorMovil({ franja, extra, campana, user, area, onChooseArea, 
           <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones} onAbrirFirmas={onAbrirFirmas}/>
         </div>
       </div>
-      {!eligeModulo(user) && esCuentaTienda(user) && stores?.[user.tienda_id] && <div style={{ marginTop:10, display:"flex", justifyContent:"center" }}><IslaTienda user={user} stores={stores} compact/></div>}
-      {eligeModulo(user) && <div style={{ marginTop:10, position:"relative" }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/>{franja && <span aria-hidden="true" style={{ position:"absolute", left:"15%", right:"15%", bottom:-6, height:3, borderRadius:3, background:franja }}/>}</div>}
+      {!eligeModulo(user) && esCuentaTienda(user) && areasPara(user).length<2 && stores?.[user.tienda_id] && <div style={{ marginTop:10, display:"flex", justifyContent:"center" }}><IslaTienda user={user} stores={stores} compact/></div>}
+      {(eligeModulo(user) || (esCuentaTienda(user) && areasPara(user).length>1)) && <div style={{ marginTop:10, position:"relative" }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/>{franja && <span aria-hidden="true" style={{ position:"absolute", left:"15%", right:"15%", bottom:-6, height:3, borderRadius:3, background:franja }}/>}</div>}
       {NAVIDAD && <GuirnaldaBarra isMobile/>}
     </div>
   );
@@ -18106,7 +18108,10 @@ export default function App() {
          pequeño rebote; los renglones nuevos entran al recibo deslizándose; los pasos de Caja se
          llenan de verde al quedar hechos. */
       .ozen-tab-linea { transition: left .34s cubic-bezier(.34,1.3,.5,1), width .34s cubic-bezier(.34,1.3,.5,1); }
-      .ozen-tab-btn:hover, .ozen-area-btn:hover { color: ${C.goldDark} !important; }
+      /* El módulo activo no cambia de color al pasar el mouse (antes su texto se volvía azul oscuro
+         sobre el fondo azul oscuro y "desaparecía", sobre todo en el celular, donde el hover se queda
+         pegado después de tocar). */
+      .ozen-tab-btn:hover, .ozen-area-btn:not([data-activo='1']):hover { color: ${C.goldDark} !important; }
       .ozen-menu-item:hover { background: ${C.surfaceHover} !important; }
       .ozen-fila-venta:hover { background: ${C.surfaceAlt} !important; }
       @keyframes ozenAvisoSube { from { opacity:0; transform:translate(-50%, 24px); } to { opacity:1; transform:translate(-50%, 0); } }
@@ -18182,7 +18187,10 @@ export default function App() {
     </div>
   );
 
-  const tabsVisibles = tabsPara(user, area, liderOper, juntaLideres);
+  // Cuenta de tienda: no tiene `area` propia — su "módulo" sale de la pestaña en que está.
+  const areaNav = esCuentaTienda(user) ? (tab==="op_externas" ? "operaciones" : "ventas") : area;
+  const elegirModuloTienda = (a) => { if(a==="operaciones") setTab("op_externas"); else { const tv = tabsVentas(user); setTab((tv.find(t=>t.id==="metricas") || tv.find(t=>!esBotonMas(t.id)))?.id || "lista"); } };
+  const tabsVisibles = tabsPara(user, areaNav, liderOper, juntaLideres);
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
   const mostrarTienda = esAreaVentas && tab==="caja";
   // Asistencia de admins: Turnos lleva a la primera vista que la persona puede ver (si no ve la Malla).
@@ -18240,7 +18248,7 @@ export default function App() {
     : tab==="caja" && puede(user, "ventas.metricas.ver") ? "metricas"
     : (esAsistenciaAdmin && VISTAS_TURNOS_ASISTENCIA.some(([id])=>id===tab)) ? "turnos" : tab;
   const colorTiendaActiva = colorTienda(stores[tiendaActiva]);
-  const propsBarra = { user, area, onChooseArea:chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda:false, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
+  const propsBarra = { user, area:areaNav, onChooseArea:esCuentaTienda(user) ? elegirModuloTienda : chooseArea, stores, tiendaId:tiendaActiva, setTiendaId:setTiendaActiva, tiendaFija:esCuentaTienda(user)?user.tienda_id:null, mostrarTienda:false, onLogout:verComo?salirVerComo:logout, onRefresh:()=>{ refreshAll(); if(tab==="op_externas" || tab==="op_internas") cargarOperaciones(); }, refreshing, onCambiarPassword:()=>setMostrarCambiarPassword(true), onAbrirUsuarios:()=>setMostrarUsuarios(true), onAbrirAccesoTiendas:()=>setMostrarAccesoTiendas(true), onActivarNotificaciones:activarNotificaciones, onAbrirFirmas:()=>setMostrarFirmas(true) };
   const panel = <FlexiAvisosContext.Provider value={flexiAvisosCtx}><div key={`${area}-${tab}`} className={esCambioModulo?"ozen-pane-anim-modulo":"ozen-pane-anim-tab"}>{renderScreen()}</div></FlexiAvisosContext.Provider>;
 
   if(isMobile) return (
@@ -18255,7 +18263,7 @@ export default function App() {
         </div>
         {NAVIDAD && <MagiaNavidad/>}
         <main style={{flex:1,overflowY:"auto",padding:16,paddingTop:altoArriba+10,paddingBottom:altoAbajo+16,"--ozen-abajo":`${altoAbajo+8}px`}}>{panel}</main>
-        <div ref={refAbajo} style={{ position:"absolute", bottom:0, left:0, right:0, zIndex:40, pointerEvents:"none" }}><BottomNav tab={tabNav} setTab={setTabNav} user={user} area={area} liderOper={liderOper} juntaLideres={juntaLideres}/></div>
+        <div ref={refAbajo} style={{ position:"absolute", bottom:0, left:0, right:0, zIndex:40, pointerEvents:"none" }}><BottomNav tab={tabNav} setTab={setTabNav} user={user} area={areaNav} liderOper={liderOper} juntaLideres={juntaLideres}/></div>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
