@@ -1228,6 +1228,20 @@ function useAvisoDeslizar(ref, activo=true){
 // 26 nov 2026 (después): las islas flotan DE VERDAD — el contenido pasa por debajo al subir o
 // bajar (sin franja que tape el fondo). Por eso son blancas casi opacas con un desenfoque suave
 // detrás, y son lo único que recibe toques: el espacio entre una isla y otra deja pasar el toque.
+// Cuentas de tienda (no eligen módulo): en el centro de arriba va la isla con SU tienda — su color,
+// su nombre y el día — para que arriba no quede un hueco (26 nov 2026, Santiago).
+const IslaTienda = ({ user, stores, compact }) => {
+  const t = stores?.[user?.tienda_id]; if(!t) return null;
+  const col = colorTienda(t);
+  const dia = toColombiaDate().toLocaleDateString("es-CO", { weekday:"long", day:"numeric", month:"long" });
+  return (
+    <span style={{ ...ISLA, display:"inline-flex", alignItems:"center", gap:10, padding:compact?"8px 16px":"9px 20px", borderColor:hexToRgba(col,0.35), fontFamily:font.body, whiteSpace:"nowrap" }}>
+      <PuntoTienda color={col} size={compact?9:10}/>
+      <b style={{ fontSize:compact?14:15, color:C.text }}>{nombreTiendaCorto(t)}</b>
+      <span style={{ fontSize:compact?12:12.5, color:C.textMuted }}>{dia.charAt(0).toUpperCase()+dia.slice(1)}</span>
+    </span>
+  );
+};
 const ISLA = { background:"rgba(255,255,255,0.9)", backdropFilter:"blur(14px) saturate(1.3)", WebkitBackdropFilter:"blur(14px) saturate(1.3)", border:`1px solid ${C.border}`, borderRadius:99, boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", pointerEvents:"auto" };
 // Alto real de un elemento (para dejar el espacio justo debajo/encima de las islas flotantes).
 const useAltoElemento = () => {
@@ -1435,7 +1449,7 @@ function BarraSuperior({ franja, extraDerecha, campana, user, area, onChooseArea
     <div style={{ height:60, margin:"12px 20px 0", display:"grid", gridTemplateColumns:"minmax(max-content, 1fr) auto minmax(max-content, 1fr)", alignItems:"center", padding:"0", pointerEvents:"none", gap:apretado?12:20, flexShrink:0, position:"relative", zIndex:20 }}>
       {/* 22 nov 2026: los módulos van centrados (marca a la izquierda, cuenta a la derecha). */}
       <div style={{ display:"flex", alignItems:"center" }}><span style={{ ...ISLA, display:"inline-flex", alignItems:"center", padding:"10px 18px" }}><MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios}/></span></div>
-      <div style={{ display:"flex", justifyContent:"center", position:"relative" }}>{eligeModulo(user) && <SelectorArea user={user} area={area} onChooseArea={onChooseArea} apretado={apretado} sinIconos={sinIconos}/>}
+      <div style={{ display:"flex", justifyContent:"center", position:"relative" }}>{eligeModulo(user) ? <SelectorArea user={user} area={area} onChooseArea={onChooseArea} apretado={apretado} sinIconos={sinIconos}/> : esCuentaTienda(user) && <IslaTienda user={user} stores={stores}/>}
         {franja && <span aria-hidden="true" style={{ position:"absolute", left:"18%", right:"18%", bottom:-7, height:3, borderRadius:3, background:franja, transition:"background-color .35s ease" }}/>}</div>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end" }}><div style={{ display:"flex", alignItems:"center", gap:apretado?8:12, ...ISLA, padding:"5px 5px 5px 8px" }}>
         {extra}
@@ -1466,6 +1480,7 @@ function BarraSuperiorMovil({ franja, extra, campana, user, area, onChooseArea, 
           <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones} onAbrirFirmas={onAbrirFirmas}/>
         </div>
       </div>
+      {!eligeModulo(user) && esCuentaTienda(user) && stores?.[user.tienda_id] && <div style={{ marginTop:10, display:"flex", justifyContent:"center" }}><IslaTienda user={user} stores={stores} compact/></div>}
       {eligeModulo(user) && <div style={{ marginTop:10, position:"relative" }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/>{franja && <span aria-hidden="true" style={{ position:"absolute", left:"15%", right:"15%", bottom:-6, height:3, borderRadius:3, background:franja }}/>}</div>}
       {NAVIDAD && <GuirnaldaBarra isMobile/>}
     </div>
