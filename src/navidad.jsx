@@ -97,7 +97,7 @@ export const GuirnaldaBarra = ({ isMobile }) => {
   }, [isMobile]);
   let p = "M0 2"; for (let i = 0; i < n; i++) { const x0 = i*1000/n, x1 = (i+1)*1000/n; p += ` Q${(x0+x1)/2} 22 ${x1} 2`; }
   return (
-    <div aria-hidden="true" className="ozen-nav-anim" style={{ position:"absolute", left:0, right:0, top:"100%", height:alto, pointerEvents:"none", zIndex:1 }}>
+    <div aria-hidden="true" className="ozen-nav-anim" style={{ position:"absolute", left:16, right:16, top:"100%", height:alto, pointerEvents:"none", zIndex:1 }}>
       <svg viewBox="0 0 1000 24" preserveAspectRatio="none" style={{ position:"absolute", inset:0, width:"100%", height:"100%" }}><path d={p} fill="none" stroke="rgba(26,59,82,.22)" strokeWidth="1.1" vectorEffect="non-scaling-stroke"/></svg>
       <div ref={fila} style={{ position:"absolute", inset:0, display:"flex", justifyContent:"space-around", alignItems:"flex-start" }}>
         {Array.from({ length:n }, (_, i) => (
