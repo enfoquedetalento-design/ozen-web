@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo, createContext, useContext, Fragment, cloneElement, isValidElement } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, createContext, useContext, Fragment, cloneElement, isValidElement } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "./supabase";
 import { activarNotificacionesPush, notificacionesSoportadas, pushActivo, requiereInstalarEnIOS } from "./push";
@@ -1225,7 +1225,17 @@ function useAvisoDeslizar(ref, activo=true){
 // 26 nov 2026 (Santiago, opción «Islas»): arriba no hay una barra con todo adentro — el logo va suelto
 // sobre el fondo y los módulos y la cuenta flotan cada uno en su propia píldora blanca, igual que la
 // barra de pestañas de abajo. Antes era una burbuja con otra adentro y se sentía «remachada».
-const ISLA = { background:"#fff", border:`1px solid ${C.border}`, borderRadius:99, boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)" };
+// 26 nov 2026 (después): las islas flotan DE VERDAD — el contenido pasa por debajo al subir o
+// bajar (sin franja que tape el fondo). Por eso son blancas casi opacas con un desenfoque suave
+// detrás, y son lo único que recibe toques: el espacio entre una isla y otra deja pasar el toque.
+const ISLA = { background:"rgba(255,255,255,0.9)", backdropFilter:"blur(14px) saturate(1.3)", WebkitBackdropFilter:"blur(14px) saturate(1.3)", border:`1px solid ${C.border}`, borderRadius:99, boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", pointerEvents:"auto" };
+// Alto real de un elemento (para dejar el espacio justo debajo/encima de las islas flotantes).
+const useAltoElemento = () => {
+  const [el, setEl] = useState(null); const [alto, setAlto] = useState(0);
+  useLayoutEffect(()=>{ if(!el) return; const medir = ()=>setAlto(el.getBoundingClientRect().height); medir();
+    const ro = typeof ResizeObserver!=="undefined" ? new ResizeObserver(medir) : null; ro?.observe(el); return ()=>ro?.disconnect(); }, [el]);
+  return [setEl, alto];
+};
 function SelectorArea({ user, area, onChooseArea, compact, apretado, sinIconos }) {
   // En celular cada botón mide lo que mide su texto (no repartidos en partes iguales) y la fila se
   // desliza de lado, con el aviso de movimiento de arriba. El botón activo queda siempre a la vista.
@@ -1422,9 +1432,9 @@ function BarraSuperior({ franja, extraDerecha, campana, user, area, onChooseArea
   return (
     // Islas (ver ISLA): logo suelto, módulos y cuenta en sus píldoras. En Caja, el color de la tienda
     // va como rayita bajo la píldora de los módulos.
-    <div style={{ height:60, margin:"12px 20px 0", display:"grid", gridTemplateColumns:"minmax(max-content, 1fr) auto minmax(max-content, 1fr)", alignItems:"center", padding:"0 18px 0 22px", gap:apretado?12:20, flexShrink:0, position:"relative", zIndex:20 }}>
+    <div style={{ height:60, margin:"12px 20px 0", display:"grid", gridTemplateColumns:"minmax(max-content, 1fr) auto minmax(max-content, 1fr)", alignItems:"center", padding:"0", pointerEvents:"none", gap:apretado?12:20, flexShrink:0, position:"relative", zIndex:20 }}>
       {/* 22 nov 2026: los módulos van centrados (marca a la izquierda, cuenta a la derecha). */}
-      <div style={{ display:"flex", alignItems:"center" }}><MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios}/></div>
+      <div style={{ display:"flex", alignItems:"center" }}><span style={{ ...ISLA, display:"inline-flex", alignItems:"center", padding:"10px 18px" }}><MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios}/></span></div>
       <div style={{ display:"flex", justifyContent:"center", position:"relative" }}>{eligeModulo(user) && <SelectorArea user={user} area={area} onChooseArea={onChooseArea} apretado={apretado} sinIconos={sinIconos}/>}
         {franja && <span aria-hidden="true" style={{ position:"absolute", left:"18%", right:"18%", bottom:-7, height:3, borderRadius:3, background:franja, transition:"background-color .35s ease" }}/>}</div>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end" }}><div style={{ display:"flex", alignItems:"center", gap:apretado?8:12, ...ISLA, padding:"5px 5px 5px 8px" }}>
@@ -1443,9 +1453,9 @@ function BarraSuperior({ franja, extraDerecha, campana, user, area, onChooseArea
 function BarraSuperiorMovil({ franja, extra, campana, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   return (
     // Islas también en el celular (ver ISLA): logo suelto y la cuenta en su píldora; abajo los módulos.
-    <div style={{ margin:"calc(env(safe-area-inset-top, 0px) * 1.55 + 4px) 10px 0", padding:"2px 2px 4px", flexShrink:0, position:"relative", zIndex:20 }}>
+    <div style={{ margin:"calc(env(safe-area-inset-top, 0px) * 1.55 + 4px) 10px 0", padding:"2px 2px 4px", flexShrink:0, position:"relative", zIndex:20, pointerEvents:"none" }}>
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-        <span style={{ paddingLeft:4 }}><MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios} compact/></span>
+        <span style={{ ...ISLA, display:"inline-flex", alignItems:"center", padding:"9px 14px" }}><MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios} compact/></span>
         <div style={{ flex:1 }}/>
         <div style={{ display:"flex", alignItems:"center", gap:6, ...ISLA, padding:"4px 4px 4px 6px" }}>
           {/* Quién está en turno, arriba como en el computador (en su versión corta: solo números; al tocarlo sale el detalle). */}
@@ -1557,7 +1567,7 @@ function BottomNav({ tab, setTab, user, area, liderOper, juntaLideres }) {
   const tabs = tabsPara(user, area, liderOper, juntaLideres);
   return (
     // 26 nov 2026: flotante, como en computador — tarjeta redondeada separada de los bordes.
-    <div style={{ display:"flex", border:`1px solid ${C.border}`, borderRadius:22, background:"#fff", boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", margin:"6px 10px", marginBottom:"max(10px, calc(env(safe-area-inset-bottom, 0px) + 2px))", padding:"0 6px 4px", flexShrink:0, position:"relative", zIndex:30 }}>
+    <div style={{ display:"flex", border:`1px solid ${C.border}`, borderRadius:22, background:"rgba(255,255,255,0.92)", backdropFilter:"blur(14px) saturate(1.3)", WebkitBackdropFilter:"blur(14px) saturate(1.3)", pointerEvents:"auto", boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", margin:"6px 10px", marginBottom:"max(10px, calc(env(safe-area-inset-bottom, 0px) + 2px))", padding:"0 6px 4px", flexShrink:0, position:"relative", zIndex:30 }}>
       {tabs.map(t => { const active=tab===t.id; if(esBotonMas(t.id)) return (
         <div key={t.id} style={{ flex:1, display:"flex", justifyContent:"center" }}>
           <button onClick={(e)=>setTab(t.id, e.currentTarget.getBoundingClientRect())} aria-label={t.label} style={{ marginTop:-18, width:58, height:58, borderRadius:"50%", border:"4px solid #fff", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 8px 20px -6px rgba(26,59,82,0.6)" }}><Icon n="plus" s={26} sw={2.6}/></button>
@@ -4112,7 +4122,7 @@ function TurnosEditarScreen({ users, setUsers, stores, turnosGlobales, turnosHor
       {!cargandoBorrador && <TurnosAlertas alertas={calcularAlertasTurnos({ dias, advisors:advisorsMalla, asigMap, stores, turnosGlobales })}/>}
       {/* Barra fija abajo: siempre a la vista cuántos cambios hay sin publicar y el botón de publicar. */}
       {!cargandoBorrador && (
-        <div style={{ position:"sticky", bottom:12, zIndex:20, marginTop:8, background:"#fff", borderRadius:14, border:`1px solid ${totalCambios>0?C.amber:C.border}`, boxShadow:"0 10px 30px rgba(20,40,60,0.16)", padding:"10px 14px" }}>
+        <div style={{ position:"sticky", bottom:"var(--ozen-abajo, 12px)", zIndex:20, marginTop:8, background:"#fff", borderRadius:14, border:`1px solid ${totalCambios>0?C.amber:C.border}`, boxShadow:"0 10px 30px rgba(20,40,60,0.16)", padding:"10px 14px" }}>
           {totalCambios===0 ? (
             <div style={{ fontFamily:font.body, fontSize:13, color:C.text }}>✅ El borrador de <b>{MESES_LARGO[mes]}</b> es igual a lo publicado.</div>
           ) : (
@@ -6249,9 +6259,9 @@ function AreaSelector({ user, onChoose, onLogout }) {
         .ozen-modulo-icon { transition:transform .2s ease, background .2s ease, color .2s ease; }
         .ozen-modulo-card:hover .ozen-modulo-icon { transform:scale(1.06) rotate(-3deg); background:${C.goldDark} !important; color:${C.tinta} !important; }
       `}</style>
-      <div style={{ height:isMobile?56:60, margin:isMobile?"calc(env(safe-area-inset-top, 0px) * 1.55 + 4px) 10px 0":"12px 20px 0", display:"flex", alignItems:"center", padding:isMobile?"0 2px 0 6px":"0 0 0 2px", boxSizing:"border-box", gap:12, flexShrink:0, position:"relative", zIndex:5 }}>
+      <div style={{ height:isMobile?56:60, margin:isMobile?"calc(env(safe-area-inset-top, 0px) * 1.55 + 4px) 10px 0":"12px 20px 0", display:"flex", alignItems:"center", padding:0, boxSizing:"border-box", gap:12, flexShrink:0, position:"sticky", top:isMobile?"calc(env(safe-area-inset-top, 0px) * 1.55 + 4px)":12, zIndex:30, pointerEvents:"none" }}>
         {NAVIDAD && <GuirnaldaBarra isMobile={isMobile}/>}
-        <MarcaOzen user={{ role:"" }} onAbrirUsuarios={()=>{}} compact={isMobile}/>
+        <span style={{ ...ISLA, display:"inline-flex", alignItems:"center", padding:isMobile?"9px 14px":"10px 18px" }}><MarcaOzen user={{ role:"" }} onAbrirUsuarios={()=>{}} compact={isMobile}/></span>
         <div style={{ flex:1 }}/>
         <div style={{ display:"flex", alignItems:"center", gap:10, ...ISLA, padding:isMobile?"4px 4px 4px 4px":"4px 4px 4px 14px" }}>
           <span style={{ fontSize:13, color:C.textSub, display:isMobile?"none":"inline" }}>{user.name}</span>
@@ -9204,7 +9214,7 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
 
       {/* En celular, el total y el acceso al botón quedan fijos abajo mientras se llena el formulario. */}
       {isMobile && items.length>0 && (
-        <div style={{ position:"sticky", bottom:0, marginTop:14, background:C.goldDark, color:C.tinta, borderRadius:14, padding:"10px 12px 10px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, boxShadow:"0 12px 24px -12px rgba(26,59,82,0.6)", zIndex:5 }}>
+        <div style={{ position:"sticky", bottom:"var(--ozen-abajo, 0px)", marginTop:14, background:C.goldDark, color:C.tinta, borderRadius:14, padding:"10px 12px 10px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, boxShadow:"0 12px 24px -12px rgba(26,59,82,0.6)", zIndex:5 }}>
           <div><div style={{ fontFamily:font.body, fontSize:10, opacity:.75, textTransform:"uppercase", letterSpacing:"0.08em" }}>Total · {items.length} {items.length===1?"renglón":"renglones"}</div><b style={{ fontFamily:font.mono, fontSize:17 }}>{fmtCOP(total)}</b></div>
           <button onClick={()=>reciboRef.current?.scrollIntoView({ behavior:"smooth", block:"start" })} style={{ background:C.tinta, color:C.goldDark, border:"none", borderRadius:10, padding:"10px 14px", fontFamily:font.body, fontWeight:700, fontSize:13.5, cursor:"pointer" }}>Ver recibo</button>
         </div>
@@ -17495,6 +17505,8 @@ export default function App() {
   // elegida; quien de verdad inició sesión sigue en `usuarioSesion`.
   const [verComo,setVerComo]=useState(null);
   const user = verComo || usuarioSesion;
+  // Islas flotantes: alto real de lo de arriba y lo de abajo, para dejar ese espacio en el contenido.
+  const [refArriba, altoArriba] = useAltoElemento(), [refAbajo, altoAbajo] = useAltoElemento();
   // Fotos de perfil: mapa id → foto para los lugares que solo conocen el id, y cuando alguien cambia
   // su foto (ModalMiFoto) se refresca de una vez en la barra de arriba y en las listas.
   useMemo(()=>registrarFotosUsuarios(users), [users]);
@@ -18218,15 +18230,17 @@ export default function App() {
 
   if(isMobile) return (
     <ReadOnlyContext.Provider value={soloLectura}>
-      <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden",fontFamily:font.body}}>
+      <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,overflow:"hidden",fontFamily:font.body,position:"relative"}}>
         {globalAnimStyles}
         <ConfirmacionGlobal/>
         {bandaVerComo}
         <TopeEstado color={C.dark}/>
+        <div ref={refArriba} style={{ position:"absolute", top:0, left:0, right:0, zIndex:40, pointerEvents:"none" }}>
         <BarraSuperiorMovil {...propsBarra} franja={mostrarTienda && tiendaActiva ? colorTiendaActiva : null} campana={campanaBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
+        </div>
         {NAVIDAD && <MagiaNavidad/>}
-        <main style={{flex:1,overflowY:"auto",padding:16}}>{panel}</main>
-        <BottomNav tab={tabNav} setTab={setTabNav} user={user} area={area} liderOper={liderOper} juntaLideres={juntaLideres}/>
+        <main style={{flex:1,overflowY:"auto",padding:16,paddingTop:altoArriba+10,paddingBottom:altoAbajo+16,"--ozen-abajo":`${altoAbajo+8}px`}}>{panel}</main>
+        <div ref={refAbajo} style={{ position:"absolute", bottom:0, left:0, right:0, zIndex:40, pointerEvents:"none" }}><BottomNav tab={tabNav} setTab={setTabNav} user={user} area={area} liderOper={liderOper} juntaLideres={juntaLideres}/></div>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
@@ -18241,15 +18255,17 @@ export default function App() {
 
   return (
     <ReadOnlyContext.Provider value={soloLectura}>
-      <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden"}}>
+      <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.dark,fontFamily:font.body,overflow:"hidden",position:"relative"}}>
         {globalAnimStyles}
         <ConfirmacionGlobal/>
         {bandaVerComo}
         <TopeEstado color={C.dark}/>
+        <div ref={refArriba} style={{ position:"absolute", top:0, left:0, right:0, zIndex:40, pointerEvents:"none" }}>
         <BarraSuperior {...propsBarra} franja={mostrarTienda && tiendaActiva ? colorTiendaActiva : null} campana={campanaBarra} extraDerecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
+        </div>
         {NAVIDAD && <MagiaNavidad/>}
         {(tabsVisibles.length>1 || tabsVisibles.some(t=>esBotonMas(t.id))) && <DockPestanas tabs={tabsVisibles} tab={tabNav} setTab={setTabNav}/>}
-        <main style={{flex:1,overflowY:"auto",padding:"26px 28px 120px"}}>{panel}</main>
+        <main style={{flex:1,overflowY:"auto",padding:"26px 28px 120px",paddingTop:altoArriba+18,"--ozen-abajo":"96px"}}>{panel}</main>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
