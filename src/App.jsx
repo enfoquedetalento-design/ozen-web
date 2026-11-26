@@ -1222,6 +1222,10 @@ function useAvisoDeslizar(ref, activo=true){
   }, [ref, activo]);
 }
 
+// 26 nov 2026 (Santiago, opción «Islas»): arriba no hay una barra con todo adentro — el logo va suelto
+// sobre el fondo y los módulos y la cuenta flotan cada uno en su propia píldora blanca, igual que la
+// barra de pestañas de abajo. Antes era una burbuja con otra adentro y se sentía «remachada».
+const ISLA = { background:"#fff", border:`1px solid ${C.border}`, borderRadius:99, boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)" };
 function SelectorArea({ user, area, onChooseArea, compact, apretado, sinIconos }) {
   // En celular cada botón mide lo que mide su texto (no repartidos en partes iguales) y la fila se
   // desliza de lado, con el aviso de movimiento de arriba. El botón activo queda siempre a la vista.
@@ -1229,7 +1233,7 @@ function SelectorArea({ user, area, onChooseArea, compact, apretado, sinIconos }
   useAvisoDeslizar(fila, !!compact);
   useEffect(()=>{ if(!compact || !fila.current) return; const on = fila.current.querySelector("[data-activo='1']"); on && on.scrollIntoView({ inline:"nearest", block:"nearest" }); }, [area, compact]);
   return (
-    <div ref={fila} className={compact?"ozen-sin-barra":undefined} style={{ display:"flex", background:C.surfaceHover, borderRadius:99, padding:4, gap:2, ...(compact?{ width:"100%", overflowX:"auto", scrollbarWidth:"none", WebkitOverflowScrolling:"touch", boxSizing:"border-box" }:{}) }}>
+    <div ref={fila} className={compact?"ozen-sin-barra":undefined} style={{ display:"flex", ...ISLA, padding:4, gap:2, ...(compact?{ width:"100%", overflowX:"auto", scrollbarWidth:"none", WebkitOverflowScrolling:"touch", boxSizing:"border-box" }:{}) }}>
       {areasPara(user).map(a=>{ const on=a.id===area; return (
         <button key={a.id} data-activo={on?"1":"0"} onClick={()=>!on && onChooseArea(a.id)} className="ozen-area-btn" style={{ flex:compact?"0 0 auto":undefined, whiteSpace:"nowrap", display:"flex", alignItems:"center", justifyContent:"center", gap:7, padding:compact?"7px 14px":apretado?"8px 11px":"8px 16px", borderRadius:99, border:"none", cursor:on?"default":"pointer", background:on?C.goldDark:"transparent", color:on?"#fff":C.textSub, fontFamily:font.body, fontSize:compact?11.5:13, fontWeight:on?600:500, transition:"background .25s ease, color .25s ease", whiteSpace:"nowrap" }}>
           {!compact && !sinIconos && <Icon n={a.ic} s={15}/>}{(compact||apretado) ? (a.corto||a.label) : a.label}
@@ -1416,20 +1420,20 @@ function BarraSuperior({ franja, extraDerecha, campana, user, area, onChooseArea
   // "En turno / en almuerzo" pasa a solo número cuando no cabe (el detalle sigue al tocarlo).
   const extra = apretado && isValidElement(extraDerecha) ? cloneElement(extraDerecha, { compacto:true }) : extraDerecha;
   return (
-    // 26 nov 2026 (Santiago): barra FLOTANTE, igual que la de pestañas de abajo — tarjeta redondeada
-    // con sombra, separada de los bordes. En Caja, el color de la tienda va como rayita dentro.
-    <div style={{ height:60, background:"#fff", border:`1px solid ${C.border}`, borderRadius:22, boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", margin:"12px 16px 0", display:"grid", gridTemplateColumns:"minmax(max-content, 1fr) auto minmax(max-content, 1fr)", alignItems:"center", padding:"0 18px 0 22px", gap:apretado?12:20, flexShrink:0, position:"relative", zIndex:20 }}>
-      {franja && <span aria-hidden="true" style={{ position:"absolute", left:22, right:22, bottom:0, height:3, borderRadius:3, background:franja, transition:"background-color .35s ease" }}/>}
+    // Islas (ver ISLA): logo suelto, módulos y cuenta en sus píldoras. En Caja, el color de la tienda
+    // va como rayita bajo la píldora de los módulos.
+    <div style={{ height:60, margin:"12px 20px 0", display:"grid", gridTemplateColumns:"minmax(max-content, 1fr) auto minmax(max-content, 1fr)", alignItems:"center", padding:"0 18px 0 22px", gap:apretado?12:20, flexShrink:0, position:"relative", zIndex:20 }}>
       {/* 22 nov 2026: los módulos van centrados (marca a la izquierda, cuenta a la derecha). */}
       <div style={{ display:"flex", alignItems:"center" }}><MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios}/></div>
-      <div style={{ display:"flex", justifyContent:"center" }}>{eligeModulo(user) && <SelectorArea user={user} area={area} onChooseArea={onChooseArea} apretado={apretado} sinIconos={sinIconos}/>}</div>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:apretado?10:14 }}>
+      <div style={{ display:"flex", justifyContent:"center", position:"relative" }}>{eligeModulo(user) && <SelectorArea user={user} area={area} onChooseArea={onChooseArea} apretado={apretado} sinIconos={sinIconos}/>}
+        {franja && <span aria-hidden="true" style={{ position:"absolute", left:"18%", right:"18%", bottom:-7, height:3, borderRadius:3, background:franja, transition:"background-color .35s ease" }}/>}</div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end" }}><div style={{ display:"flex", alignItems:"center", gap:apretado?8:12, ...ISLA, padding:"5px 5px 5px 8px" }}>
         {extra}
         {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija}/>}
         <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
         {campana}
         <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones} onAbrirFirmas={onAbrirFirmas}/>
-      </div>
+      </div></div>
       {NAVIDAD && <GuirnaldaBarra/>}
     </div>
   );
@@ -1438,18 +1442,19 @@ function BarraSuperior({ franja, extraDerecha, campana, user, area, onChooseArea
 
 function BarraSuperiorMovil({ franja, extra, campana, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   return (
-    // 26 nov 2026: flotante también en el celular (tarjeta redondeada con sombra, debajo de la hora).
-    <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:20, boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", margin:"calc(env(safe-area-inset-top, 0px) * 1.55 + 6px) 10px 0", padding:"10px 12px", flexShrink:0, position:"relative", zIndex:20 }}>
-      {franja && <span aria-hidden="true" style={{ position:"absolute", left:18, right:18, bottom:0, height:3, borderRadius:3, background:franja }}/>}
+    // Islas también en el celular (ver ISLA): logo suelto y la cuenta en su píldora; abajo los módulos.
+    <div style={{ margin:"calc(env(safe-area-inset-top, 0px) * 1.55 + 4px) 10px 0", padding:"2px 2px 4px", flexShrink:0, position:"relative", zIndex:20 }}>
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-        <MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios} compact/>
+        <span style={{ paddingLeft:4 }}><MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios} compact/></span>
         <div style={{ flex:1 }}/>
-        {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija} compact/>}
-        <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
-        {campana}
-        <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones} onAbrirFirmas={onAbrirFirmas}/>
+        <div style={{ display:"flex", alignItems:"center", gap:6, ...ISLA, padding:"4px 4px 4px 6px" }}>
+          {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija} compact/>}
+          <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
+          {campana}
+          <MenuCuenta user={user} onLogout={onLogout} onCambiarPassword={onCambiarPassword} onAbrirAccesoTiendas={onAbrirAccesoTiendas} onActivarNotificaciones={onActivarNotificaciones} onAbrirFirmas={onAbrirFirmas}/>
+        </div>
       </div>
-      {eligeModulo(user) && <div style={{ marginTop:10 }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/></div>}
+      {eligeModulo(user) && <div style={{ marginTop:10, position:"relative" }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/>{franja && <span aria-hidden="true" style={{ position:"absolute", left:"15%", right:"15%", bottom:-6, height:3, borderRadius:3, background:franja }}/>}</div>}
       {extra && <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>{extra}</div>}
       {NAVIDAD && <GuirnaldaBarra isMobile/>}
     </div>
@@ -6243,13 +6248,15 @@ function AreaSelector({ user, onChoose, onLogout }) {
         .ozen-modulo-icon { transition:transform .2s ease, background .2s ease, color .2s ease; }
         .ozen-modulo-card:hover .ozen-modulo-icon { transform:scale(1.06) rotate(-3deg); background:${C.goldDark} !important; color:${C.tinta} !important; }
       `}</style>
-      <div style={{ height:isMobile?56:60, background:"#fff", border:`1px solid ${C.border}`, borderRadius:isMobile?20:22, boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", margin:isMobile?"calc(env(safe-area-inset-top, 0px) * 1.55 + 6px) 10px 0":"12px 16px 0", display:"flex", alignItems:"center", padding:isMobile?"0 12px":"0 18px 0 22px", boxSizing:"border-box", gap:12, flexShrink:0, position:"relative", zIndex:5 }}>
+      <div style={{ height:isMobile?56:60, margin:isMobile?"calc(env(safe-area-inset-top, 0px) * 1.55 + 4px) 10px 0":"12px 20px 0", display:"flex", alignItems:"center", padding:isMobile?"0 2px 0 6px":"0 0 0 2px", boxSizing:"border-box", gap:12, flexShrink:0, position:"relative", zIndex:5 }}>
         {NAVIDAD && <GuirnaldaBarra isMobile={isMobile}/>}
         <MarcaOzen user={{ role:"" }} onAbrirUsuarios={()=>{}} compact={isMobile}/>
         <div style={{ flex:1 }}/>
-        <span style={{ fontSize:13, color:C.textSub, display:isMobile?"none":"inline" }}>{user.name}</span>
-        <FotoPersona persona={user} size={34}/>
-        <Btn onClick={onLogout} variant="ghost" sm><Icon n="logout" s={14}/>Salir</Btn>
+        <div style={{ display:"flex", alignItems:"center", gap:10, ...ISLA, padding:isMobile?"4px 4px 4px 4px":"4px 4px 4px 14px" }}>
+          <span style={{ fontSize:13, color:C.textSub, display:isMobile?"none":"inline" }}>{user.name}</span>
+          <FotoPersona persona={user} size={34}/>
+          <Btn onClick={onLogout} variant="ghost" sm style={{ borderRadius:99 }}><Icon n="logout" s={14}/>Salir</Btn>
+        </div>
       </div>
       <div style={{ flex:1, display:"flex", alignItems:isMobile?"flex-start":"center", justifyContent:"center", padding:isMobile?"26px 16px 40px":"40px 24px 60px" }}>
         <div style={{ width:"100%", maxWidth:920 }}>
