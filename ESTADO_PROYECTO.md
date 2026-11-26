@@ -1236,6 +1236,17 @@ Pedido de Santiago: el módulo más intuitivo.
     renglón además de agregar el medio; si no, la plata quedaba en el día de la venta y el N.º se
     perdía. Lista de ventas: el registro de la factura muestra "3321 · 3351" y el de la Notacrédito
     "3351 · 3321"; el registro del día de la venta ya no muestra los medios del excedente.
+  - **#producto en ventas normales y Black Weekend (26 nov):** en Registrar venta, el renglón
+    "Venta" (producto) se llena igual que el Flexipago: un #producto (6 dígitos) y su valor por
+    pieza, "+ Agregar otro producto"; el valor del renglón es la suma (se guarda en
+    `ventas_items.codigos_producto`, el mismo campo del Flexipago). El descuento sigue igual.
+    Corregir factura / Notacrédito Siigo conservan los códigos al reescribir renglones. Promociones:
+    `PROMOCIONES` (hoy Black Weekend 27-30 nov 2026) + columna `ventas.promocion`
+    (sql/ventas_promocion.sql). Botón para marcar en el recibo (solo ventas normales, solo si la fecha
+    está en la promoción); en la tarjeta de la venta "Marcar/Quitar" con permisos de Corregir
+    factura; en la Lista etiqueta + filtro + búsqueda por #producto; en Consultas el campo
+    "Promoción" y las medidas "Piezas vendidas" y "Piezas por venta" (solo cuenta ventas que tienen
+    #producto). Marcar la promoción no cambia ningún número.
   - **Lista conectada con Métricas y barra de arriba sin montarse (24 nov):** Lista de ventas lleva
     arriba el selector Lista · Consultas · Caja (`conSelectorLista`; Consultas y Caja llevan a
     Métricas, según permisos). En computador, `BarraSuperior` usa columnas

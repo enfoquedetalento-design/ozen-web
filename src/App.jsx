@@ -7213,7 +7213,7 @@ const construirFilasVentas = ({ ventasLista, abonosLista, notasLista, ventasItem
     const valorFlex = v.es_flexipago ? its.filter(i=>i.tipo==="flexipago").reduce((t,i)=>t+Number(i.valor||0)-Number(i.descuento||0),0) : 0;
     const flexCompletoDia = v.es_flexipago && valorFlex>0 && abonadoHastaDia>=flexiValorEnFecha(v, valorFlex, v.fecha);
     return { key:`v-${v.id}`, fecha:v.fecha, orden:`${v.fecha||""} ${v.created_at||""}`, hora:horaCol(v.created_at), tiendaId:v.tienda_id, asesor:v.vendedor_nombre||"—", cliente:v.cliente_nombre||"", documento:v.cliente_documento||"",
-      tipo: v.es_flexipago ? (flexCompletoDia ? "Flexipago · completado" : "Flexipago") : tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta", colorTipo:colorDeTipoVenta(tipoPrincipal),
+      tipo: v.es_flexipago ? (flexCompletoDia ? "Flexipago · completado" : "Flexipago") : `${tipos.map(t=>VENTAS_TIPOS.find(x=>x.value===t)?.label||t).join(" + ") || "Venta"}${promoDe(v.promocion) ? ` · ${promoDe(v.promocion).icono} ${promoDe(v.promocion).label}` : ""}`, colorTipo: promoDe(v.promocion) ? promoDe(v.promocion).color : colorDeTipoVenta(tipoPrincipal),
       medios: v.es_flexipago ? ([...new Set(abonosDia.flatMap(a=>mediosDeAbono(a).map(p=>p.medio_pago)))].map(medioCortoLabel).join(" + ") || "Sin abono") : (medios.join(" + ")||"—"), factura:[v.numero_factura||"—", ...numsNc].join(" · "),
       total: v.es_flexipago ? (flexCompletoDia ? (valorFlex||original) : abonadoDia) : original,
       detalle: ()=> <VentaCard sinEncabezado venta={v} {...props}/> };
@@ -7620,7 +7620,7 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
     // en es_original=true por el default de la base, que es el comportamiento correcto para ellas.
     setEditItems((d?.items||[]).map(i=>{
       const esOriginal = i.es_original!==false;
-      return { id:i.id, tipo:i.tipo, valorTotal:Number(i.valor), descuento:Number(i.descuento||0), pagos:i.pagos||[], esOriginal, valorOriginalItem: esOriginal?Number(i.valor):0, fecha: !esOriginal ? (i.fecha_item||todayStr) : undefined };
+      return { id:i.id, tipo:i.tipo, valorTotal:Number(i.valor), descuento:Number(i.descuento||0), pagos:i.pagos||[], codigos:i.codigos_producto||null, esOriginal, valorOriginalItem: esOriginal?Number(i.valor):0, fecha: !esOriginal ? (i.fecha_item||todayStr) : undefined };
     }));
     setEditObservacion(venta.observacion||"");
     // Notacrédito Siigo: siempre se pide un N.º de factura NUEVO, así que arranca vacío (no se
@@ -7766,8 +7766,9 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
       // En Corregir factura no hay concepto de renglón original/nuevo con fecha propia — se
       // reemplaza todo plano, como antes de la Notacrédito Siigo.
       const filasItems = modoNotacredito
-        ? editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, es_original:i.esOriginal!==false, fecha_item:i.esOriginal===false?(i.fecha||todayStr):null }))
-        : editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, es_original:true, fecha_item:null }));
+        ? editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, codigos_producto:i.codigos||null, es_original:i.esOriginal!==false, fecha_item:i.esOriginal===false?(i.fecha||todayStr):null }))
+        : editItems.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, codigos_producto:i.codigos||null, es_original:true, fecha_item:null }));
+      // (26 nov 2026) Los #producto de cada renglón se conservan al reescribir los renglones.
       const { data:itemsNuevos } = await supabase.from("ventas_items").insert(filasItems).select();
       const aprobadasSinAplicar = (d?.solicitudes||[]).filter(s=>s.estado==="aprobada" && !s.aplicada_at);
       for(const s of aprobadasSinAplicar){
@@ -8150,6 +8151,9 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
                               {puedeEditar && !abiertoEdicion && <button onClick={()=>iniciarCorreccionMedio(i,pidx)} title="Corregir solo el medio de pago (el valor no cambia)" style={{ background:"none", border:"none", cursor:"pointer", color:"inherit", marginLeft:6, padding:0 }}>✏️</button>}
                             </Badge>
                           )
+                        ))}
+                        {i.tipo!=="flexipago" && (i.codigos_producto||[]).filter(c=>c && c.codigo).map((c,ci)=>(
+                          <Badge key={`c${ci}`} color={C.textMuted} sm>#{c.codigo}{c.valor?` · $${Number(c.valor).toLocaleString("es-CO")}`:""}</Badge>
                         ))}
                     </div>
                   ))}
@@ -8600,6 +8604,19 @@ function VentaCard({ inicialExpandido, sinEncabezado, venta, stores, user, esAdm
                 {v.es_flexipago && <Btn onClick={()=>setVerRecibo(true)} variant="ghost" sm><Icon n="receipt" s={14}/>Recibo para el cliente</Btn>}
                 {puedePasarProducto && !abiertoEdicion && <Btn onClick={()=>setPasarAbierto(true)} variant="ghost" sm>↪️ Pasar un producto a un Flexipago nuevo</Btn>}
                 {(flexipagoVencido || flexipagoUrgente || flexipagoAviso30) && <FlexiAvisarWhatsApp venta={v} stores={stores} user={user} saldo={saldoPendiente} fechaLimite={fechaLimite} soloVer={esDeOtraTienda}/>}
+                {!v.es_flexipago && !abiertoEdicion && (v.promocion || promosVigentes(v.fecha).length>0) && (puedeCorregirErrorAqui || puedeAqui("ventas.notacredito.hacer")) && (()=>{
+                  // Marcar / quitar la promoción después de registrada (26 nov 2026): con los mismos
+                  // permisos de Corregir factura (la tienda, el mismo día; master y finanzas, siempre).
+                  const actual = promoDe(v.promocion); const vigente = promosVigentes(v.fecha)[0];
+                  const marcar = async (nueva) => {
+                    const { data, error } = await supabase.from("ventas").update({ promocion:nueva }).eq("id", v.id).select().single();
+                    if(data) setVentas(prev=>prev.map(x=>x.id===v.id?data:x));
+                    else if(error) alert(`No se pudo cambiar la promoción: ${error.message}`);
+                  };
+                  return actual
+                    ? <Btn onClick={()=>marcar(null)} variant="ghost" sm title={`Quitar la marca de ${actual.label}`}>{actual.icono} Quitar {actual.label}</Btn>
+                    : vigente ? <Btn onClick={()=>marcar(vigente.id)} variant="ghost" sm title={`Marcar esta venta como ${vigente.label}`}>{vigente.icono} Marcar {vigente.label}</Btn> : null;
+                })()}
                 {puedeEditar && !abiertoEdicion && !flexipagoVencido && !flexipagoCompletado && <Btn onClick={()=>iniciarEdicion(v)} sm title="Ya te aprobaron el Notacrédito — usa este botón para aplicarlo.">📝 Aplicar Notacrédito</Btn>}
                 {puedeNotacredito && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarNotacredito(v)} variant="ghost" sm style={{ color:C.amber }} title="Usa esto cuando la corrección SÍ genera un número de factura nuevo en Siigo (incluye cambio de producto por el mismo valor). El valor no puede bajar del ya registrado, y necesitas el N.º de factura nuevo.">🧾 Notacrédito Siigo</Btn>}
                 {puedeCorregirErrorAqui && !abiertoEdicion && !flexipagoCompletado && <Btn onClick={()=>iniciarCorregirFactura(v)} variant="ghost" sm style={{ color:C.textMuted }} title={esHoyTienda && !puedeCorregirError ? "Puedes corregir libremente lo registrado hoy mismo (sube o baja el valor sin límite). Para días anteriores, pide Notacrédito." : "Usa esto cuando NO cambió nada en Siigo — fue un error al registrar. Sube o baja el valor libremente, sin necesitar número de factura nuevo."}>🛠️ Corregir factura</Btn>}
@@ -8651,6 +8668,8 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
   const [itemDescuento, setItemDescuento] = useState("");
   const [itemDescuentoTipo, setItemDescuentoTipo] = useState("valor");
   const [itemPagos, setItemPagos] = useState([]); // [{medio_pago, valor, numero_autorizacion}] — permite repetir medio (ej. dos tarjetas)
+  // Promoción de la venta (ej. Black Weekend), solo ventas normales y solo si está vigente en la fecha.
+  const [promocion, setPromocion] = useState("");
   const [itemMedioNuevo, setItemMedioNuevo] = useState("");
   const [observacion, setObservacion] = useState("");
 
@@ -8711,11 +8730,19 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
   }, [clienteDocumento]);
 
   const itemEsFlexipago = itemTipo === "flexipago";
+  // Venta normal (26 nov 2026, pedido de Santiago): igual que el Flexipago, cada producto se
+  // registra con su #producto y su valor, y el valor del renglón es la suma — así se sabe qué
+  // productos se vendieron (y cuántas piezas). Usa la misma lista de códigos que el Flexipago.
+  const itemEsVentaProducto = itemTipo === "producto" && !ordenACobrar;
+  const itemUsaCodigos = itemEsFlexipago || itemEsVentaProducto;
 
   // El valor total del Flexipago no se digita: es la suma de los valores de los códigos de
   // producto, para obligar al asesor a desglosarlos bien en vez de poner un total a ojo.
   const itemValorCodigosFlexipago = itemCodigosFlexipago.reduce((s,c)=>s+Number(c.valor||0),0);
-  const itemValorNum = itemEsFlexipago ? itemValorCodigosFlexipago : Number(itemValor||0);
+  const itemValorNum = itemUsaCodigos ? itemValorCodigosFlexipago : Number(itemValor||0);
+  // Venta: cada fila escrita debe tener código (6 dígitos) y valor; al menos una.
+  const codigosVentaEscritos = itemCodigosFlexipago.filter(c=>c.codigo.trim()||c.valor.trim());
+  const itemCodigosVentaValidos = codigosVentaEscritos.length>0 && codigosVentaEscritos.every(c=>/^\d{6}$/.test(c.codigo.trim()) && Number(c.valor||0)>0);
   const itemDescuentoInput = Number(itemDescuento||0);
   const itemDescuentoNum = itemDescuentoTipo==="porcentaje" ? Math.round(itemValorNum*itemDescuentoInput/100) : itemDescuentoInput;
   const itemNeto = itemValorNum - itemDescuentoNum;
@@ -8748,9 +8775,12 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
       return;
     }
     if(itemValorNum<=0 || itemPagos.length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT) return;
+    if(itemEsVentaProducto && !itemCodigosVentaValidos) return;
     const pagos = itemPagos.map(p=>({ medio_pago:p.medio_pago, valor:Number(p.valor||0), numero_autorizacion:VENTAS_MEDIOS_TARJETA.includes(p.medio_pago)?(p.numero_autorizacion||"").trim():null }));
-    setItems(prev=>[...prev, { tipo:itemTipo, valorTotal:itemValorNum, descuento:itemDescuentoNum, pagos }]);
+    const codigosProducto = itemEsVentaProducto ? codigosVentaEscritos.map(c=>({ codigo:c.codigo.trim(), valor:Number(c.valor||0) })) : null;
+    setItems(prev=>[...prev, { tipo:itemTipo, valorTotal:itemValorNum, descuento:itemDescuentoNum, pagos, codigosProducto }]);
     setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemPagos([]);
+    if(itemEsVentaProducto) setItemCodigosFlexipago([{ codigo:"", valor:"" }]);
   };
   const quitarItem = (idx) => setItems(prev=>prev.filter((_,i)=>i!==idx));
 
@@ -8772,7 +8802,7 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
   useEffect(() => { if(!itemTipoOptions.some(t=>t.value===itemTipo)) setItemTipo(itemTipoOptions[0]?.value||"producto"); }, [esFlexipago, items.length]);
 
   const limpiarTodo = () => {
-    setNumeroFactura(""); setVendedorId(""); setItems([]); setItemTipo("producto"); setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemPagos([]); setItemMedioNuevo(""); setObservacion(""); setItemCodigosFlexipago([{ codigo:"", valor:"" }]);
+    setNumeroFactura(""); setVendedorId(""); setItems([]); setItemTipo("producto"); setItemValor(""); setItemDescuento(""); setItemDescuentoTipo("valor"); setItemPagos([]); setItemMedioNuevo(""); setObservacion(""); setItemCodigosFlexipago([{ codigo:"", valor:"" }]); setPromocion("");
     setAbonoInicialValor(""); setAbonoInicialMedio("efectivo"); setAbonoInicialAutorizacion("");
     setClienteTipoDoc("CC"); setClienteDocumento(""); setClienteNombre(""); setClienteTelefono(""); setClienteEncontrado(false);
   };
@@ -8789,6 +8819,8 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
       if(Number(abonoInicialValor||0)>0 && !abonoInicialMedio){ setMsg("Falta el medio de pago del abono inicial."); return; }
       if(Number(abonoInicialValor||0)>0 && VENTAS_MEDIOS_TARJETA.includes(abonoInicialMedio) && !abonoInicialAutorizacion.trim()){ setMsg("Falta el número de autorización del abono inicial."); return; }
     }
+    // Solo se guarda la promoción si sigue vigente en la fecha y la venta no es Flexipago.
+    const promoGuardar = (!esFlexipago && promocion && promosVigentes(fecha).some(p=>p.id===promocion)) ? promocion : null;
     setGuardando(true);
     const vendedor = users.find(u=>u.id===vendedorId);
     const { data:venta, error } = await supabase.from("ventas").insert({
@@ -8799,9 +8831,10 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
       cliente_tipo_doc:esFlexipago?clienteTipoDoc:null, cliente_documento:esFlexipago?clienteDocumento.trim():null,
       cliente_nombre:esFlexipago?clienteNombre.trim():null, cliente_telefono:esFlexipago?clienteTelefono.trim():null,
       observacion:observacion.trim(), valor_bruto:valorBruto, descuento_total:descuentoNum, total, valor_original:total, es_flexipago:esFlexipago,
+      ...(promoGuardar ? { promocion:promoGuardar } : {}),
     }).select().single();
     if(error || !venta){ setGuardando(false); setMsg("No se pudo guardar. Intenta de nuevo."); sonidoError(); return; }
-    const filasItems = items.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, codigos_producto:(i.codigosFlexipago&&i.codigosFlexipago.length)?i.codigosFlexipago:null }));
+    const filasItems = items.map(i=>({ venta_id:venta.id, tipo:i.tipo, valor:i.valorTotal, descuento:i.descuento, pagos:i.pagos, codigos_producto:(i.codigosFlexipago&&i.codigosFlexipago.length)?i.codigosFlexipago:((i.codigosProducto&&i.codigosProducto.length)?i.codigosProducto:null) }));
     const { data:itemsGuardados, error:errorItems } = await supabase.from("ventas_items").insert(filasItems).select();
     if(errorItems){ setGuardando(false); setMsg("La venta se guardó, pero hubo un problema guardando las ventas/servicios."); sonidoError(); return; }
     if(itemsGuardados && setVentasItems) setVentasItems(prev=>[...prev, ...itemsGuardados]);
@@ -8888,7 +8921,7 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
   const tiendaActual = stores[tiendaId];
   const vendedorSel = asesores.find(a=>a.id===vendedorId);
   const puedeCambiarFecha = puede(user, "ventas.fecha_libre");
-  const agregarDeshabilitado = itemEsFlexipago ? !itemFlexipagoValido : (itemValorNum<=0 || itemPagos.length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT);
+  const agregarDeshabilitado = itemEsFlexipago ? !itemFlexipagoValido : (itemValorNum<=0 || itemPagos.length===0 || Math.abs(itemFalta)>=1 || itemFaltaAUT || (itemEsVentaProducto && !itemCodigosVentaValidos));
   const pagadoPorMedio = (m) => itemPagos.filter(p=>p.medio_pago===m).reduce((a,p)=>a+Number(p.valor||0),0);
   const reciboRef = useRef(null);
   const etiquetaPaso = { display:"flex", alignItems:"center", gap:12, marginBottom:14 };
@@ -9011,9 +9044,25 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
             </>
           ) : (
             <>
+                  {itemEsVentaProducto && (
+                    <div style={{ marginBottom:12 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:6 }}>
+                        <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Productos vendidos</div>
+                        <div style={{ fontSize:11.5, color:C.textMuted, fontFamily:font.body }}>{codigosVentaEscritos.length} {codigosVentaEscritos.length===1?"pieza":"piezas"}</div>
+                      </div>
+                      {itemCodigosFlexipago.map((c,idx)=>{ const malo = (c.codigo.trim()||c.valor.trim()) && !/^\d{6}$/.test(c.codigo.trim()); return (
+                        <div key={idx} style={{ display:"grid", gridTemplateColumns: itemCodigosFlexipago.length>1 ? "1fr 1fr auto" : "1fr 1fr", gap:6, marginBottom:6, alignItems:"center" }}>
+                          <input value={c.codigo} onChange={e=>setCodigoFlexipago(idx,"codigo",e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="#producto (6 dígitos)" inputMode="numeric" maxLength={6} style={{ background:C.surfaceAlt, border:`1px solid ${malo?C.red:C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.mono, outline:"none", width:"100%", boxSizing:"border-box" }}/>
+                          <CurrencyField value={c.valor} onChange={v=>setCodigoFlexipago(idx,"valor",v)} noMargin/>
+                          {itemCodigosFlexipago.length>1 && <button onClick={()=>quitarCodigoFlexipago(idx)} title="Quitar producto" style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>}
+                        </div>
+                      ); })}
+                      <button onClick={agregarCodigoFlexipago} style={{ background:"none", border:`1px dashed ${C.border}`, borderRadius:7, color:C.textMuted, cursor:"pointer", fontSize:11, fontFamily:font.body, padding:"6px 10px", width:"100%" }}>+ Agregar otro producto</button>
+                    </div>
+                  )}
                   {isMobile ? (
                     <div style={{ marginBottom:4 }}>
-                      <CurrencyField label="Valor total" value={itemValor} onChange={setItemValor}/>
+                      {itemEsVentaProducto ? <div style={{ marginBottom:14 }}><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Valor total</div><div style={{ width:"100%", background:C.dark, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.mono, boxSizing:"border-box" }}>${itemValorCodigosFlexipago.toLocaleString("es-CO")}</div></div> : <CurrencyField label="Valor total" value={itemValor} onChange={setItemValor}/>}
                       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
                         <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento / Bono</div>
                         <div style={{ display:"flex", gap:4 }}>
@@ -9035,7 +9084,7 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
                           ))}
                         </div>
                       </div>
-                      <div style={{ gridColumn:1, gridRow:2 }}><CurrencyField value={itemValor} onChange={setItemValor} noMargin/></div>
+                      <div style={{ gridColumn:1, gridRow:2 }}>{itemEsVentaProducto ? <div style={{ width:"100%", background:C.dark, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.mono, boxSizing:"border-box" }}>${itemValorCodigosFlexipago.toLocaleString("es-CO")}</div> : <CurrencyField value={itemValor} onChange={setItemValor} noMargin/>}</div>
                       <div style={{ gridColumn:2, gridRow:2 }}><CurrencyField value={itemDescuento} onChange={setItemDescuento} noMargin/></div>
                     </div>
                   )}
@@ -9095,7 +9144,7 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
             {items.length===0 && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, padding:"10px 0" }}>Todavía no has agregado nada.</div>}
             {items.map((it,idx)=>(
               <div key={`${idx}-${it.tipo}-${it.valorTotal}`} className="ozen-recibo-linea" style={lineaRecibo}>
-                <span style={{ minWidth:0 }}><b style={{ color:C.text }}>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label}</b> · {it.tipo==="flexipago" ? "pago diferido" : it.pagos.map(p=>`${VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.value==="tarjeta"?"Tarjeta":VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label}${p.numero_autorizacion?` (AUT ${p.numero_autorizacion})`:""}`).join(" + ")}{it.descuento>0 && <span style={{ color:C.red }}> · desc {fmtCOP(it.descuento)}</span>}</span>
+                <span style={{ minWidth:0 }}><b style={{ color:C.text }}>{VENTAS_TIPOS.find(t=>t.value===it.tipo)?.label}</b>{it.codigosProducto?.length ? ` (${it.codigosProducto.length} ${it.codigosProducto.length===1?"pieza":"piezas"}: ${it.codigosProducto.map(c=>c.codigo).join(", ")})` : ""} · {it.tipo==="flexipago" ? "pago diferido" : it.pagos.map(p=>`${VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.value==="tarjeta"?"Tarjeta":VENTAS_MEDIOS_PAGO.find(m=>m.value===p.medio_pago)?.label}${p.numero_autorizacion?` (AUT ${p.numero_autorizacion})`:""}`).join(" + ")}{it.descuento>0 && <span style={{ color:C.red }}> · desc {fmtCOP(it.descuento)}</span>}</span>
                 <span style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
                   <span style={{ fontFamily:font.mono, color:C.text }}>{fmtCOP(it.valorTotal)}</span>
                   <button onClick={()=>quitarItem(idx)} title="Quitar renglón" style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", padding:2, display:"grid" }}><Icon n="x" s={14}/></button>
@@ -9123,6 +9172,12 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
                 <div style={{ ...lineaRecibo, color:C.amber, fontWeight:700 }}><span>Saldo pendiente</span><span style={{ fontFamily:font.mono }}>{fmtCOP(saldoPendiente)}</span></div>
               </>
             )}
+            {!esFlexipago && !ordenACobrar && promosVigentes(fecha).map(p=>{ const on = promocion===p.id; return (
+              <button key={p.id} type="button" onClick={()=>setPromocion(on?"":p.id)} style={{ marginTop:14, width:"100%", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, padding:"11px 14px", borderRadius:12, cursor:"pointer", fontFamily:font.body, fontSize:14, fontWeight:700, border:`1.5px solid ${on?p.color:C.border}`, background:on?p.color:"#fff", color:on?"#fff":C.text }}>
+                <span style={{ display:"inline-flex", alignItems:"center", gap:8 }}><span>{p.icono}</span>{p.label}</span>
+                <span style={{ fontSize:12, fontWeight:600, opacity:.85 }}>{on ? "✓ Marcada" : "Tocar para marcar"}</span>
+              </button>
+            ); })}
             <div style={{ marginTop:16 }}>
               {ordenACobrar
                 ? <Field label="N.º de factura (orden de Operaciones)" value={operReferencia(ordenACobrar)} onChange={()=>{}} disabled/>
@@ -9211,7 +9266,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   // otra tienda solo mira, ver VentaCard).
   const isMobile = useIsMobile();
   const tiendaFija = esCuentaTienda(user) ? user.tienda_id : null;
-  const filtrosIniciales = { fechaModo:"todas", dia:"", desde:"", hasta:"", tiendas: tiendaFija ? [tiendaFija] : [], asesores:[], soloFlex:false };
+  const filtrosIniciales = { fechaModo:"todas", dia:"", desde:"", hasta:"", tiendas: tiendaFija ? [tiendaFija] : [], asesores:[], soloFlex:false, promo:"" };
   const [f, setF] = useState(()=> !pedido ? filtrosIniciales
     : pedido.dia ? { ...filtrosIniciales, tiendas:[pedido.tienda], fechaModo:"dia", dia:pedido.dia }
     : { ...filtrosIniciales, tiendas:pedido.tienda?[pedido.tienda]:filtrosIniciales.tiendas, soloFlex:!!pedido.soloFlex });
@@ -9257,6 +9312,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     if(textos.some(t=>t && sinTildes(t).includes(q))) return true;
     const its = idx.items[v.id]||[];
     if(its.some(i=>(i.pagos||[]).some(p=>p.numero_autorizacion && sinTildes(p.numero_autorizacion).includes(q)))) return true;
+    if(q.length>=4 && its.some(i=>(i.codigos_producto||[]).some(c=>c && c.codigo && String(c.codigo).includes(q)))) return true;   // #producto
     if((idx.abonos[v.id]||[]).some(a=>mediosDeAbono(a).some(p=>p.numero_autorizacion && sinTildes(p.numero_autorizacion).includes(q)))) return true;
     if(qNum.length>=4){
       const nums = [v.total, v.valor_original, ...valores, ...its.map(i=>i.valor)].filter(x=>x!==null && x!==undefined).map(x=>String(Math.round(Number(x))));
@@ -9269,11 +9325,12 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
   const ventasFiltradas = ventas.filter(v=>{
     if(!enRango(v.fecha) || !pasaTiendaAsesor(v)) return false;
     if(f.soloFlex && !v.es_flexipago) return false;
+    if(f.promo && v.promocion!==f.promo) return false;
     return coincide(v);
   }).sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||"") || (b.created_at||"").localeCompare(a.created_at||""));
 
   // Notas crédito: un registro aparte por cada excedente, en su fecha REAL. Con "Flexipagos" no salen.
-  const notaCreditosFiltradas = f.soloFlex ? [] : (ajustes||[])
+  const notaCreditosFiltradas = (f.soloFlex || f.promo) ? [] : (ajustes||[])
     .filter(aj => !aj.es_correccion_error && enRango(aj.fecha))
     .map(aj => ({ ajuste:aj, venta: ventaById[aj.venta_id] }))
     .filter(({venta}) => !!venta && pasaTiendaAsesor(venta))
@@ -9281,7 +9338,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
 
   // Abonos de Flexipago que entraron un día distinto al de la venta (cada día del Flexipago tiene su
   // registro). Con el botón "Flexipagos" prendido NO salen: ahí se ve un renglón por Flexipago.
-  const abonosFiltrados = f.soloFlex ? [] : (() => {
+  const abonosFiltrados = (f.soloFlex || f.promo) ? [] : (() => {
     const grupos = {};
     (ventasAbonos||[]).forEach(a=>{
       if(!enRango(a.fecha)) return;
@@ -9344,6 +9401,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     ...(f.tiendas.length ? [{ k:"tiendas", t:f.tiendas.map(id=>nombreTiendaCorto(stores[id])).join(", "), quitar:()=>setFil("tiendas",[]) }] : []),
     ...(f.asesores.length ? [{ k:"asesores", t:f.asesores.length>2 ? `${f.asesores.length} asesores` : f.asesores.map(id=>(idx.userNombre[id]||"").split(" ")[0]).join(", "), quitar:()=>setFil("asesores",[]) }] : []),
     ...(f.soloFlex ? [{ k:"flex", t:"Solo Flexipagos", quitar:()=>setFil("soloFlex", false) }] : []),
+    ...(f.promo ? [{ k:"promo", t:`Solo ${promoDe(f.promo)?.label||"promoción"}`, quitar:()=>setFil("promo", "") }] : []),
   ];
   // Vuelve a como arranca la pantalla (la cuenta de tienda, con su tienda marcada).
   const quitarFiltros = () => { setF(filtrosIniciales); setBusqueda(""); };
@@ -9394,6 +9452,9 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
     </LvFicha>
   );
   const botonFlex = <button onClick={()=>setFil("soloFlex", !f.soloFlex)} style={lvChipEstilo(f.soloFlex)}>{f.soloFlex && <Icon n="check" s={13} sw={2.6}/>}Flexipagos</button>;
+  // Promociones: un botón por cada promoción que ya tenga ventas marcadas (ej. Black Weekend).
+  const promosConVentas = PROMOCIONES.filter(p=>ventas.some(v=>v.promocion===p.id));
+  const botonesPromo = promosConVentas.map(p=><button key={p.id} onClick={()=>setFil("promo", f.promo===p.id?"":p.id)} style={lvChipEstilo(f.promo===p.id)}>{f.promo===p.id ? <Icon n="check" s={13} sw={2.6}/> : <span>{p.icono}</span>}{p.label}</button>);
 
   const lineaActivos = activos.length>0 && (
     <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginTop:12 }}>
@@ -9439,7 +9500,7 @@ function VentasListaScreen({ user, stores, users, ventas, setVentas, ventasItems
         <div style={{ padding:isMobile?"14px 14px 12px":"18px 20px 14px" }}>
           {buscador}
           <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginTop:12 }}>
-            {fichaFecha}{fichaTienda}{fichaAsesor}{botonFlex}
+            {fichaFecha}{fichaTienda}{fichaAsesor}{botonFlex}{botonesPromo}
           </div>
           {lineaActivos}
         </div>
@@ -9459,6 +9520,16 @@ const diasDelMes = (anio, mesIdx) => new Date(anio, mesIdx+1, 0).getDate();
 const fmtCOP = (n) => `$${Math.round(n||0).toLocaleString("es-CO")}`;
 // La meta personal siempre se calcula sobre 30 días, sin importar si el mes tiene 28-31.
 const DIAS_META = 30;
+
+// Promociones (26 nov 2026): una venta normal (no Flexipago) se puede marcar con la promoción que
+// esté vigente en su fecha (columna ventas.promocion, sql/ventas_promocion.sql). Marcarla NO cambia
+// ningún número: el descuento se sigue registrando en el renglón, como siempre. Para una promoción
+// nueva basta agregar una línea aquí.
+const PROMOCIONES = [
+  { id:"black_weekend_2026", label:"Black Weekend", icono:"🖤", desde:"2026-11-27", hasta:"2026-11-30", color:"#1b2a33" },
+];
+const promoDe = (id) => PROMOCIONES.find(p=>p.id===id) || null;
+const promosVigentes = (fecha) => PROMOCIONES.filter(p=>fecha && fecha>=p.desde && fecha<=p.hasta);
 
 // A partir de la malla real de Turnos, calcula cuántos días trabajó un asesor en cada tienda ese
 // mes — para precargar (no reemplazar) el campo manual "días por tienda" de la meta personal.
@@ -9928,6 +9999,7 @@ const CONS_GRUPOS = [
   { value:"hora", label:"Hora" },
   { value:"tipo", label:"Tipo" },
   { value:"medio", label:"Medio de pago" },
+  { value:"promo", label:"Promoción" },
 ];
 const CONS_PERIODOS = [
   { value:"hoy", label:"Hoy" },
@@ -10021,7 +10093,9 @@ const construirHechosVentas = (ventas, ventasItems, ventasAbonos, ventasAjustes)
     if(!ps.length || tot<=0) return [{ medio:medioDefecto||"efectivo", parte:1 }];
     return ps.map(p=>({ medio:p.medio_pago||medioDefecto||"efectivo", parte:Number(p.valor)/tot }));
   };
-  const base = (v, fecha, iso) => ({ fecha, hora:consHora(iso), tiendaId:v.tienda_id, vendedorId:v.vendedor_id, ventaId:v.id });
+  const base = (v, fecha, iso) => ({ fecha, hora:consHora(iso), tiendaId:v.tienda_id, vendedorId:v.vendedor_id, ventaId:v.id, promo:v.promocion||"ninguna" });
+  // Piezas (26 nov 2026): cuántos #producto lleva el renglón (venta normal o Flexipago).
+  const piezasDe = (i) => (i?.codigos_producto||[]).filter(c=>c && (c.codigo || Number(c.valor||0)>0)).length;
 
   ventas.forEach(v=>{
     if(!v.fecha) return;
@@ -10038,7 +10112,7 @@ const construirHechosVentas = (ventas, ventasItems, ventasAbonos, ventasAjustes)
     productos.forEach(i=>{
       const n = (Number(i.valor)-Number(i.descuento||0))*factor;
       repartirPagos(i.pagos, i.medio_pago).forEach(({medio,parte})=>{
-        H.push({ ...base(v, v.fecha, v.created_at), tipo:"producto", medio, sin:n*parte, servicios:0, ingreso:n*parte, descuento:Number(i.descuento||0)*parte, cuenta:0 });
+        H.push({ ...base(v, v.fecha, v.created_at), tipo:"producto", medio, sin:n*parte, servicios:0, ingreso:n*parte, descuento:Number(i.descuento||0)*parte, cuenta:0, piezas:(i.es_original===false?0:piezasDe(i))*parte });
       });
     });
     items.filter(i=>i.tipo==="arreglo"||i.tipo==="marcacion"||i.tipo==="grabado").forEach(i=>{
@@ -10075,7 +10149,7 @@ const construirHechosVentas = (ventas, ventasItems, ventasAbonos, ventasAjustes)
     const entradas = Object.entries(porMedio).filter(([,x])=>x>0);
     (entradas.length ? entradas : [["efectivo", tot||1]]).forEach(([medio, x])=>{
       const parte = tot>0 ? x/tot : 1;
-      H.push({ ...base(v, c.fechaCierre, ultimo?.created_at), tipo:"flexipago", medio, sin:c.valorNeto*parte, servicios:0, ingreso:c.valorNeto*parte, descuento:descFlex*parte, cuenta:0, recibido:0 });
+      H.push({ ...base(v, c.fechaCierre, ultimo?.created_at), tipo:"flexipago", medio, sin:c.valorNeto*parte, servicios:0, ingreso:c.valorNeto*parte, descuento:descFlex*parte, cuenta:0, recibido:0, piezas:(itemsPorVenta[v.id]||[]).filter(i=>i.tipo==="flexipago").reduce((t,i)=>t+piezasDe(i),0)*parte });
     });
     // Abonos de los cerrados, cada uno en su día (22 nov 2026): antes del que lo terminó de pagar →
     // "abonoAntes"; ese y los que vengan después → "abonoFinal". Solo alimentan las medidas nuevas
@@ -10100,7 +10174,7 @@ const construirHechosVentas = (ventas, ventasItems, ventasAbonos, ventasAjustes)
     });
   });
   // Dinero recibido: en todo lo demás es igual a Ingreso total (la plata entra el día de la venta).
-  H.forEach(h=>{ if(h.recibido===undefined) h.recibido = h.ingreso; if(h.abonoAntes===undefined) h.abonoAntes = 0; if(h.abonoFinal===undefined) h.abonoFinal = 0; });
+  H.forEach(h=>{ if(h.recibido===undefined) h.recibido = h.ingreso; if(h.abonoAntes===undefined) h.abonoAntes = 0; if(h.abonoFinal===undefined) h.abonoFinal = 0; if(h.piezas===undefined) h.piezas = 0; });
   return H;
 };
 
@@ -10143,7 +10217,7 @@ const ConsIconoGrafico = ({ v }) => {
 // zip "sin comprimir" (más que suficiente para unos cientos de filas). Estilo OZEN: título, datos de
 // la consulta, encabezado en Sombra con letra blanca, subtotales en crema, total resaltado, números
 // como números (pesos, %, puntos) y la 1.ª fila de encabezado y las columnas de nombres fijas.
-// filas: [{ tipo:"dato"|"grupo"|"total", celdas:[{ v, f }] }] con f = "txt" | "cop" | "int" | "pct" | "pts".
+// filas: [{ tipo:"dato"|"grupo"|"total", celdas:[{ v, f }] }] con f = "txt" | "cop" | "int" | "pct" | "pts" | "dec" (0,00).
 const ozenZipSinComprimir = (archivos) => {
   const tabla = new Uint32Array(256);
   for(let n=0; n<256; n++){ let c = n; for(let k=0; k<8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; tabla[n] = c >>> 0; }
@@ -10168,9 +10242,9 @@ const ozenExcel = ({ archivo, hoja="Consulta", titulo="OZEN", lineas=[], encabez
   const colLetra = (i) => { let s = ""; i++; while(i>0){ const m = (i-1)%26; s = String.fromCharCode(65+m) + s; i = Math.floor((i-1)/26); } return s; };
   // Estilos (índices de cellXfs): 0 normal · 1 título · 2 subtítulo · 3 encabezado · 4 encabezado izq.
   // texto/cop/int/pct/pts × dato/grupo/total = 5..19
-  const formatos = ["txt","cop","int","pct","pts"], tipos = ["dato","grupo","total"];
+  const formatos = ["txt","cop","int","pct","pts","dec"], tipos = ["dato","grupo","total"];
   const xf = (f, t) => 5 + formatos.indexOf(f)*3 + tipos.indexOf(t);
-  const numFmt = { txt:0, cop:164, int:3, pct:165, pts:166 };
+  const numFmt = { txt:0, cop:164, int:3, pct:165, pts:166, dec:2 };
   const fontDe = { dato:0, grupo:4, total:4 }, fillDe = { dato:0, grupo:3, total:4 }, borderDe = { dato:2, grupo:2, total:3 };
   const xfs = [
     `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>`,
@@ -10249,14 +10323,17 @@ const CONS_VALORES = [
   { value:"recibido", label:"Dinero recibido" },
   { value:"abonoAntes", label:"Abonos Flexipago (antes de terminar)" },
   { value:"abonoFinal", label:"Abono final Flexipago" },
+  { value:"piezas", label:"Piezas vendidas" },
+  { value:"ppv", label:"Piezas por venta" },
   { value:"meta", label:"Meta" },
   { value:"cumpl", label:"Cumplimiento %" },
 ];
-const CONS_ICONO_CAMPO = { tienda:"store", asesor:"user", dia:"cal", semana:"cal", mes:"cal", dow:"cal", hora:"clock", tipo:"tag", medio:"card" };
-const CONS_ICONO_VALOR = { sin:"cash", ingreso:"wallet", servicios:"wrench", count:"list", ticket:"receipt", descuento:"tag", recibido:"cash", abonoAntes:"clock", abonoFinal:"check", meta:"target", cumpl:"trophy" };
+const CONS_ICONO_CAMPO = { tienda:"store", asesor:"user", dia:"cal", semana:"cal", mes:"cal", dow:"cal", hora:"clock", tipo:"tag", medio:"card", promo:"tag" };
+const CONS_ICONO_VALOR = { sin:"cash", ingreso:"wallet", servicios:"wrench", count:"list", ticket:"receipt", descuento:"tag", recibido:"cash", abonoAntes:"clock", abonoFinal:"check", piezas:"bag", ppv:"bag", meta:"target", cumpl:"trophy" };
 // Color de cada caja de la tabla dinámica (para distinguirlas de un vistazo).
 const CONS_ZONAS = { filas:{ color:C.gold, ic:"list" }, columnas:{ color:C.goldDark, ic:"grid" }, valores:{ color:C.green, ic:"chart" }, filtros:{ color:C.amber, ic:"target" } };
-const CONS_CAMPOS_FILTRO = ["tienda","asesor","tipo","medio","dow"];
+const CONS_CAMPOS_FILTRO = ["tienda","asesor","tipo","medio","dow","promo"];
+const CONS_PROMOS = () => [...PROMOCIONES.map(p=>({ value:p.id, label:`${p.icono} ${p.label}` })), { value:"ninguna", label:"Sin promoción" }];
 const CONS_CAMPOS_META = ["tienda","asesor","dia","semana","mes","dow"];
 const CONS_COMPARAR2 = [
   { value:"", label:"Nada" },
@@ -10352,7 +10429,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   const pasaFiltros = (h) => {
     for(const [campo, vals] of Object.entries(cfg.filtros)){
       if(!vals || !vals.length) continue;
-      const v = campo==="tienda" ? h.tiendaId : campo==="asesor" ? h.vendedorId : campo==="tipo" ? h.tipo : campo==="medio" ? h.medio : campo==="dow" ? String((consParse(h.fecha).getDay()+6)%7) : null;
+      const v = campo==="tienda" ? h.tiendaId : campo==="asesor" ? h.vendedorId : campo==="tipo" ? h.tipo : campo==="medio" ? h.medio : campo==="promo" ? h.promo : campo==="dow" ? String((consParse(h.fecha).getDay()+6)%7) : null;
       if(!vals.includes(v)) return false;
     }
     return true;
@@ -10374,6 +10451,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
       case "hora": { if(h.hora===null || h.hora===undefined) return { k:"—", l:"Sin hora", o:"99" }; return { k:String(h.hora), l:`${h.hora}:00`, o:String(h.hora).padStart(2,"0") }; }
       case "tipo": { const t = CONS_TIPOS.find(x=>x.value===h.tipo); return { k:h.tipo, l:t?.label||h.tipo, o:String(CONS_TIPOS.indexOf(t)) }; }
       case "medio": { const m = CONS_MEDIOS.find(x=>x.value===h.medio); return { k:h.medio, l:m?.label||h.medio||"—", o:String(CONS_MEDIOS.indexOf(m)) }; }
+      case "promo": { const p = promoDe(h.promo); return { k:h.promo, l:p?`${p.icono} ${p.label}`:"Sin promoción", o:p?"0":"9" }; }
       default: return { k:"total", l:"Total" };
     }
   };
@@ -10417,16 +10495,18 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   };
 
   // ── Acumuladores ──
-  const nuevoAcc = () => ({ sin:0, ingreso:0, servicios:0, descuento:0, recibido:0, abonoAntes:0, abonoFinal:0, meta:0, ventas:new Set() });
-  const sumar = (acc, h) => { acc.sin+=h.sin; acc.ingreso+=h.ingreso; acc.servicios+=h.servicios; acc.descuento+=h.descuento; acc.recibido+=h.recibido; acc.abonoAntes+=h.abonoAntes; acc.abonoFinal+=h.abonoFinal; if(h.cuenta) acc.ventas.add(h.ventaId); };
+  const nuevoAcc = () => ({ sin:0, ingreso:0, servicios:0, descuento:0, recibido:0, abonoAntes:0, abonoFinal:0, piezas:0, meta:0, ventas:new Set(), ventasConPiezas:new Set() });
+  const sumar = (acc, h) => { acc.sin+=h.sin; acc.ingreso+=h.ingreso; acc.servicios+=h.servicios; acc.descuento+=h.descuento; acc.recibido+=h.recibido; acc.abonoAntes+=h.abonoAntes; acc.abonoFinal+=h.abonoFinal; acc.piezas+=h.piezas; if(h.piezas>0) acc.ventasConPiezas.add(h.ventaId); if(h.cuenta) acc.ventas.add(h.ventaId); };
   const valor = (acc, medida=cfg.valores[0]) => {
     if(!acc) return 0;
     if(medida==="count") return acc.ventas.size;
     if(medida==="ticket") return acc.ventas.size ? acc.sin/acc.ventas.size : 0;
+    // Piezas por venta: entre las ventas que tienen #producto registrados (las de antes no los tienen).
+    if(medida==="ppv") return acc.ventasConPiezas.size ? acc.piezas/acc.ventasConPiezas.size : 0;
     if(medida==="cumpl") return acc.meta>0 ? acc.sin/acc.meta*100 : 0;
     return acc[medida] || 0;
   };
-  const fmtMedida = (n, medida=cfg.valores[0]) => medida==="count" ? Math.round(n).toLocaleString("es-CO") : medida==="cumpl" ? `${(Math.round(n*10)/10).toLocaleString("es-CO",{ minimumFractionDigits:1, maximumFractionDigits:1 })} %` : fmtCOP(n);
+  const fmtMedida = (n, medida=cfg.valores[0]) => (medida==="count"||medida==="piezas") ? Math.round(n).toLocaleString("es-CO") : medida==="ppv" ? (Math.round(n*10)/10).toLocaleString("es-CO",{ minimumFractionDigits:1, maximumFractionDigits:1 }) : medida==="cumpl" ? `${(Math.round(n*10)/10).toLocaleString("es-CO",{ minimumFractionDigits:1, maximumFractionDigits:1 })} %` : fmtCOP(n);
   const sinMeta = (acc, medida) => (medida==="meta"||medida==="cumpl") && (!metaUsable || !acc || !(acc.meta>0));
 
   // Árbol de filas (con subtotales por nivel) + columnas + celdas.
@@ -10489,7 +10569,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
 
   // ── Vista "legado" del 1.er nivel para los gráficos ──
   const medidaG = cfg.valores[0];
-  const noSumable = medidaG==="ticket" || medidaG==="cumpl";
+  const noSumable = medidaG==="ticket" || medidaG==="cumpl" || medidaG==="ppv";
   const q = { g1:filasDims[0], g2:cfg.col, medida:medidaG };
   const filas = nivel0.map(n=>({ ...n, k:n.k }));
   const prevAcc = (f) => prevNodo(f);
@@ -10802,7 +10882,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   const quitarFila = (i) => cambiar({ filas: cfg.filas.filter((_,x)=>x!==i) });
   const opcionesFiltro = (campo) => campo==="tienda" ? tiendas.map(t=>({ value:t.id, label:nombreTiendaCorto(t), color:colorTienda(t) }))
     : campo==="asesor" ? asesoresOpc.map(a=>({ value:a.id, label:a.name }))
-    : campo==="tipo" ? CONS_TIPOS : campo==="medio" ? CONS_MEDIOS
+    : campo==="tipo" ? CONS_TIPOS : campo==="medio" ? CONS_MEDIOS : campo==="promo" ? CONS_PROMOS()
     : campo==="dow" ? CONS_DIAS_SEMANA.map((l,i)=>({ value:String(i), label:l })) : [];
   const toggleFiltro = (campo, v) => setCfg(prev=>{ const act = prev.filtros[campo]||[]; return { ...prev, filtros:{ ...prev.filtros, [campo]: act.includes(v) ? act.filter(x=>x!==v) : [...act, v] } }; });
   const quitarFiltro = (campo) => setCfg(prev=>{ const f = { ...prev.filtros }; delete f[campo]; return { ...prev, filtros:f }; });
@@ -10848,8 +10928,8 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
 
   // ── Descargar a Excel (.xlsx con el diseño de la marca, ver ozenExcel) ──
   const descargar = () => {
-    const fmtDe = (m) => m==="count" ? "int" : m==="cumpl" ? "pct" : "cop";
-    const num = (acc, m) => sinMeta(acc, m) ? null : { v: m==="cumpl" ? valor(acc,m)/100 : Math.round(valor(acc, m)), f:fmtDe(m) };
+    const fmtDe = (m) => (m==="count"||m==="piezas") ? "int" : m==="ppv" ? "dec" : m==="cumpl" ? "pct" : "cop";
+    const num = (acc, m) => sinMeta(acc, m) ? null : { v: m==="cumpl" ? valor(acc,m)/100 : m==="ppv" ? Math.round(valor(acc,m)*100)/100 : Math.round(valor(acc, m)), f:fmtDe(m) };
     const dif = (acc, ant, m) => {
       if(sinMeta(acc,m) || sinMeta(ant,m)) return null;
       const a = valor(acc,m), b = ant ? valor(ant,m) : 0;
