@@ -1462,6 +1462,8 @@ function BarraSuperiorMovil({ extra, campana, user, area, onChooseArea, stores, 
 // Alto: la ventana se ajusta a lo que contiene (22 nov 2026, pedido de Santiago: "no toda grande");
 // solo si no cabe llega hasta arriba y adentro se desplaza. Ancho en computador: `ancho` (máximo),
 // para formularios angostos; sin él, 1180 px.
+// (26 nov 2026) Ya sin vidrio esmerilado: el desenfoque en vivo hacía lenta la ventana; ahora el
+// fondo es casi sólido, en celular y en computador.
 function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo, centro, tituloCerrar="Cerrar", ancho, children }) {
   const vw = typeof window!=="undefined" ? window.innerWidth : 1200, vh = typeof window!=="undefined" ? window.innerHeight : 800;
   const anchoVent = isMobile ? vw-16 : Math.min(ancho||1180, vw-32);
@@ -1477,13 +1479,10 @@ function VentanaNube({ abierta, origen, isMobile, onCerrar, icono="plus", titulo
   return (
       <div onClick={onCerrar} style={{ display:abierta?"block":"none", position:"fixed", inset:0, zIndex:900, background:"rgba(26,59,82,0.14)", overflowY:haciaArriba?"hidden":"auto" }}>
         <style>{`@keyframes ozenNube{from{transform:scale(.35);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
-        <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, maxHeight:`calc(100dvh - ${abajoMovil}px - ${topeArriba})`, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), ...(isMobile
-            // Celular: sin desenfoque en vivo (hacía lento el desplazamiento); fondo casi sólido.
-            ? { background:"linear-gradient(160deg, rgba(255,255,255,0.98) 0%, rgba(248,244,240,0.97) 55%, rgba(255,255,255,0.97) 100%)" }
-            : { background:"linear-gradient(160deg, rgba(255,255,255,0.62) 0%, rgba(246,240,235,0.48) 55%, rgba(255,255,255,0.40) 100%)", backdropFilter:"blur(26px) saturate(170%)", WebkitBackdropFilter:"blur(26px) saturate(170%)" }), border:"1px solid rgba(255,255,255,0.7)", borderRadius:22, boxShadow:"inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(255,255,255,0.25), 0 30px 80px -18px rgba(26,59,82,0.45)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: haciaArriba ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
+        <div onClick={e=>e.stopPropagation()} style={{ position:haciaArriba?"fixed":"absolute", left:izqVent, width:anchoVent, ...(haciaArriba ? { bottom:abajoMovil, maxHeight:`calc(100dvh - ${abajoMovil}px - ${topeArriba})`, display:"flex", flexDirection:"column" } : { top:arribaVent, marginBottom:40 }), background:"linear-gradient(160deg, rgba(255,255,255,0.98) 0%, rgba(248,244,240,0.97) 55%, rgba(255,255,255,0.97) 100%)", border:"1px solid rgba(255,255,255,0.7)", borderRadius:22, boxShadow:"inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(255,255,255,0.25), 0 30px 80px -18px rgba(26,59,82,0.45)", animation:"ozenNube .3s cubic-bezier(.2,.9,.3,1.15)", transformOrigin: haciaArriba ? `${colaX}px calc(100% + 12px)` : `${colaX}px -12px` }}>
           {/* Colita de la nube, apuntando al + (curva suave, del mismo color de la ventana) */}
           <svg width="40" height="16" viewBox="0 0 40 16" aria-hidden="true" style={{ position:"absolute", left:colaX-20, ...(haciaArriba ? { bottom:-15 } : { top:-15, transform:"scaleY(-1)" }), overflow:"visible", filter:"drop-shadow(0 3px 3px rgba(26,59,82,0.12))" }}>
-            <path d="M0 0 C12 0 15 12 20 16 C25 12 28 0 40 0 Z" fill={isMobile ? "#FEFDFC" : haciaArriba ? "rgba(250,246,242,0.78)" : "rgba(255,255,255,0.85)"}/>
+            <path d="M0 0 C12 0 15 12 20 16 C25 12 28 0 40 0 Z" fill="#FEFDFC"/>
           </svg>
           <div style={{ position:"relative", display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", gap:10, padding:isMobile?"10px 12px":"12px 20px", background:"linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0.35))", borderBottom:"1px solid rgba(255,255,255,0.55)", borderRadius:"22px 22px 0 0", flexShrink:0 }}>
             <span style={{ display:"inline-flex", alignItems:"center", gap:10, minWidth:0 }}>
@@ -8997,7 +8996,7 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
             <>
                   <div style={{ marginBottom:14 }}>
                     <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Valor total</div>
-                    <div style={{ width:"100%", background:C.dark, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.mono, boxSizing:"border-box" }}>${itemValorCodigosFlexipago.toLocaleString("es-CO")}</div>
+                    <CurrencyField value={String(itemValorCodigosFlexipago)} onChange={()=>{}} disabled noMargin/>
                   </div>
                   <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Productos del Flexipago</div>
                   {itemCodigosFlexipago.map((c,idx)=>(
@@ -9052,7 +9051,7 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
                       </div>
                       {itemCodigosFlexipago.map((c,idx)=>{ const malo = (c.codigo.trim()||c.valor.trim()) && !/^\d{6}$/.test(c.codigo.trim()); return (
                         <div key={idx} style={{ display:"grid", gridTemplateColumns: itemCodigosFlexipago.length>1 ? "1fr 1fr auto" : "1fr 1fr", gap:6, marginBottom:6, alignItems:"center" }}>
-                          <input value={c.codigo} onChange={e=>setCodigoFlexipago(idx,"codigo",e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="#producto (6 dígitos)" inputMode="numeric" maxLength={6} style={{ background:C.surfaceAlt, border:`1px solid ${malo?C.red:C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.mono, outline:"none", width:"100%", boxSizing:"border-box" }}/>
+                          <input value={c.codigo} onChange={e=>setCodigoFlexipago(idx,"codigo",e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="#producto" inputMode="numeric" maxLength={6} title="6 dígitos" style={{ background:C.surfaceAlt, border:`1px solid ${malo?C.red:C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.body, outline:"none", width:"100%", boxSizing:"border-box" }}/>
                           <CurrencyField value={c.valor} onChange={v=>setCodigoFlexipago(idx,"valor",v)} noMargin/>
                           {itemCodigosFlexipago.length>1 && <button onClick={()=>quitarCodigoFlexipago(idx)} title="Quitar producto" style={{ background:"none", border:"none", color:C.red, cursor:"pointer" }}>✕</button>}
                         </div>
@@ -9062,7 +9061,7 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
                   )}
                   {isMobile ? (
                     <div style={{ marginBottom:4 }}>
-                      {itemEsVentaProducto ? <div style={{ marginBottom:14 }}><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Valor total</div><div style={{ width:"100%", background:C.dark, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.mono, boxSizing:"border-box" }}>${itemValorCodigosFlexipago.toLocaleString("es-CO")}</div></div> : <CurrencyField label="Valor total" value={itemValor} onChange={setItemValor}/>}
+                      {itemEsVentaProducto ? <div style={{ marginBottom:14 }}><div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.07em" }}>Valor total</div><CurrencyField value={String(itemValorCodigosFlexipago)} onChange={()=>{}} disabled noMargin/></div> : <CurrencyField label="Valor total" value={itemValor} onChange={setItemValor}/>}
                       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
                         <div style={{ fontSize:11, color:C.textMuted, fontFamily:font.body, textTransform:"uppercase", letterSpacing:"0.07em" }}>Descuento / Bono</div>
                         <div style={{ display:"flex", gap:4 }}>
@@ -9084,7 +9083,7 @@ function VentasRegistrarScreen({ enVentana, ordenACobrar, onOrdenCobrada, tienda
                           ))}
                         </div>
                       </div>
-                      <div style={{ gridColumn:1, gridRow:2 }}>{itemEsVentaProducto ? <div style={{ width:"100%", background:C.dark, border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 11px", color:C.text, fontSize:13, fontFamily:font.mono, boxSizing:"border-box" }}>${itemValorCodigosFlexipago.toLocaleString("es-CO")}</div> : <CurrencyField value={itemValor} onChange={setItemValor} noMargin/>}</div>
+                      <div style={{ gridColumn:1, gridRow:2 }}>{itemEsVentaProducto ? <CurrencyField value={String(itemValorCodigosFlexipago)} onChange={()=>{}} disabled noMargin/> : <CurrencyField value={itemValor} onChange={setItemValor} noMargin/>}</div>
                       <div style={{ gridColumn:2, gridRow:2 }}><CurrencyField value={itemDescuento} onChange={setItemDescuento} noMargin/></div>
                     </div>
                   )}
