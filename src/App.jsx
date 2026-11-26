@@ -14188,87 +14188,359 @@ function PuntosAvance({ est }) {
 }
 
 // ── SCREEN: Progreso de todos (admins y visualizador) ──
-function CapacitacionProgresoScreen({ users, cursos, lecciones, preguntas, vistas, intentos, isMobile }) {
+// Progreso de la Escuela OZEN (25 nov 2026): cuatro vistas para hacer seguimiento —
+// Resumen (cursos, quién necesita atención y actividad reciente), Por curso (persona × lección con
+// mejor puntaje e intentos, y descarga a Excel), Por persona (avance e historial de quizzes con lo
+// que respondió en cada pregunta) y Preguntas (las más falladas y la respuesta equivocada más común).
+// Todo sale de lo que ya se guarda (lecciones vistas e intentos con sus respuestas): no hay tablas nuevas.
+const DIAS_INACTIVO_ESCUELA = 7;      // sin actividad en un curso empezado → "Inactivo"
+const INTENTOS_ATASCADO_ESCUELA = 3;  // intentos sin aprobar un mismo quiz → "Atascado"
+const fmtCuando = (iso) => {
+  if(!iso) return "—";
+  const d = new Date(iso), hoy = toColombiaDate(), dc = toColombiaDate(d);
+  const dias = Math.round((new Date(hoy.getFullYear(),hoy.getMonth(),hoy.getDate()) - new Date(dc.getFullYear(),dc.getMonth(),dc.getDate()))/86400000);
+  const hora = d.toLocaleTimeString("es-CO",{ hour:"numeric", minute:"2-digit" });
+  if(dias<=0) return `hoy ${hora}`;
+  if(dias===1) return `ayer ${hora}`;
+  if(dias<7) return `hace ${dias} días`;
+  return fmtFechaCorta(iso);
+};
+function CapacitacionProgresoScreen({ users, cursos, lecciones, preguntas, vistas, intentos, stores={}, asignaciones=[], isMobile }) {
+  const [vista, setVista] = useState("resumen");
+  const lista = cursosVisibles(cursos, lecciones, preguntas);
   const [cursoSel, setCursoSel] = useState("");
+  const curso = lista.find(c=>c.id===cursoSel) || lista[0] || null;
+  const [personaSel, setPersonaSel] = useState("");
   const [busqueda, setBusqueda] = useState("");
   const [soloActivos, setSoloActivos] = useState(true);
-  const lista = cursosVisibles(cursos, lecciones, preguntas);
-  const personas = users.filter(u=>tomaCapacitaciones(u) && (!soloActivos || u.active!==false))
-    .filter(u=>!busqueda.trim() || normalizarNombre(u.name).includes(normalizarNombre(busqueda)))
-    .sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-  const curso = lista.find(c=>c.id===cursoSel);
-  const th = { fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:600, padding:"10px 12px", textAlign:"left", borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap", background:C.surfaceAlt };
-  const td = { fontFamily:font.body, fontSize:13, color:C.text, padding:"10px 12px", borderBottom:`1px solid ${C.border}`, verticalAlign:"middle" };
+  const [tiendaSel, setTiendaSel] = useState("");
+  const [estadoSel, setEstadoSel] = useState("");
+  const [pregCurso, setPregCurso] = useState("");
+  const [pregModo, setPregModo] = useState("ultimo");
+  const [intentoAbierto, setIntentoAbierto] = useState(null);
 
-  const celda = (u, c) => {
-    const est = estadoCursoUsuario(c, lecciones, preguntas, vistas, intentos, u.id);
-    if(est.completadoEn) return <Badge sm color={C.green}>✓ {fmtFechaCorta(est.completadoEn)}</Badge>;
-    if(est.estado==="en_curso") return <Badge sm color={C.amber}>{est.lecs.length ? `${est.lecsCompletas}/${est.lecs.length} lecciones` : "En curso"}</Badge>;
-    return <span style={{ color:C.textMuted }}>—</span>;
+  // Tienda de cada persona: donde más turnos tuvo en los últimos 60 días (el usuario no tiene una tienda fija).
+  const tiendaDe = useMemo(()=>{
+    const h = new Date(todayStr+"T12:00:00"); h.setDate(h.getDate()-60); const desde = fmt(h), cuenta = {};
+    asignaciones.forEach(a=>{ if(!a.tienda_id || !a.fecha || a.fecha<desde || a.fecha>todayStr) return; const k=String(a.asesor_id); (cuenta[k]=cuenta[k]||{})[a.tienda_id]=(cuenta[k][a.tienda_id]||0)+1; });
+    const r = {}; Object.entries(cuenta).forEach(([uid,m])=>{ r[uid]=Object.entries(m).sort((a,b)=>b[1]-a[1])[0][0]; });
+    return r;
+  }, [asignaciones]);
+  const nombreTienda = (uid) => { const t = tiendaDe[String(uid)]; return t && stores[t] ? nombreTiendaCorto(stores[t]) : "—"; };
+  const tiendasConPersonas = [...new Set(Object.values(tiendaDe))].filter(t=>stores[t]).map(t=>({ value:t, label:nombreTiendaCorto(stores[t]) })).sort((a,b)=>a.label.localeCompare(b.label));
+
+  const base = users.filter(u=>tomaCapacitaciones(u) && (!soloActivos || u.active!==false)).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const personas = base.filter(u=>(!busqueda.trim() || normalizarNombre(u.name).includes(normalizarNombre(busqueda))) && (!tiendaSel || tiendaDe[String(u.id)]===tiendaSel));
+  const estados = useMemo(()=>{
+    const m = {}; base.forEach(u=>lista.forEach(c=>{ m[`${c.id}|${u.id}`]=estadoCursoUsuario(c, lecciones, preguntas, vistas, intentos, u.id); })); return m;
+  }, [base.length, lista.length, lecciones, preguntas, vistas, intentos]); // eslint-disable-line react-hooks/exhaustive-deps
+  const est = (c,u) => estados[`${c.id}|${u.id}`] || estadoCursoUsuario(c, lecciones, preguntas, vistas, intentos, u.id);
+  const ultimaActividad = (uid, cursoId) => {
+    const s = String(uid), fechas = [...vistas, ...intentos].filter(x=>x.usuario_id===s && (!cursoId || x.curso_id===cursoId)).map(x=>x.created_at).filter(Boolean).sort();
+    return fechas[fechas.length-1] || null;
   };
-  const resumen = lista.map(c=>({ c, completos: personas.filter(u=>estadoCursoUsuario(c, lecciones, preguntas, vistas, intentos, u.id).completadoEn).length }));
+  const leccionPorId = useMemo(()=>{ const m={}; lecciones.forEach(l=>{ m[l.id]=l; }); return m; }, [lecciones]);
+  const cursoPorId = useMemo(()=>{ const m={}; cursos.forEach(c=>{ m[c.id]=c; }); return m; }, [cursos]);
+  const nombreQuiz = (i) => i.leccion_id ? (leccionPorId[i.leccion_id]?.titulo || "Lección") : "Quiz final";
 
-  return (
-    <div>
-      <PageHeader title="Progreso del equipo" subtitle="Quién ha completado cada inducción o capacitación, y cuándo"/>
-      <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(220px,300px) minmax(200px,280px) auto", gap:12, alignItems:"end", marginBottom:6 }}>
-        <Field label="Curso" value={cursoSel} onChange={setCursoSel} options={[{ value:"", label:"Todos los cursos" }, ...lista.map(c=>({ value:c.id, label:c.titulo }))]}/>
-        <Field label="Buscar persona" value={busqueda} onChange={setBusqueda} placeholder="Nombre"/>
-        <label style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:13, color:C.textSub, marginBottom:22, cursor:"pointer" }}><input type="checkbox" checked={soloActivos} onChange={e=>setSoloActivos(e.target.checked)}/>Solo usuarios activos</label>
-      </div>
-      {lista.length===0 ? <VacioCapacitacion>Todavía no hay cursos publicados.</VacioCapacitacion> : !curso ? (
-        <>
-          <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:14 }}>
-            {resumen.map(({ c, completos })=>(
-              <Card key={c.id} p="12px 14px" style={{ minWidth:180, flex:isMobile?"1 1 100%":"0 1 auto", cursor:"pointer" }}>
-                <div onClick={()=>setCursoSel(c.id)}>
-                  <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginBottom:6 }}>{c.titulo}</div>
-                  <div style={{ display:"flex", alignItems:"baseline", gap:6 }}><span style={{ fontFamily:font.mono, fontSize:20, fontWeight:700, color:C.goldDark }}>{completos}</span><span style={{ fontFamily:font.body, fontSize:12, color:C.textMuted }}>de {personas.length} completaron</span></div>
-                  <div style={{ marginTop:8 }}><BarraProgreso pct={personas.length?completos*100/personas.length:0} color={C.green} height={5}/></div>
+  // Quién necesita atención
+  const atencion = [];
+  base.forEach(u=>{
+    const ests = lista.map(c=>({ c, e:est(c,u) }));
+    ests.forEach(({ c, e })=>{
+      e.infoLecs.forEach(x=>{ if(x.pregs.length && !x.completadaEn && x.intentos.length>=INTENTOS_ATASCADO_ESCUELA) atencion.push({ u, tipo:"atascado", txt:`${x.intentos.length} intentos sin aprobar «${x.l.titulo}» (mejor: ${x.mejor}%)`, orden:0 }); });
+      if(e.pregs.length && !e.completadoEn && e.intentos.length>=INTENTOS_ATASCADO_ESCUELA && !e.intentos.some(i=>i.aprobado)) atencion.push({ u, tipo:"atascado", txt:`${e.intentos.length} intentos sin aprobar el quiz final de «${c.titulo}»`, orden:0 });
+      if(e.estado==="en_curso"){ const ult = ultimaActividad(u.id, c.id); const dias = ult ? (Date.now()-new Date(ult).getTime())/86400000 : 0;
+        if(dias>=DIAS_INACTIVO_ESCUELA) atencion.push({ u, tipo:"inactivo", txt:`Sin actividad hace ${Math.floor(dias)} días en «${c.titulo}» · va en ${e.lecsCompletas} de ${e.lecs.length}`, orden:1 }); }
+    });
+    if(lista.length && ests.every(({ e })=>e.estado==="sin_empezar")) atencion.push({ u, tipo:"sin_empezar", txt:"No ha empezado ningún curso", orden:2 });
+  });
+  atencion.sort((a,b)=>a.orden-b.orden || (a.u.name||"").localeCompare(b.u.name||""));
+  const TIPO_ATENCION = { atascado:{ label:"Atascado", color:C.red }, inactivo:{ label:"Inactivo", color:C.amber }, sin_empezar:{ label:"Sin empezar", color:C.textMuted } };
+  const abrirPersona = (u) => { setPersonaSel(String(u.id)); setIntentoAbierto(null); setVista("persona"); };
+
+  const th = { fontFamily:font.body, fontSize:10.5, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textMuted, fontWeight:600, padding:"10px 10px", textAlign:"left", borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap", background:C.surfaceAlt };
+  const td = { fontFamily:font.body, fontSize:13, color:C.text, padding:"9px 10px", borderBottom:`1px solid ${C.border}`, verticalAlign:"middle" };
+  const kpi = (k, v, h, color) => (
+    <Card p="14px 16px" style={{ flex:"1 1 160px" }}>
+      <div style={{ fontFamily:font.body, fontSize:10.5, letterSpacing:"0.1em", textTransform:"uppercase", color:C.textMuted, fontWeight:700 }}>{k}</div>
+      <div style={{ fontFamily:font.mono, fontSize:24, fontWeight:700, color:color||C.goldDark, marginTop:6 }}>{v}</div>
+      <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginTop:3 }}>{h}</div>
+    </Card>
+  );
+  const tituloSeccion = (t) => <div style={{ fontFamily:font.body, fontSize:15, fontWeight:700, color:C.text, marginBottom:10 }}>{t}</div>;
+  const pestanas = [["resumen","Resumen"],["curso","Por curso"],["persona","Por persona"],["preguntas","Preguntas"]];
+  const filtrosPersonas = (conEstado) => (
+    <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":`repeat(${conEstado?4:3}, minmax(160px, 240px)) auto`, gap:10, alignItems:"end", marginBottom:4 }}>
+      {conEstado && <Field label="Curso" value={curso?.id||""} onChange={setCursoSel} options={lista.map(c=>({ value:c.id, label:c.titulo }))}/>}
+      <Field label="Tienda" value={tiendaSel} onChange={setTiendaSel} options={[{ value:"", label:"Todas las tiendas" }, ...tiendasConPersonas]}/>
+      {conEstado ? <Field label="Estado" value={estadoSel} onChange={setEstadoSel} options={[{ value:"", label:"Todos los estados" },{ value:"completado", label:"Completado" },{ value:"en_curso", label:"En curso" },{ value:"sin_empezar", label:"Sin empezar" },{ value:"atascado", label:"Atascados" }]}/> : null}
+      <Field label="Buscar persona" value={busqueda} onChange={setBusqueda} placeholder="Nombre"/>
+      <label style={{ display:"flex", alignItems:"center", gap:8, fontFamily:font.body, fontSize:13, color:C.textSub, marginBottom:22, cursor:"pointer" }}><input type="checkbox" checked={soloActivos} onChange={e=>setSoloActivos(e.target.checked)}/>Solo activos</label>
+    </div>
+  );
+
+  // ── Resumen ──
+  const renderResumen = () => {
+    const aprobados = intentos.filter(i=>i.aprobado && base.some(u=>String(u.id)===i.usuario_id));
+    const promedio = aprobados.length ? Math.round(aprobados.reduce((a,i)=>a+i.puntaje,0)/aprobados.length) : null;
+    const todoCompleto = base.filter(u=>lista.length && lista.every(c=>est(c,u).completadoEn)).length;
+    const personasAtencion = new Set(atencion.map(a=>a.u.id)).size;
+    const idsBase = new Set(base.map(u=>String(u.id)));
+    const actividad = [
+      ...intentos.filter(i=>idsBase.has(i.usuario_id)).map(i=>({ t:i.created_at, uid:i.usuario_id, nombre:i.usuario_nombre, txt:`presentó el quiz de «${nombreQuiz(i)}»`, extra:`${i.puntaje}% · ${i.aprobado?"aprobó":"no aprobó"}`, ok:i.aprobado })),
+      ...vistas.filter(v=>idsBase.has(v.usuario_id)).map(v=>({ t:v.created_at, uid:v.usuario_id, nombre:v.usuario_nombre, txt:`vio la lección «${leccionPorId[v.leccion_id]?.titulo||"—"}»`, extra:"" })),
+    ].filter(x=>x.t).sort((a,b)=>b.t.localeCompare(a.t)).slice(0,12);
+    return (
+      <>
+        <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:14 }}>
+          {kpi("Personas", base.length, soloActivos?"toman cursos (activas)":"toman cursos")}
+          {kpi("Completaron todo", `${todoCompleto} / ${base.length}`, `todos los cursos publicados (${lista.length})`)}
+          {kpi("Puntaje promedio", promedio!=null?`${promedio}%`:"—", "en los quizzes aprobados")}
+          {kpi("Necesitan atención", personasAtencion, "personas · ver la lista", personasAtencion?C.red:C.goldDark)}
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1.35fr 1fr", gap:14, alignItems:"start" }}>
+          <Card p="16px 18px">
+            {tituloSeccion("Cursos")}
+            {lista.length===0 && <VacioCapacitacion>Todavía no hay cursos publicados.</VacioCapacitacion>}
+            {lista.map((c,ci)=>{
+              const es = base.map(u=>est(c,u)), comp = es.filter(e=>e.completadoEn).length, enc = es.filter(e=>e.estado==="en_curso").length, sin = es.length-comp-enc;
+              const fallidos = {}; intentos.filter(i=>i.curso_id===c.id && !i.aprobado && idsBase.has(i.usuario_id)).forEach(i=>{ const k=i.leccion_id||"final"; fallidos[k]=(fallidos[k]||0)+1; });
+              const peor = Object.entries(fallidos).sort((a,b)=>b[1]-a[1])[0];
+              const pct = (n)=> es.length ? n*100/es.length : 0;
+              return (
+                <div key={c.id} onClick={()=>{ setCursoSel(c.id); setVista("curso"); }} style={{ padding:"12px 0", borderTop:ci?`1px solid ${C.border}`:"none", cursor:"pointer" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", gap:10, fontFamily:font.body, fontSize:14, fontWeight:600, color:C.text }}><span>{c.titulo}</span><span style={{ fontWeight:400, color:C.textMuted, fontSize:13, whiteSpace:"nowrap" }}>{comp} de {es.length} completaron</span></div>
+                  <div style={{ display:"flex", height:10, borderRadius:99, overflow:"hidden", background:C.surfaceHover, margin:"8px 0 6px" }}>
+                    <span style={{ width:`${pct(comp)}%`, background:C.green }}/><span style={{ width:`${pct(enc)}%`, background:C.amber }}/>
+                  </div>
+                  <div style={{ display:"flex", gap:14, flexWrap:"wrap", fontFamily:font.body, fontSize:12, color:C.textMuted }}>
+                    <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:C.green, marginRight:5 }}/>Completado {comp}</span>
+                    <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:C.amber, marginRight:5 }}/>En curso {enc}</span>
+                    <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:C.surfaceHover, border:`1px solid ${C.border}`, marginRight:5 }}/>Sin empezar {sin}</span>
+                  </div>
+                  {peor && <div style={{ fontFamily:font.body, fontSize:12.5, color:C.textMuted, marginTop:6 }}>⚑ Más intentos sin aprobar: «{peor[0]==="final"?"Quiz final":(leccionPorId[peor[0]]?.titulo||"—")}» ({peor[1]})</div>}
                 </div>
-              </Card>
-            ))}
-          </div>
-          <Card p="0" style={{ overflow:"hidden" }}>
-            <div style={{ overflowX:"auto" }}>
-              <table style={{ borderCollapse:"collapse", width:"100%", minWidth:260+lista.length*150 }}>
-                <thead><tr><th style={{ ...th, position:"sticky", left:0, zIndex:1 }}>Persona</th>{lista.map(c=><th key={c.id} style={th}>{c.titulo}</th>)}</tr></thead>
-                <tbody>
-                  {personas.map(u=>(
-                    <tr key={u.id}>
-                      <td style={{ ...td, position:"sticky", left:0, background:C.surface, fontWeight:600, whiteSpace:"nowrap" }}>{u.name}<div style={{ fontSize:11, color:C.textMuted, fontWeight:400 }}>{ROLE_LABEL[u.role]||"Asesor"}</div></td>
-                      {lista.map(c=><td key={c.id} style={td}>{celda(u,c)}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {personas.length===0 && <VacioCapacitacion>No hay personas que coincidan.</VacioCapacitacion>}
+              );
+            })}
           </Card>
-        </>
-      ) : (
+          <Card p="16px 18px">
+            {tituloSeccion("Necesitan atención")}
+            {atencion.length===0 ? <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>Nadie por ahora.</div> : atencion.slice(0,40).map((a,i)=>(
+              <div key={i} onClick={()=>abrirPersona(a.u)} style={{ display:"flex", gap:10, alignItems:"flex-start", padding:"9px 0", borderTop:i?`1px solid ${C.border}`:"none", cursor:"pointer" }}>
+                <Badge sm color={TIPO_ATENCION[a.tipo].color}>{TIPO_ATENCION[a.tipo].label}</Badge>
+                <div style={{ fontFamily:font.body, fontSize:13 }}><b style={{ color:C.text }}>{a.u.name}</b><div style={{ color:C.textMuted, marginTop:2 }}>{a.txt}</div></div>
+              </div>
+            ))}
+            <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:10 }}>Atascado: {INTENTOS_ATASCADO_ESCUELA} o más intentos sin aprobar un quiz · Inactivo: {DIAS_INACTIVO_ESCUELA} días sin actividad en un curso empezado.</div>
+          </Card>
+        </div>
+        <Card p="16px 18px" style={{ marginTop:14 }}>
+          {tituloSeccion("Actividad reciente")}
+          {actividad.length===0 ? <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>Todavía no hay actividad.</div> : actividad.map((a,i)=>(
+            <div key={i} style={{ display:"flex", gap:12, padding:"8px 0", borderTop:i?`1px solid ${C.border}`:"none", fontFamily:font.body, fontSize:13, flexWrap:isMobile?"wrap":"nowrap" }}>
+              <span style={{ minWidth:118, color:C.textMuted, fontSize:12.5 }}>{fmtCuando(a.t)}</span>
+              <div><b style={{ color:C.text, cursor:"pointer" }} onClick={()=>{ const u=base.find(x=>String(x.id)===a.uid); if(u) abrirPersona(u); }}>{a.nombre||"—"}</b> {a.txt} {a.extra && <span style={{ color:a.ok?C.green:C.red }}>{a.extra}</span>}</div>
+            </div>
+          ))}
+        </Card>
+      </>
+    );
+  };
+
+  // ── Por curso ──
+  const celdaLeccion = (x) => {
+    const caja = (bg, color, l1, l2) => <span style={{ display:"inline-flex", flexDirection:"column", alignItems:"center", minWidth:62, borderRadius:9, padding:"4px 6px", background:bg, color, fontFamily:font.body, fontSize:12, fontWeight:700, lineHeight:1.25 }}>{l1}{l2 && <span style={{ fontWeight:400, fontSize:10.5, opacity:.85 }}>{l2}</span>}</span>;
+    const nInt = x.intentos.length, txtInt = `${nInt} intento${nInt===1?"":"s"}`;
+    if(x.pregs.length){
+      if(x.completadaEn) return caja(C.greenDim, C.green, `✓ ${x.mejor}%`, txtInt);
+      if(nInt) return caja(C.redDim, C.red, `${x.mejor}%`, txtInt);
+      if(x.vista) return caja(C.surfaceHover, C.textSub, "Vista", "sin quiz");
+      return <span style={{ color:C.textMuted }}>—</span>;
+    }
+    return x.vista ? caja(C.greenDim, C.green, "✓ Vista", null) : <span style={{ color:C.textMuted }}>—</span>;
+  };
+  const filasCurso = () => {
+    if(!curso) return [];
+    return personas.map(u=>({ u, e:est(curso,u) })).filter(({ e })=>{
+      if(!estadoSel) return true;
+      if(estadoSel==="atascado") return e.infoLecs.some(x=>x.pregs.length && !x.completadaEn && x.intentos.length>=INTENTOS_ATASCADO_ESCUELA);
+      return e.estado===estadoSel;
+    });
+  };
+  const descargarCurso = () => {
+    const filas = filasCurso(), sep = ";";
+    const cab = ["Persona","Tienda","Estado","Lecciones completas", ...lecciones.filter(l=>l.curso_id===curso.id).sort(porOrden).map((l,i)=>`${i+1}. ${l.titulo}`), "Completado el","Última actividad"];
+    const datos = filas.map(({ u, e })=>[u.name, nombreTienda(u.id), ESTADO_CURSO[e.estado].label, `${e.lecsCompletas}/${e.lecs.length}`,
+      ...e.infoLecs.map(x=>x.pregs.length ? (x.completadaEn ? `Aprobada ${x.mejor}% (${x.intentos.length} int.)` : x.intentos.length ? `Sin aprobar, mejor ${x.mejor}% (${x.intentos.length} int.)` : x.vista ? "Vista, sin quiz" : "") : (x.vista ? "Vista" : "")),
+      e.completadoEn ? fmtFechaHora(e.completadoEn) : "", fmtFechaHora(ultimaActividad(u.id, curso.id))]);
+    const csv = "﻿" + [cab, ...datos].map(r=>r.map(c=>`"${String(c??"").replace(/"/g,'""')}"`).join(sep)).join("\n");
+    const url = URL.createObjectURL(new Blob([csv],{ type:"text/csv;charset=utf-8;" }));
+    const a = document.createElement("a"); a.href=url; a.download=`progreso-${(curso.titulo||"curso").replace(/[^\wáéíóúñ]+/gi,"-")}-${todayStr}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
+  const renderCurso = () => {
+    if(!curso) return <VacioCapacitacion>Todavía no hay cursos publicados.</VacioCapacitacion>;
+    const filas = filasCurso();
+    const lecs = lecciones.filter(l=>l.curso_id===curso.id).sort(porOrden);
+    const todos = base.map(u=>est(curso,u));
+    const tieneFinal = preguntas.some(p=>p.curso_id===curso.id && !p.leccion_id);
+    return (
+      <>
+        {filtrosPersonas(true)}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, margin:"0 0 10px", flexWrap:"wrap" }}>
+          <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>{filas.length} persona{filas.length===1?"":"s"} · toca una fila para ver su historial y respuestas</div>
+          <Btn sm variant="ghost" onClick={descargarCurso} disabled={!filas.length}><Icon n="down" s={14}/>Descargar Excel</Btn>
+        </div>
         <Card p="0" style={{ overflow:"hidden" }}>
           <div style={{ overflowX:"auto" }}>
-            <table style={{ borderCollapse:"collapse", width:"100%", minWidth:720 }}>
-              <thead><tr>{["Persona","Estado","Avance por lección","Intentos de quiz","Completado"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+            <table style={{ borderCollapse:"collapse", width:"100%", minWidth:360+lecs.length*96 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...th, position:"sticky", left:0, zIndex:2 }}>Persona</th><th style={th}>Avance</th>
+                  {lecs.map((l,i)=><th key={l.id} style={{ ...th, textAlign:"center" }} title={l.titulo}>{i+1}. {l.titulo.length>16?l.titulo.slice(0,15)+"…":l.titulo}</th>)}
+                  {tieneFinal && <th style={{ ...th, textAlign:"center" }}>Quiz final</th>}
+                  <th style={th}>Última actividad</th>
+                </tr>
+                <tr>
+                  <td style={{ ...td, position:"sticky", left:0, background:C.surfaceAlt, fontSize:11, color:C.textMuted }}>Aprobaron · promedio</td><td style={{ ...td, background:C.surfaceAlt }}/>
+                  {lecs.map((l,i)=>{ const xs = todos.map(e=>e.infoLecs[i]).filter(Boolean), ok = xs.filter(x=>x.completadaEn), conPuntaje = ok.filter(x=>x.mejor!=null);
+                    const prom = conPuntaje.length ? Math.round(conPuntaje.reduce((a,x)=>a+x.mejor,0)/conPuntaje.length) : null;
+                    return <td key={l.id} style={{ ...td, background:C.surfaceAlt, textAlign:"center", fontSize:11.5, color:C.textMuted, whiteSpace:"nowrap" }}>{ok.length}/{todos.length}{prom!=null?` · ${prom}%`:""}</td>; })}
+                  {tieneFinal && <td style={{ ...td, background:C.surfaceAlt }}/>}
+                  <td style={{ ...td, background:C.surfaceAlt }}/>
+                </tr>
+              </thead>
               <tbody>
-                {personas.map(u=>({ u, est:estadoCursoUsuario(curso, lecciones, preguntas, vistas, intentos, u.id) }))
-                  .sort((a,b)=>["en_curso","sin_empezar","completado"].indexOf(a.est.estado)-["en_curso","sin_empezar","completado"].indexOf(b.est.estado))
-                  .map(({ u, est })=>(
-                  <tr key={u.id}>
-                    <td style={{ ...td, fontWeight:600 }}>{u.name}<div style={{ fontSize:11, color:C.textMuted, fontWeight:400 }}>{ROLE_LABEL[u.role]||"Asesor"}</div></td>
-                    <td style={td}><Badge sm color={ESTADO_CURSO[est.estado].color}>{ESTADO_CURSO[est.estado].label}</Badge></td>
-                    <td style={td}><PuntosAvance est={est}/></td>
-                    <td style={{ ...td, fontFamily:font.mono }}>{est.todosIntentos.length || "—"}</td>
-                    <td style={td}>{est.completadoEn ? fmtFechaHora(est.completadoEn) : "—"}</td>
+                {filas.map(({ u, e })=>(
+                  <tr key={u.id} onClick={()=>abrirPersona(u)} style={{ cursor:"pointer" }}>
+                    <td style={{ ...td, position:"sticky", left:0, background:C.surface, fontWeight:600, whiteSpace:"nowrap", zIndex:1 }}>{u.name}<div style={{ fontSize:11, color:C.textMuted, fontWeight:400 }}>{nombreTienda(u.id)} · {ROLE_LABEL[u.role]||"Asesor"}</div></td>
+                    <td style={{ ...td, minWidth:110 }}><div style={{ fontFamily:font.body, fontSize:12, marginBottom:4 }}>{e.lecsCompletas}/{e.lecs.length}{e.completadoEn?" ✓":""}</div><BarraProgreso pct={e.pct} color={e.completadoEn?C.green:C.gold} height={5}/></td>
+                    {e.infoLecs.map(x=><td key={x.l.id} style={{ ...td, textAlign:"center" }}>{celdaLeccion(x)}</td>)}
+                    {tieneFinal && <td style={{ ...td, textAlign:"center" }}>{e.intentos.some(i=>i.aprobado) ? <Badge sm color={C.green}>✓ {e.mejorPuntaje}%</Badge> : e.intentos.length ? <Badge sm color={C.red}>{e.mejorPuntaje}% · {e.intentos.length}</Badge> : <span style={{ color:C.textMuted }}>—</span>}</td>}
+                    <td style={{ ...td, color:C.textMuted, fontSize:12, whiteSpace:"nowrap" }}>{fmtCuando(ultimaActividad(u.id, curso.id))}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {personas.length===0 && <VacioCapacitacion>No hay personas que coincidan.</VacioCapacitacion>}
+          {filas.length===0 && <VacioCapacitacion>No hay personas que coincidan.</VacioCapacitacion>}
         </Card>
-      )}
+      </>
+    );
+  };
+
+  // ── Por persona ──
+  const renderPersona = () => {
+    const u = personas.find(x=>String(x.id)===personaSel) || base.find(x=>String(x.id)===personaSel) || personas[0];
+    const listaPersonas = (
+      <Card p="8px" style={{ maxHeight:isMobile?undefined:640, overflowY:"auto" }}>
+        {personas.map(x=>{ const on = u && String(x.id)===String(u.id); const comp = lista.filter(c=>est(c,x).completadoEn).length;
+          return <div key={x.id} onClick={()=>{ setPersonaSel(String(x.id)); setIntentoAbierto(null); }} style={{ display:"flex", justifyContent:"space-between", gap:8, padding:"9px 12px", borderRadius:10, cursor:"pointer", background:on?C.goldDark:"transparent", color:on?"#fff":C.text, fontFamily:font.body, fontSize:13.5 }}>
+            <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{x.name}</span><span style={{ opacity:.75, fontSize:12 }}>{comp}/{lista.length}</span></div>; })}
+        {personas.length===0 && <VacioCapacitacion>No hay personas que coincidan.</VacioCapacitacion>}
+      </Card>
+    );
+    const misIntentos = u ? intentos.filter(i=>i.usuario_id===String(u.id)).sort((a,b)=>(b.created_at||"").localeCompare(a.created_at||"")) : [];
+    return (
+      <>
+        {filtrosPersonas(false)}
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"250px 1fr", gap:14, alignItems:"start" }}>
+          {isMobile ? <Field label="Persona" value={u?String(u.id):""} onChange={v=>{ setPersonaSel(v); setIntentoAbierto(null); }} options={personas.map(x=>({ value:String(x.id), label:x.name }))}/> : listaPersonas}
+          {!u ? <VacioCapacitacion>Elige una persona.</VacioCapacitacion> : (
+            <div>
+              <div style={{ fontFamily:font.body, fontSize:20, fontWeight:700, color:C.text }}>{u.name}</div>
+              <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, margin:"3px 0 12px" }}>{ROLE_LABEL[u.role]||"Asesor"} · {nombreTienda(u.id)} · última actividad: {fmtCuando(ultimaActividad(u.id))}</div>
+              <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill, minmax(240px, 1fr))", gap:10, marginBottom:14 }}>
+                {lista.map(c=>{ const e=est(c,u); return (
+                  <Card key={c.id} p="12px 14px">
+                    <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ fontFamily:font.body, fontSize:13.5, fontWeight:700, color:C.text }}>{c.titulo}</span><Badge sm color={ESTADO_CURSO[e.estado].color}>{ESTADO_CURSO[e.estado].label}</Badge></div>
+                    <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, margin:"6px 0 8px" }}>{e.lecsCompletas} de {e.lecs.length} lecciones{e.completadoEn?` · completado el ${fmtFechaCorta(e.completadoEn)}`:""}</div>
+                    <PuntosAvance est={e}/>
+                  </Card>
+                ); })}
+              </div>
+              <Card p="14px 16px">
+                {tituloSeccion(`Historial de quizzes (${misIntentos.length})`)}
+                {misIntentos.length===0 && <div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted }}>Todavía no ha presentado ningún quiz.</div>}
+                {misIntentos.map(i=>{ const abierto = intentoAbierto===i.id, resp = Array.isArray(i.respuestas) ? i.respuestas : [], aciertos = resp.filter(r=>r.acierto).length;
+                  return (
+                    <div key={i.id} style={{ border:`1px solid ${C.border}`, borderRadius:12, padding:"10px 12px", marginTop:8 }}>
+                      <div onClick={()=>setIntentoAbierto(abierto?null:i.id)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, cursor:"pointer", flexWrap:"wrap" }}>
+                        <div style={{ fontFamily:font.body, fontSize:13.5 }}><b style={{ color:C.text }}>{nombreQuiz(i)}</b> <span style={{ color:C.textMuted, fontSize:12.5 }}>· {cursoPorId[i.curso_id]?.titulo||""} · {fmtFechaHora(i.created_at)}</span></div>
+                        <div style={{ display:"flex", alignItems:"center", gap:8 }}><Badge sm color={i.aprobado?C.green:C.red}>{i.puntaje}% · {i.aprobado?"aprobó":"no aprobó"}</Badge><span style={{ color:C.textMuted, transform:abierto?"rotate(90deg)":"none", transition:"transform .2s" }}><Icon n="right" s={14}/></span></div>
+                      </div>
+                      {abierto && (
+                        <div style={{ marginTop:8 }}>
+                          <div style={{ fontFamily:font.body, fontSize:12, color:C.textMuted, marginBottom:4 }}>{aciertos} de {resp.length} correctas</div>
+                          {resp.map((r,k)=>{ const txt = (idxs)=>(idxs||[]).map(j=>r.opciones?.[j]).filter(Boolean).join(" · ") || "—";
+                            return (
+                              <div key={k} style={{ padding:"8px 0", borderTop:`1px dashed ${C.border}`, fontFamily:font.body, fontSize:13 }}>
+                                <div style={{ fontWeight:700, color:C.text, marginBottom:3 }}>{k+1}. {r.enunciado}</div>
+                                {r.acierto ? <div style={{ color:C.green }}>✓ {txt(r.elegidas)}</div> : <><div style={{ color:C.red }}>✗ Respondió: {txt(r.elegidas)}</div><div style={{ color:C.green }}>✓ Correcta: {txt(r.correctas)}</div></>}
+                              </div>
+                            ); })}
+                        </div>
+                      )}
+                    </div>
+                  ); })}
+              </Card>
+            </div>
+          )}
+        </div>
+      </>
+    );
+  };
+
+  // ── Preguntas más falladas ──
+  const renderPreguntas = () => {
+    const idsBase = new Set(base.map(u=>String(u.id)));
+    let ints = intentos.filter(i=>idsBase.has(i.usuario_id) && (!pregCurso || i.curso_id===pregCurso) && Array.isArray(i.respuestas));
+    if(pregModo==="ultimo"){ const ult = {}; ints.forEach(i=>{ const k=`${i.usuario_id}|${i.curso_id}|${i.leccion_id||"final"}`; if(!ult[k] || (i.created_at||"")>(ult[k].created_at||"")) ult[k]=i; }); ints = Object.values(ult); }
+    const stats = {};
+    ints.forEach(i=>i.respuestas.forEach(r=>{
+      const k = r.pregunta_id || r.enunciado; const s = stats[k] = stats[k] || { k, enunciado:r.enunciado, curso_id:i.curso_id, leccion_id:i.leccion_id, total:0, ok:0, errores:{} };
+      s.total++; if(r.acierto) s.ok++; else { const t = (r.elegidas||[]).map(j=>r.opciones?.[j]).filter(Boolean).join(" · ") || "(sin respuesta)"; s.errores[t]=(s.errores[t]||0)+1; }
+    }));
+    const filas = Object.values(stats).map(s=>{ const actual = preguntas.find(p=>p.id===s.k); const err = Object.entries(s.errores).sort((a,b)=>b[1]-a[1])[0];
+      return { ...s, enunciado: actual?.enunciado || s.enunciado, pct: Math.round(s.ok*100/s.total), err }; }).sort((a,b)=>a.pct-b.pct || b.total-a.total);
+    const colorPct = (p)=> p<50?C.red:p<75?C.amber:C.green;
+    return (
+      <>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"minmax(200px,300px) minmax(200px,280px)", gap:10, alignItems:"end", marginBottom:4 }}>
+          <Field label="Curso" value={pregCurso} onChange={setPregCurso} options={[{ value:"", label:"Todos los cursos" }, ...lista.map(c=>({ value:c.id, label:c.titulo }))]}/>
+          <Field label="Qué intentos contar" value={pregModo} onChange={setPregModo} options={[{ value:"ultimo", label:"El último de cada persona" },{ value:"todos", label:"Todos los intentos" }]}/>
+        </div>
+        <Card p="6px 16px">
+          {filas.length===0 && <VacioCapacitacion>Todavía no hay respuestas para analizar.</VacioCapacitacion>}
+          {filas.slice(0,40).map((s,i)=>(
+            <div key={s.k} style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 170px", gap:12, padding:"11px 0", borderTop:i?`1px solid ${C.border}`:"none", fontFamily:font.body }}>
+              <div>
+                <div style={{ fontSize:13.5, fontWeight:700, color:C.text }}>{s.enunciado}</div>
+                <div style={{ fontSize:12.5, color:C.textMuted, marginTop:3 }}>{cursoPorId[s.curso_id]?.titulo||""} · {s.leccion_id ? (leccionPorId[s.leccion_id]?.titulo||"Lección") : "Quiz final"}{s.err ? ` · Error más común: ${s.err[0]} (${Math.round(s.err[1]*100/s.total)}%)` : ""}</div>
+              </div>
+              <div>
+                <div style={{ fontFamily:font.mono, fontSize:13, fontWeight:700, color:colorPct(s.pct) }}>{s.pct}% acierto <span style={{ fontFamily:font.body, fontWeight:400, color:C.textMuted, fontSize:11.5 }}>· {s.total} resp.</span></div>
+                <div style={{ marginTop:6 }}><BarraProgreso pct={s.pct} color={colorPct(s.pct)} height={6}/></div>
+              </div>
+            </div>
+          ))}
+        </Card>
+      </>
+    );
+  };
+
+  return (
+    <div>
+      <PageHeader title="Progreso del equipo" subtitle="Cómo va la Escuela OZEN: cursos, personas, intentos y respuestas"/>
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:16 }}>
+        {pestanas.map(([id,label])=>(
+          <button key={id} onClick={()=>setVista(id)} style={{ fontFamily:font.body, fontSize:13, fontWeight:vista===id?700:500, padding:"8px 16px", borderRadius:99, border:`1px solid ${vista===id?C.goldDark:C.border}`, background:vista===id?C.goldDark:"#fff", color:vista===id?"#fff":C.textSub, cursor:"pointer" }}>{label}</button>
+        ))}
+      </div>
+      {vista==="resumen" && renderResumen()}
+      {vista==="curso" && renderCurso()}
+      {vista==="persona" && renderPersona()}
+      {vista==="preguntas" && renderPreguntas()}
     </div>
   );
 }
@@ -17643,7 +17915,7 @@ export default function App() {
         if(tab==="op_producto" && puedeOper(user, "operaciones.producto.ver", liderOper)) return <OperacionesProductoScreen {...propsOperaciones}/>;
       } else if(area==="capacitacion"){
         if(tab==="mis_cursos" && tomaCapacitaciones(user)) return <CapacitacionMisCursosScreen {...propsCapacitacion}/>;
-        if(tab==="progreso")     return <CapacitacionProgresoScreen users={users} {...propsCapacitacion}/>;
+        if(tab==="progreso")     return <CapacitacionProgresoScreen users={users} stores={stores} asignaciones={turnosAsignaciones} {...propsCapacitacion}/>;
         if(tab==="cursos_admin" && puedeEditarCapacitacion(user)) return <CapacitacionAdminScreen {...propsCapacitacion}/>;
       } else {
         // Asistencia (22 nov 2026): Turnos lleva arriba el selector Malla · Informes · Mi Historial
