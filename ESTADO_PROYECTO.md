@@ -1362,6 +1362,13 @@ Pedido de Santiago: poder reabrir una tarea que todavía no está vencida, a una
 - Si la nueva fecha cae en el mes siguiente, la tarea deja de contar en este mes y cuenta en el mes
   en que se cierre (igual que al reabrir una vencida).
 
+- **Progreso de la Escuela OZEN (25 nov 2026)**: la pestaña Progreso ahora tiene 4 vistas —
+  Resumen (cursos, "necesitan atención": 3+ intentos sin aprobar, 7 días inactivo o sin empezar;
+  actividad reciente), Por curso (persona × lección con mejor puntaje e intentos, filtros por
+  tienda/estado y descarga CSV), Por persona (avance e historial de quizzes con cada respuesta) y
+  Preguntas (las más falladas y el error más común). La tienda de cada persona sale de los turnos
+  (donde más turnos tuvo en 60 días). Sin tablas nuevas.
+
 ## Pendiente / roadmap operativo (registro de asistencia)
 
 - Reportes / exportar a Excel.
