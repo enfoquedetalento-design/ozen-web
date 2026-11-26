@@ -1405,7 +1405,7 @@ const BotonRefrescar = ({ onRefresh, refreshing }) => (
   </button>
 );
 
-function BarraSuperior({ extraDerecha, campana, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
+function BarraSuperior({ franja, extraDerecha, campana, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   // 24 nov 2026: en pantallas no tan anchas los módulos se montaban encima de "en turno / en
   // almuerzo" y de la campana. Ahora cada lado mide lo que necesita (nunca menos que su contenido)
   // y, si la ventana es angosta, los módulos se muestran con su nombre corto y más juntos.
@@ -1416,7 +1416,10 @@ function BarraSuperior({ extraDerecha, campana, user, area, onChooseArea, stores
   // "En turno / en almuerzo" pasa a solo número cuando no cabe (el detalle sigue al tocarlo).
   const extra = apretado && isValidElement(extraDerecha) ? cloneElement(extraDerecha, { compacto:true }) : extraDerecha;
   return (
-    <div style={{ height:62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"grid", gridTemplateColumns:"minmax(max-content, 1fr) auto minmax(max-content, 1fr)", alignItems:"center", padding:"0 24px", gap:apretado?12:20, flexShrink:0, position:"relative", zIndex:20 }}>
+    // 26 nov 2026 (Santiago): barra FLOTANTE, igual que la de pestañas de abajo — tarjeta redondeada
+    // con sombra, separada de los bordes. En Caja, el color de la tienda va como rayita dentro.
+    <div style={{ height:60, background:"#fff", border:`1px solid ${C.border}`, borderRadius:22, boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", margin:"12px 16px 0", display:"grid", gridTemplateColumns:"minmax(max-content, 1fr) auto minmax(max-content, 1fr)", alignItems:"center", padding:"0 18px 0 22px", gap:apretado?12:20, flexShrink:0, position:"relative", zIndex:20 }}>
+      {franja && <span aria-hidden="true" style={{ position:"absolute", left:22, right:22, bottom:0, height:3, borderRadius:3, background:franja, transition:"background-color .35s ease" }}/>}
       {/* 22 nov 2026: los módulos van centrados (marca a la izquierda, cuenta a la derecha). */}
       <div style={{ display:"flex", alignItems:"center" }}><MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios}/></div>
       <div style={{ display:"flex", justifyContent:"center" }}>{eligeModulo(user) && <SelectorArea user={user} area={area} onChooseArea={onChooseArea} apretado={apretado} sinIconos={sinIconos}/>}</div>
@@ -1432,12 +1435,12 @@ function BarraSuperior({ extraDerecha, campana, user, area, onChooseArea, stores
   );
 }
 
-// Franja de 3 px con el color de la tienda activa — dice "dónde estás" en toda el área de Ventas.
-const FranjaTienda = ({ color }) => <div style={{ height:3, background:color, transition:"background-color .35s ease", flexShrink:0 }}/>;
 
-function BarraSuperiorMovil({ extra, campana, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
+function BarraSuperiorMovil({ franja, extra, campana, user, area, onChooseArea, stores, tiendaId, setTiendaId, tiendaFija, mostrarTienda, onLogout, onRefresh, refreshing, onCambiarPassword, onAbrirUsuarios, onAbrirAccesoTiendas, onActivarNotificaciones, onAbrirFirmas }) {
   return (
-    <div style={{ background:"#fff", borderBottom:`1px solid ${C.border}`, padding:"10px 14px", paddingTop:"calc(10px + env(safe-area-inset-top, 0px) * 1.55)", flexShrink:0, position:"relative", zIndex:20 }}>
+    // 26 nov 2026: flotante también en el celular (tarjeta redondeada con sombra, debajo de la hora).
+    <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:20, boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", margin:"calc(env(safe-area-inset-top, 0px) * 1.55 + 6px) 10px 0", padding:"10px 12px", flexShrink:0, position:"relative", zIndex:20 }}>
+      {franja && <span aria-hidden="true" style={{ position:"absolute", left:18, right:18, bottom:0, height:3, borderRadius:3, background:franja }}/>}
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         <MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios} compact/>
         <div style={{ flex:1 }}/>
@@ -1547,7 +1550,8 @@ function CampanaGeneral({ user, stores, tiendaIds, ventas, ventasItems, ventasAb
 function BottomNav({ tab, setTab, user, area, liderOper, juntaLideres }) {
   const tabs = tabsPara(user, area, liderOper, juntaLideres);
   return (
-    <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:"#fff", padding:"0 10px", paddingBottom:"max(12px, calc(env(safe-area-inset-bottom, 0px) + 4px))", flexShrink:0, position:"relative", zIndex:30 }}>
+    // 26 nov 2026: flotante, como en computador — tarjeta redondeada separada de los bordes.
+    <div style={{ display:"flex", border:`1px solid ${C.border}`, borderRadius:22, background:"#fff", boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", margin:"6px 10px", marginBottom:"max(10px, calc(env(safe-area-inset-bottom, 0px) + 2px))", padding:"0 6px 4px", flexShrink:0, position:"relative", zIndex:30 }}>
       {tabs.map(t => { const active=tab===t.id; if(esBotonMas(t.id)) return (
         <div key={t.id} style={{ flex:1, display:"flex", justifyContent:"center" }}>
           <button onClick={(e)=>setTab(t.id, e.currentTarget.getBoundingClientRect())} aria-label={t.label} style={{ marginTop:-18, width:58, height:58, borderRadius:"50%", border:"4px solid #fff", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 8px 20px -6px rgba(26,59,82,0.6)" }}><Icon n="plus" s={26} sw={2.6}/></button>
@@ -6228,7 +6232,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
   // cambia de módulo desde el selector de áreas de la barra superior.
   return (
     <div style={{ minHeight:"100vh", background:C.dark, fontFamily:font.body, display:"flex", flexDirection:"column" }}>
-      <TopeEstado color="#ffffff"/>
+      <TopeEstado color={C.dark}/>
       <style>{`
         @keyframes ozenPopIn { from { opacity:0; transform:translateY(16px) scale(0.96); } to { opacity:1; transform:translateY(0) scale(1); } }
         .ozen-modulo-card { animation:ozenPopIn .5s cubic-bezier(.34,1.4,.64,1) both; transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
@@ -6239,7 +6243,7 @@ function AreaSelector({ user, onChoose, onLogout }) {
         .ozen-modulo-icon { transition:transform .2s ease, background .2s ease, color .2s ease; }
         .ozen-modulo-card:hover .ozen-modulo-icon { transform:scale(1.06) rotate(-3deg); background:${C.goldDark} !important; color:${C.tinta} !important; }
       `}</style>
-      <div style={{ height:isMobile?"calc(56px + env(safe-area-inset-top, 0px) * 1.55)":62, background:"#fff", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", padding:isMobile?"0 14px":"0 24px", paddingTop:isMobile?"calc(env(safe-area-inset-top, 0px) * 1.55)":0, boxSizing:"border-box", gap:12, flexShrink:0, position:"relative", zIndex:5 }}>
+      <div style={{ height:isMobile?56:60, background:"#fff", border:`1px solid ${C.border}`, borderRadius:isMobile?20:22, boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", margin:isMobile?"calc(env(safe-area-inset-top, 0px) * 1.55 + 6px) 10px 0":"12px 16px 0", display:"flex", alignItems:"center", padding:isMobile?"0 12px":"0 18px 0 22px", boxSizing:"border-box", gap:12, flexShrink:0, position:"relative", zIndex:5 }}>
         {NAVIDAD && <GuirnaldaBarra isMobile={isMobile}/>}
         <MarcaOzen user={{ role:"" }} onAbrirUsuarios={()=>{}} compact={isMobile}/>
         <div style={{ flex:1 }}/>
@@ -18210,10 +18214,9 @@ export default function App() {
         {globalAnimStyles}
         <ConfirmacionGlobal/>
         {bandaVerComo}
-        <TopeEstado color="#ffffff"/>
-        <BarraSuperiorMovil {...propsBarra} campana={campanaBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
+        <TopeEstado color={C.dark}/>
+        <BarraSuperiorMovil {...propsBarra} franja={mostrarTienda && tiendaActiva ? colorTiendaActiva : null} campana={campanaBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
         {NAVIDAD && <MagiaNavidad/>}
-        {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
         <main style={{flex:1,overflowY:"auto",padding:16}}>{panel}</main>
         <BottomNav tab={tabNav} setTab={setTabNav} user={user} area={area} liderOper={liderOper} juntaLideres={juntaLideres}/>
         {modalCambiarPassword}
@@ -18234,11 +18237,10 @@ export default function App() {
         {globalAnimStyles}
         <ConfirmacionGlobal/>
         {bandaVerComo}
-        <TopeEstado color="#ffffff"/>
-        <BarraSuperior {...propsBarra} campana={campanaBarra} extraDerecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
+        <TopeEstado color={C.dark}/>
+        <BarraSuperior {...propsBarra} franja={mostrarTienda && tiendaActiva ? colorTiendaActiva : null} campana={campanaBarra} extraDerecha={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores}/> : null}/>
         {NAVIDAD && <MagiaNavidad/>}
         {(tabsVisibles.length>1 || tabsVisibles.some(t=>esBotonMas(t.id))) && <DockPestanas tabs={tabsVisibles} tab={tabNav} setTab={setTabNav}/>}
-        {mostrarTienda && tiendaActiva && <FranjaTienda color={colorTiendaActiva}/>}
         <main style={{flex:1,overflowY:"auto",padding:"26px 28px 120px"}}>{panel}</main>
         {modalCambiarPassword}
         {modalUsuarios}
