@@ -1448,6 +1448,8 @@ function BarraSuperiorMovil({ franja, extra, campana, user, area, onChooseArea, 
         <span style={{ paddingLeft:4 }}><MarcaOzen user={user} onAbrirUsuarios={onAbrirUsuarios} compact/></span>
         <div style={{ flex:1 }}/>
         <div style={{ display:"flex", alignItems:"center", gap:6, ...ISLA, padding:"4px 4px 4px 6px" }}>
+          {/* Quién está en turno, arriba como en el computador (en su versión corta: solo números; al tocarlo sale el detalle). */}
+          {isValidElement(extra) ? cloneElement(extra, { compacto:true }) : extra}
           {mostrarTienda && <SelectorTienda stores={stores} tiendaId={tiendaId} setTiendaId={setTiendaId} fija={!!tiendaFija} compact/>}
           <BotonRefrescar onRefresh={onRefresh} refreshing={refreshing}/>
           {campana}
@@ -1455,7 +1457,6 @@ function BarraSuperiorMovil({ franja, extra, campana, user, area, onChooseArea, 
         </div>
       </div>
       {eligeModulo(user) && <div style={{ marginTop:10, position:"relative" }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/>{franja && <span aria-hidden="true" style={{ position:"absolute", left:"15%", right:"15%", bottom:-6, height:3, borderRadius:3, background:franja }}/>}</div>}
-      {extra && <div style={{ marginTop:8, display:"flex", justifyContent:"flex-end" }}>{extra}</div>}
       {NAVIDAD && <GuirnaldaBarra isMobile/>}
     </div>
   );
