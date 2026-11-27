@@ -964,7 +964,8 @@ const ADMIN_TABS_ASISTENCIA = [{ id:"turnos",icon:"📅",label:"Turnos" },{ id:"
 const VISTAS_TURNOS_ASISTENCIA = [["turnos","Malla","cal"],["reports","Informes","chart"],["mi_historial","Mi Historial","history"]];
 // Botones redondos "+" de la barra: "mas" = Registrar venta (Ventas), "marcar" = Marcar asistencia,
 // "junta_mas" = Agregar una tarea o un acuerdo (La Junta).
-const esBotonMas = (id) => id==="mas" || id==="marcar" || id==="junta_mas";
+// "op_mas" = Nueva orden de cliente o Agregar producto (Operaciones, 27 nov 2026).
+const esBotonMas = (id) => id==="mas" || id==="marcar" || id==="junta_mas" || id==="op_mas";
 // Las pestañas "Asesores" y "Tiendas" ya no van sueltas — ahora viven dentro de Turnos ▸
 // Administrar (ver TurnosAdminScreen), junto con los códigos de turno especiales.
 // Usuarios (control total de contraseñas) ya no va en esta lista de pestañas — es solo para
@@ -992,7 +993,9 @@ const ADMIN_TABS_VENTAS     = [{ id:"metricas",icon:"📊",label:"Métricas" },{
 const ADMIN_TABS_CAPACITACION = [{ id:"mis_cursos",icon:"📚",label:"Mis cursos" },{ id:"progreso",icon:"📊",label:"Progreso" },{ id:"cursos_admin",icon:"🛠️",label:"Administrar cursos" }];
 // Operaciones (área "operaciones"): por ahora solo Externas (parte 1). Internas e Indicadores son
 // las partes 2 y 3 — ver "OPERACIONES" más abajo.
-const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas · clientes" },{ id:"op_internas",icon:"📦",label:"Internas · tiendas" },{ id:"op_indicadores",icon:"📊",label:"Indicadores" },{ id:"op_producto",icon:"🏷️",label:"Producto" }];
+const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas · clientes",corto:"Externas" },{ id:"op_internas",icon:"📦",label:"Internas · tiendas",corto:"Internas" },{ id:"op_indicadores",icon:"📊",label:"Indicadores" },{ id:"op_producto",icon:"🏷️",label:"Producto" }];
+// El + de Operaciones sale si la persona puede crear una orden de cliente o generar producto.
+const opMasDisponible = (user, liderOper) => puedeOper(user, "operaciones.externas.crear", liderOper) || (!esCuentaTienda(user) && puedeOper(user, "operaciones.producto.ver", liderOper));
 const tabsCapacitacion = (user) => ADMIN_TABS_CAPACITACION.filter(t => t.id==="mis_cursos" ? tomaCapacitaciones(user) : t.id==="cursos_admin" ? puedeEditarCapacitacion(user) : puede(user, "escuela.progreso"));
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas" || user.role==="admin_turnos";
 // Quién ve la pantalla de módulos al entrar y el selector de áreas arriba: los admins (puedeUsarAreas)
@@ -1105,8 +1108,8 @@ const centrarMas = (tabs) => {
 const tabsPara = (user, area, liderOper="", juntaLideres=[]) => !puedeUsarAreas(user)
   // Cuenta de tienda (26 nov 2026): elige arriba entre Ventas y Operaciones como las demás cuentas;
   // en Ventas el dock trae sus pestañas (+ Turnos) y en Operaciones solo su pestaña.
-  ? (esCuentaTienda(user) ? (area==="operaciones" ? [{ id:"op_externas", icon:"🧰", label:"Operaciones" }] : centrarMas([...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : [])])) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
-  : (area==="junta" ? tabsJunta(user, juntaLideres) : area==="operaciones" ? ADMIN_TABS_OPERACIONES.filter(t=>(t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) && (t.id!=="op_producto" || puedeOper(user, "operaciones.producto.ver", liderOper))) : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
+  ? (esCuentaTienda(user) ? (area==="operaciones" ? [{ id:"op_externas", icon:"🧰", label:"Órdenes" }, ...(opMasDisponible(user, liderOper) ? [{ id:"op_mas", icon:"➕", label:"Nueva orden" }] : [])] : centrarMas([...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : [])])) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
+  : (area==="junta" ? tabsJunta(user, juntaLideres) : area==="operaciones" ? (()=>{ const t = ADMIN_TABS_OPERACIONES.filter(t=>(t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) && (t.id!=="op_producto" || puedeOper(user, "operaciones.producto.ver", liderOper))); if(!opMasDisponible(user, liderOper)) return t; const m = Math.ceil(t.length/2); return [...t.slice(0,m), { id:"op_mas", icon:"➕", label:"Nueva orden" }, ...t.slice(m)]; })() : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
 const DIAS_EXPIRACION_PASSWORD = 90;
@@ -1244,7 +1247,9 @@ const IslaTienda = ({ user, stores, compact }) => {
     </span>
   );
 };
-const ISLA = { background:"rgba(255,255,255,0.9)", backdropFilter:"blur(14px) saturate(1.3)", WebkitBackdropFilter:"blur(14px) saturate(1.3)", border:`1px solid ${C.border}`, borderRadius:99, boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", pointerEvents:"auto" };
+// Sin backdrop-filter a propósito: con él, el fondo invisible que cierra los menús al tocar por fuera
+// quedaba atrapado dentro de la isla (y el menú de la cuenta se iba por debajo de los módulos).
+const ISLA = { background:"rgba(255,255,255,0.96)", border:`1px solid ${C.border}`, borderRadius:99, boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", pointerEvents:"auto" };
 // Alto real de un elemento (para dejar el espacio justo debajo/encima de las islas flotantes).
 const useAltoElemento = () => {
   const [el, setEl] = useState(null); const [alto, setAlto] = useState(0);
@@ -1259,7 +1264,7 @@ function SelectorArea({ user, area, onChooseArea, compact, apretado, sinIconos }
   useAvisoDeslizar(fila, !!compact);
   useEffect(()=>{ if(!compact || !fila.current) return; const on = fila.current.querySelector("[data-activo='1']"); on && on.scrollIntoView({ inline:"nearest", block:"nearest" }); }, [area, compact]);
   return (
-    <div ref={fila} className={compact?"ozen-sin-barra":undefined} style={{ display:"flex", ...ISLA, padding:4, gap:2, ...(compact?{ width:"100%", overflowX:"auto", scrollbarWidth:"none", WebkitOverflowScrolling:"touch", boxSizing:"border-box" }:{}) }}>
+    <div ref={fila} className={compact?"ozen-sin-barra":undefined} style={{ display:"flex", ...ISLA, padding:4, gap:2, ...(compact?{ width:areasPara(user).length>3?"100%":"fit-content", maxWidth:"100%", overflowX:"auto", scrollbarWidth:"none", WebkitOverflowScrolling:"touch", boxSizing:"border-box" }:{}) }}>
       {areasPara(user).map(a=>{ const on=a.id===area; return (
         <button key={a.id} data-activo={on?"1":"0"} onClick={()=>!on && onChooseArea(a.id)} className="ozen-area-btn" style={{ flex:compact?"0 0 auto":undefined, whiteSpace:"nowrap", display:"flex", alignItems:"center", justifyContent:"center", gap:7, padding:compact?"7px 14px":apretado?"8px 11px":"8px 16px", borderRadius:99, border:"none", cursor:on?"default":"pointer", background:on?C.goldDark:"transparent", color:on?"#fff":C.textSub, fontFamily:font.body, fontSize:compact?11.5:13, fontWeight:on?600:500, transition:"background .25s ease, color .25s ease", whiteSpace:"nowrap" }}>
           {!compact && !sinIconos && <Icon n={a.ic} s={15}/>}{(compact||apretado) ? (a.corto||a.label) : a.label}
@@ -1483,7 +1488,7 @@ function BarraSuperiorMovil({ franja, extra, campana, user, area, onChooseArea, 
         </div>
       </div>
       {!eligeModulo(user) && esCuentaTienda(user) && areasPara(user).length<2 && stores?.[user.tienda_id] && <div style={{ marginTop:10, display:"flex", justifyContent:"center" }}><IslaTienda user={user} stores={stores} compact/></div>}
-      {(eligeModulo(user) || (esCuentaTienda(user) && areasPara(user).length>1)) && <div style={{ marginTop:10, position:"relative" }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/>{franja && <span aria-hidden="true" style={{ position:"absolute", left:"15%", right:"15%", bottom:-6, height:3, borderRadius:3, background:franja }}/>}</div>}
+      {(eligeModulo(user) || (esCuentaTienda(user) && areasPara(user).length>1)) && <div style={{ marginTop:10, position:"relative", display:"flex", justifyContent:"center" }}><SelectorArea user={user} area={area} onChooseArea={onChooseArea} compact/>{franja && <span aria-hidden="true" style={{ position:"absolute", left:"15%", right:"15%", bottom:-6, height:3, borderRadius:3, background:franja }}/>}</div>}
       {NAVIDAD && <GuirnaldaBarra isMobile/>}
     </div>
   );
@@ -1582,18 +1587,16 @@ function CampanaGeneral({ user, stores, tiendaIds, ventas, ventasItems, ventasAb
 
 function BottomNav({ tab, setTab, user, area, liderOper, juntaLideres }) {
   const tabs = tabsPara(user, area, liderOper, juntaLideres);
+  if(!tabs.length) return null;
   return (
-    // 26 nov 2026: flotante, como en computador — tarjeta redondeada separada de los bordes.
-    <div style={{ display:"flex", border:`1px solid ${C.border}`, borderRadius:22, background:"rgba(255,255,255,0.92)", backdropFilter:"blur(14px) saturate(1.3)", WebkitBackdropFilter:"blur(14px) saturate(1.3)", pointerEvents:"auto", boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", margin:"6px 10px", marginBottom:"max(10px, calc(env(safe-area-inset-bottom, 0px) + 2px))", padding:"0 6px 4px", flexShrink:0, position:"relative", zIndex:30 }}>
+    // Flotante y del tamaño de lo que contiene (no de borde a borde), igual al dock del computador.
+    <div style={{ display:"flex", alignItems:"center", gap:2, width:"fit-content", maxWidth:"calc(100% - 20px)", boxSizing:"border-box", border:`1px solid ${C.border}`, borderRadius:24, background:"rgba(255,255,255,0.97)", pointerEvents:"auto", boxShadow:"0 14px 40px -18px rgba(26,59,82,0.35)", margin:"6px auto", marginBottom:"max(10px, calc(env(safe-area-inset-bottom, 0px) + 2px))", padding:"5px 6px", flexShrink:0, position:"relative", zIndex:30 }}>
       {tabs.map(t => { const active=tab===t.id; if(esBotonMas(t.id)) return (
-        <div key={t.id} style={{ flex:1, display:"flex", justifyContent:"center" }}>
-          <button onClick={(e)=>setTab(t.id, e.currentTarget.getBoundingClientRect())} aria-label={t.label} style={{ marginTop:-18, width:58, height:58, borderRadius:"50%", border:"4px solid #fff", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 8px 20px -6px rgba(26,59,82,0.6)" }}><Icon n="plus" s={26} sw={2.6}/></button>
-        </div>
+        <button key={t.id} onClick={(e)=>setTab(t.id, e.currentTarget.getBoundingClientRect())} aria-label={t.label} style={{ margin:"-24px 6px 0", width:58, height:58, flexShrink:0, borderRadius:"50%", border:"4px solid #fff", background:C.gold, color:"#fff", display:"grid", placeItems:"center", cursor:"pointer", boxShadow:"0 8px 20px -6px rgba(26,59,82,0.6)" }}><Icon n="plus" s={26} sw={2.6}/></button>
       ); return (
-        <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:1, padding:"10px 2px 6px", background:"none", border:"none", display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer", color:active?C.goldDark:C.textMuted, position:"relative" }}>
-          <span style={{ position:"absolute", top:0, left:"28%", right:"28%", height:2.5, borderRadius:2, background:active?C.gold:"transparent", transition:"background .25s ease" }}/>
-          <Icon n={TAB_ICON[t.id]||"right"} s={23} sw={active?2:1.7}/>
-          <div style={{ fontSize:11.5, fontFamily:font.body, fontWeight:active?700:500, lineHeight:1.1, textAlign:"center" }}>{t.label}</div>
+        <button key={t.id} onClick={()=>setTab(t.id)} style={{ minWidth:70, padding:"7px 8px 6px", borderRadius:16, border:"none", background:active?C.surfaceHover:"transparent", display:"flex", flexDirection:"column", alignItems:"center", gap:3, cursor:"pointer", color:active?C.goldDark:C.textMuted, fontFamily:font.body }}>
+          <Icon n={TAB_ICON[t.id]||"right"} s={21} sw={active?2:1.7}/>
+          <span style={{ fontSize:11, fontWeight:active?700:500, lineHeight:1.1, textAlign:"center", whiteSpace:"nowrap" }}>{t.corto||t.label}</span>
         </button>
       ); })}
     </div>
@@ -3484,7 +3487,7 @@ function TurnosHoy({ advisors, asigMap, stores, turnosGlobales, turnosHorarios, 
           <tbody>
             {orden.map(a=>(
               <tr key={a.id}>
-                <td style={{ padding:"0 6px", fontFamily:font.body, fontSize:isMobile?12.5:13, fontWeight:700, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}><span style={{ display:"inline-flex", alignItems:"center", gap:7, maxWidth:"100%" }}><FotoPersona persona={a} size={isMobile?20:24}/><span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{isMobile ? primerNombre(a.name) : a.name.split(" ").slice(0,2).join(" ")}</span></span></td>
+                <td style={{ padding:"0 6px", fontFamily:font.body, fontSize:isMobile?12.5:13, fontWeight:700, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}><span style={{ display:"inline-flex", alignItems:"center", gap:7, maxWidth:"100%" }}>{!isMobile && <FotoPersona persona={a} size={24}/>}<span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{isMobile ? primerNombre(a.name) : a.name.split(" ").slice(0,2).join(" ")}</span></span></td>
                 {cols.map(([f])=>{ const asig=asigMap.get(`${a.id}|${f}`); const turno=resolverTurno(asig, stores, turnosGlobales); return (
                   <td key={f} style={{ padding:0 }}><BloqueTurno turno={turno} horario={isMobile?null:horarioDelDia(asig, f, turnosHorarios)?.replace(" (especial)"," ⏱")} tenue={f!==todayStr} marcado={f===todayStr}/></td>
                 ); })}
@@ -15859,9 +15862,11 @@ function OperTablero({ columnas, render, onAbrir, isMobile }) {
 const operIrATarjeta = (id) => setTimeout(()=>{ const el = document.getElementById(`oper-${id}`); if(el) el.scrollIntoView({ behavior:"smooth", block:"center" }); }, 350);
 
 // ── SCREEN: Operaciones · Externas ───────────────────────────────────────────
-function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ventas, onCobrar, onIrA, foco, onFocoUsado, pedidoFiltro, onFiltroUsado, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
+function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ventas, onCobrar, onIrA, foco, onFocoUsado, pedidoFiltro, onFiltroUsado, config, setConfig, estado, onCargar, todoCargado, isMobile, pedirNueva, onNuevaUsada }) {
   const liderId = config.find(c=>c.clave==="lider_usuario_id")?.valor || "";
   const [creando, setCreando] = useState(false);
+  // El + de abajo (Nueva orden) abre aquí mismo el formulario, arriba de todo.
+  useEffect(()=>{ if(!pedirNueva) return; setCreando(true); onNuevaUsada?.(); try { document.querySelector("main")?.scrollTo({ top:0, behavior:"smooth" }); } catch { /* sin main */ } }, [pedirNueva?.t]); // eslint-disable-line react-hooks/exhaustive-deps
   const [abiertoId, setAbiertoId] = useState(null);
   const [ordenVista, setOrdenVista] = useState(null);
   const [fase, setFase] = useState("abiertas");
@@ -17505,6 +17510,7 @@ function OperacionesTiendaScreen(props) {
   const [sub, setSub] = useState(props.foco?.tipo==="int" ? "internas" : "externas");
   useEffect(()=>{ if(props.foco) setSub(props.foco.tipo==="int" ? "internas" : "externas"); }, [props.foco?.t]);
   useEffect(()=>{ if(props.pedidoFiltro) setSub(props.pedidoFiltro.tipo==="int" ? "internas" : "externas"); }, [props.pedidoFiltro?.t]);
+  useEffect(()=>{ if(props.pedirNueva) setSub("externas"); }, [props.pedirNueva?.t]);
   return (
     <div>
       <div style={{ display:"flex", gap:8, marginBottom:16, maxWidth:1100, marginLeft:"auto", marginRight:"auto" }}>
@@ -17564,6 +17570,8 @@ export default function App() {
   const [opFoco,setOpFoco]=useState(null);
   // Panel de la tienda → abrir Externas con un filtro ({ ficha, tienda, t }).
   const [opPedido,setOpPedido]=useState(null);
+  // + de Operaciones: pedido de "Nueva orden" para la pantalla de Externas, y la ventanita para elegir.
+  const [opNueva,setOpNueva]=useState(null), [opMasOrigen,setOpMasOrigen]=useState(null), opNuevaN=useRef(0);
   // Campana de Registrar venta: solo las órdenes ABIERTAS (pocas columnas), como mucho cada 5
   // minutos y solo en esa pestaña — no se descarga Operaciones entero (tope de Supabase).
   // Registrar venta como ventana (22 nov 2026). Una vez abierta queda montada (escondida al cerrar),
@@ -18015,7 +18023,7 @@ export default function App() {
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
   // El líder de Operaciones (operaciones_config): decide si se ve la pestaña Producto.
   const liderOper = opConfig.find(c=>c.clave==="lider_usuario_id")?.valor || "";
-  const propsOperaciones = { user, users, stores, ventas, onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, sols:opInternas, setSols:setOpInternas, foco:opFoco, onFocoUsado:()=>setOpFoco(null), pedidoFiltro:opPedido, onFiltroUsado:()=>setOpPedido(null), onPedirFiltro:(ficha,tienda,tipo="ext")=>{ setOpPedido({ ficha, tienda, tipo, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, onIrA:(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
+  const propsOperaciones = { user, users, stores, ventas, pedirNueva:opNueva, onNuevaUsada:()=>setOpNueva(null), onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, sols:opInternas, setSols:setOpInternas, foco:opFoco, onFocoUsado:()=>setOpFoco(null), pedidoFiltro:opPedido, onFiltroUsado:()=>setOpPedido(null), onPedirFiltro:(ficha,tienda,tipo="ext")=>{ setOpPedido({ ficha, tienda, tipo, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, onIrA:(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
       if(area==="junta"){
@@ -18195,7 +18203,28 @@ export default function App() {
   const mostrarTienda = esAreaVentas && tab==="caja";
   // Asistencia de admins: Turnos lleva a la primera vista que la persona puede ver (si no ve la Malla).
   const esAsistenciaAdmin = puedeUsarAreas(user) && area==="asistencia";
-  const setTabNav = (id, rect) => id==="mas" ? abrirRegistrar(rect) : id==="marcar" ? abrirMarcar(rect) : id==="junta_mas" ? abrirJuntaNueva(rect)
+  // + de Operaciones: si solo puede una cosa, va directo; si puede las dos, pregunta cuál.
+  const opPuedeOrden = puedeOper(user, "operaciones.externas.crear", liderOper);
+  const opPuedeProducto = !esCuentaTienda(user) && puedeOper(user, "operaciones.producto.ver", liderOper);
+  const irNuevaOrden = () => { setOpMasOrigen(null); setTab("op_externas"); setOpNueva({ t:++opNuevaN.current }); };
+  const irProducto = () => { setOpMasOrigen(null); setTab("op_producto"); };
+  const abrirOpMas = (rect) => { if(opPuedeOrden && !opPuedeProducto) return irNuevaOrden(); if(opPuedeProducto && !opPuedeOrden) return irProducto(); setOpMasOrigen(rect ? { left:rect.left, top:rect.top, width:rect.width, height:rect.height, bottom:rect.bottom } : {}); };
+  const opcionMas = (ic, titulo, sub, onClick) => (
+    <button onClick={onClick} className="ozen-fila-venta" style={{ all:"unset", boxSizing:"border-box", cursor:"pointer", display:"flex", alignItems:"center", gap:14, width:"100%", padding:"14px 16px", borderRadius:14, border:`1px solid ${C.border}`, background:"#fff", fontFamily:font.body }}>
+      <span style={{ width:44, height:44, borderRadius:12, background:C.surfaceHover, color:C.goldDark, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n={ic} s={21}/></span>
+      <span style={{ flex:1, minWidth:0 }}><b style={{ display:"block", fontSize:15, color:C.text }}>{titulo}</b><span style={{ fontSize:12.5, color:C.textMuted }}>{sub}</span></span>
+      <Icon n="right" s={16} style={{ color:C.textMuted }}/>
+    </button>
+  );
+  const modalOpMas = opMasOrigen && createPortal(
+    <VentanaNube abierta origen={opMasOrigen.left!==undefined ? opMasOrigen : null} isMobile={isMobile} ancho={440} onCerrar={()=>setOpMasOrigen(null)} icono="plus" titulo="Agregar"
+      centro={<b style={{ fontFamily:font.body, fontSize:14, color:C.text, whiteSpace:"nowrap" }}>¿Qué quieres agregar?</b>}>
+      <div style={{ display:"flex", flexDirection:"column", gap:10, maxWidth:420, margin:"0 auto" }}>
+        {opcionMas("wrench", "Nueva orden", "Arreglo, marcación o garantía de un cliente", irNuevaOrden)}
+        {opcionMas("tag", "Agregar producto", "Generar los códigos de producto nuevo", irProducto)}
+      </div>
+    </VentanaNube>, document.body);
+  const setTabNav = (id, rect) => id==="mas" ? abrirRegistrar(rect) : id==="marcar" ? abrirMarcar(rect) : id==="junta_mas" ? abrirJuntaNueva(rect) : id==="op_mas" ? abrirOpMas(rect)
     : (id==="turnos" && esAsistenciaAdmin && !puede(user, "turnos.ver")) ? setTab(inicioAsistencia(user)) : setTab(id);
   const irAOrdenDesdeAviso = (tipo,id)=>{ setRegistrarAbierto(false); setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setArea("operaciones"); setTab(tipo==="int"?"op_internas":"op_externas"); };
   // Desde la campana: abre Lista de ventas con ese Flexipago buscado y desplegado.
@@ -18262,8 +18291,8 @@ export default function App() {
         <BarraSuperiorMovil {...propsBarra} franja={mostrarTienda && tiendaActiva ? colorTiendaActiva : null} campana={campanaBarra} extra={esAreaVentas ? <EnTurnoIndicator records={records} stores={stores} isMobile/> : null}/>
         </div>
         {NAVIDAD && <MagiaNavidad/>}
-        <main style={{flex:1,overflowY:"auto",padding:16,paddingTop:altoArriba+10,paddingBottom:altoAbajo+16,"--ozen-abajo":`${altoAbajo+8}px`}}>{panel}</main>
-        <div ref={refAbajo} style={{ position:"absolute", bottom:0, left:0, right:0, zIndex:40, pointerEvents:"none" }}><BottomNav tab={tabNav} setTab={setTabNav} user={user} area={areaNav} liderOper={liderOper} juntaLideres={juntaLideres}/></div>
+        <main style={{flex:1,overflowY:"auto",padding:16,paddingTop:altoArriba+10,paddingBottom:altoAbajo+16,"--ozen-abajo":"10px"}}>{panel}</main>
+        <div ref={refAbajo} style={{ position:"absolute", bottom:0, left:0, right:0, zIndex:40, pointerEvents:"none", display:"flex", justifyContent:"center" }}><BottomNav tab={tabNav} setTab={setTabNav} user={user} area={areaNav} liderOper={liderOper} juntaLideres={juntaLideres}/></div>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
@@ -18271,6 +18300,7 @@ export default function App() {
         {modalRegistrar}
         {modalMarcar}
         {modalJuntaNueva}
+        {modalOpMas}
         {bannerActualizacion}
       </div>
     </ReadOnlyContext.Provider>
@@ -18288,7 +18318,7 @@ export default function App() {
         </div>
         {NAVIDAD && <MagiaNavidad/>}
         {(tabsVisibles.length>1 || tabsVisibles.some(t=>esBotonMas(t.id))) && <DockPestanas tabs={tabsVisibles} tab={tabNav} setTab={setTabNav}/>}
-        <main style={{flex:1,overflowY:"auto",padding:"26px 28px 120px",paddingTop:altoArriba+18,"--ozen-abajo":"96px"}}>{panel}</main>
+        <main style={{flex:1,overflowY:"auto",padding:"26px 28px 120px",paddingTop:altoArriba+18,"--ozen-abajo":"10px"}}>{panel}</main>
         {modalCambiarPassword}
         {modalUsuarios}
         {modalAccesoTiendas}
@@ -18296,6 +18326,7 @@ export default function App() {
         {modalRegistrar}
         {modalMarcar}
         {modalJuntaNueva}
+        {modalOpMas}
         {bannerActualizacion}
       </div>
     </ReadOnlyContext.Provider>
