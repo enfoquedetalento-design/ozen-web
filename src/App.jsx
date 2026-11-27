@@ -10073,8 +10073,89 @@ const CONS_MEDIOS = [...VENTAS_MEDIOS_PAGO.map(m=>({ value:m.value, label:m.valu
 // que venían de antes y que el Excel ya cuenta). No se carga al abrir la página: se baja una sola
 // vez por sesión cuando alguien abre Consultas.
 const HISTORICO_CORTE = "2026-08-01";
+// Tiendas que ya no están en la página pero sí en el historial (Llanogrande dejó de vender en mayo 2026).
+const TIENDAS_SOLO_HISTORICO = { llanogrande:{ id:"llanogrande", name:"Llanogrande", color:"#8a6d5a" } };
+const tiendaHist = (stores, id) => stores[id] || TIENDAS_SOLO_HISTORICO[id] || null;
 let historicoPromesa = null;
 const cargarHistorico = () => (historicoPromesa ||= traerTodo("ventas_historico", [["fecha", true]]).then(r=>r?.data||[]).catch(()=>{ historicoPromesa = null; return []; }));
+// Métricas de un mes de antes de la página (27 nov 2026): cuando en Métricas se elige un mes
+// anterior a agosto 2026, se muestra lo que hay en el historial de los Excel (ventas_historico):
+// ventas, ingreso, N.º de ventas y ticket, por tienda y por asesor, y comparado con el mismo mes del
+// año anterior. No hay metas, Caja ni Flexipagos uno por uno porque el Excel no los tenía.
+function MetricasMesHistorico({ mesKey, tiendaSel, setTiendaSel, stores, users, isMobile }) {
+  const [hist, setHist] = useState(null);
+  useEffect(()=>{ let vivo = true; cargarHistorico().then(d=>{ if(vivo) setHist(d); }); return ()=>{ vivo = false; }; }, []);
+  if(!hist) return <Card><div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, textAlign:"center", padding:20 }}>Cargando el historial del Excel…</div></Card>;
+  const [y, m] = mesKey.split("-").map(Number);
+  const mesAntes = `${y-1}-${String(m).padStart(2,"0")}`;
+  const nombreAsesor = (r) => (r.asesor_id && users.find(u=>u.id===r.asesor_id)?.name) || r.asesor || "Sin asesor";
+  const resumir = (mk) => {
+    const filas = hist.filter(r=>r.fecha && r.fecha.slice(0,7)===mk && (!tiendaSel || r.tienda_id===tiendaSel));
+    const acc = () => ({ ventas:0, ingreso:0, n:0, descuento:0, compartida:false });
+    const tot = acc(), porTienda = {}, porAsesor = {};
+    filas.forEach(r=>{
+      const v = Number(r.valor||0), esVenta = r.tipo==="producto" || r.tipo==="flexipago";
+      const sumar = (a) => {
+        if(esVenta){ a.ventas += v; a.n += Number(r.n||0); }
+        if(r.tipo==="bono") a.descuento += v; else { a.ingreso += v; a.descuento += Number(r.descuento||0); }
+        if(r.compartida) a.compartida = true;
+      };
+      sumar(tot);
+      sumar(porTienda[r.tienda_id] ||= acc());
+      const k = nombreAsesor(r); sumar(porAsesor[k] ||= acc());
+    });
+    return { tot, porTienda, porAsesor, hay:filas.length>0 };
+  };
+  const act = resumir(mesKey), ant = resumir(mesAntes);
+  const ticket = (a) => a.n ? a.ventas/a.n : 0;
+  const delta = (a, b) => (b>0 ? Math.round((a-b)/b*1000)/10 : null);
+  const verDelta = (a, b) => { const d = delta(a,b); if(d===null) return null; const sube = d>=0; return <div style={{ fontFamily:font.body, fontSize:10.5, marginTop:3, color:sube?C.green:C.red, fontWeight:700 }}>{sube?"▲":"▼"} {Math.abs(d).toLocaleString("es-CO")} % vs {MESES_NOMBRE[m-1].slice(0,3).toLowerCase()} {y-1}</div>; };
+  const tarjeta = (titulo, valor, extra) => (
+    <div style={{ flex:"0 0 160px", background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
+      <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>{titulo}</div>
+      <div style={{ fontFamily:font.mono, fontSize:18, fontWeight:700, color:C.text }}>{valor}</div>
+      {extra}
+    </div>
+  );
+  const aviso = <div style={{ fontFamily:font.body, fontSize:12, color:C.textSub, background:hexToRgba(C.gold,0.06), border:`1px solid ${hexToRgba(C.gold,0.2)}`, borderRadius:10, padding:"9px 12px", marginBottom:14 }}>📒 Mes de antes de la página: estos datos vienen del <b>Excel de ventas</b> de cada tienda. No hay metas, Caja ni Flexipagos uno por uno.</div>;
+  // Tiendas que solo existen en el historial (ej. Llanogrande): se pueden elegir aquí.
+  const soloHist = [...new Set(hist.filter(r=>r.fecha && r.fecha.slice(0,7)===mesKey).map(r=>r.tienda_id))].filter(id=>!stores[id]).map(id=>tiendaHist(stores,id)).filter(Boolean);
+  const pildorasHist = soloHist.length>0 && setTiendaSel && (
+    <div style={{ display:"flex", gap:6, justifyContent:"center", flexWrap:"wrap", margin:"-6px 0 14px" }}>
+      {soloHist.map(t=>{ const on = tiendaSel===t.id; return <button key={t.id} onClick={()=>setTiendaSel(on?"":t.id)} style={{ display:"inline-flex", alignItems:"center", gap:7, padding:"6px 12px", borderRadius:20, border:`1px solid ${on?colorTienda(t):C.border}`, background:on?hexToRgba(colorTienda(t),0.12):"transparent", color:on?C.text:C.textMuted, fontFamily:font.body, fontSize:12.5, fontWeight:on?700:500, cursor:"pointer" }}><PuntoTienda color={colorTienda(t)}/>{t.name} <span style={{ fontSize:10.5, opacity:.75 }}>(solo Excel)</span></button>; })}
+    </div>
+  );
+  if(!act.hay) return <>{pildorasHist}{aviso}<Card><div style={{ fontFamily:font.body, fontSize:13, color:C.textMuted, textAlign:"center", padding:20 }}>No hay ventas de este mes en el Excel{tiendaSel?" para esta tienda":""}.</div></Card></>;
+  const fila = { display:"grid", gridTemplateColumns:isMobile?"1fr auto":"minmax(0,1.6fr) 1fr 0.7fr 1fr 0.7fr", gap:10, alignItems:"center", padding:"9px 4px", borderBottom:`1px solid ${C.border}`, fontFamily:font.body, fontSize:13, color:C.text };
+  const encab = (primera) => <div style={{ ...fila, fontSize:10.5, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 }}><span>{primera}</span><span style={{ textAlign:"right" }}>Ventas</span>{!isMobile && <><span style={{ textAlign:"right" }}>N.º</span><span style={{ textAlign:"right" }}>Ticket</span><span style={{ textAlign:"right" }}>% del mes</span></>}</div>;
+  const celdas = (a) => <><span style={{ textAlign:"right", fontFamily:font.mono, fontWeight:700 }}>{fmtCOP(a.ventas)}</span>{!isMobile && <><span style={{ textAlign:"right", fontFamily:font.mono }}>{a.n.toLocaleString("es-CO")}</span><span style={{ textAlign:"right", fontFamily:font.mono }}>{fmtCOP(ticket(a))}</span><span style={{ textAlign:"right", fontFamily:font.mono, color:C.textMuted }}>{act.tot.ventas>0?`${Math.round(a.ventas/act.tot.ventas*1000)/10} %`:"—"}</span></>}</>;
+  const tiendasOrden = Object.entries(act.porTienda).sort((a,b)=>b[1].ventas-a[1].ventas);
+  const asesoresOrden = Object.entries(act.porAsesor).filter(([,a])=>a.ventas>0).sort((a,b)=>b[1].ventas-a[1].ventas);
+  return (
+    <>
+      {pildorasHist}
+      {aviso}
+      <div style={{ display:"flex", flexWrap:"nowrap", overflowX:"auto", gap:10, marginBottom:16, paddingBottom:6, justifyContent:"safe center" }}>
+        {tarjeta("Ventas mes", fmtCOP(act.tot.ventas), verDelta(act.tot.ventas, ant.tot.ventas))}
+        {tarjeta("Ingreso total", fmtCOP(act.tot.ingreso), <div style={{ fontFamily:font.body, fontSize:10, color:C.textMuted, marginTop:2 }}>+{fmtCOP(act.tot.ingreso-act.tot.ventas)} servicios y abonos</div>)}
+        {tarjeta("N.º de ventas", act.tot.n.toLocaleString("es-CO"), verDelta(act.tot.n, ant.tot.n))}
+        {tarjeta("Ticket promedio", fmtCOP(ticket(act.tot)), verDelta(ticket(act.tot), ticket(ant.tot)))}
+      </div>
+      {!tiendaSel && tiendasOrden.length>1 && (
+        <SeccionVenta icon="store" titulo="Ventas por tienda" subtitulo="Ventas sin servicios del mes">
+          {encab("Tienda")}
+          {tiendasOrden.map(([tid,a])=>{ const t = tiendaHist(stores, tid); return <div key={tid} style={fila}><span style={{ display:"inline-flex", alignItems:"center", gap:8, fontWeight:600 }}><PuntoTienda color={colorTienda(t)}/>{t?nombreTiendaCorto(t):tid}</span>{celdas(a)}</div>; })}
+        </SeccionVenta>
+      )}
+      <SeccionVenta icon="users" titulo="Ventas por asesor" subtitulo={tiendaSel ? `${nombreTiendaCorto(tiendaHist(stores, tiendaSel))} · ventas sin servicios del mes` : "Todas las tiendas · ventas sin servicios del mes"}>
+        {encab("Asesor")}
+        {asesoresOrden.map(([nom,a],i)=><div key={nom} style={fila}><span style={{ minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}><span style={{ color:C.textMuted, fontFamily:font.mono, marginRight:8 }}>{i+1}.</span>{nom}{a.compartida && <span title="Incluye ventas que en el Excel eran de «Edwin y David», repartidas por facturas" style={{ color:C.textMuted }}> *</span>}</span>{celdas(a)}</div>)}
+        {asesoresOrden.some(([,a])=>a.compartida) && <div style={{ fontFamily:font.body, fontSize:11.5, color:C.textMuted, marginTop:8 }}>* Incluye ventas que en el Excel eran de «Edwin y David», repartidas por facturas completas entre los dos.</div>}
+      </SeccionVenta>
+    </>
+  );
+}
+
 const hechosDeHistorico = (filas) => filas.filter(r=>r.fecha && r.fecha<HISTORICO_CORTE).map(r=>{
   const v = Number(r.valor||0), n = Number(r.n||0);
   const base = { fecha:r.fecha, hora:null, tiendaId:r.tienda_id, vendedorId:r.asesor_id || `hist:${r.asesor||"Sin asesor"}`, vendedorNombre:r.asesor||"Sin asesor", ventaId:null, promo:"ninguna", medio:r.medio||"sin_dato",
@@ -10484,7 +10565,12 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
     if(!historico || !historico.length) return pagina;
     return [...pagina.filter(h=>h.fecha>=HISTORICO_CORTE), ...hechosDeHistorico(historico)];
   }, [ventas, ventasItems, ventasAbonos, ventasAjustes, historico]);
-  const tiendas = tiendasVenta(stores);
+  const tiendas = useMemo(()=>{
+    const lista = tiendasVenta(stores);
+    const ids = new Set(lista.map(t=>t.id));
+    new Set((historico||[]).map(r=>r.tienda_id)).forEach(id=>{ if(!ids.has(id)){ const t = tiendaHist(stores, id); if(t){ ids.add(id); lista.push(t); } } });
+    return lista;
+  }, [stores, historico]);
   const userById = useMemo(()=>{ const m = {}; users.forEach(u=>{ m[u.id]=u; }); return m; }, [users]);
   // Asesores para el filtro: los de la página + los que solo están en el historial del Excel (ex asesores).
   const asesoresOpc = useMemo(()=>{
@@ -10522,7 +10608,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
         if(cfg.equipoJunto && !filtroDe("asesor").length && enEquipoAdmin(u)) return { k:"__equipo__", l:"Equipo admin" };
         return { k:h.vendedorId||"—", l:u?.name || h.vendedorNombre || "Sin asesor" };
       }
-      case "tienda": { const t = stores[h.tiendaId]; const i = tiendas.findIndex(x=>x.id===h.tiendaId); return { k:h.tiendaId||"—", l:t?nombreTiendaCorto(t):"—", color:t?colorTienda(t):undefined, o:String(i<0?99:i).padStart(2,"0") }; }
+      case "tienda": { const t = tiendaHist(stores, h.tiendaId); const i = tiendas.findIndex(x=>x.id===h.tiendaId); return { k:h.tiendaId||"—", l:t?nombreTiendaCorto(t):"—", color:t?colorTienda(t):undefined, o:String(i<0?99:i).padStart(2,"0") }; }
       case "dia": { const d = consParse(h.fecha); return { k:h.fecha, l:`${CONS_DIAS_SEMANA[(d.getDay()+6)%7].slice(0,3)} ${d.getDate()} ${MESES_NOMBRE[d.getMonth()].slice(0,3).toLowerCase()}`, o:h.fecha }; }
       case "semana": { const l = consLunes(h.fecha); const d = consParse(l); return { k:l, l:`Sem. del ${d.getDate()} ${MESES_NOMBRE[d.getMonth()].slice(0,3).toLowerCase()}`, o:l }; }
       case "mes": { const k = h.fecha.slice(0,7); return { k, l:`${MESES_NOMBRE[Number(k.slice(5))-1]} ${k.slice(0,4)}`, o:k }; }
@@ -11854,21 +11940,8 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
   // solo lectura, no toca datos. Cuentas de tienda y asesores no la ven.
   const puedeConsultas = puede(user, "ventas.metricas.consultas");
   const selectorVistaMet = null; // el selector Resumen · Consultas · Caja lo pone App (SelectorVistaMetricas)
-  if(puedeConsultas && vistaMet==="consultas") return (
-    <div>
-      <PageHeader title="Métricas" subtitle="Consultas · arma cualquier pregunta sobre las ventas"/>
-      {selectorVistaMet}
-      <ConsultasVentas stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} metasAsesor={metasAsesor} isMobile={isMobile}/>
-    </div>
-  );
-
-  return (
-    <div>
-      <PageHeader title="Métricas" subtitle={tiendaSel ? `${stores[tiendaSel]?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`}/>
-      {selectorVistaMet}
-      {/* "Carrera del día" (22 nov 2026): reemplaza la burbuja de progreso de hoy; la fecha se puede cambiar. */}
-      <CarreraDelDia stores={stores} primera={esCuentaTienda(user) ? user.tienda_id : tiendaSel} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile} onVerLista={onVerListaHoy}/>
-
+  // Selector de mes y tienda (también se usa en los meses del historial del Excel).
+  const tarjetaMes = (
       <Card style={{ marginBottom:16 }} p="12px">
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12, flexWrap:"wrap" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
@@ -11885,6 +11958,31 @@ function VentasMetricasScreen({ user, stores, users, ventas, ventasItems, ventas
           <button onClick={()=>setTiendaSel("")} style={{ padding:"6px 12px", borderRadius:20, border:`1px solid ${!tiendaSel?C.gold:C.border}`, background:!tiendaSel?`${C.gold}22`:"transparent", color:!tiendaSel?C.goldLight:C.textMuted, fontFamily:font.body, fontSize:12, cursor:"pointer" }}>Todas las tiendas</button>
         </div>
       </Card>
+  );
+  // Meses de antes de la página: lo que haya en el historial del Excel (MetricasMesHistorico).
+  if(mesKey < HISTORICO_CORTE.slice(0,7) && !(puedeConsultas && vistaMet==="consultas")) return (
+    <div>
+      <PageHeader title="Métricas" subtitle={tiendaSel ? `${tiendaHist(stores, tiendaSel)?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`}/>
+      {tarjetaMes}
+      <MetricasMesHistorico mesKey={mesKey} tiendaSel={tiendaSel} setTiendaSel={esCuentaTienda(user) ? null : setTiendaSel} stores={stores} users={users} isMobile={isMobile}/>
+    </div>
+  );
+  if(puedeConsultas && vistaMet==="consultas") return (
+    <div>
+      <PageHeader title="Métricas" subtitle="Consultas · arma cualquier pregunta sobre las ventas"/>
+      {selectorVistaMet}
+      <ConsultasVentas stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} metasAsesor={metasAsesor} isMobile={isMobile}/>
+    </div>
+  );
+
+  return (
+    <div>
+      <PageHeader title="Métricas" subtitle={tiendaSel ? `${stores[tiendaSel]?.name||""} · ${MESES_NOMBRE[mesIdx]} ${anio}` : `Todas las tiendas · ${MESES_NOMBRE[mesIdx]} ${anio}`}/>
+      {selectorVistaMet}
+      {/* "Carrera del día" (22 nov 2026): reemplaza la burbuja de progreso de hoy; la fecha se puede cambiar. */}
+      <CarreraDelDia stores={stores} primera={esCuentaTienda(user) ? user.tienda_id : tiendaSel} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={metas} isMobile={isMobile} onVerLista={onVerListaHoy}/>
+
+      {tarjetaMes}
 
       {/* Fila con scroll horizontal en vez de wrap — con wrap, una tarjeta que quedaba sola en la
           última fila (ej. MDA) se estiraba a lo ancho de toda la pantalla, viéndose enorme y

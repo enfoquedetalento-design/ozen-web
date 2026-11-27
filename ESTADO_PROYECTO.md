@@ -1247,6 +1247,10 @@ Pedido de Santiago: el módulo más intuitivo.
     de Flexipago; F01/F02 = fotograbado; NC y BONO = el cliente pagó con bono → solo Descuentos.
     Medios desde nov 2024; antes "Sin dato (Excel)". Faltan del Excel: Jardín Plaza abr 2023, jun y
     jul 2024 (pendientes por si aparecen). Proceso en Python, fuera del repo.
+    Métricas: al elegir un mes anterior a agosto 2026 se ve `MetricasMesHistorico` (ventas, ingreso,
+    N.º, ticket con % vs el mismo mes del año anterior; por tienda y por asesor; sin metas, Caja ni
+    Flexipagos). Llanogrande ya no está en la página: `TIENDAS_SOLO_HISTORICO` / `tiendaHist` la
+    muestran en Consultas y en esos meses de Métricas (botón "(solo Excel)").
   - **#producto en ventas normales y Black Weekend (26 nov):** en Registrar venta, el renglón
     "Venta" (producto) se llena igual que el Flexipago: un #producto (6 dígitos) y su valor por
     pieza, "+ Agregar otro producto"; el valor del renglón es la suma (se guarda en
