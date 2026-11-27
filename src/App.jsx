@@ -10042,17 +10042,25 @@ const CONS_GRUPOS = [
   { value:"medio", label:"Medio de pago" },
   { value:"promo", label:"Promoción" },
 ];
+// Periodos (27 nov 2026: con el historial del Excel desde jul 2021 se agregan "Un mes…", "Un año…",
+// "Año pasado", "Últimos 12 meses" y "Todo el historial"). g = grupo en el menú.
+const CONS_INICIO_HISTORIAL = "2021-07-01";
 const CONS_PERIODOS = [
-  { value:"hoy", label:"Hoy" },
-  { value:"ayer", label:"Ayer" },
-  { value:"semana", label:"Esta semana" },
-  { value:"semana_pasada", label:"Semana pasada" },
-  { value:"mes", label:"Este mes" },
-  { value:"mes_pasado", label:"Mes pasado" },
-  { value:"30", label:"Últimos 30 días" },
-  { value:"90", label:"Últimos 3 meses" },
-  { value:"anio", label:"Este año" },
-  { value:"custom", label:"Personalizado" },
+  { value:"hoy", label:"Hoy", g:"Días y semanas" },
+  { value:"ayer", label:"Ayer", g:"Días y semanas" },
+  { value:"semana", label:"Esta semana", g:"Días y semanas" },
+  { value:"semana_pasada", label:"Semana pasada", g:"Días y semanas" },
+  { value:"30", label:"Últimos 30 días", g:"Días y semanas" },
+  { value:"mes", label:"Este mes", g:"Meses" },
+  { value:"mes_pasado", label:"Mes pasado", g:"Meses" },
+  { value:"90", label:"Últimos 3 meses", g:"Meses" },
+  { value:"12m", label:"Últimos 12 meses", g:"Meses" },
+  { value:"un_mes", label:"Un mes…", g:"Meses" },
+  { value:"anio", label:"Este año", g:"Años" },
+  { value:"anio_pasado", label:"Año pasado", g:"Años" },
+  { value:"un_anio", label:"Un año…", g:"Años" },
+  { value:"todo", label:"Todo el historial", g:"Años" },
+  { value:"custom", label:"Personalizado", g:"Otro" },
 ];
 const CONS_TIPOS = [
   { value:"producto", label:"Venta" },
@@ -10074,7 +10082,7 @@ const CONS_MEDIOS = [...VENTAS_MEDIOS_PAGO.map(m=>({ value:m.value, label:m.valu
 // vez por sesión cuando alguien abre Consultas.
 const HISTORICO_CORTE = "2026-08-01";
 // Tiendas que ya no están en la página pero sí en el historial (Llanogrande dejó de vender en mayo 2026).
-const TIENDAS_SOLO_HISTORICO = { llanogrande:{ id:"llanogrande", name:"Llanogrande", color:"#8a6d5a" } };
+const TIENDAS_SOLO_HISTORICO = { llanogrande:{ id:"llanogrande", name:"Llanogrande", color:"#E8762B" } };
 const tiendaHist = (stores, id) => stores[id] || TIENDAS_SOLO_HISTORICO[id] || null;
 let historicoPromesa = null;
 const cargarHistorico = () => (historicoPromesa ||= traerTodo("ventas_historico", [["fecha", true]]).then(r=>r?.data||[]).catch(()=>{ historicoPromesa = null; return []; }));
@@ -10195,6 +10203,17 @@ const consRango = (q, hoyS) => {
     case "30": return [consSumarDias(hoyS,-29), hoyS];
     case "90": return [consSumarDias(hoyS,-89), hoyS];
     case "anio": return [`${h.getFullYear()}-01-01`, hoyS];
+    case "12m": return [consSumarDias(consMoverMes(hoyS,-12),1), hoyS];
+    case "anio_pasado": return [`${h.getFullYear()-1}-01-01`, `${h.getFullYear()-1}-12-31`];
+    case "todo": return [CONS_INICIO_HISTORIAL, hoyS];
+    case "un_mes": {
+      const mk = q.mesSel || hoyS.slice(0,7); const [yy,mm] = mk.split("-").map(Number);
+      const fin = consFecha(new Date(yy, mm, 0)); return [`${mk}-01`, fin<hoyS ? fin : hoyS];
+    }
+    case "un_anio": {
+      const yy = Number(q.anioSel || h.getFullYear()); const fin = `${yy}-12-31`;
+      return [`${yy}-01-01`, fin<hoyS ? fin : hoyS];
+    }
     case "custom": {
       const a = q.desde || hoyS, b = q.hasta || hoyS;
       return a<=b ? [a,b] : [b,a];
@@ -10206,7 +10225,7 @@ const consRangoComparar = (q, [a,b]) => {
   if(!q.comparar) return null;
   if(q.comparar==="anterior"){
     // "Mes pasado" completo se compara con el mes completo anterior, no con N días corridos.
-    if(q.periodo==="mes_pasado") return [consMoverMes(a,-1), consFecha(new Date(consParse(a).getFullYear(), consParse(a).getMonth(), 0))];
+    if(q.periodo==="mes_pasado" || q.periodo==="un_mes") return [consMoverMes(a,-1), consFecha(new Date(consParse(a).getFullYear(), consParse(a).getMonth(), 0))];
     const n = consDiasEntre(a,b)+1; return [consSumarDias(a,-n), consSumarDias(a,-1)];
   }
   if(q.comparar==="mes") return [consMoverMes(a,-1), consMoverMes(b,-1)];
@@ -10490,7 +10509,7 @@ const CONS_COMPARAR2 = [
   { value:"anio", label:"Mismo periodo del año pasado" },
   { value:"custom", label:"Otro periodo…" },
 ];
-const CONS_CFG_INICIAL = { filas:["tienda"], col:"", valores:["sin"], filtros:{}, periodo:"mes", desde:"", hasta:"", comparar:"", cdesde:"", chasta:"", equipoJunto:true };
+const CONS_CFG_INICIAL = { filas:["tienda"], col:"", valores:["sin"], filtros:{}, periodo:"mes", desde:"", hasta:"", mesSel:"", anioSel:"", comparar:"", cdesde:"", chasta:"", equipoJunto:true };
 // Menú de consultas comunes, por tema (21 nov 2026: "aterrizado a la realidad" de la operación).
 const CONS_COMUNES = [
   { id:"m1", grupo:"Metas y cumplimiento", nombre:"Cumplimiento por tienda, este mes", cfg:{ filas:["tienda"], valores:["sin","meta","cumpl"], periodo:"mes", comparar:"mes" } },
@@ -10517,7 +10536,7 @@ const CONS_GRUPOS_MENU = ["Metas y cumplimiento","Ventas","Días y horas","Caja 
 // consulta de un solo día no se cuela, y lo que se deja de usar sale solo.
 const CONS_USO_LS = "ozen-consultas-uso";
 const CONS_USO_DIAS_MIN = 3, CONS_USO_VENTANA = 30, CONS_USO_SEGUNDOS = 20, CONS_USO_MAX = 5;
-const consFirma = (c) => JSON.stringify({ filas:c.filas, col:c.col||"", valores:c.valores, filtros:Object.keys(c.filtros||{}).sort().map(k=>[k, [...(c.filtros[k]||[])].sort()]), periodo:c.periodo, comparar:c.comparar||"", eq:c.equipoJunto!==false });
+const consFirma = (c) => JSON.stringify({ filas:c.filas, col:c.col||"", valores:c.valores, filtros:Object.keys(c.filtros||{}).sort().map(k=>[k, [...(c.filtros[k]||[])].sort()]), periodo:c.periodo, sel:c.periodo==="un_mes" ? (c.mesSel||"") : c.periodo==="un_anio" ? String(c.anioSel||"") : "", comparar:c.comparar||"", eq:c.equipoJunto!==false });
 // Consultas guardadas con el formato anterior (medida, g1, g2, tiendas, asesor, tipos, medios).
 const consCfgDesdeViejo = (q) => {
   if(!q || q.filas) return { ...CONS_CFG_INICIAL, ...(q||{}) };
@@ -11021,7 +11040,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
     const f = consFirma(c);
     const comunIgual = CONS_COMUNES.find(x=>consFirma({ ...CONS_CFG_INICIAL, ...x.cfg })===f); if(comunIgual) return comunIgual.nombre;
     const guardada = guardadas.find(g=>consFirma(consCfgDesdeViejo(g.cfg||g.q))===f); if(guardada) return `★ ${guardada.nombre}`;
-    const per = CONS_PERIODOS.find(x=>x.value===c.periodo)?.label || "";
+    const per = c.periodo==="un_mes" && c.mesSel ? `${MESES_NOMBRE[Number(c.mesSel.slice(5))-1]} ${c.mesSel.slice(0,4)}` : c.periodo==="un_anio" && c.anioSel ? `Año ${c.anioSel}` : (CONS_PERIODOS.find(x=>x.value===c.periodo)?.label || "");
     return `${c.filas.map(campoLbl).join(" › ")}${c.col?` × ${campoLbl(c.col)}`:""} · ${c.valores.map(valorLbl).join(", ")} · ${per}`;
   };
   const masUsadas = Object.entries(uso)
@@ -11090,6 +11109,8 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   };
   const selBarra = { height:34, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 8px", fontFamily:font.body, fontSize:13, fontWeight:600, background:"#fff", color:C.text };
   const pildoraRango = { padding:"4px 10px", borderRadius:99, background:hexToRgba(C.gold,0.08), color:C.gold, fontWeight:700, fontSize:12 };
+  // Años que se pueden elegir: desde el primer año del historial hasta hoy (el más reciente primero).
+  const aniosCons = Array.from({ length:Number(hoyS.slice(0,4))-Number(CONS_INICIO_HISTORIAL.slice(0,4))+1 }, (_,i)=>String(Number(hoyS.slice(0,4))-i));
   const inputFecha = (valorF, onChange) => <input type="date" value={valorF} max={hoyS} onChange={e=>onChange(e.target.value)} style={{ height:34, borderRadius:9, border:`1px solid ${C.border}`, padding:"0 6px", fontFamily:font.body, fontSize:13.5, color:C.text, background:"#fff" }}/>;
 
   // ── Descargar a Excel (.xlsx con el diseño de la marca, ver ozenExcel) ──
@@ -11243,9 +11264,19 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
         <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:10, marginBottom:12 }}>
           {[
             { t:"Periodo", ic:"cal", sel:(
-              <select value={cfg.periodo} onChange={e=>{ const p = e.target.value; cambiar(p==="custom" && !cfg.desde ? { periodo:p, desde:rango[0], hasta:rango[1] } : { periodo:p }); }} style={selBarra}>
-                {CONS_PERIODOS.map(p=><option key={p.value} value={p.value}>{p.value==="custom" ? "Elegir fechas…" : p.label}</option>)}
-              </select>), extra: cfg.periodo==="custom" ? <>{inputFecha(cfg.desde, v=>cambiar({ desde:v }))}<span>a</span>{inputFecha(cfg.hasta, v=>cambiar({ hasta:v }))}</> : <span style={pildoraRango}>{consTextoRango(rango)}</span> },
+              <select value={cfg.periodo} onChange={e=>{ const p = e.target.value;
+                  cambiar(p==="custom" && !cfg.desde ? { periodo:p, desde:rango[0], hasta:rango[1] }
+                    : p==="un_mes" && !cfg.mesSel ? { periodo:p, mesSel:consMoverMes(hoyS,-1).slice(0,7) }
+                    : p==="un_anio" && !cfg.anioSel ? { periodo:p, anioSel:String(Number(hoyS.slice(0,4))-1) }
+                    : { periodo:p }); }} style={selBarra}>
+                {[...new Set(CONS_PERIODOS.map(p=>p.g))].map(g=><optgroup key={g} label={g}>{CONS_PERIODOS.filter(p=>p.g===g).map(p=><option key={p.value} value={p.value}>{p.value==="custom" ? "Elegir fechas…" : p.label}</option>)}</optgroup>)}
+              </select>), extra: cfg.periodo==="custom" ? <>{inputFecha(cfg.desde, v=>cambiar({ desde:v }))}<span>a</span>{inputFecha(cfg.hasta, v=>cambiar({ hasta:v }))}</>
+                : cfg.periodo==="un_mes" ? (()=>{ const mk = cfg.mesSel || hoyS.slice(0,7); const yy = mk.slice(0,4), mm = Number(mk.slice(5)); return <>
+                    <select value={mm} onChange={e=>cambiar({ mesSel:`${yy}-${String(e.target.value).padStart(2,"0")}` })} style={selBarra}>{MESES_NOMBRE.map((n,i)=><option key={n} value={i+1} disabled={`${yy}-${String(i+1).padStart(2,"0")}`>hoyS.slice(0,7)}>{n}</option>)}</select>
+                    <select value={yy} onChange={e=>{ const ny = e.target.value; const nk = `${ny}-${String(mm).padStart(2,"0")}`; cambiar({ mesSel: nk>hoyS.slice(0,7) ? hoyS.slice(0,7) : nk }); }} style={selBarra}>{aniosCons.map(a=><option key={a} value={a}>{a}</option>)}</select>
+                  </>; })()
+                : cfg.periodo==="un_anio" ? <select value={cfg.anioSel || hoyS.slice(0,4)} onChange={e=>cambiar({ anioSel:e.target.value })} style={selBarra}>{aniosCons.map(a=><option key={a} value={a}>{a}</option>)}</select>
+                : <span style={pildoraRango}>{consTextoRango(rango)}</span> },
             { t:"Comparar con", ic:"history", sel:(
               <select value={cfg.comparar} onChange={e=>cambiar({ comparar:e.target.value })} style={selBarra}>
                 {CONS_COMPARAR2.map(c=><option key={c.value||"nada"} value={c.value}>{c.label}</option>)}
