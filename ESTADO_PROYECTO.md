@@ -1236,6 +1236,17 @@ Pedido de Santiago: el módulo más intuitivo.
     renglón además de agregar el medio; si no, la plata quedaba en el día de la venta y el N.º se
     perdía. Lista de ventas: el registro de la factura muestra "3321 · 3351" y el de la Notacrédito
     "3351 · 3321"; el registro del día de la venta ya no muestra los medios del excedente.
+  - **Historial de ventas de los Excel en Consultas (27 nov):** tabla aparte `ventas_historico`
+    (sql/ventas_historico.sql + 4 partes de datos, que NO van a git) con las ventas de jul 2021 a
+    jul 2026 de los 4 Excel, agrupadas por día/tienda/asesor/tipo/medio con `n` = N.º de ventas.
+    Solo la usa Consultas (`cargarHistorico`, una vez por sesión, no está en FUENTES): hasta el
+    31 jul 2026 manda el Excel y desde el 1 ago 2026 la página (`HISTORICO_CORTE`). No toca ventas,
+    Caja, Lista ni Flexipagos. Nombres unidos con el archivo de Santiago (51 personas; las 3
+    Alejandras separadas por tienda y fecha; ventas de "Edwin y David" repartidas por facturas
+    completas, marcadas `compartida`). "BN SEP" = Flexipago completado; abonos de separado = abonos
+    de Flexipago; F01/F02 = fotograbado; NC y BONO = el cliente pagó con bono → solo Descuentos.
+    Medios desde nov 2024; antes "Sin dato (Excel)". Faltan del Excel: Jardín Plaza abr 2023, jun y
+    jul 2024 (pendientes por si aparecen). Proceso en Python, fuera del repo.
   - **#producto en ventas normales y Black Weekend (26 nov):** en Registrar venta, el renglón
     "Venta" (producto) se llena igual que el Flexipago: un #producto (6 dígitos) y su valor por
     pieza, "+ Agregar otro producto"; el valor del renglón es la suma (se guarda en

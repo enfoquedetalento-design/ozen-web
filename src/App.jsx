@@ -10060,8 +10060,34 @@ const CONS_TIPOS = [
   { value:"marcacion", label:"Marcación" },
   { value:"grabado", label:"Grabado" },
   { value:"flexipago", label:"Flexipago" },
+  { value:"otro", label:"Otro ingreso (Excel)" },
 ];
-const CONS_MEDIOS = [...VENTAS_MEDIOS_PAGO.map(m=>({ value:m.value, label:m.value==="tarjeta"?"Tarjeta":m.label })), { value:"nota", label:"Nota crédito" }];
+const CONS_MEDIOS = [...VENTAS_MEDIOS_PAGO.map(m=>({ value:m.value, label:m.value==="tarjeta"?"Tarjeta":m.label })), { value:"nota", label:"Nota crédito" },
+  { value:"separado", label:"Separado (Excel)" }, { value:"bono", label:"Bono (Excel)" }, { value:"sin_dato", label:"Sin dato (Excel)" }];
+
+// ── Historial de ventas del Excel (27 nov 2026) ──────────────────────────────────
+// Las ventas de antes de la página (jul 2021 – jul 2026, los Excel de cada tienda) viven en la
+// tabla ventas_historico (sql/ventas_historico.sql), agrupadas por día, tienda, asesor, tipo y
+// medio, con cuántas ventas fueron (n). Solo se usan en Consultas: hasta el 31 de julio 2026 manda
+// el Excel y desde el 1 de agosto la página (lo que la página tiene antes de agosto son Flexipagos
+// que venían de antes y que el Excel ya cuenta). No se carga al abrir la página: se baja una sola
+// vez por sesión cuando alguien abre Consultas.
+const HISTORICO_CORTE = "2026-08-01";
+let historicoPromesa = null;
+const cargarHistorico = () => (historicoPromesa ||= traerTodo("ventas_historico", [["fecha", true]]).then(r=>r?.data||[]).catch(()=>{ historicoPromesa = null; return []; }));
+const hechosDeHistorico = (filas) => filas.filter(r=>r.fecha && r.fecha<HISTORICO_CORTE).map(r=>{
+  const v = Number(r.valor||0), n = Number(r.n||0);
+  const base = { fecha:r.fecha, hora:null, tiendaId:r.tienda_id, vendedorId:r.asesor_id || `hist:${r.asesor||"Sin asesor"}`, vendedorNombre:r.asesor||"Sin asesor", ventaId:null, promo:"ninguna", medio:r.medio||"sin_dato",
+    sin:0, servicios:0, ingreso:0, descuento:0, cuenta:0, recibido:0, abonoAntes:0, abonoFinal:0, piezas:0, nHist:0 };
+  if(r.tipo==="producto" || r.tipo==="nota") return { ...base, tipo:"producto", sin:v, ingreso:v, recibido:v, descuento:Number(r.descuento||0), nHist:r.tipo==="producto"?n:0 };
+  if(r.tipo==="flexipago") return { ...base, tipo:"flexipago", sin:v, ingreso:v, descuento:Number(r.descuento||0), nHist:n };   // se terminó de pagar (pagó con lo separado)
+  if(r.tipo==="abono_sep") return { ...base, tipo:"flexipago", ingreso:v, recibido:v, abonoAntes:v };
+  if(["arreglo","marcacion","grabado"].includes(r.tipo)) return { ...base, tipo:r.tipo, servicios:v, ingreso:v, recibido:v };
+  // NC y bonos del Excel: el cliente se llevó el producto pagando con un bono o nota crédito (sin
+  // plata nueva). Hoy eso es un descuento, así que solo suman en Descuentos.
+  if(r.tipo==="bono") return { ...base, tipo:"producto", medio:"bono", descuento:v };
+  return { ...base, tipo:"otro", ingreso:v, recibido:v };
+});
 const CONS_LS = "ozen-consultas-guardadas";
 
 const consFecha = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -10451,10 +10477,22 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   const elegirVista = (v) => { setGraficaForzada(v); try { localStorage.setItem("ozen-consultas-vista", v); } catch { /* sin almacenamiento */ } };
   const persistir = (lista) => { setGuardadas(lista); try { localStorage.setItem(CONS_LS, JSON.stringify(lista)); } catch { /* sin almacenamiento: queda solo en esta sesión */ } };
 
-  const hechos = useMemo(()=>construirHechosVentas(ventas, ventasItems, ventasAbonos, ventasAjustes), [ventas, ventasItems, ventasAbonos, ventasAjustes]);
+  const [historico, setHistorico] = useState(null);
+  useEffect(()=>{ let vivo = true; cargarHistorico().then(d=>{ if(vivo) setHistorico(d); }); return ()=>{ vivo = false; }; }, []);
+  const hechos = useMemo(()=>{
+    const pagina = construirHechosVentas(ventas, ventasItems, ventasAbonos, ventasAjustes);
+    if(!historico || !historico.length) return pagina;
+    return [...pagina.filter(h=>h.fecha>=HISTORICO_CORTE), ...hechosDeHistorico(historico)];
+  }, [ventas, ventasItems, ventasAbonos, ventasAjustes, historico]);
   const tiendas = tiendasVenta(stores);
   const userById = useMemo(()=>{ const m = {}; users.forEach(u=>{ m[u.id]=u; }); return m; }, [users]);
-  const asesoresOpc = users.filter(esVendedorPosible).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  // Asesores para el filtro: los de la página + los que solo están en el historial del Excel (ex asesores).
+  const asesoresOpc = useMemo(()=>{
+    const lista = users.filter(esVendedorPosible).map(u=>({ id:u.id, name:u.name }));
+    const ya = new Set(lista.map(u=>u.id));
+    (historico||[]).forEach(r=>{ const id = r.asesor_id || `hist:${r.asesor||"Sin asesor"}`; if(!ya.has(id)){ ya.add(id); lista.push({ id, name:users.find(u=>u.id===id)?.name || r.asesor || "Sin asesor" }); } });
+    return lista.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  }, [users, historico]);
   const enEquipoAdmin = (u) => u && ROLES_ADMIN_VENDEDOR.includes(u.role) && !FUERA_DE_EQUIPO_ADMIN.includes(primerNombreNorm(u.name));
 
   // ── Periodo y comparación ──
@@ -10482,7 +10520,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
       case "asesor": {
         const u = userById[h.vendedorId];
         if(cfg.equipoJunto && !filtroDe("asesor").length && enEquipoAdmin(u)) return { k:"__equipo__", l:"Equipo admin" };
-        return { k:h.vendedorId||"—", l:u?.name || "Sin asesor" };
+        return { k:h.vendedorId||"—", l:u?.name || h.vendedorNombre || "Sin asesor" };
       }
       case "tienda": { const t = stores[h.tiendaId]; const i = tiendas.findIndex(x=>x.id===h.tiendaId); return { k:h.tiendaId||"—", l:t?nombreTiendaCorto(t):"—", color:t?colorTienda(t):undefined, o:String(i<0?99:i).padStart(2,"0") }; }
       case "dia": { const d = consParse(h.fecha); return { k:h.fecha, l:`${CONS_DIAS_SEMANA[(d.getDay()+6)%7].slice(0,3)} ${d.getDate()} ${MESES_NOMBRE[d.getMonth()].slice(0,3).toLowerCase()}`, o:h.fecha }; }
@@ -10536,12 +10574,13 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   };
 
   // ── Acumuladores ──
-  const nuevoAcc = () => ({ sin:0, ingreso:0, servicios:0, descuento:0, recibido:0, abonoAntes:0, abonoFinal:0, piezas:0, meta:0, ventas:new Set(), ventasConPiezas:new Set() });
-  const sumar = (acc, h) => { acc.sin+=h.sin; acc.ingreso+=h.ingreso; acc.servicios+=h.servicios; acc.descuento+=h.descuento; acc.recibido+=h.recibido; acc.abonoAntes+=h.abonoAntes; acc.abonoFinal+=h.abonoFinal; acc.piezas+=h.piezas; if(h.piezas>0) acc.ventasConPiezas.add(h.ventaId); if(h.cuenta) acc.ventas.add(h.ventaId); };
+  const nuevoAcc = () => ({ sin:0, ingreso:0, servicios:0, descuento:0, recibido:0, abonoAntes:0, abonoFinal:0, piezas:0, meta:0, nHist:0, ventas:new Set(), ventasConPiezas:new Set() });
+  const sumar = (acc, h) => { acc.nHist+=(h.nHist||0); acc.sin+=h.sin; acc.ingreso+=h.ingreso; acc.servicios+=h.servicios; acc.descuento+=h.descuento; acc.recibido+=h.recibido; acc.abonoAntes+=h.abonoAntes; acc.abonoFinal+=h.abonoFinal; acc.piezas+=h.piezas; if(h.piezas>0) acc.ventasConPiezas.add(h.ventaId); if(h.cuenta) acc.ventas.add(h.ventaId); };
   const valor = (acc, medida=cfg.valores[0]) => {
     if(!acc) return 0;
-    if(medida==="count") return acc.ventas.size;
-    if(medida==="ticket") return acc.ventas.size ? acc.sin/acc.ventas.size : 0;
+    // N.º de ventas: las de la página (una por factura) + las del Excel (vienen contadas en n).
+    if(medida==="count") return acc.ventas.size + acc.nHist;
+    if(medida==="ticket") return (acc.ventas.size+acc.nHist) ? acc.sin/(acc.ventas.size+acc.nHist) : 0;
     // Piezas por venta: entre las ventas que tienen #producto registrados (las de antes no los tienen).
     if(medida==="ppv") return acc.ventasConPiezas.size ? acc.piezas/acc.ventasConPiezas.size : 0;
     if(medida==="cumpl") return acc.meta>0 ? acc.sin/acc.meta*100 : 0;
@@ -10631,7 +10670,7 @@ function ConsultasVentas({ stores, users, ventas, ventasItems, ventasAbonos, ven
   const setGraficaForzadaVista = (v) => elegirVista(v||"tabla");
   const apilar = q.g2 && !noSumable;
   const maxFila = Math.max(1, ...filas.map(f=>valor(f.acc)), ...(prev ? filas.map(f=>valor(prevAcc(f))) : []));
-  const sinDatos = res.total.ventas.size===0 && res.total.sin===0 && res.total.ingreso===0 && res.total.recibido===0 && res.total.meta===0;
+  const sinDatos = res.total.ventas.size===0 && res.total.nHist===0 && res.total.sin===0 && res.total.ingreso===0 && res.total.recibido===0 && res.total.meta===0;
   // Paleta de cada grupo / serie (tiendas con su color propio).
   const colorFila = (f, i) => f.color || CONS_PALETA[i % CONS_PALETA.length];
   // Etiqueta corta para ejes de tiempo.
