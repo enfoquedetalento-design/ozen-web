@@ -995,7 +995,7 @@ const ADMIN_TABS_CAPACITACION = [{ id:"mis_cursos",icon:"📚",label:"Mis cursos
 // las partes 2 y 3 — ver "OPERACIONES" más abajo.
 const ADMIN_TABS_OPERACIONES = [{ id:"op_externas",icon:"🧰",label:"Externas · clientes",corto:"Externas" },{ id:"op_internas",icon:"📦",label:"Internas · tiendas",corto:"Internas" },{ id:"op_indicadores",icon:"📊",label:"Indicadores" },{ id:"op_producto",icon:"🏷️",label:"Producto" }];
 // El + de Operaciones sale si la persona puede crear una orden de cliente o generar producto.
-const opMasDisponible = (user, liderOper) => puedeOper(user, "operaciones.externas.crear", liderOper) || (!esCuentaTienda(user) && puedeOper(user, "operaciones.producto.ver", liderOper));
+const opMasDisponible = (user, liderOper) => puedeOper(user, "operaciones.externas.crear", liderOper) || puedeOper(user, "operaciones.internas.crear", liderOper) || (!esCuentaTienda(user) && puedeOper(user, "operaciones.producto.ver", liderOper));
 const tabsCapacitacion = (user) => ADMIN_TABS_CAPACITACION.filter(t => t.id==="mis_cursos" ? tomaCapacitaciones(user) : t.id==="cursos_admin" ? puedeEditarCapacitacion(user) : puede(user, "escuela.progreso"));
 const puedeUsarAreas = (user) => user.role==="admin" || user.role==="master" || user.role==="visualizador" || user.role==="admin_finanzas" || user.role==="admin_turnos";
 // Quién ve la pantalla de módulos al entrar y el selector de áreas arriba: los admins (puedeUsarAreas)
@@ -1108,7 +1108,7 @@ const centrarMas = (tabs) => {
 const tabsPara = (user, area, liderOper="", juntaLideres=[]) => !puedeUsarAreas(user)
   // Cuenta de tienda (26 nov 2026): elige arriba entre Ventas y Operaciones como las demás cuentas;
   // en Ventas el dock trae sus pestañas (+ Turnos) y en Operaciones solo su pestaña.
-  ? (esCuentaTienda(user) ? (area==="operaciones" ? [{ id:"op_externas", icon:"🧰", label:"Órdenes" }, ...(opMasDisponible(user, liderOper) ? [{ id:"op_mas", icon:"➕", label:"Nueva orden" }] : [])] : centrarMas([...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : [])])) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
+  ? (esCuentaTienda(user) ? (area==="operaciones" ? [{ id:"op_externas", icon:"🧰", label:"Externas · clientes", corto:"Externas" }, ...(opMasDisponible(user, liderOper) ? [{ id:"op_mas", icon:"➕", label:"Nueva orden" }] : []), { id:"op_internas", icon:"📦", label:"Internas · tienda", corto:"Internas" }] : centrarMas([...tabsVentas(user), ...(puede(user, "turnos.ver") ? [{ id:"turnos", icon:"📅", label:"Turnos" }] : [])])) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsesor(user))
   : (area==="junta" ? tabsJunta(user, juntaLideres) : area==="operaciones" ? (()=>{ const t = ADMIN_TABS_OPERACIONES.filter(t=>(t.id!=="op_indicadores" || puedeOper(user, "operaciones.indicadores.ver")) && (t.id!=="op_producto" || puedeOper(user, "operaciones.producto.ver", liderOper))); if(!opMasDisponible(user, liderOper)) return t; const m = Math.ceil(t.length/2); return [...t.slice(0,m), { id:"op_mas", icon:"➕", label:"Nueva orden" }, ...t.slice(m)]; })() : area==="ventas" ? tabsVentas(user) : area==="capacitacion" ? tabsCapacitacion(user) : tabsAsistencia(user));
 
 // ── Vencimiento de contraseña ────────────────────────────────────────────────
@@ -15866,7 +15866,7 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ven
   const liderId = config.find(c=>c.clave==="lider_usuario_id")?.valor || "";
   const [creando, setCreando] = useState(false);
   // El + de abajo (Nueva orden) abre aquí mismo el formulario, arriba de todo.
-  useEffect(()=>{ if(!pedirNueva) return; setCreando(true); onNuevaUsada?.(); try { document.querySelector("main")?.scrollTo({ top:0, behavior:"smooth" }); } catch { /* sin main */ } }, [pedirNueva?.t]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{ if(!pedirNueva || pedirNueva.tipo==="int") return; setCreando(true); onNuevaUsada?.(); try { document.querySelector("main")?.scrollTo({ top:0, behavior:"smooth" }); } catch { /* sin main */ } }, [pedirNueva?.t]); // eslint-disable-line react-hooks/exhaustive-deps
   const [abiertoId, setAbiertoId] = useState(null);
   const [ordenVista, setOrdenVista] = useState(null);
   const [fase, setFase] = useState("abiertas");
@@ -16193,9 +16193,11 @@ function OperSolicitudCard({ s, stores, user, users, liderId, abierto, onToggle,
 }
 
 // ── SCREEN: Operaciones · Internas ───────────────────────────────────────────
-function OperacionesInternasScreen({ user, users, stores, ops, sols, setSols, onIrA, foco, onFocoUsado, pedidoFiltro, onFiltroUsado, config, setConfig, estado, onCargar, todoCargado, isMobile }) {
+function OperacionesInternasScreen({ user, users, stores, ops, sols, setSols, onIrA, foco, onFocoUsado, pedidoFiltro, onFiltroUsado, config, setConfig, estado, onCargar, todoCargado, isMobile, pedirNueva, onNuevaUsada }) {
   const liderId = config.find(c=>c.clave==="lider_usuario_id")?.valor || "";
   const [creando, setCreando] = useState(false);
+  // El + de abajo, estando en Internas, abre aquí mismo «Nueva solicitud».
+  useEffect(()=>{ if(!pedirNueva || pedirNueva.tipo!=="int") return; setCreando(true); onNuevaUsada?.(); try { document.querySelector("main")?.scrollTo({ top:0, behavior:"smooth" }); } catch { /* sin main */ } }, [pedirNueva?.t]); // eslint-disable-line react-hooks/exhaustive-deps
   const [abiertoId, setAbiertoId] = useState(null);
   const [filtro, setFiltro] = useState("abiertas");
   const [tiposF, setTiposF] = useState([]);
@@ -17506,21 +17508,6 @@ function OperacionesProductoScreen({ user, stores, config, onCargar, isMobile })
   );
 }
 
-function OperacionesTiendaScreen(props) {
-  const [sub, setSub] = useState(props.foco?.tipo==="int" ? "internas" : "externas");
-  useEffect(()=>{ if(props.foco) setSub(props.foco.tipo==="int" ? "internas" : "externas"); }, [props.foco?.t]);
-  useEffect(()=>{ if(props.pedidoFiltro) setSub(props.pedidoFiltro.tipo==="int" ? "internas" : "externas"); }, [props.pedidoFiltro?.t]);
-  useEffect(()=>{ if(props.pedirNueva) setSub("externas"); }, [props.pedirNueva?.t]);
-  return (
-    <div>
-      <div style={{ display:"flex", gap:8, marginBottom:16, maxWidth:1100, marginLeft:"auto", marginRight:"auto" }}>
-        {[["externas","Externas · clientes","wrench"],["internas","Internas · tienda","box"]].map(([id,label,ic])=>
-          <button key={id} type="button" onClick={()=>setSub(id)} style={operChip(sub===id)}><Icon n={ic} s={15}/>{label}</button>)}
-      </div>
-      {sub==="externas" ? <OperacionesExternasScreen {...props}/> : <OperacionesInternasScreen {...props}/>}
-    </div>
-  );
-}
 
 export default function App() {
   const [usuarioSesion,setUser]=useState(null),[area,setArea]=useState(null),[tab,setTab]=useState(null),[records,setRecords]=useState([]),[users,setUsers]=useState([]),[stores,setStores]=useState({}),[booting,setBooting]=useState(true),[refreshing,setRefreshing]=useState(false);
@@ -18023,7 +18010,7 @@ export default function App() {
   const propsCapacitacion = { user, cursos:capCursos, setCursos:setCapCursos, lecciones:capLecciones, setLecciones:setCapLecciones, preguntas:capPreguntas, setPreguntas:setCapPreguntas, vistas:capVistas, setVistas:setCapVistas, intentos:capIntentos, setIntentos:setCapIntentos, isMobile };
   // El líder de Operaciones (operaciones_config): decide si se ve la pestaña Producto.
   const liderOper = opConfig.find(c=>c.clave==="lider_usuario_id")?.valor || "";
-  const propsOperaciones = { user, users, stores, ventas, pedirNueva:opNueva, onNuevaUsada:()=>setOpNueva(null), onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, sols:opInternas, setSols:setOpInternas, foco:opFoco, onFocoUsado:()=>setOpFoco(null), pedidoFiltro:opPedido, onFiltroUsado:()=>setOpPedido(null), onPedirFiltro:(ficha,tienda,tipo="ext")=>{ setOpPedido({ ficha, tienda, tipo, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, onIrA:(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); if(!esCuentaTienda(user)) setTab(tipo==="int"?"op_internas":"op_externas"); }, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
+  const propsOperaciones = { user, users, stores, ventas, pedirNueva:opNueva, onNuevaUsada:()=>setOpNueva(null), onCobrar:cobrarOrden, ops:opExternas, setOps:setOpExternas, sols:opInternas, setSols:setOpInternas, foco:opFoco, onFocoUsado:()=>setOpFoco(null), pedidoFiltro:opPedido, onFiltroUsado:()=>setOpPedido(null), onPedirFiltro:(ficha,tienda,tipo="ext")=>{ setOpPedido({ ficha, tienda, tipo, t:Date.now() }); setTab(tipo==="int"?"op_internas":"op_externas"); }, onIrA:(tipo,id)=>{ setOpFoco({ tipo, id, t:Date.now() }); setTab(tipo==="int"?"op_internas":"op_externas"); }, config:opConfig, setConfig:setOpConfig, estado:opEstado, onCargar:cargarOperaciones, todoCargado:opTodoCargado, isMobile };
   const renderScreen=()=>{
     if(puedeUsarAreas(user)){
       if(area==="junta"){
@@ -18059,7 +18046,10 @@ export default function App() {
       if(tab==="lista" && puede(user, "ventas.lista.ver")) return conSelectorLista(<VentasListaScreen key={listaPedido?.t||"lista"} pedido={listaPedido} user={user} stores={stores} users={users} records={records} ventas={ventas} setVentas={setVentas} ventasItems={ventasItems} setVentasItems={setVentasItems} ventasAbonos={ventasAbonos} setVentasAbonos={setVentasAbonos} ajustes={ventasAjustes} setAjustes={setVentasAjustes} metas={ventasMetas} esAdmin={false} soloLectura={false}/>);
       if(tab==="metricas" && puede(user, "ventas.metricas.ver")) return conSelectorMet(<VentasMetricasScreen vistaMet={vistaMet} onVerListaHoy={verListaHoy} user={user} stores={stores} users={users} records={records} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} metas={ventasMetas} setMetas={setVentasMetas} metasAsesor={ventasMetasAsesor} setMetasAsesor={setVentasMetasAsesor} esAdmin={false} puedeAsignarMetas={puede(user, "ventas.metas.asignar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosGlobales={turnosGlobales}/>);
       if(tab==="caja" && puede(user, "caja.ver")) return conSelectorMet(tiendaActiva ? <VentasCajaScreen tiendaActiva={tiendaActiva} user={user} stores={stores} users={users} ventas={ventas} ventasItems={ventasItems} ventasAbonos={ventasAbonos} ventasAjustes={ventasAjustes} gastos={cajaGastos} setGastos={setCajaGastos} aperturas={cajaAperturas} setAperturas={setCajaAperturas} cierres={cajaCierres} setCierres={setCajaCierres} recolecciones={cajaRecolecciones} setRecolecciones={setCajaRecolecciones} solicitudesBorrado={cajaSolicitudesBorrado} setSolicitudesBorrado={setCajaSolicitudesBorrado} puedeRecoleccion={puede(user, "caja.recoleccion.registrar")} soloLectura={!puede(user, "caja.registrar")} isMobile={isMobile} turnosAsignaciones={turnosAsignaciones} turnosHorarios={turnosHorarios} lideres={juntaLideres}/> : elegirTiendaPantalla("Elige la tienda para ver su caja"));
-      if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesTiendaScreen {...propsOperaciones}/>;
+      // Cuenta de tienda (27 nov 2026): Externas e Internas se eligen abajo, en el dock (ya no con
+      // botones arriba dentro de la pantalla).
+      if(tab==="op_externas" && puedeOper(user, "operaciones.ver")) return <OperacionesExternasScreen {...propsOperaciones}/>;
+      if(tab==="op_internas" && puedeOper(user, "operaciones.ver")) return <OperacionesInternasScreen {...propsOperaciones}/>;
       // La misma pantalla de Turnos que ven todos (encabezado de mes incluido), pero sin Editar ni
       // Administrar — la cuenta de tienda ve quién tiene turno sin poder cambiar nada.
       if(tab==="turnos")    return <TurnosScreen users={users} setUsers={setUsers} stores={stores} setStores={setStores} turnosGlobales={turnosGlobales} setTurnosGlobales={setTurnosGlobales} asignaciones={turnosAsignaciones} setAsignaciones={setTurnosAsignaciones} turnosHorarios={turnosHorarios} setTurnosHorarios={setTurnosHorarios} puedeGestionar={false} userName={user.name}/>;
@@ -18196,7 +18186,7 @@ export default function App() {
   );
 
   // Cuenta de tienda: no tiene `area` propia — su "módulo" sale de la pestaña en que está.
-  const areaNav = esCuentaTienda(user) ? (tab==="op_externas" ? "operaciones" : "ventas") : area;
+  const areaNav = esCuentaTienda(user) ? ((tab==="op_externas" || tab==="op_internas") ? "operaciones" : "ventas") : area;
   const elegirModuloTienda = (a) => { if(a==="operaciones") setTab("op_externas"); else { const tv = tabsVentas(user); setTab((tv.find(t=>t.id==="metricas") || tv.find(t=>!esBotonMas(t.id)))?.id || "lista"); } };
   const tabsVisibles = tabsPara(user, areaNav, liderOper, juntaLideres);
   const esAreaVentas = area==="ventas" || esCuentaTienda(user);
@@ -18208,7 +18198,9 @@ export default function App() {
   const opPuedeProducto = !esCuentaTienda(user) && puedeOper(user, "operaciones.producto.ver", liderOper);
   const irNuevaOrden = () => { setOpMasOrigen(null); setTab("op_externas"); setOpNueva({ t:++opNuevaN.current }); };
   const irProducto = () => { setOpMasOrigen(null); setTab("op_producto"); };
-  const abrirOpMas = (rect) => { if(opPuedeOrden && !opPuedeProducto) return irNuevaOrden(); if(opPuedeProducto && !opPuedeOrden) return irProducto(); setOpMasOrigen(rect ? { left:rect.left, top:rect.top, width:rect.width, height:rect.height, bottom:rect.bottom } : {}); };
+  const opPuedeSolicitud = puedeOper(user, "operaciones.internas.crear", liderOper);
+  const irNuevaSolicitud = () => { setOpMasOrigen(null); setTab("op_internas"); setOpNueva({ t:++opNuevaN.current, tipo:"int" }); };
+  const abrirOpMas = (rect) => { if(tab==="op_internas" && opPuedeSolicitud) return irNuevaSolicitud(); if(!opPuedeOrden && !opPuedeProducto) return opPuedeSolicitud ? irNuevaSolicitud() : undefined; if(opPuedeOrden && !opPuedeProducto) return irNuevaOrden(); if(opPuedeProducto && !opPuedeOrden) return irProducto(); setOpMasOrigen(rect ? { left:rect.left, top:rect.top, width:rect.width, height:rect.height, bottom:rect.bottom } : {}); };
   const opcionMas = (ic, titulo, sub, onClick) => (
     <button onClick={onClick} className="ozen-fila-venta" style={{ all:"unset", boxSizing:"border-box", cursor:"pointer", display:"flex", alignItems:"center", gap:14, width:"100%", padding:"14px 16px", borderRadius:14, border:`1px solid ${C.border}`, background:"#fff", fontFamily:font.body }}>
       <span style={{ width:44, height:44, borderRadius:12, background:C.surfaceHover, color:C.goldDark, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n={ic} s={21}/></span>
