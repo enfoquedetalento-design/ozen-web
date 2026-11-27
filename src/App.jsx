@@ -15955,7 +15955,7 @@ function OperacionesExternasScreen({ user, users, stores, ops, setOps, sols, ven
         tiendaId={esTienda ? user.tienda_id : (tiendasF.length===1 ? tiendasF[0] : "")}
         onIr={(f)=>{ setFase(f); setVista("lista"); setLimite(40); }}/>}
       <PageHeader title="Operaciones externas" subtitle="Arreglos, marcaciones y garantías de clientes"
-        action={<div style={{ display:"flex", alignItems:"center", gap:10 }}>{puedeOper(user, "operaciones.externas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva orden</Btn> : null}</div>}/>
+        /* Sin botón «Nueva orden» aquí: se crea desde el + de abajo (ventana flotante). */ />
       <OperLider user={user} users={users} liderId={liderId} onGuardar={guardarLider}/>
       {creando && <OperNuevaOrden user={user} users={users} stores={stores} clientes={clientes} isMobile={isMobile} onCancelar={()=>setCreando(false)} onCreada={(fila)=>{ setOps(prev=>[fila, ...prev]); setCreando(false); setFase("abiertas"); setAbiertoId(fila.id); setOrdenVista(fila); }}/>}
       <OperFiltros fichas={fichas} ficha={fase} setFicha={(f)=>{ setFase(f); setLimite(40); }}
@@ -16269,7 +16269,7 @@ function OperacionesInternasScreen({ user, users, stores, ops, sols, setSols, on
         tiendaId={esTienda ? user.tienda_id : (tiendasF.length===1 ? tiendasF[0] : "")}
         onIr={(f)=>{ setFiltro(f); setVista("lista"); setLimite(40); }}/>}
       <PageHeader title="Operaciones internas" subtitle="Insumos, novedades y arreglos del inventario y del punto"
-        action={<div style={{ display:"flex", alignItems:"center", gap:10 }}>{puedeOper(user, "operaciones.internas.crear", liderId) && !creando ? <Btn onClick={()=>setCreando(true)}><Icon n="plus" s={16}/>Nueva solicitud</Btn> : null}</div>}/>
+        /* Sin botón «Nueva solicitud» aquí: se crea desde el + de abajo (ventana flotante). */ />
       <OperLider user={user} users={users} liderId={liderId} onGuardar={(id)=>operGuardarLider(user, id, setConfig)}/>
       {creando && <OperNuevaSolicitud user={user} users={users} stores={stores} isMobile={isMobile} onCancelar={()=>setCreando(false)} onCreada={(fila)=>{ setSols(prev=>[fila, ...prev]); setCreando(false); setFiltro("abiertas"); setAbiertoId(fila.id); }}/>}
       <OperFiltros fichas={fichas} ficha={filtro} setFicha={(f)=>{ setFiltro(f); setLimite(40); }}
