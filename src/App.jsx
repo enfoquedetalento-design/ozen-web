@@ -10082,7 +10082,7 @@ const CONS_MEDIOS = [...VENTAS_MEDIOS_PAGO.map(m=>({ value:m.value, label:m.valu
 // vez por sesión cuando alguien abre Consultas.
 const HISTORICO_CORTE = "2026-08-01";
 // Tiendas que ya no están en la página pero sí en el historial (Llanogrande dejó de vender en mayo 2026).
-const TIENDAS_SOLO_HISTORICO = { llanogrande:{ id:"llanogrande", name:"Llanogrande", color:"#8a6d5a" } };
+const TIENDAS_SOLO_HISTORICO = { llanogrande:{ id:"llanogrande", name:"Llanogrande", color:"#E8762B" } };
 const tiendaHist = (stores, id) => stores[id] || TIENDAS_SOLO_HISTORICO[id] || null;
 let historicoPromesa = null;
 const cargarHistorico = () => (historicoPromesa ||= traerTodo("ventas_historico", [["fecha", true]]).then(r=>r?.data||[]).catch(()=>{ historicoPromesa = null; return []; }));
