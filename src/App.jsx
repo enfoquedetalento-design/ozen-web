@@ -18194,26 +18194,40 @@ export default function App() {
   // Asistencia de admins: Turnos lleva a la primera vista que la persona puede ver (si no ve la Malla).
   const esAsistenciaAdmin = puedeUsarAreas(user) && area==="asistencia";
   // + de Operaciones: si solo puede una cosa, va directo; si puede las dos, pregunta cuál.
+  // + de Operaciones (27 nov 2026): abre la ventana flotante, igual que Registrar venta, Marcar o
+  // La Junta. Arriba se elige qué agregar — Orden (cliente), Solicitud (interna) o Producto — según
+  // lo que la persona pueda hacer; abre en Solicitud si se está en Internas.
   const opPuedeOrden = puedeOper(user, "operaciones.externas.crear", liderOper);
-  const opPuedeProducto = !esCuentaTienda(user) && puedeOper(user, "operaciones.producto.ver", liderOper);
-  const irNuevaOrden = () => { setOpMasOrigen(null); setTab("op_externas"); setOpNueva({ t:++opNuevaN.current }); };
-  const irProducto = () => { setOpMasOrigen(null); setTab("op_producto"); };
   const opPuedeSolicitud = puedeOper(user, "operaciones.internas.crear", liderOper);
-  const irNuevaSolicitud = () => { setOpMasOrigen(null); setTab("op_internas"); setOpNueva({ t:++opNuevaN.current, tipo:"int" }); };
-  const abrirOpMas = (rect) => { if(tab==="op_internas" && opPuedeSolicitud) return irNuevaSolicitud(); if(!opPuedeOrden && !opPuedeProducto) return opPuedeSolicitud ? irNuevaSolicitud() : undefined; if(opPuedeOrden && !opPuedeProducto) return irNuevaOrden(); if(opPuedeProducto && !opPuedeOrden) return irProducto(); setOpMasOrigen(rect ? { left:rect.left, top:rect.top, width:rect.width, height:rect.height, bottom:rect.bottom } : {}); };
-  const opcionMas = (ic, titulo, sub, onClick) => (
-    <button onClick={onClick} className="ozen-fila-venta" style={{ all:"unset", boxSizing:"border-box", cursor:"pointer", display:"flex", alignItems:"center", gap:14, width:"100%", padding:"14px 16px", borderRadius:14, border:`1px solid ${C.border}`, background:"#fff", fontFamily:font.body }}>
-      <span style={{ width:44, height:44, borderRadius:12, background:C.surfaceHover, color:C.goldDark, display:"grid", placeItems:"center", flexShrink:0 }}><Icon n={ic} s={21}/></span>
-      <span style={{ flex:1, minWidth:0 }}><b style={{ display:"block", fontSize:15, color:C.text }}>{titulo}</b><span style={{ fontSize:12.5, color:C.textMuted }}>{sub}</span></span>
-      <Icon n="right" s={16} style={{ color:C.textMuted }}/>
-    </button>
-  );
+  const opPuedeProducto = !esCuentaTienda(user) && puedeOper(user, "operaciones.producto.ver", liderOper);
+  const opTiposMas = [opPuedeOrden && ["orden","Orden","wrench"], opPuedeSolicitud && ["solicitud","Solicitud","box"], opPuedeProducto && ["producto","Producto","tag"]].filter(Boolean);
+  const [opMasTipo, setOpMasTipo] = [opMasOrigen?.tipo, (t)=>setOpMasOrigen(o=>o ? { ...o, tipo:t } : o)];
+  const abrirOpMas = (rect) => {
+    if(!opTiposMas.length) return;
+    const tipo = (tab==="op_internas" && opPuedeSolicitud) ? "solicitud" : (tab==="op_producto" && opPuedeProducto) ? "producto" : opTiposMas[0][0];
+    setOpMasOrigen({ ...(rect ? { left:rect.left, top:rect.top, width:rect.width, height:rect.height, bottom:rect.bottom } : {}), tipo });
+  };
+  const cerrarOpMas = () => setOpMasOrigen(null);
+  const opClientesMas = opMasOrigen?.tipo==="orden" ? operClientesConocidos(opExternas, ventas) : [];
   const modalOpMas = opMasOrigen && createPortal(
-    <VentanaNube abierta origen={opMasOrigen.left!==undefined ? opMasOrigen : null} isMobile={isMobile} ancho={440} onCerrar={()=>setOpMasOrigen(null)} icono="plus" titulo="Agregar"
-      centro={<b style={{ fontFamily:font.body, fontSize:14, color:C.text, whiteSpace:"nowrap" }}>¿Qué quieres agregar?</b>}>
-      <div style={{ display:"flex", flexDirection:"column", gap:10, maxWidth:420, margin:"0 auto" }}>
-        {opcionMas("wrench", "Nueva orden", "Arreglo, marcación o garantía de un cliente", irNuevaOrden)}
-        {opcionMas("tag", "Agregar producto", "Generar los códigos de producto nuevo", irProducto)}
+    <VentanaNube abierta origen={opMasOrigen.left!==undefined ? opMasOrigen : null} isMobile={isMobile} ancho={opMasTipo==="producto"?460:840} onCerrar={cerrarOpMas} icono="plus"
+      titulo={opMasTipo==="solicitud" ? "Nueva solicitud" : opMasTipo==="producto" ? "Producto" : "Nueva orden"}
+      centro={opTiposMas.length>1
+        ? <SelectorVistas sinMargen compacto={isMobile} opciones={opTiposMas} vista={opMasTipo} onElegir={setOpMasTipo}/>
+        : <b style={{ fontFamily:font.body, fontSize:14, color:C.text, whiteSpace:"nowrap" }}>{opMasTipo==="solicitud" ? "Nueva solicitud" : "Nueva orden"}</b>}>
+      <div style={{ maxWidth:opMasTipo==="producto"?420:760, margin:"0 auto" }}>
+        {opMasTipo==="orden" && <OperNuevaOrden user={user} users={users} stores={stores} clientes={opClientesMas} isMobile={isMobile} onCancelar={cerrarOpMas}
+          onCreada={(fila)=>{ setOpExternas(prev=>[fila, ...prev]); cerrarOpMas(); if(!esCuentaTienda(user)) setArea("operaciones"); setTab("op_externas"); setOpFoco({ tipo:"ext", id:fila.id, t:++opNuevaN.current }); }}/>}
+        {opMasTipo==="solicitud" && <OperNuevaSolicitud user={user} users={users} stores={stores} isMobile={isMobile} onCancelar={cerrarOpMas}
+          onCreada={(fila)=>{ setOpInternas(prev=>[fila, ...prev]); cerrarOpMas(); if(!esCuentaTienda(user)) setArea("operaciones"); setTab("op_internas"); setOpFoco({ tipo:"int", id:fila.id, t:++opNuevaN.current }); }}/>}
+        {opMasTipo==="producto" && (
+          <div style={{ textAlign:"center", padding:"10px 6px", fontFamily:font.body }}>
+            <div style={{ width:54, height:54, borderRadius:16, background:C.surfaceHover, color:C.goldDark, display:"grid", placeItems:"center", margin:"0 auto 12px" }}><Icon n="tag" s={24}/></div>
+            <div style={{ fontSize:15, fontWeight:700, color:C.text }}>Agregar producto nuevo</div>
+            <div style={{ fontSize:13, color:C.textMuted, margin:"6px 0 16px", lineHeight:1.5 }}>Los códigos, referencias y etiquetas se generan en Producto → Generar, que necesita la pantalla completa.</div>
+            <Btn onClick={()=>{ cerrarOpMas(); setTab("op_producto"); }}><Icon n="tag" s={15}/>Ir a Generar producto</Btn>
+          </div>
+        )}
       </div>
     </VentanaNube>, document.body);
   const setTabNav = (id, rect) => id==="mas" ? abrirRegistrar(rect) : id==="marcar" ? abrirMarcar(rect) : id==="junta_mas" ? abrirJuntaNueva(rect) : id==="op_mas" ? abrirOpMas(rect)
